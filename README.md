@@ -141,38 +141,14 @@ Point → Line → Sketch → Body
 
 每个层级都有严格的类型检查和验证。
 
-## 🛠 扩展开发
-
-添加新操作非常简单，遵循开放封闭原则：
-
-```python
-def helical_sweep(profile: Sketch, 
-                  axis_start: Point, 
-                  axis_end: Point, 
-                  pitch: float, 
-                  height: float) -> Body:
-    """螺旋扫掠操作 - 扩展示例"""
-    # 使用CADQuery实现
-    # ...
-    return Body(result_solid)
-```
 
 ## 🔗 技术栈
 
-- **Python 3.8+**
+- **Python 3.10+**
 - **CADQuery 2.x**: 强大的CAD建模库
 - **OpenCASCADE**: 专业几何内核
 - **NumPy**: 数值计算支持
 
-## 📊 测试结果
-
-最新测试结果：
-- ✅ 基础几何创建: 100%通过
-- ✅ 坐标系管理: 100%通过  
-- ✅ 基本实体创建: 100%通过
-- ✅ 布尔运算: 90%通过
-- ✅ 高级操作: 80%通过
-- ✅ 导出功能: 100%通过
 
 ## 🎨 设计理念
 
