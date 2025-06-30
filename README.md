@@ -108,10 +108,6 @@ python test/comprehensive_test.py
 # 测试输出将生成45+个STL/STEP文件到output/目录
 ```
 
-# 导出功能演示
-python export_demo.py
-```
-
 ## 📖 使用文档
 
 查看 [USAGE.md](USAGE.md) 获取详细的使用指南和API参考。
