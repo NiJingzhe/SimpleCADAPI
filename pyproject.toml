@@ -1,0 +1,16 @@
+[project]
+name = "simplecadapi"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "倪旌哲", email = "1448976235@qq.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "cadquery>=2.5.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
