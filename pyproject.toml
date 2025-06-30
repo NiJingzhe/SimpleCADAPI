@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "cadquery>=2.5.2",
+    "cq-editor>=0.5.0",
 ]
 
 [build-system]

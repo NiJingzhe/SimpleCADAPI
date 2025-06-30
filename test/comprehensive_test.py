@@ -345,13 +345,21 @@ def test_advanced_operations():
         base_box = make_box(1.0, 1.0, 0.2, center=True)
         
         # 测试线性阵列
-        linear_array = pattern_linear(base_box, direction=(2, 0, 0), count=3, spacing=1.5)
+        linear_array = make_linear_pattern(base_box, direction=(2, 0, 0), count=3, spacing=1.5)
         print(f"✓ 线性阵列成功: {linear_array}")
         results.append(linear_array)
         export_model(linear_array, "17_linear_array", "线性阵列")
         
         # 测试2D阵列（通过两次线性阵列）
-        y_array = pattern_linear(linear_array, direction=(0, 2, 0), count=2, spacing=1.5)
+        y_array = make_2d_pattern(
+            base_box, 
+            x_direction=(2, 0, 0), 
+            y_direction=(0, 2, 0), 
+            x_count=3, 
+            y_count=2, 
+            x_spacing=1.5, 
+            y_spacing=1.5
+        )
         print(f"✓ 2D阵列成功: {y_array}")
         results.append(y_array)
         export_model(y_array, "18_2d_array", "2D阵列")
@@ -370,7 +378,7 @@ def test_advanced_operations():
         export_model(chamfered_cube, "20_chamfered_cube", "倒角立方体")
         
         # 测试抽壳操作
-        hollow_box = shell(test_cube, thickness=-0.1)
+        hollow_box = shell(test_cube, thickness=0.1, face_tags=["top", "front"])
         print(f"✓ 抽壳操作成功: {hollow_box}")
         results.append(hollow_box)
         export_model(hollow_box, "21_hollow_box", "抽壳立方体")
@@ -469,21 +477,25 @@ def build_flange():
         flange_with_hole = cut(flange_outer, center_hole)
         print("✓ 中心孔加工完成")
         
-        # 3. 创建螺栓孔
-        flange_result = flange_with_hole
-        bolt_hole_base = make_cylinder(bolt_hole_diameter/2, flange_thickness * 1.1)
+        # 3. 创建螺栓孔 使用镜像阵列
+        bolt_circle_diameter /= 2  # 转换为半径
+        bolt_hole_radius = bolt_hole_diameter / 2
+        with LocalCoordinateSystem(origin=(0, flange_diameter/3, 0),
+                                 x_axis=(1, 0, 0), 
+                                 y_axis=(0, 1, 0)):
+            # 创建螺栓孔的圆柱体
+            bolt_hole = make_cylinder(bolt_hole_radius, flange_thickness * 1.1)
+
+        bolt_holes = make_radial_pattern(
+            bolt_hole,
+            center=Point((0, 0, 0)),  # 在法兰中心
+            axis=(0, 0, 1),  # Z轴为旋转轴
+            count= num_bolts,
+            angle= 2 * math.pi
+        )
         
-        for i in range(num_bolts):
-            angle = 2 * math.pi * i / num_bolts
-            x_offset = (bolt_circle_diameter/2) * math.cos(angle)
-            y_offset = (bolt_circle_diameter/2) * math.sin(angle)
-            
-            # 使用坐标系偏移创建螺栓孔
-            with LocalCoordinateSystem(origin=(x_offset, y_offset, 0),
-                                     x_axis=(1, 0, 0),
-                                     y_axis=(0, 1, 0)):
-                offset_hole = make_cylinder(bolt_hole_diameter/2, flange_thickness * 1.1)
-                flange_result = cut(flange_result, offset_hole)
+        flange_with_hole = cut(flange_with_hole, bolt_holes)
+        flange_result = flange_with_hole
         
         print(f"✓ {num_bolts}个螺栓孔加工完成")
         

@@ -21,6 +21,30 @@ def __init__(self, cq_solid: Any = None)
 - `cq_solid`: CADQuery的实体对象
 - `id`: 唯一标识符，自动递增
 - `_id_counter`: 类变量，用于生成唯一ID
+- `face_tags`: 面标签映射字典，格式为{tag: [face_indices]}
+- `tagged_faces`: 反向映射字典，格式为{face_index: [tags]}
+
+## 面标签功能
+
+面标签（Face Tagging）是Body类的重要功能，允许为实体的各个面添加标识性标签，便于后续的选择和操作。
+
+### 核心特性
+- **自动标签**: 支持立方体、圆柱体、球体等基础几何体的自动面标记
+- **手动标签**: 可以为任意面添加自定义标签
+- **多标签支持**: 同一个面可以有多个标签，同一个标签可以标记多个面
+- **标签查询**: 快速根据标签名称查找对应的面索引
+
+### 标准标签命名
+- **立方体**: `top`, `bottom`, `front`, `back`, `left`, `right`
+- **圆柱体**: `top`, `bottom`, `side`
+- **球体**: `surface`
+- **自定义标签**: 可以使用任意字符串作为标签名
+
+### 应用场景
+- 复杂零件的面管理和识别
+- 基于面的后续操作（倒角、圆角、钻孔等）
+- CAD工作流的自动化和参数化
+- 装配体中的配合面标识
 
 ## 方法
 
@@ -42,6 +66,33 @@ def __init__(self, cq_solid: Any = None)
 ### __repr__() -> str
 字符串表示
 - **返回**: 包含ID和有效性的字符串
+
+### tag_face(face_index: int, tag: str)
+为指定面添加标签
+- **参数**:
+  - `face_index`: 面的索引（从0开始）
+  - `tag`: 标签名称（如'top', 'bottom', 'front'等）
+- 支持为同一个面添加多个标签
+- 同一个标签可以标记多个面
+
+### get_faces_by_tag(tag: str) -> List[int]
+根据标签获取面索引列表
+- **参数**: `tag` - 标签名称
+- **返回**: 面索引列表
+- 如果标签不存在，返回空列表
+
+### get_all_faces() -> List[Face]
+获取所有面对象
+- **返回**: CADQuery Face对象列表
+- 返回实体的所有面，用于后续操作
+
+### auto_tag_faces(geometry_type: str = "box")
+自动为基础几何体的面添加标签
+- **参数**: `geometry_type` - 几何体类型 ('box', 'cylinder', 'sphere')
+- 根据几何体类型自动识别并标记面
+- 立方体：'top', 'bottom', 'front', 'back', 'left', 'right'
+- 圆柱体：'top', 'bottom', 'side'
+- 球体：'surface'
 
 ## 使用示例
 
@@ -159,6 +210,125 @@ radial_array = pattern_radial(
 print(f"径向阵列: {radial_array}")
 ```
 
+### 面标签操作
+```python
+from simplecadapi.operations import make_box, make_cylinder, make_sphere
+
+# 创建立方体并自动标记面
+box = make_box(10, 10, 5)
+box.auto_tag_faces("box")  # 自动标记立方体的面
+
+# 查看标记的面
+print(f"顶面索引: {box.get_faces_by_tag('top')}")
+print(f"底面索引: {box.get_faces_by_tag('bottom')}")
+print(f"前面索引: {box.get_faces_by_tag('front')}")
+print(f"所有面标签: {box.face_tags}")
+
+# 手动为面添加标签
+box.tag_face(0, "special")  # 为第0个面添加特殊标签
+box.tag_face(0, "important")  # 为同一个面添加另一个标签
+print(f"特殊面索引: {box.get_faces_by_tag('special')}")
+
+# 创建圆柱体并标记面
+cylinder = make_cylinder(5, 10)
+cylinder.auto_tag_faces("cylinder")
+print(f"圆柱体顶面: {cylinder.get_faces_by_tag('top')}")
+print(f"圆柱体侧面: {cylinder.get_faces_by_tag('side')}")
+
+# 获取所有面对象
+all_faces = cylinder.get_all_faces()
+print(f"圆柱体总面数: {len(all_faces)}")
+
+# 为球体标记面
+sphere = make_sphere(3)
+sphere.auto_tag_faces("sphere")
+print(f"球体表面: {sphere.get_faces_by_tag('surface')}")
+
+# 复杂示例：结合面标签进行后续操作
+from simplecadapi.operations import select_face_by_tag
+
+# 通过标签选择面进行进一步操作
+box_with_hole = make_box(20, 20, 10)
+box_with_hole.auto_tag_faces("box")
+
+# 选择顶面
+top_faces = select_face_by_tag(box_with_hole, "top")
+print(f"选中的顶面: {top_faces}")
+
+# 可以基于选中的面进行钻孔、倒角等操作
+```
+
+### 面标签在CAD工作流中的应用
+```python
+# 复杂零件的面标签管理
+def create_complex_part():
+    # 创建主体
+    main_body = make_box(50, 30, 20)
+    main_body.auto_tag_faces("box")
+    
+    # 添加功能性标签
+    main_body.tag_face(main_body.get_faces_by_tag('top')[0], "mounting_surface")
+    main_body.tag_face(main_body.get_faces_by_tag('front')[0], "interface")
+    
+    # 创建附加特征
+    feature = make_cylinder(5, 10)
+    feature.auto_tag_faces("cylinder")
+    
+    # 合并并保持标签信息
+    result = union(main_body, feature)
+    
+    return result
+
+# 使用示例
+part = create_complex_part()
+print(f"装配面: {part.get_faces_by_tag('mounting_surface')}")
+print(f"接口面: {part.get_faces_by_tag('interface')}")
+```
+
+### 面标签的高级应用
+```python
+# 批量标签操作
+def batch_tag_faces(body, tag_mapping):
+    """批量为面添加标签
+    
+    Args:
+        body: Body对象
+        tag_mapping: 字典，{face_index: [tag1, tag2, ...]}
+    """
+    for face_index, tags in tag_mapping.items():
+        for tag in tags:
+            body.tag_face(face_index, tag)
+
+# 使用批量标签
+box = make_box(10, 10, 10)
+tag_mapping = {
+    0: ["critical", "machined"],
+    1: ["reference", "datum_a"],
+    2: ["cosmetic"]
+}
+batch_tag_faces(box, tag_mapping)
+
+print(f"关键面: {box.get_faces_by_tag('critical')}")
+print(f"基准面: {box.get_faces_by_tag('datum_a')}")
+
+# 标签验证和检查
+def validate_tags(body, required_tags):
+    """验证实体是否包含所需的标签"""
+    missing_tags = []
+    for tag in required_tags:
+        if not body.get_faces_by_tag(tag):
+            missing_tags.append(tag)
+    return missing_tags
+
+# 验证示例
+required = ["top", "bottom", "mounting_surface"]
+missing = validate_tags(box, required)
+if missing:
+    print(f"缺少标签: {missing}")
+else:
+    print("所有必需标签都存在")
+```
+
 ### 与CADQuery集成
 ```python
 import cadquery as cq
@@ -252,3 +422,8 @@ def get_real_volume(body):
 5. 支持与CADQuery的双向转换
 6. 所有建模操作的最终结果都是Body对象
 7. 实体创建失败时会抛出ValueError异常
+8. 面标签功能可以提高CAD工作流的效率和可读性
+9. 自动标签功能支持常见几何体，复杂形状可能需要手动标记
+10. 面索引可能在布尔运算后发生变化，建议操作前重新标记
+11. 同一个面可以有多个标签，同一个标签可以标记多个面
+12. 面标签信息在导出STL/STEP文件时不会保留，仅用于建模过程

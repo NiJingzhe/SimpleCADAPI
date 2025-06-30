@@ -29,7 +29,7 @@ from .operations import (
     cut, union, intersect,
     
     # 高级操作
-    pattern_linear, pattern_2d, pattern_radial, helical_sweep
+    make_linear_pattern, make_2d_pattern, make_radial_pattern, helical_sweep
 )
 
 __version__ = "0.1.0"
@@ -57,5 +57,5 @@ __all__ = [
     "cut", "union", "intersect",
     
     # 高级操作
-    "pattern_linear", "pattern_2d", "pattern_radial", "helical_sweep"
+    "make_linear_pattern", "make_2d_pattern", "make_radial_pattern", "helical_sweep"
 ]

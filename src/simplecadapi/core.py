@@ -213,6 +213,8 @@ class Body:
         self.cq_solid = cq_solid  # CADQuery的Solid对象
         self.id = Body._id_counter
         Body._id_counter += 1
+        self.face_tags = {}  # 面标签映射：{tag: face_indices}
+        self.tagged_faces = {}  # 反向映射：{face_index: tags}
         
     def is_valid(self) -> bool:
         """检查实体是否有效"""
@@ -233,6 +235,157 @@ class Body:
         if self.cq_solid is None:
             return cq.Workplane()
         return cq.Workplane().add(self.cq_solid)
+    
+    def tag_face(self, face_index: int, tag: str):
+        """为指定面添加标签
+        
+        Args:
+            face_index: 面的索引（从0开始）
+            tag: 标签名称（如'top', 'bottom', 'front'等）
+        """
+        if tag not in self.face_tags:
+            self.face_tags[tag] = []
+        if face_index not in self.face_tags[tag]:
+            self.face_tags[tag].append(face_index)
+        
+        if face_index not in self.tagged_faces:
+            self.tagged_faces[face_index] = []
+        if tag not in self.tagged_faces[face_index]:
+            self.tagged_faces[face_index].append(tag)
+    
+    def get_faces_by_tag(self, tag: str) -> List[int]:
+        """根据标签获取面索引列表
+        
+        Args:
+            tag: 标签名称
+            
+        Returns:
+            面索引列表
+        """
+        return self.face_tags.get(tag, [])
+    
+    def get_all_faces(self):
+        """获取所有面对象
+        
+        Returns:
+            CADQuery Face对象列表
+        """
+        if self.cq_solid is None:
+            return []
+        
+        try:
+            # 获取Workplane对象中的所有面
+            if hasattr(self.cq_solid, 'faces'):
+                face_workplanes = self.cq_solid.faces().all()
+                # 从Workplane对象中提取实际的Face对象
+                faces = []
+                for wp in face_workplanes:
+                    # 获取Workplane中的val对象，这是实际的Face
+                    if hasattr(wp, 'val') and wp.val() is not None:
+                        faces.append(wp.val())
+                    elif hasattr(wp, 'objects') and wp.objects:
+                        # 尝试从objects属性获取
+                        faces.extend(wp.objects)
+                return faces
+            elif hasattr(self.cq_solid, 'solids'):
+                # 如果是Workplane对象，获取第一个solid的面
+                solids = self.cq_solid.solids().all()
+                if solids and hasattr(solids[0], 'val'):
+                    solid = solids[0].val()
+                    if hasattr(solid, 'Faces'):
+                        return solid.Faces()
+            return []
+        except Exception as e:
+            print(f"获取面时出错: {e}")
+            return []
+    
+    def auto_tag_faces(self, geometry_type: str = "box"):
+        """自动为基础几何体的面添加标签
+        
+        Args:
+            geometry_type: 几何体类型 ('box', 'cylinder', 'sphere')
+        """
+        faces = self.get_all_faces()
+        if not faces:
+            return
+        
+        if geometry_type == "box":
+            self._auto_tag_box_faces(faces)
+        elif geometry_type == "cylinder":
+            self._auto_tag_cylinder_faces(faces)
+        elif geometry_type == "sphere":
+            self._auto_tag_sphere_faces(faces)
+    
+    def _auto_tag_box_faces(self, faces):
+        """为立方体面自动添加标签"""
+        if len(faces) != 6:
+            return
+        
+        # 分析每个面的法向量来确定方向
+        for i, face in enumerate(faces):
+            try:
+                # 获取面的法向量（CADQuery坐标系）
+                normal = face.normalAt()
+                
+                # 直接使用CADQuery坐标系判断面的位置
+                # CADQuery: Y上，Z前，X右
+                if abs(normal.y) > 0.9:  # Y方向面（上下）
+                    if normal.y > 0:
+                        self.tag_face(i, "top")
+                    else:
+                        self.tag_face(i, "bottom")
+                elif abs(normal.z) > 0.9:  # Z方向面（前后）
+                    if normal.z > 0:
+                        self.tag_face(i, "front")  # CADQuery +Z = 前
+                    else:
+                        self.tag_face(i, "back")   # CADQuery -Z = 后
+                elif abs(normal.x) > 0.9:  # X方向面（左右）
+                    if normal.x > 0:
+                        self.tag_face(i, "right")
+                    else:
+                        self.tag_face(i, "left")
+            except:
+                continue
+    
+    def _auto_tag_cylinder_faces(self, faces):
+        """为圆柱体面自动添加标签"""
+        if len(faces) != 3:
+            return
+        
+        # 圆柱体通常有3个面：顶面、底面、侧面
+        for i, face in enumerate(faces):
+            try:
+                # 检查面的类型
+                if hasattr(face, 'geomType'):
+                    geom_type = face.geomType()
+                    if geom_type == "PLANE":
+                        # 平面，检查法向量判断是顶面还是底面
+                        normal = face.normalAt()
+                        
+                        # 转换法向量到SimpleCAD坐标系
+                        # CADQuery (X, Y, Z) -> SimpleCAD (X, -Z, Y)
+                        scad_normal_z = normal.y
+                        
+                        if abs(scad_normal_z) > 0.9:
+                            if scad_normal_z > 0:
+                                self.tag_face(i, "top")
+                            else:
+                                self.tag_face(i, "bottom")
+                    elif geom_type == "CYLINDER":
+                        # 圆柱面，应该是侧面
+                        self.tag_face(i, "side")
+                    else:
+                        # 其他类型的曲面也标记为侧面
+                        self.tag_face(i, "side")
+            except Exception as e:
+                print(f"标记圆柱体面 {i} 时出错: {e}")
+                continue
+    
+    def _auto_tag_sphere_faces(self, faces):
+        """为球体面自动添加标签"""
+        # 球体只有一个面
+        if len(faces) == 1:
+            self.tag_face(0, "surface")
     
     def __repr__(self) -> str:
         return f"Body(id={self.id}, valid={self.is_valid()})"
