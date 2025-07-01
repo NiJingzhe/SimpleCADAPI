@@ -1,0 +1,28 @@
+# 包含必要文件
+include README.md
+include LICENSE
+include pyproject.toml
+
+# 包含文档
+recursive-include docs *.md
+
+# 包含源码
+recursive-include src *.py
+include src/simplecadapi/py.typed
+
+# 排除不需要的文件
+exclude .python-version
+exclude uv.lock
+exclude scripts/publish.sh
+
+# 排除测试文件（如果不想包含）
+# recursive-exclude test *
+
+# 排除输出文件
+recursive-exclude output *
+
+# 排除缓存和临时文件
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *.so
+global-exclude .DS_Store
