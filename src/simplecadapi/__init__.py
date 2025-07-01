@@ -12,7 +12,7 @@ from .core import (
 # 基础构造操作
 from .operations import (
     # 基础几何
-    make_point, make_line, make_angle_arc, make_three_point_arc, make_segement, make_spline,
+    make_point, make_line, make_angle_arc, make_three_point_arc, make_segment, make_spline,
     make_sketch,
     make_rectangle, make_circle, make_triangle, make_ellipse,
     
@@ -41,7 +41,7 @@ __all__ = [
     "WORLD_CS", "LocalCoordinateSystem", "get_current_cs",
     
     # 基础操作
-    "make_point", "make_line", "make_sketch", "make_angle_arc", "make_three_point_arc", "make_segement", "make_spline",
+    "make_point", "make_line", "make_sketch", "make_angle_arc", "make_three_point_arc", "make_segment", "make_spline",
     "make_rectangle", "make_circle", "make_triangle", "make_ellipse",
     
     # 便利函数  

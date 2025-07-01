@@ -1,8 +1,8 @@
-# make_segement 函数文档
+# make_segment 函数文档
 
 ## 定义
 ```python
-def make_segement(p1: Point, p2: Point) -> Line
+def make_segment(p1: Point, p2: Point) -> Line
 ```
 
 ## 作用
@@ -24,7 +24,7 @@ from simplecadapi import *
 # 创建简单线段
 start_point = make_point(0, 0, 0)
 end_point = make_point(3, 4, 0)
-segment = make_segement(start_point, end_point)
+segment = make_segment(start_point, end_point)
 ```
 
 ### 创建连续线段
@@ -38,10 +38,10 @@ p3 = make_point(1, 1, 0)
 p4 = make_point(0, 1, 0)
 
 # 分别创建各个线段
-seg1 = make_segement(p1, p2)
-seg2 = make_segement(p2, p3)
-seg3 = make_segement(p3, p4)
-seg4 = make_segement(p4, p1)
+seg1 = make_segment(p1, p2)
+seg2 = make_segment(p2, p3)
+seg3 = make_segment(p3, p4)
+seg4 = make_segment(p4, p1)
 
 # 用于构建闭合草图
 segments = [seg1, seg2, seg3, seg4]
@@ -57,9 +57,9 @@ vertex1 = make_point(0, 0, 0)
 vertex2 = make_point(2, 0, 0)
 vertex3 = make_point(1, 2, 0)
 
-side1 = make_segement(vertex1, vertex2)
-side2 = make_segement(vertex2, vertex3)
-side3 = make_segement(vertex3, vertex1)
+side1 = make_segment(vertex1, vertex2)
+side2 = make_segment(vertex2, vertex3)
+side3 = make_segment(vertex3, vertex1)
 
 triangle = make_sketch([side1, side2, side3])
 ```
