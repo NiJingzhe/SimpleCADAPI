@@ -22,7 +22,7 @@ def make_line(points: List[Point], line_type: str = "segment") -> Line:
     """创建曲线（线段/圆弧/样条）"""
     return Line(points, line_type)
 
-def make_segement(p1: Point, p2: Point) -> Line:
+def make_segment(p1: Point, p2: Point) -> Line:
     """创建线段"""
     return Line([p1, p2], "segment")
 
@@ -110,9 +110,9 @@ def make_circle(radius: float, center_point: Optional[Point] = None) -> Sketch:
 def make_triangle(p1: Point, p2: Point, p3: Point) -> Sketch:
     """创建三角形草图"""
     lines = [
-        make_segement(p1, p2),
-        make_segement(p2, p3),
-        make_segement(p3, p1)
+        make_segment(p1, p2),
+        make_segment(p2, p3),
+        make_segment(p3, p1)
     ]
     return make_sketch(lines)
 
