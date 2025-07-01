@@ -1,6 +1,6 @@
 [project]
 name = "simplecadapi"
-version = "0.1.0"
+version = "0.1.1"
 description = "A simplified CAD modeling Python API based on CADQuery"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -28,6 +28,7 @@ classifiers = [
 dependencies = [
     "cadquery>=2.5.2",
     "numpy>=1.21.0",
+    "rich>=14.0.0",
 ]
 
 [project.optional-dependencies]
