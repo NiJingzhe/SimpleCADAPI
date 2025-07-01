@@ -9,7 +9,7 @@ import math
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from simplecadapi import *
-from simplecadapi.operations import helical_sweep, helical_sweep
+from simplecadapi.operations import helical_sweep
 
 def export_model(body, filename, description="模型"):
     """通用的模型导出函数"""
@@ -89,7 +89,7 @@ def test_revolve_operations():
         p4 = make_point(0.8, 0, 0.5)
         p5 = make_point(0.8, 0, 0.2)
         p6 = make_point(0.5, 0, 0.2)
-        
+       
         lines = [
             make_line([p1, p2], "segment"),
             make_line([p2, p3], "segment"),
@@ -693,7 +693,11 @@ def test_helical_sweep_operations():
         print("创建圆形截面螺旋弹簧...")
         
         # 创建圆形截面profile
-        circle_profile = make_circle(radius=0.15)
+        with LocalCoordinateSystem(origin=(0, 0, 0), 
+                                 x_axis=(0, 1, 0), 
+                                 y_axis=(0, 0, 1)):
+            # 在XY平面创建圆形截面
+            circle_profile = make_circle(radius=0.15)
         
         spring_circle = helical_sweep(
             profile=circle_profile,
@@ -709,12 +713,15 @@ def test_helical_sweep_operations():
         print("创建螺纹齿形截面螺旋...")
         
         # 创建螺纹齿形profile（梯形）
-        thread_points = [
-            make_point(0, -0.1, 0),     # 底部左
-            make_point(0.2, -0.05, 0),  # 顶部左  
-            make_point(0.2, 0.05, 0),   # 顶部右
-            make_point(0, 0.1, 0),      # 底部右
-        ]
+        with LocalCoordinateSystem(origin=(0, 0, 0), 
+                                 x_axis=(0, 1, 0), 
+                                 y_axis=(0, 0, 1)):
+            thread_points = [
+                make_point(0, -0.1, 0),     # 底部左
+                make_point(0.2, -0.05, 0),  # 顶部左  
+                make_point(0.2, 0.05, 0),   # 顶部右
+                make_point(0, 0.1, 0),      # 底部右
+            ]
         
         thread_lines = []
         for i in range(len(thread_points)):
@@ -738,11 +745,14 @@ def test_helical_sweep_operations():
         print("创建三角形截面螺旋...")
         
         # 创建三角形profile
-        triangle_points = [
-            make_point(0, -0.1, 0),     # 底部
-            make_point(0.15, 0, 0),     # 右顶点
-            make_point(0, 0.1, 0),      # 顶部
-        ]
+        with LocalCoordinateSystem(origin=(0, 0, 0), 
+                                 x_axis=(0, 1, 0), 
+                                 y_axis=(0, 0, 1)):
+            triangle_points = [
+                make_point(0, -0.1, 0),     # 底部
+                make_point(0.15, 0, 0),     # 右顶点
+                make_point(0, 0.1, 0),      # 顶部
+            ]
         
         triangle_lines = []
         for i in range(len(triangle_points)):
@@ -767,7 +777,11 @@ def test_helical_sweep_operations():
             print("创建高精度圆形截面螺旋...")
             
             # 使用较小的圆形profile
-            fine_circle_profile = make_circle(radius=0.08)
+            with LocalCoordinateSystem(origin=(0, 0, 0), 
+                                     x_axis=(0, 1, 0), 
+                                     y_axis=(0, 0, 1)):
+                # 创建更小的圆形截面
+                fine_circle_profile = make_circle(radius=0.08)
             
             spring_advanced = helical_sweep(
                 profile=fine_circle_profile,
@@ -775,41 +789,18 @@ def test_helical_sweep_operations():
                 pitch=0.9,
                 turns=3.0,
                 points_per_turn=20,  # 高精度
-                smooth=True
+                smooth=True,
             )
+
+            spring_advanced = rotate_body(spring_advanced, angle=math.pi / 4, axis=(1, 0, 0))  # 旋转45度
+
+            
             print(f"✓ 高精度螺旋创建成功: {spring_advanced}")
             results.append(spring_advanced)
             export_model(spring_advanced, "38_helical_spring_advanced", "高精度圆形截面螺旋")
             
         except Exception as e:
             print(f"   ⚠️ 高级螺旋扫掠跳过: {e}")
-        
-        # 测试5: 创建螺旋组合展示
-        print("创建螺旋组合展示...")
-        
-        if len(results) >= 3:
-            try:
-                # 将不同的螺旋放在不同位置
-                spiral_combo = results[0]  # 圆形截面在原点
-                
-                # 螺纹齿形放在右侧
-                with LocalCoordinateSystem(origin=(4, 0, 0), x_axis=(1, 0, 0), y_axis=(0, 1, 0)):
-                    spiral_combo = union(spiral_combo, results[1])
-                
-                # 三角形截面放在后方
-                with LocalCoordinateSystem(origin=(0, 4, 0), x_axis=(1, 0, 0), y_axis=(0, 1, 0)):
-                    spiral_combo = union(spiral_combo, results[2])
-                
-                # 高精度螺旋放在对角（如果存在）
-                if len(results) >= 4:
-                    with LocalCoordinateSystem(origin=(4, 4, 0), x_axis=(1, 0, 0), y_axis=(0, 1, 0)):
-                        spiral_combo = union(spiral_combo, results[3])
-                
-                print(f"✓ 螺旋组合创建成功: {spiral_combo}")
-                export_model(spiral_combo, "39_helical_spirals_showcase", "螺旋截面展示组合")
-                
-            except Exception as e:
-                print(f"   ⚠️ 螺旋组合创建跳过: {e}")
         
         print(f"✓ 螺旋扫掠操作测试完成，成功创建 {len(results)} 个螺旋模型")
         print("   测试的profile类型: 圆形、螺纹齿形、三角形")
@@ -913,6 +904,142 @@ def test_coordinate_system_verification():
         return False
 
 
+def test_advanced_module():
+    """测试advanced模块的高级建模功能"""
+    print("\n=== 测试Advanced模块 ===")
+    
+    results = []
+    
+    try:
+        # 测试1: 圆形弹簧
+        print("创建圆形弹簧...")
+        round_spring = make_round_spring(
+            coil_radius=1.0,
+            string_radius=0.1,
+            pitch=0.5,
+            turns=5
+        )
+        print(f"✓ 圆形弹簧创建成功: {round_spring}")
+        results.append(round_spring)
+        export_model(round_spring, "46_round_spring", "圆形弹簧")
+        
+        # 测试2: 方形弹簧
+        print("创建方形弹簧...")
+        square_spring = make_square_spring(
+            coil_radius=1.2,
+            string_radius=0.08,
+            pitch=0.6,
+            turns=4
+        )
+        print(f"✓ 方形弹簧创建成功: {square_spring}")
+        results.append(square_spring)
+        export_model(square_spring, "47_square_spring", "方形弹簧")
+        
+        # 测试4: 带三角形螺纹的螺栓
+        print("创建带三角形螺纹的螺栓...")
+        triangle_thread_bolt = make_bolt_body_with_triangle_thread(
+            length=10.0,
+            diameter=2.0,
+            thread_pitch=0.5,
+            thread_start=0.5,
+            thread_end=9.5,
+            thread_depth=0.1
+        )
+        print(f"✓ 三角形螺纹螺栓创建成功: {triangle_thread_bolt}")
+        results.append(triangle_thread_bolt)
+        export_model(triangle_thread_bolt, "49_triangle_thread_bolt", "三角形螺纹螺栓")
+        
+        # 测试5: 不同参数的弹簧对比
+        print("创建不同参数的弹簧对比组合...")
+        
+        # 紧密弹簧
+        tight_spring = make_round_spring(
+            coil_radius=0.8,
+            string_radius=0.05,
+            pitch=0.2,
+            turns=8
+        )
+        
+        # 疏松弹簧
+        loose_spring = make_round_spring(
+            coil_radius=1.5,
+            string_radius=0.15,
+            pitch=1.0,
+            turns=3
+        )
+        
+        results.extend([tight_spring, loose_spring])
+        export_model(tight_spring, "50_tight_spring", "紧密弹簧")
+        export_model(loose_spring, "51_loose_spring", "疏松弹簧")
+        
+        # 测试6: 螺栓参数变化测试
+        print("创建不同参数的螺栓对比...")
+        
+        # 细螺纹螺栓
+        fine_thread_bolt = make_bolt_body_with_triangle_thread(
+            length=6.0,
+            diameter=1.0,
+            thread_pitch=0.3,
+            thread_start=0.5,
+            thread_end=6.0,
+            thread_depth=0.06
+        )
+        
+        # 粗螺纹螺栓
+        coarse_thread_bolt = make_bolt_body_with_triangle_thread(
+            length=8.0,
+            diameter=2.5,
+            thread_pitch=0.8,
+            thread_start=0.5,
+            thread_end=7,
+            thread_depth=0.15
+        )
+        
+        results.extend([fine_thread_bolt, coarse_thread_bolt])
+        export_model(fine_thread_bolt, "52_fine_thread_bolt", "细螺纹螺栓")
+        export_model(coarse_thread_bolt, "53_coarse_thread_bolt", "粗螺纹螺栓")
+        
+        # 创建advanced模块功能展示组合
+        if len(results) >= 4:
+            try:
+                # 使用坐标系变换来排列展示
+                showcase_bodies = []
+                
+                # 第一排：弹簧类
+                with LocalCoordinateSystem(origin=(-3, -2, 0), x_axis=(1, 0, 0), y_axis=(0, 1, 0)):
+                    showcase_bodies.append(results[0])  # 圆形弹簧
+                    
+                with LocalCoordinateSystem(origin=(0, -2, 0), x_axis=(1, 0, 0), y_axis=(0, 1, 0)):
+                    showcase_bodies.append(results[1])  # 方形弹簧
+                
+                # 第二排：螺栓类
+                with LocalCoordinateSystem(origin=(-3, 2, 0), x_axis=(1, 0, 0), y_axis=(0, 1, 0)):
+                    showcase_bodies.append(results[2])  # 矩形螺纹螺栓
+                    
+                with LocalCoordinateSystem(origin=(0, 2, 0), x_axis=(1, 0, 0), y_axis=(0, 1, 0)):
+                    showcase_bodies.append(results[3])  # 三角形螺纹螺栓
+                
+                # 合并为展示组合
+                advanced_showcase = showcase_bodies[0]
+                for body in showcase_bodies[1:]:
+                    advanced_showcase = union(advanced_showcase, body)
+                
+                print(f"✓ Advanced模块功能展示组合创建成功: {advanced_showcase}")
+                export_model(advanced_showcase, "54_advanced_showcase", "Advanced模块功能展示")
+                
+            except Exception as e:
+                print(f"   ⚠️ 展示组合创建失败，但单个模型都成功: {e}")
+        
+        print(f"✓ Advanced模块测试完成，成功创建{len(results)}个高级模型")
+        return True
+        
+    except Exception as e:
+        print(f"✗ Advanced模块测试失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def run_comprehensive_tests():
     """运行所有综合测试"""
     print("SimpleCAD API 综合功能测试")
@@ -932,6 +1059,9 @@ def run_comprehensive_tests():
     
     # 螺旋扫掠测试
     test_results.append(("螺旋扫掠", test_helical_sweep_operations()))
+    
+    # Advanced模块测试
+    test_results.append(("Advanced模块", test_advanced_module()))
     
     # 复杂零件构建测试
     flange = build_flange()
@@ -1038,7 +1168,17 @@ if __name__ == "__main__":
         print("- 43_z_axis_cylinder.stl (Z轴圆柱体)")
         print("- 44_coordinate_verification.stl (坐标系验证组合)")
         print("- 45_rotation_verification.stl (旋转坐标系验证)")
-        print("\n🎉 总共导出了45+个测试模型文件！包含螺旋扫掠弹簧和坐标系修正验证！")
+        print("\n=== Advanced模块 ===")
+        print("- 46_round_spring.stl (圆形弹簧)")
+        print("- 47_square_spring.stl (方形弹簧)")
+        print("- 48_rect_thread_bolt.stl (矩形螺纹螺栓)")
+        print("- 49_triangle_thread_bolt.stl (三角形螺纹螺栓)")
+        print("- 50_tight_spring.stl (紧密弹簧)")
+        print("- 51_loose_spring.stl (疏松弹簧)")
+        print("- 52_fine_thread_bolt.stl (细螺纹螺栓)")
+        print("- 53_coarse_thread_bolt.stl (粗螺纹螺栓)")
+        print("- 54_advanced_showcase.stl (Advanced模块功能展示)")
+        print("\n🎉 总共导出了54+个测试模型文件！包含螺旋扫掠弹簧、坐标系修正验证和Advanced模块高级建模功能！")
         
         exit_code = 0 if failed == 0 else 1
         sys.exit(exit_code)

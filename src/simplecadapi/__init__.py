@@ -9,6 +9,12 @@ from .core import (
     WORLD_CS, LocalCoordinateSystem, get_current_cs
 )
 
+import cadquery as cq
+
+from rich import traceback
+# 启用Rich的详细错误追踪
+traceback.install(show_locals=True, suppress=[cq])
+
 # 基础构造操作
 from .operations import (
     # 基础几何
@@ -29,10 +35,22 @@ from .operations import (
     cut, union, intersect,
     
     # 高级操作
-    make_linear_pattern, make_2d_pattern, make_radial_pattern, helical_sweep
+    make_linear_pattern, make_2d_pattern, make_radial_pattern, helical_sweep,
+    
+    # 变换
+    translate_body, rotate_body,
+    
+    # 导出
+    export_step, export_stl
 )
 
-__version__ = "0.1.0"
+
+from .advanced import (
+    make_round_spring, make_square_spring,
+     make_bolt_body_with_triangle_thread   
+)
+
+__version__ = "0.1.2"
 __author__ = "SimpleCAD Team"
 
 __all__ = [
@@ -57,5 +75,15 @@ __all__ = [
     "cut", "union", "intersect",
     
     # 高级操作
-    "make_linear_pattern", "make_2d_pattern", "make_radial_pattern", "helical_sweep"
+    "make_linear_pattern", "make_2d_pattern", "make_radial_pattern", "helical_sweep",
+
+    # 变换
+    "translate_body", "rotate_body",
+    
+    # 导出
+    "export_step", "export_stl",
+    
+    # 高级建模
+    "make_round_spring", "make_square_spring",
+     "make_bolt_body_with_triangle_thread"
 ]
