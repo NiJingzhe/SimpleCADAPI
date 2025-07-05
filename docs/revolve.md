@@ -1,23 +1,30 @@
-# revolve 函数文档
+# revolve
 
 ## 定义
 ```python
 def revolve(sketch: Sketch, axis_start: Point, axis_end: Point, angle: float) -> Body
 ```
 
-## 作用
+## 描述
+
 将2D草图绕指定轴旋转指定角度，创建回转体。适用于创建圆形对称的物体，如瓶子、轴承、法兰等。
 
-## 参数
+### 参数
 - `sketch` (Sketch): 要旋转的2D草图轮廓
 - `axis_start` (Point): 旋转轴的起点
 - `axis_end` (Point): 旋转轴的终点
 - `angle` (float): 旋转角度（弧度）
 
-## 返回值
+### 返回值
 - `Body`: 旋转后的3D实体
 
-## 示例代码
+### 特点
+- 支持完整旋转（2π）或部分旋转
+- 草图不能与旋转轴相交
+- 可以创建复杂的回转对称几何体
+- 旋转轴可以是任意方向
+
+## 示例
 
 ### L型轮廓旋转（来自comprehensive_test）
 ```python

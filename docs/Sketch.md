@@ -1,18 +1,16 @@
-# Sketch 类文档
+# Sketch
 
-## 概述
-Sketch类表示二维草图，由多条Line组成的闭合平面轮廓。它是所有二维到三维转换操作（如拉伸、旋转）的基础。
-
-## 类定义
+## 定义
 ```python
 class Sketch:
     """二维草图（闭合平面轮廓）"""
+    
+    def __init__(self, lines: List[Line])
 ```
 
-## 构造函数
-```python
-def __init__(self, lines: List[Line])
-```
+## 描述
+
+Sketch类表示二维草图，由多条Line组成的闭合平面轮廓。它是所有二维到三维转换操作（如拉伸、旋转）的基础。
 
 ### 参数
 - `lines`: Line对象列表，组成闭合轮廓的曲线
@@ -21,33 +19,16 @@ def __init__(self, lines: List[Line])
 - 必须形成闭合轮廓（起点和终点重合）
 - 所有线段必须位于同一平面内
 
-## 属性
+### 主要属性
 - `lines`: Line对象列表，组成草图的曲线
 - `_cq_wire`: CADQuery Wire对象（延迟创建）
 
-## 方法
+### 主要方法
+- `_validate()`: 验证草图的有效性
+- `_is_closed()`: 检查草图是否闭合
+- `to_cq_wire()`: 转换为CADQuery的线框对象
 
-### _validate()
-验证草图的有效性
-- 检查闭合性和共面性
-- **异常**: 如果不满足要求则抛出ValueError
-
-### _is_closed() -> bool
-检查草图是否闭合
-- **返回**: 布尔值，True表示闭合
-- 通过比较首条线的起点和末条线的终点判断
-
-### _is_planar() -> bool
-检查所有线段是否共面
-- **返回**: 布尔值（当前简化实现总是返回True）
-- **注意**: 完整的共面检查有待实现
-
-### to_cq_wire()
-转换为CADQuery的线框对象
-- **返回**: CADQuery Wire对象
-- 支持延迟创建和缓存
-
-### __repr__() -> str
+## 示例
 字符串表示
 - **返回**: 包含线段数量的字符串
 

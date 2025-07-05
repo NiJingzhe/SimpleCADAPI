@@ -1,21 +1,27 @@
-# make_circle 函数文档
+# make_circle
 
 ## 定义
 ```python
 def make_circle(radius: float, center_point: Optional[Point] = None) -> Sketch
 ```
 
-## 作用
+## 描述
+
 创建圆形草图。使用多边形（默认16边形）近似圆形，提供足够的精度用于大多数CAD应用。
 
-## 参数
-- `radius` (float): 圆的半径
+### 参数
+- `radius` (float): 圆的半径，必须为正值
 - `center_point` (Optional[Point]): 圆心位置，默认为当前坐标系原点
 
-## 返回值
-- `Sketch`: 圆形草图对象
+### 返回值
+- `Sketch`: 圆形草图对象，可用于拉伸、旋转等操作
 
-## 示例代码
+### 特点
+- 使用多边形近似，默认16边形
+- 适用于拉伸成圆柱体
+- 可指定任意圆心位置
+
+## 示例
 
 ### 基础圆形
 ```python
