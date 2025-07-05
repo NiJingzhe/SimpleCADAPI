@@ -14,7 +14,7 @@ import numpy as np
 
 def create_output_dir():
     """创建输出目录"""
-    output_dir = 'examples_output'
+    output_dir = 'output'
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     return output_dir
@@ -54,23 +54,36 @@ def example_swept_shape():
     print("\n=== 示例2: 扫掠操作 ===")
     
     # 创建扫掠轮廓（圆形）
-    with scad.SimpleWorkplane((0, 0, 0)) as wp:
-        profile = scad.make_circle_rwire((0, 0, 0), 0.5)
-    
+    with scad.SimpleWorkplane((0, 2, 0)) as wp:
+        profile = scad.make_rectangle_rface(
+            width=1,
+            height=0.5,
+            center=(0, 0, 0),
+            normal=(1, 0, 0)
+        )
+
     # 创建扫掠路径（曲线）
     path_points = []
-    for i in range(21):
-        t = i / 20.0 * 2 * math.pi
-        x = 3 * math.cos(t)
-        y = 3 * math.sin(t)
-        z = t
-        path_points.append((x, y, z))
+    
+    # 创建一个螺旋扫掠路径
+    for i in range(20):
+        angle = i * 0.2 * math.pi  # 每次增加0.2π弧度
+        x = 5 * math.cos(angle)  # 半径5的圆
+        y = 5 * math.sin(angle)
+        z = i * 0.1  # 每次增加高度0.1
+        path_points.append((x, y, z)) 
     
     # 创建样条曲线作为扫掠路径
-    path_spline = scad.make_spline_redge(path_points)
+    path_spline = scad.make_spline_rwire(path_points)
     
     # 执行扫掠 - 修正API调用
-    swept_solid = scad.extrude_rsolid(profile, (0, 0, 1), 6)
+    swept_solid = scad.sweep_rsolid(
+        profile=profile,
+        path=path_spline,
+        is_frenet=True
+    )
+
+    assert isinstance(swept_solid, scad.Solid), "扫掠操作未返回有效的Solid对象"
     
     # 导出结果
     output_dir = create_output_dir()
@@ -305,35 +318,82 @@ def example_gear_like_shape():
     print("\n=== 示例9: 类似齿轮的形状 ===")
     
     # 创建基础圆盘
-    base_disk = scad.make_cylinder_rsolid(3, 1)
+    base_disk = scad.make_cylinder_rsolid(2.0, 1)  # 进一步减小基础半径
+    print(f"  基础圆盘体积: {base_disk.get_volume():.2f}")
     
     # 创建中心孔
     center_hole = scad.make_cylinder_rsolid(0.5, 1)
     base_disk = scad.cut_rsolid(base_disk, center_hole)
+    print(f"  打孔后圆盘体积: {base_disk.get_volume():.2f}")
     
-    # 创建齿轮齿 - 简化为直接创建齿轮主体
-    # 不使用旋转操作，改为直接创建齿形
+    # 创建齿轮齿 - 使用径向阵列的正确方法
+    print("  创建齿轮齿...")
     
-    # 创建基础齿轮主体（不使用旋转）
-    tooth_solid = scad.make_box_rsolid(0.5, 0.5, 1)  # 简化的齿形
+    # 齿轮参数
+    base_radius = 2.0
+    tooth_height = 0.5   # 增加齿的径向高度
+    tooth_width = 0.5    # 增加齿的切向宽度
+    tooth_count = 18      # 减少齿数使其更明显
     
-    # 创建外齿 - 使用径向阵列
-    outer_tooth = scad.make_box_rsolid(0.3, 0.8, 1)
-    with scad.SimpleWorkplane((3.5, 0, 0)) as wp:
-        positioned_tooth = scad.translate_shape(outer_tooth, (3.5, 0, 0))
-        teeth_array = scad.radial_pattern_rcompound(positioned_tooth, (0, 0, 0), (0, 0, 1), 12, 2*math.pi)
+    # 创建更明显的齿轮齿
+    # 齿轮齿应该部分重叠基础圆盘
+    tooth_radius = base_radius - tooth_height / 4  # 调整位置使齿轮齿部分重叠圆盘内侧
+    
+    # 创建齿轮齿，初始位置在X轴正方向
+    # 使用径向朝外的设计
+    single_tooth = scad.make_box_rsolid(tooth_height, tooth_width, 1)
+    
+    # 将齿移动到正确的径向位置
+    positioned_tooth = scad.translate_shape(single_tooth, (tooth_radius, -tooth_width / 2, 0))
+
+    if isinstance(positioned_tooth, scad.Solid):
+        print(f"  单个齿体积: {positioned_tooth.get_volume():.2f}")
         
-        # 合并齿轮和齿 - 类型转换
-        if isinstance(teeth_array, scad.Compound):
-            # 如果是复合体，获取第一个实体
-            gear = base_disk  # 暂时只使用基础盘
+        # 首先测试单个齿的合并
+        test_gear = scad.union_rsolid(base_disk, positioned_tooth)
+        print(f"  单个齿合并后体积: {test_gear.get_volume():.2f}")
+        
+        # 如果单个齿合并成功，再使用径向阵列
+        if test_gear.get_volume() > base_disk.get_volume():
+            print("  单个齿合并成功，创建径向阵列...")
+            
+            # 使用径向阵列创建所有齿
+            teeth_array = scad.radial_pattern_rcompound(
+                positioned_tooth, 
+                (0, 0, 0),      # 旋转中心
+                (0, 0, 1),      # 旋转轴（Z轴）
+                tooth_count,    # 齿数
+                360     # 完整的360度
+            )
+            
+            print(f"  径向阵列类型: {type(teeth_array)}")
+            print(f"  径向阵列是否为复合体: {isinstance(teeth_array, scad.Compound)}")
+            
+            # 合并齿轮和齿
+            gear = base_disk
+            if isinstance(teeth_array, scad.Compound):
+                solids = teeth_array.get_solids()
+                print(f"  复合体中的实体数量: {len(solids)}")
+                
+                for i, tooth_solid in enumerate(solids):
+                    if isinstance(tooth_solid, scad.Solid):
+                        old_volume = gear.get_volume()
+                        gear = scad.union_rsolid(gear, tooth_solid)
+                        new_volume = gear.get_volume()
+                        print(f"    合并第{i+1}个齿: {old_volume:.2f} -> {new_volume:.2f}")
+            
+            # 导出结果
+            output_dir = create_output_dir()
+            scad.export_stl(gear, os.path.join(output_dir, "gear_shape.stl"))
+            print(f"齿轮形状体积: {gear.get_volume():.2f}")
         else:
-            gear = scad.union_rsolid(base_disk, teeth_array)
-    
-    # 导出结果
-    output_dir = create_output_dir()
-    scad.export_stl(gear, os.path.join(output_dir, "gear_shape.stl"))
-    print(f"齿轮形状体积: {gear.get_volume():.2f}")
+            print("  警告: 单个齿合并失败，可能齿轮设计有问题")
+            # 导出基础圆盘
+            output_dir = create_output_dir()
+            scad.export_stl(base_disk, os.path.join(output_dir, "gear_shape.stl"))
+            print(f"只导出基础圆盘，体积: {base_disk.get_volume():.2f}")
+    else:
+        print(f"  错误: 定位后的齿不是Solid类型: {type(positioned_tooth)}")
 
 def main():
     """主函数 - 运行所有示例"""

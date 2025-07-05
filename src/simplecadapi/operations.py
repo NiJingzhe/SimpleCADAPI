@@ -83,6 +83,25 @@ def make_segment_redge(start: Tuple[float, float, float],
     return make_line_redge(start, end)
 
 
+def make_segment_rwire(start: Tuple[float, float, float], 
+                       end: Tuple[float, float, float]) -> Wire:
+    """创建线段并返回线
+    
+    Args:
+        start: 起始点坐标
+        end: 结束点坐标
+        
+    Returns:
+        创建的线
+    """
+    try:
+        edge = make_line_redge(start, end)
+        cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
+        return Wire(cq_wire)
+    except Exception as e:
+        raise ValueError(f"创建线段线失败: {e}")
+
+
 def make_circle_redge(center: Tuple[float, float, float], 
                       radius: float,
                       normal: Tuple[float, float, float] = (0, 0, 1)) -> Edge:
@@ -181,22 +200,39 @@ def make_rectangle_rwire(width: float, height: float,
             
         cs = get_current_cs()
         center_global = cs.transform_point(np.array(center))
+        normal_global = cs.transform_point(np.array(normal)) - cs.origin
         
-        # 创建矩形的四个顶点
+        # 标准化法向量
+        normal_vec = normal_global / np.linalg.norm(normal_global)
+        
+        # 创建本地坐标系
+        # 如果法向量接近Z轴，使用X轴作为参考
+        if abs(normal_vec[2]) > 0.9:
+            ref_vec = np.array([1.0, 0.0, 0.0])
+        else:
+            ref_vec = np.array([0.0, 0.0, 1.0])
+        
+        # 计算本地坐标系的X和Y轴
+        local_x = np.cross(normal_vec, ref_vec)
+        local_x = local_x / np.linalg.norm(local_x)
+        local_y = np.cross(normal_vec, local_x)
+        local_y = local_y / np.linalg.norm(local_y)
+        
+        # 创建矩形的四个顶点（在本地坐标系中）
         half_w, half_h = width / 2, height / 2
-        points = [
-            (-half_w, -half_h, 0),
-            (half_w, -half_h, 0),
-            (half_w, half_h, 0),
-            (-half_w, half_h, 0)
+        local_points = [
+            (-half_w, -half_h),
+            (half_w, -half_h),
+            (half_w, half_h),
+            (-half_w, half_h)
         ]
         
         # 转换到全局坐标系
         global_points = []
-        for point in points:
-            local_point = np.array(point) + np.array(center)
-            global_point = cs.transform_point(local_point)
-            global_points.append(Vector(*global_point))
+        for local_point in local_points:
+            # 在本地坐标系中的点
+            point_3d = center_global + local_point[0] * local_x + local_point[1] * local_y
+            global_points.append(Vector(*point_3d))
         
         # 创建边
         edges = []
@@ -376,6 +412,120 @@ def make_three_point_arc_redge(start: Tuple[float, float, float],
         raise ValueError(f"创建三点圆弧失败: {e}. 请检查三个点的坐标是否有效且不共线。")
 
 
+def make_three_point_arc_rwire(start: Tuple[float, float, float],
+                               middle: Tuple[float, float, float],
+                               end: Tuple[float, float, float]) -> Wire:
+    """通过三点创建圆弧并返回线
+    
+    Args:
+        start: 起始点坐标
+        middle: 中间点坐标
+        end: 结束点坐标
+        
+    Returns:
+        创建的圆弧线
+    """
+    try:
+        edge = make_three_point_arc_redge(start, middle, end)
+        cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
+        return Wire(cq_wire)
+    except Exception as e:
+        raise ValueError(f"创建三点圆弧线失败: {e}")
+
+
+def make_angle_arc_redge(center: Tuple[float, float, float],
+                         radius: float,
+                         start_angle: float,
+                         end_angle: float,
+                         normal: Tuple[float, float, float] = (0, 0, 1)) -> Edge:
+    """创建角度圆弧并返回边
+    
+    Args:
+        center: 圆心坐标
+        radius: 半径
+        start_angle: 起始角度（弧度）
+        end_angle: 结束角度（弧度）
+        normal: 法向量
+        
+    Returns:
+        创建的圆弧边
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if radius <= 0:
+            raise ValueError("半径必须大于0")
+        if start_angle == end_angle:
+            raise ValueError("起始角度和结束角度不能相同")
+            
+        cs = get_current_cs()
+        center_global = cs.transform_point(np.array(center))
+        normal_global = cs.transform_point(np.array(normal)) - cs.origin
+        
+        # 标准化法向量
+        normal_vec = normal_global / np.linalg.norm(normal_global)
+        
+        # 创建本地坐标系
+        # 如果法向量接近Z轴，使用X轴作为参考
+        if abs(normal_vec[2]) > 0.9:
+            ref_vec = np.array([1.0, 0.0, 0.0])
+        else:
+            ref_vec = np.array([0.0, 0.0, 1.0])
+        
+        # 计算本地坐标系的X和Y轴
+        local_x = np.cross(normal_vec, ref_vec)
+        local_x = local_x / np.linalg.norm(local_x)
+        local_y = np.cross(normal_vec, local_x)
+        local_y = local_y / np.linalg.norm(local_y)
+        
+        # 在本地坐标系中计算起始、结束和中间点
+        start_local = np.array([radius * np.cos(start_angle), radius * np.sin(start_angle), 0])
+        end_local = np.array([radius * np.cos(end_angle), radius * np.sin(end_angle), 0])
+        mid_angle = (start_angle + end_angle) / 2
+        mid_local = np.array([radius * np.cos(mid_angle), radius * np.sin(mid_angle), 0])
+        
+        # 转换到全局坐标系
+        start_global = center_global + start_local[0] * local_x + start_local[1] * local_y
+        end_global = center_global + end_local[0] * local_x + end_local[1] * local_y
+        mid_global = center_global + mid_local[0] * local_x + mid_local[1] * local_y
+        
+        start_vec = Vector(*start_global)
+        end_vec = Vector(*end_global)
+        mid_vec = Vector(*mid_global)
+        
+        # 使用三点圆弧方法
+        cq_edge = cq.Edge.makeThreePointArc(start_vec, mid_vec, end_vec)
+        return Edge(cq_edge)
+    except Exception as e:
+        raise ValueError(f"创建角度圆弧失败: {e}. 请检查参数是否有效。")
+
+
+def make_angle_arc_rwire(center: Tuple[float, float, float],
+                         radius: float,
+                         start_angle: float,
+                         end_angle: float,
+                         normal: Tuple[float, float, float] = (0, 0, 1)) -> Wire:
+    """创建角度圆弧并返回线
+    
+    Args:
+        center: 圆心坐标
+        radius: 半径
+        start_angle: 起始角度（弧度）
+        end_angle: 结束角度（弧度）
+        normal: 法向量
+        
+    Returns:
+        创建的圆弧线
+    """
+    try:
+        edge = make_angle_arc_redge(center, radius, start_angle, end_angle, normal)
+        cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
+        return Wire(cq_wire)
+    except Exception as e:
+        raise ValueError(f"创建角度圆弧线失败: {e}")
+
+
 def make_spline_redge(points: List[Tuple[float, float, float]],
                       tangents: Optional[List[Tuple[float, float, float]]] = None) -> Edge:
     """创建样条曲线并返回边
@@ -421,6 +571,187 @@ def make_spline_redge(points: List[Tuple[float, float, float]],
         return Edge(cq_edge)
     except Exception as e:
         raise ValueError(f"创建样条曲线失败: {e}. 请检查控制点和切线向量是否有效。")
+
+
+def make_spline_rwire(points: List[Tuple[float, float, float]],
+                      tangents: Optional[List[Tuple[float, float, float]]] = None) -> Wire:
+    """创建样条曲线并返回线
+    
+    Args:
+        points: 控制点坐标列表
+        tangents: 可选的切线向量列表
+        
+    Returns:
+        创建的样条曲线线
+    """
+    try:
+        edge = make_spline_redge(points, tangents)
+        cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
+        return Wire(cq_wire)
+    except Exception as e:
+        raise ValueError(f"创建样条曲线线失败: {e}")
+
+
+def make_polyline_redge(points: List[Tuple[float, float, float]],
+                        closed: bool = False) -> Edge:
+    """创建多段线并返回边（仅适用于两点间的单段）
+    
+    Args:
+        points: 顶点坐标列表
+        closed: 是否闭合
+        
+    Returns:
+        创建的多段线边
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if len(points) < 2:
+            raise ValueError("至少需要2个点")
+        if len(points) > 2:
+            raise ValueError("Edge类型只支持两点间的线段，多点请使用make_polyline_rwire")
+            
+        cs = get_current_cs()
+        start_global = cs.transform_point(np.array(points[0]))
+        end_global = cs.transform_point(np.array(points[1]))
+        
+        start_vec = Vector(*start_global)
+        end_vec = Vector(*end_global)
+        
+        cq_edge = cq.Edge.makeLine(start_vec, end_vec)
+        return Edge(cq_edge)
+    except Exception as e:
+        raise ValueError(f"创建多段线边失败: {e}. 请检查点坐标是否有效。")
+
+
+def make_polyline_rwire(points: List[Tuple[float, float, float]],
+                        closed: bool = False) -> Wire:
+    """创建多段线并返回线
+    
+    Args:
+        points: 顶点坐标列表
+        closed: 是否闭合
+        
+    Returns:
+        创建的多段线
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if len(points) < 2:
+            raise ValueError("至少需要2个点")
+            
+        cs = get_current_cs()
+        
+        # 转换所有点到全局坐标系
+        global_points = []
+        for point in points:
+            global_point = cs.transform_point(np.array(point))
+            global_points.append(Vector(*global_point))
+        
+        # 创建边列表
+        edges = []
+        num_points = len(global_points)
+        
+        # 创建连接相邻点的边
+        for i in range(num_points - 1):
+            start_vec = global_points[i]
+            end_vec = global_points[i + 1]
+            edge = cq.Edge.makeLine(start_vec, end_vec)
+            edges.append(edge)
+        
+        # 如果闭合，添加最后一条边
+        if closed and num_points > 2:
+            start_vec = global_points[-1]
+            end_vec = global_points[0]
+            edge = cq.Edge.makeLine(start_vec, end_vec)
+            edges.append(edge)
+        
+        cq_wire = cq.Wire.assembleEdges(edges)
+        return Wire(cq_wire)
+    except Exception as e:
+        raise ValueError(f"创建多段线失败: {e}. 请检查点坐标是否有效。")
+
+
+def make_helix_redge(pitch: float,
+                     height: float,
+                     radius: float,
+                     center: Tuple[float, float, float] = (0, 0, 0),
+                     dir: Tuple[float, float, float] = (0, 0, 1)) -> Edge:
+    """创建螺旋线并返回边
+    
+    Args:
+        pitch: 螺距
+        height: 总高度
+        radius: 螺旋半径
+        center: 螺旋中心
+        dir: 螺旋轴方向
+        
+    Returns:
+        创建的螺旋线边
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if pitch <= 0:
+            raise ValueError("螺距必须大于0")
+        if height <= 0:
+            raise ValueError("高度必须大于0")
+        if radius <= 0:
+            raise ValueError("半径必须大于0")
+        
+        cs = get_current_cs()
+        global_center = cs.transform_point(np.array(center))
+        global_dir = cs.transform_point(np.array(dir)) - cs.origin
+        
+        center_vec = Vector(*global_center)
+        dir_vec = Vector(*global_dir)
+        
+        # 使用CADQuery的Wire.makeHelix方法创建螺旋线，然后提取边
+        cq_wire = cq.Wire.makeHelix(pitch, height, radius, center_vec, dir_vec)
+        # 螺旋线通常是连续的，所以我们取第一个边
+        edges = cq_wire.Edges()
+        if edges:
+            return Edge(edges[0])
+        else:
+            raise ValueError("无法从螺旋线中提取边")
+    except Exception as e:
+        raise ValueError(f"创建螺旋线边失败: {e}. 请检查参数是否有效。")
+
+
+def make_helix_rwire(pitch: float,
+                     height: float,
+                     radius: float,
+                     center: Tuple[float, float, float] = (0, 0, 0),
+                     dir: Tuple[float, float, float] = (0, 0, 1)) -> Wire:
+    """创建螺旋线并返回线
+    
+    Args:
+        pitch: 螺距
+        height: 总高度
+        radius: 螺旋半径
+        center: 螺旋中心
+        dir: 螺旋轴方向
+        
+    Returns:
+        创建的螺旋线
+    """
+    try:
+        cs = get_current_cs()
+        global_center = cs.transform_point(np.array(center))
+        global_dir = cs.transform_point(np.array(dir)) - cs.origin
+        
+        center_vec = Vector(*global_center)
+        dir_vec = Vector(*global_dir)
+        
+        # 使用CADQuery的Wire.makeHelix方法
+        cq_wire = cq.Wire.makeHelix(pitch, height, radius, center_vec, dir_vec)
+        return Wire(cq_wire)
+    except Exception as e:
+        raise ValueError(f"创建螺旋线失败: {e}. 请检查参数是否有效。")
 
 
 # =============================================================================
@@ -838,7 +1169,11 @@ def export_step(shapes: Union[AnyShape, List[AnyShape]], filename: str) -> None:
             elif isinstance(shape, Vertex):
                 wp = wp.add(shape.cq_vertex)
             elif isinstance(shape, Compound):
-                wp = wp.add(shape.cq_compound)
+                # 处理复合体：将其中的所有几何体添加到工作平面
+                solids = shape.get_solids()
+                for solid in solids:
+                    wp = wp.add(solid.cq_solid)
+                # 注意：复合体可能还包含其他类型的几何体，但这里先只处理实体
         
         # 导出到STEP文件
         cq.exporters.export(wp, filename)
@@ -869,6 +1204,11 @@ def export_stl(shapes: Union[AnyShape, List[AnyShape]], filename: str) -> None:
                 wp = wp.add(shape.cq_face)
             elif isinstance(shape, Shell):
                 wp = wp.add(shape.cq_shell)
+            elif isinstance(shape, Compound):
+                # 处理复合体：将其中的所有实体和面添加到工作平面
+                solids = shape.get_solids()
+                for solid in solids:
+                    wp = wp.add(solid.cq_solid)
             # STL只支持实体和面
         
         # 导出到STL文件
@@ -1022,7 +1362,7 @@ def loft_rsolid(profiles: List[Wire], ruled: bool = False) -> Solid:
         raise ValueError(f"放样操作失败: {e}. 请检查轮廓是否有效。")
 
 
-def sweep_rsolid(profile: Wire, path: Wire, 
+def sweep_rsolid(profile: Face, path: Wire, 
                  make_solid: bool = True,
                  is_frenet: bool = False) -> Union[Solid, Shell]:
     """沿路径扫掠轮廓创建实体
@@ -1040,15 +1380,8 @@ def sweep_rsolid(profile: Wire, path: Wire,
         ValueError: 当操作失败时
     """
     try:
-        # 将Wire转换为Face用于扫掠
-        try:
-            profile_face = cq.Face.makeFromWires(profile.cq_wire)
-        except:
-            # 如果Wire不闭合，无法扫掠成实体
-            raise ValueError("扫掠轮廓必须是闭合的")
-            
         # 执行扫掠操作
-        cq_result = cq.Solid.sweep(profile_face, path.cq_wire, 
+        cq_result = cq.Solid.sweep(profile.cq_face, path.cq_wire, 
                                    makeSolid=make_solid, isFrenet=is_frenet)
         
         if make_solid:
@@ -1156,7 +1489,7 @@ def radial_pattern_rcompound(shape: AnyShape,
             raise ValueError("角度必须大于0")
         
         shapes = []
-        angle_step = angle / (count - 1) if count > 1 else 0
+        angle_step = angle / count  # 修正角度计算，均匀分布
         
         for i in range(count):
             rotation_angle = angle_step * i
