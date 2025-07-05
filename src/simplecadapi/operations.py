@@ -1,1113 +1,1321 @@
 """
-SimpleCAD API操作函数
-使用更直接的CADQuery API调用
+SimpleCAD API操作函数实现
+基于README中的API设计，实现各种几何操作
 """
 
-from typing import List, Tuple, Optional, Literal
-import math
+from typing import List, Tuple, Union, Optional, Any
 import numpy as np
 import cadquery as cq
-import os
-from .core import Point, Line, Sketch, Body, get_current_cs
+from cadquery import Vector, Plane
+
+from .core import (
+    Vertex, Edge, Wire, Face, Shell, Solid, Compound,
+    AnyShape, CoordinateSystem, SimpleWorkplane, get_current_cs
+)
 
 
-# ===== 基础构造操作 =====
+# =============================================================================
+# 基础图形创建函数
+# =============================================================================
 
-
-def make_point(x: float, y: float, z: float) -> Point:
-    """在当前坐标系中创建点"""
-    return Point((x, y, z), get_current_cs())
-
-
-def make_line(points: List[Point], line_type: str = "segment") -> Line:
-    """创建曲线（线段/圆弧/样条）"""
-    return Line(points, line_type)
-
-
-def make_segment(p1: Point, p2: Point) -> Line:
-    """创建线段"""
-    return Line([p1, p2], "segment")
-
-
-def make_three_point_arc(p1: Point, p2: Point, p3: Point) -> Line:
-    """创建圆弧"""
-    return Line([p1, p2, p3], "arc")
-
-
-def make_angle_arc(
-    center: Point, radius: float, start_angle: float, end_angle: float
-) -> Line:
-    """创建角度圆弧"""
-    start_point = make_point(
-        center.local_coords[0] + radius * math.cos(start_angle),
-        center.local_coords[1] + radius * math.sin(start_angle),
-        center.local_coords[2],
-    )
-    end_point = make_point(
-        center.local_coords[0] + radius * math.cos(end_angle),
-        center.local_coords[1] + radius * math.sin(end_angle),
-        center.local_coords[2],
-    )
-    return Line([center, start_point, end_point], "arc")
-
-
-def make_spline(points: List[Point]) -> Line:
-    """创建样条曲线"""
-    if len(points) < 2:
-        raise ValueError("样条曲线至少需要2个控制点")
-    return Line(points, "spline")
-
-
-def make_sketch(lines: List[Line]) -> Sketch:
-    """创建闭合草图"""
-    return Sketch(lines)
-
-
-def make_rectangle(width: float, height: float, center: bool = True) -> Sketch:
-    """创建矩形草图"""
-    if center:
-        x1, y1 = -width / 2, -height / 2
-        x2, y2 = width / 2, height / 2
-    else:
-        x1, y1 = 0, 0
-        x2, y2 = width, height
-
-    # 创建四个角点
-    p1 = make_point(x1, y1, 0)
-    p2 = make_point(x2, y1, 0)
-    p3 = make_point(x2, y2, 0)
-    p4 = make_point(x1, y2, 0)
-
-    # 创建四条边
-    lines = [
-        make_line([p1, p2], "segment"),
-        make_line([p2, p3], "segment"),
-        make_line([p3, p4], "segment"),
-        make_line([p4, p1], "segment"),
-    ]
-
-    return make_sketch(lines)
-
-
-def make_circle(radius: float, center_point: Optional[Point] = None) -> Sketch:
-    """创建圆形草图"""
-    if center_point is None:
-        center_point = make_point(0, 0, 0)
-
-    # 创建16边形近似圆
-    points = []
-    n_sides = 16
-
-    cx, cy, cz = center_point.local_coords
-    for i in range(n_sides):
-        angle = 2 * math.pi * i / n_sides
-        x = cx + radius * math.cos(angle)
-        y = cy + radius * math.sin(angle)
-        points.append(make_point(x, y, cz))
-
-    # 创建线段
-    lines = []
-    for i in range(n_sides):
-        p1 = points[i]
-        p2 = points[(i + 1) % n_sides]
-        lines.append(make_line([p1, p2], "segment"))
-
-    return make_sketch(lines)
-
-
-def make_triangle(p1: Point, p2: Point, p3: Point) -> Sketch:
-    """创建三角形草图"""
-    lines = [make_segment(p1, p2), make_segment(p2, p3), make_segment(p3, p1)]
-    return make_sketch(lines)
-
-
-def make_ellipse(
-    center: Point, major_axis: float, minor_axis: float, rotation: float = 0
-) -> Sketch:
-    """创建椭圆草图"""
-    # 椭圆近似为多边形
-    n_sides = 32  # 较高的边数以提高精度
-    points = []
-
-    cx, cy, cz = center.local_coords
-    for i in range(n_sides):
-        angle = 2 * math.pi * i / n_sides + rotation
-        x = cx + (major_axis / 2) * math.cos(angle)
-        y = cy + (minor_axis / 2) * math.sin(angle)
-        points.append(make_point(x, y, cz))
-
-    # 创建线段
-    lines = []
-    for i in range(n_sides):
-        p1 = points[i]
-        p2 = points[(i + 1) % n_sides]
-        lines.append(make_line([p1, p2], "segment"))
-
-    return make_sketch(lines)
-
-
-# ===== 三维建模操作 =====
-
-
-def extrude(sketch: Sketch, distance: Optional[float] = None) -> Body:
-    """拉伸操作"""
-    if distance is None:
-        raise ValueError("必须指定拉伸距离")
-
-    try:
-        # 使用草图的工作平面进行拉伸
-        wp = sketch.get_workplane()
-        wire = sketch.to_cq_wire()
-
-        # 在正确的工作平面上创建面并拉伸
-        result = wp.add(wire).toPending().extrude(distance)
-
-        if result.solids().size() > 0:
-            return Body(result)
-        else:
-            raise ValueError("拉伸未产生有效实体")
-
-    except Exception as e:
-        raise ValueError(f"拉伸操作失败: {e}")
-
-
-def revolve(sketch: Sketch, axis_start: Point, axis_end: Point, angle: float) -> Body:
-    """旋转操作"""
-    try:
-        wire = sketch.to_cq_wire()
-        face = cq.Face.makeFromWires(wire)
-
-        # 计算旋转轴
-        axis_vec = axis_end.to_cq_vector().sub(axis_start.to_cq_vector())
-
-        # 使用Workplane方式旋转
-        wp = cq.Workplane().add(face)
-        result = wp.revolve(angle * 180 / math.pi, axis_start.to_cq_vector(), axis_vec)
-
-        if result.solids().size() > 0:
-            return Body(result)
-        else:
-            raise ValueError("旋转未产生有效实体")
-
-    except Exception as e:
-        raise ValueError(f"旋转操作失败: {e}")
-
-
-def loft(sketches: List[Sketch]) -> Body:
-    """放样操作"""
-    if len(sketches) < 2:
-        raise ValueError("放样操作至少需要2个草图")
-
-    try:
-        wires = [sketch.to_cq_wire() for sketch in sketches]
-        solid = cq.Solid.makeLoft(wires)
-        # 统一返回Workplane对象
-        wp = cq.Workplane().newObject([solid])
-        return Body(wp)
-    except Exception as e:
-        raise ValueError(f"放样操作失败: {e}")
-
-
-def sweep(profile: Sketch, path: Line, use_frenet: bool = False) -> Body:
-    """扫掠操作
-
+def make_point_rvertex(x: float, y: float, z: float) -> Vertex:
+    """创建点并返回顶点
+    
     Args:
-        profile: 截面草图
-        path: 扫掠路径
-        use_frenet: 是否使用Frenet框架（用于螺旋扫掠等复杂路径）
+        x: X坐标
+        y: Y坐标
+        z: Z坐标
+        
+    Returns:
+        创建的顶点
+        
+    Raises:
+        ValueError: 当坐标无效时
     """
     try:
-        profile_wire = profile.to_cq_wire()
-        profile_face = cq.Face.makeFromWires(profile_wire)
-        path_edge = path.to_cq_edge()
-
-        if path_edge is None:
-            raise ValueError("无法创建路径边")
-
-        path_wire = cq.Wire.assembleEdges([path_edge])
-
-        # 使用Workplane方式扫掠
-        wp = cq.Workplane().add(profile_face)
-
-        # 对于螺旋路径或复杂路径，使用isFrenet=True
-        if use_frenet:
-            result = wp.sweep(path_wire, isFrenet=True)
-        else:
-            result = wp.sweep(path_wire)
-
-        if result.solids().size() > 0:
-            return Body(result)
-        else:
-            raise ValueError("扫掠未产生有效实体")
-
+        cs = get_current_cs()
+        global_point = cs.transform_point(np.array([x, y, z]))
+        cq_vertex = cq.Vertex.makeVertex(*global_point)
+        return Vertex(cq_vertex)
     except Exception as e:
-        raise ValueError(f"扫掠操作失败: {e}")
+        raise ValueError(f"创建点失败: {e}. 请检查坐标值是否有效。")
 
 
-def shell(body: Body, thickness: float, face_tags: Optional[List[str]] = None) -> Body:
-    """抽壳操作
-
+def make_line_redge(start: Tuple[float, float, float], 
+                    end: Tuple[float, float, float]) -> Edge:
+    """创建线段并返回边
+    
     Args:
-        body: 要抽壳的实体
-        thickness: 壁厚
-        face_tags: 要移除的面标签列表（这些面在抽壳后会被去掉，形成开口）
+        start: 起始点坐标
+        end: 结束点坐标
+        
+    Returns:
+        创建的边
+        
+    Raises:
+        ValueError: 当坐标无效时
+    """
+    try:
+        cs = get_current_cs()
+        start_global = cs.transform_point(np.array(start))
+        end_global = cs.transform_point(np.array(end))
+        
+        start_vec = Vector(*start_global)
+        end_vec = Vector(*end_global)
+        
+        cq_edge = cq.Edge.makeLine(start_vec, end_vec)
+        return Edge(cq_edge)
+    except Exception as e:
+        raise ValueError(f"创建线段失败: {e}. 请检查起始点和结束点坐标是否有效。")
 
+
+def make_segment_redge(start: Tuple[float, float, float], 
+                       end: Tuple[float, float, float]) -> Edge:
+    """创建线段并返回边（别名函数）
+    
+    Args:
+        start: 起始点坐标
+        end: 结束点坐标
+        
+    Returns:
+        创建的边
+    """
+    return make_line_redge(start, end)
+
+
+def make_circle_redge(center: Tuple[float, float, float], 
+                      radius: float,
+                      normal: Tuple[float, float, float] = (0, 0, 1)) -> Edge:
+    """创建圆并返回边
+    
+    Args:
+        center: 圆心坐标
+        radius: 半径
+        normal: 法向量
+        
+    Returns:
+        创建的圆边
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if radius <= 0:
+            raise ValueError("半径必须大于0")
+            
+        cs = get_current_cs()
+        center_global = cs.transform_point(np.array(center))
+        normal_global = cs.transform_point(np.array(normal)) - cs.origin
+        
+        center_vec = Vector(*center_global)
+        normal_vec = Vector(*normal_global)
+        
+        cq_edge = cq.Edge.makeCircle(radius, center_vec, normal_vec)
+        return Edge(cq_edge)
+    except Exception as e:
+        raise ValueError(f"创建圆失败: {e}. 请检查圆心坐标、半径和法向量是否有效。")
+
+
+def make_circle_rwire(center: Tuple[float, float, float], 
+                      radius: float,
+                      normal: Tuple[float, float, float] = (0, 0, 1)) -> Wire:
+    """创建圆并返回线
+    
+    Args:
+        center: 圆心坐标
+        radius: 半径
+        normal: 法向量
+        
+    Returns:
+        创建的圆线
+    """
+    try:
+        edge = make_circle_redge(center, radius, normal)
+        cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
+        return Wire(cq_wire)
+    except Exception as e:
+        raise ValueError(f"创建圆线失败: {e}")
+
+
+def make_circle_rface(center: Tuple[float, float, float], 
+                      radius: float,
+                      normal: Tuple[float, float, float] = (0, 0, 1)) -> Face:
+    """创建圆并返回面
+    
+    Args:
+        center: 圆心坐标
+        radius: 半径
+        normal: 法向量
+        
+    Returns:
+        创建的圆面
+    """
+    try:
+        wire = make_circle_rwire(center, radius, normal)
+        cq_face = cq.Face.makeFromWires(wire.cq_wire)
+        return Face(cq_face)
+    except Exception as e:
+        raise ValueError(f"创建圆面失败: {e}")
+
+
+def make_rectangle_rwire(width: float, height: float, 
+                         center: Tuple[float, float, float] = (0, 0, 0),
+                         normal: Tuple[float, float, float] = (0, 0, 1)) -> Wire:
+    """创建矩形并返回线
+    
+    Args:
+        width: 宽度
+        height: 高度
+        center: 中心点坐标
+        normal: 法向量
+        
+    Returns:
+        创建的矩形线
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if width <= 0 or height <= 0:
+            raise ValueError("宽度和高度必须大于0")
+            
+        cs = get_current_cs()
+        center_global = cs.transform_point(np.array(center))
+        
+        # 创建矩形的四个顶点
+        half_w, half_h = width / 2, height / 2
+        points = [
+            (-half_w, -half_h, 0),
+            (half_w, -half_h, 0),
+            (half_w, half_h, 0),
+            (-half_w, half_h, 0)
+        ]
+        
+        # 转换到全局坐标系
+        global_points = []
+        for point in points:
+            local_point = np.array(point) + np.array(center)
+            global_point = cs.transform_point(local_point)
+            global_points.append(Vector(*global_point))
+        
+        # 创建边
+        edges = []
+        for i in range(len(global_points)):
+            start = global_points[i]
+            end = global_points[(i + 1) % len(global_points)]
+            edges.append(cq.Edge.makeLine(start, end))
+        
+        cq_wire = cq.Wire.assembleEdges(edges)
+        return Wire(cq_wire)
+    except Exception as e:
+        raise ValueError(f"创建矩形失败: {e}. 请检查宽度、高度和中心点坐标是否有效。")
+
+
+def make_rectangle_rface(width: float, height: float, 
+                         center: Tuple[float, float, float] = (0, 0, 0),
+                         normal: Tuple[float, float, float] = (0, 0, 1)) -> Face:
+    """创建矩形并返回面
+    
+    Args:
+        width: 宽度
+        height: 高度
+        center: 中心点坐标
+        normal: 法向量
+        
+    Returns:
+        创建的矩形面
+    """
+    try:
+        wire = make_rectangle_rwire(width, height, center, normal)
+        cq_face = cq.Face.makeFromWires(wire.cq_wire)
+        return Face(cq_face)
+    except Exception as e:
+        raise ValueError(f"创建矩形面失败: {e}")
+
+
+def make_box_rsolid(width: float, height: float, depth: float,
+                    center: Tuple[float, float, float] = (0, 0, 0)) -> Solid:
+    """创建立方体并返回实体
+    
+    Args:
+        width: 宽度
+        height: 高度
+        depth: 深度
+        center: 中心点坐标
+        
+    Returns:
+        创建的立方体实体
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if width <= 0 or height <= 0 or depth <= 0:
+            raise ValueError("宽度、高度和深度必须大于0")
+            
+        cs = get_current_cs()
+        center_global = cs.transform_point(np.array(center))
+        
+        # 创建立方体
+        cq_solid = cq.Solid.makeBox(width, height, depth, Vector(*center_global))
+        solid = Solid(cq_solid)
+        
+        # 自动标记面
+        solid.auto_tag_faces("box")
+        
+        return solid
+    except Exception as e:
+        raise ValueError(f"创建立方体失败: {e}. 请检查尺寸和中心点坐标是否有效。")
+
+
+def make_cylinder_rsolid(radius: float, height: float,
+                         center: Tuple[float, float, float] = (0, 0, 0),
+                         axis: Tuple[float, float, float] = (0, 0, 1)) -> Solid:
+    """创建圆柱体并返回实体
+    
+    Args:
+        radius: 半径
+        height: 高度
+        center: 中心点坐标
+        axis: 轴向向量
+        
+    Returns:
+        创建的圆柱体实体
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if radius <= 0 or height <= 0:
+            raise ValueError("半径和高度必须大于0")
+            
+        cs = get_current_cs()
+        center_global = cs.transform_point(np.array(center))
+        axis_global = cs.transform_point(np.array(axis)) - cs.origin
+        
+        center_vec = Vector(*center_global)
+        axis_vec = Vector(*axis_global)
+        
+        cq_solid = cq.Solid.makeCylinder(radius, height, center_vec, axis_vec)
+        solid = Solid(cq_solid)
+        
+        # 自动标记面
+        solid.auto_tag_faces("cylinder")
+        
+        return solid
+    except Exception as e:
+        raise ValueError(f"创建圆柱体失败: {e}. 请检查半径、高度、中心点和轴向是否有效。")
+
+
+def make_sphere_rsolid(radius: float,
+                       center: Tuple[float, float, float] = (0, 0, 0)) -> Solid:
+    """创建球体并返回实体
+    
+    Args:
+        radius: 半径
+        center: 中心点坐标
+        
+    Returns:
+        创建的球体实体
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if radius <= 0:
+            raise ValueError("半径必须大于0")
+            
+        cs = get_current_cs()
+        center_global = cs.transform_point(np.array(center))
+        
+        # 使用Workplane.sphere方法创建球体，然后移动到正确位置
+        if center_global[0] != 0 or center_global[1] != 0 or center_global[2] != 0:
+            cq_solid = cq.Workplane("XY").center(center_global[0], center_global[1]).workplane(offset=center_global[2]).sphere(radius).val()
+        else:
+            cq_solid = cq.Workplane("XY").sphere(radius).val()
+        
+        solid = Solid(cq_solid)
+        
+        # 自动标记面
+        solid.auto_tag_faces("sphere")
+        
+        return solid
+    except Exception as e:
+        raise ValueError(f"创建球体失败: {e}. 请检查半径和中心点坐标是否有效。")
+
+
+def make_three_point_arc_redge(start: Tuple[float, float, float],
+                               middle: Tuple[float, float, float],
+                               end: Tuple[float, float, float]) -> Edge:
+    """通过三点创建圆弧并返回边
+    
+    Args:
+        start: 起始点坐标
+        middle: 中间点坐标
+        end: 结束点坐标
+        
+    Returns:
+        创建的圆弧边
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        cs = get_current_cs()
+        start_global = cs.transform_point(np.array(start))
+        middle_global = cs.transform_point(np.array(middle))
+        end_global = cs.transform_point(np.array(end))
+        
+        start_vec = Vector(*start_global)
+        middle_vec = Vector(*middle_global)
+        end_vec = Vector(*end_global)
+        
+        cq_edge = cq.Edge.makeThreePointArc(start_vec, middle_vec, end_vec)
+        return Edge(cq_edge)
+    except Exception as e:
+        raise ValueError(f"创建三点圆弧失败: {e}. 请检查三个点的坐标是否有效且不共线。")
+
+
+def make_spline_redge(points: List[Tuple[float, float, float]],
+                      tangents: Optional[List[Tuple[float, float, float]]] = None) -> Edge:
+    """创建样条曲线并返回边
+    
+    Args:
+        points: 控制点坐标列表
+        tangents: 可选的切线向量列表
+        
+    Returns:
+        创建的样条曲线边
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if len(points) < 2:
+            raise ValueError("至少需要2个控制点")
+            
+        cs = get_current_cs()
+        
+        # 转换控制点到全局坐标系
+        global_points = []
+        for point in points:
+            global_point = cs.transform_point(np.array(point))
+            global_points.append(Vector(*global_point))
+        
+        # 转换切线向量（如果提供）
+        global_tangents = None
+        if tangents:
+            if len(tangents) != len(points):
+                raise ValueError("切线向量数量必须与控制点数量一致")
+            global_tangents = []
+            for tangent in tangents:
+                global_tangent = cs.transform_point(np.array(tangent)) - cs.origin
+                global_tangents.append(Vector(*global_tangent))
+        
+        if global_tangents:
+            # CADQuery的makeSpline不支持tangents参数，使用makeSplineApprox
+            cq_edge = cq.Edge.makeSplineApprox(global_points)
+        else:
+            cq_edge = cq.Edge.makeSpline(global_points)
+        
+        return Edge(cq_edge)
+    except Exception as e:
+        raise ValueError(f"创建样条曲线失败: {e}. 请检查控制点和切线向量是否有效。")
+
+
+# =============================================================================
+# 变换操作函数
+# =============================================================================
+
+def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyShape:
+    """平移几何体
+    
+    Args:
+        shape: 要平移的几何体
+        vector: 平移向量
+        
+    Returns:
+        平移后的几何体
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        cs = get_current_cs()
+        global_vector = cs.transform_point(np.array(vector)) - cs.origin
+        
+        translation_vec = Vector(*global_vector)
+        
+        if isinstance(shape, Vertex):
+            new_cq_shape = shape.cq_vertex.translate(translation_vec)
+            new_shape = Vertex(new_cq_shape)
+        elif isinstance(shape, Edge):
+            new_cq_shape = shape.cq_edge.translate(translation_vec)
+            new_shape = Edge(new_cq_shape)
+        elif isinstance(shape, Wire):
+            new_cq_shape = shape.cq_wire.translate(translation_vec)
+            new_shape = Wire(new_cq_shape)
+        elif isinstance(shape, Face):
+            new_cq_shape = shape.cq_face.translate(translation_vec)
+            new_shape = Face(new_cq_shape)
+        elif isinstance(shape, Shell):
+            new_cq_shape = shape.cq_shell.translate(translation_vec)
+            new_shape = Shell(new_cq_shape)
+        elif isinstance(shape, Solid):
+            new_cq_shape = shape.cq_solid.translate(translation_vec)
+            new_shape = Solid(new_cq_shape)
+        elif isinstance(shape, Compound):
+            new_cq_shape = shape.cq_compound.translate(translation_vec)
+            new_shape = Compound(new_cq_shape)
+        else:
+            raise ValueError(f"不支持的几何体类型: {type(shape)}")
+        
+        # 复制标签和元数据
+        new_shape._tags = shape._tags.copy()
+        new_shape._metadata = shape._metadata.copy()
+        
+        return new_shape
+    except Exception as e:
+        raise ValueError(f"平移几何体失败: {e}. 请检查几何体和平移向量是否有效。")
+
+
+def rotate_shape(shape: AnyShape, 
+                 angle: float,
+                 axis: Tuple[float, float, float] = (0, 0, 1),
+                 origin: Tuple[float, float, float] = (0, 0, 0)) -> AnyShape:
+    """旋转几何体
+    
+    Args:
+        shape: 要旋转的几何体
+        angle: 旋转角度（弧度）
+        axis: 旋转轴向量
+        origin: 旋转中心点
+        
+    Returns:
+        旋转后的几何体
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        cs = get_current_cs()
+        global_axis = cs.transform_point(np.array(axis)) - cs.origin
+        global_origin = cs.transform_point(np.array(origin))
+        
+        axis_vec = Vector(*global_axis)
+        origin_vec = Vector(*global_origin)
+        
+        if isinstance(shape, Vertex):
+            new_cq_shape = shape.cq_vertex.rotate(origin_vec, axis_vec, angle)
+            new_shape = Vertex(new_cq_shape)
+        elif isinstance(shape, Edge):
+            new_cq_shape = shape.cq_edge.rotate(origin_vec, axis_vec, angle)
+            new_shape = Edge(new_cq_shape)
+        elif isinstance(shape, Wire):
+            new_cq_shape = shape.cq_wire.rotate(origin_vec, axis_vec, angle)
+            new_shape = Wire(new_cq_shape)
+        elif isinstance(shape, Face):
+            new_cq_shape = shape.cq_face.rotate(origin_vec, axis_vec, angle)
+            new_shape = Face(new_cq_shape)
+        elif isinstance(shape, Shell):
+            new_cq_shape = shape.cq_shell.rotate(origin_vec, axis_vec, angle)
+            new_shape = Shell(new_cq_shape)
+        elif isinstance(shape, Solid):
+            new_cq_shape = shape.cq_solid.rotate(origin_vec, axis_vec, angle)
+            new_shape = Solid(new_cq_shape)
+        elif isinstance(shape, Compound):
+            new_cq_shape = shape.cq_compound.rotate(origin_vec, axis_vec, angle)
+            new_shape = Compound(new_cq_shape)
+        else:
+            raise ValueError(f"不支持的几何体类型: {type(shape)}")
+        
+        # 复制标签和元数据
+        new_shape._tags = shape._tags.copy()
+        new_shape._metadata = shape._metadata.copy()
+        
+        return new_shape
+    except Exception as e:
+        raise ValueError(f"旋转几何体失败: {e}. 请检查几何体、角度、轴向和中心点是否有效。")
+
+
+# =============================================================================
+# 3D操作函数
+# =============================================================================
+
+def extrude_rsolid(profile: Union[Wire, Face], 
+                   direction: Tuple[float, float, float],
+                   distance: float) -> Solid:
+    """拉伸轮廓创建实体
+    
+    Args:
+        profile: 要拉伸的轮廓（线或面）
+        direction: 拉伸方向
+        distance: 拉伸距离
+        
+    Returns:
+        拉伸后的实体
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if distance <= 0:
+            raise ValueError("拉伸距离必须大于0")
+            
+        cs = get_current_cs()
+        global_direction = cs.transform_point(np.array(direction)) - cs.origin
+        
+        direction_vec = Vector(*global_direction).normalized() * distance
+        
+        if isinstance(profile, Wire):
+            # 如果是线，先转换为面
+            if profile.is_closed():
+                face = Face(cq.Face.makeFromWires(profile.cq_wire))
+            else:
+                raise ValueError("拉伸的线必须是闭合的")
+        elif isinstance(profile, Face):
+            face = profile
+        else:
+            raise ValueError("只能拉伸线或面")
+        
+        # 使用CADQuery的Solid.extrudeLinear方法
+        cq_solid = cq.Solid.extrudeLinear(face.cq_face, direction_vec)
+        solid = Solid(cq_solid)
+        
+        # 复制标签和元数据
+        solid._tags = profile._tags.copy()
+        solid._metadata = profile._metadata.copy()
+        
+        return solid
+    except Exception as e:
+        raise ValueError(f"拉伸失败: {e}. 请检查轮廓、方向和距离是否有效。")
+
+
+def revolve_rsolid(profile: Union[Wire, Face],
+                   axis: Tuple[float, float, float] = (0, 0, 1),
+                   angle: float = 2 * np.pi,
+                   origin: Tuple[float, float, float] = (0, 0, 0)) -> Solid:
+    """旋转轮廓创建实体
+    
+    Args:
+        profile: 要旋转的轮廓（线或面）
+        axis: 旋转轴向量
+        angle: 旋转角度（弧度）
+        origin: 旋转中心点
+        
+    Returns:
+        旋转后的实体
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if angle <= 0:
+            raise ValueError("旋转角度必须大于0")
+            
+        cs = get_current_cs()
+        global_axis = cs.transform_point(np.array(axis)) - cs.origin
+        global_origin = cs.transform_point(np.array(origin))
+        
+        # 获取轮廓对应的面
+        if isinstance(profile, Wire):
+            # 如果是线，先转换为面
+            if profile.is_closed():
+                face = Face(cq.Face.makeFromWires(profile.cq_wire))
+            else:
+                raise ValueError("旋转的线必须是闭合的")
+        elif isinstance(profile, Face):
+            face = profile
+        else:
+            raise ValueError("只能旋转线或面")
+        
+        # 使用CADQuery的Workplane方法进行旋转
+        # 将角度转换为度数
+        angle_degrees = angle * 180 / np.pi
+        
+        # 创建一个临时的Workplane，添加面，然后旋转
+        wp = cq.Workplane("XY")
+        wp.objects = [face.cq_face]
+        
+        # 执行旋转
+        revolved_wp = wp.revolve(angleDegrees=angle_degrees)
+        cq_solid = revolved_wp.val()
+        
+        solid = Solid(cq_solid)
+        
+        # 复制标签和元数据
+        solid._tags = profile._tags.copy()
+        solid._metadata = profile._metadata.copy()
+        
+        return solid
+    except Exception as e:
+        raise ValueError(f"旋转失败: {e}. 请检查轮廓、轴向、角度和中心点是否有效。")
+
+
+# =============================================================================
+# 标签和选择函数
+# =============================================================================
+
+def set_tag(shape: AnyShape, tag: str) -> AnyShape:
+    """为几何体设置标签
+    
+    Args:
+        shape: 几何体
+        tag: 标签名称
+        
+    Returns:
+        设置标签后的几何体
+    """
+    try:
+        shape.add_tag(tag)
+        return shape
+    except Exception as e:
+        raise ValueError(f"设置标签失败: {e}. 请检查几何体和标签名称是否有效。")
+
+
+def select_faces_by_tag(solid: Solid, tag: str) -> List[Face]:
+    """根据标签选择面
+    
+    Args:
+        solid: 实体
+        tag: 标签名称
+        
+    Returns:
+        匹配标签的面列表
+    """
+    try:
+        faces = solid.get_faces()
+        return [face for face in faces if face.has_tag(tag)]
+    except Exception as e:
+        raise ValueError(f"选择面失败: {e}. 请检查实体和标签名称是否有效。")
+
+
+def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]:
+    """根据标签选择边
+    
+    Args:
+        shape: 面或实体
+        tag: 标签名称
+        
+    Returns:
+        匹配标签的边列表
+    """
+    try:
+        if isinstance(shape, Face):
+            edges = [Edge(edge) for edge in shape.cq_face.Edges()]
+        elif isinstance(shape, Solid):
+            edges = shape.get_edges()
+        else:
+            raise ValueError("只能从面或实体中选择边")
+        
+        return [edge for edge in edges if edge.has_tag(tag)]
+    except Exception as e:
+        raise ValueError(f"选择边失败: {e}. 请检查几何体和标签名称是否有效。")
+
+
+# =============================================================================
+# 布尔运算函数
+# =============================================================================
+
+def union_rsolid(solid1: Solid, solid2: Solid) -> Solid:
+    """实体并集运算
+    
+    Args:
+        solid1: 第一个实体
+        solid2: 第二个实体
+        
+    Returns:
+        并集结果实体
+        
+    Raises:
+        ValueError: 当运算失败时
+    """
+    try:
+        cq_result = solid1.cq_solid.fuse(solid2.cq_solid)
+        # 确保结果是Solid类型
+        if hasattr(cq_result, 'Solids') and cq_result.Solids():
+            cq_result = cq_result.Solids()[0]
+        result = Solid(cq_result)
+        
+        # 合并标签和元数据
+        result._tags = solid1._tags.union(solid2._tags)
+        result._metadata = {**solid1._metadata, **solid2._metadata}
+        
+        return result
+    except Exception as e:
+        raise ValueError(f"并集运算失败: {e}. 请检查两个实体是否有效。")
+
+
+def cut_rsolid(solid1: Solid, solid2: Solid) -> Solid:
+    """实体差集运算
+    
+    Args:
+        solid1: 被减实体
+        solid2: 减去的实体
+        
+    Returns:
+        差集结果实体
+        
+    Raises:
+        ValueError: 当运算失败时
+    """
+    try:
+        cq_result = solid1.cq_solid.cut(solid2.cq_solid)
+        # 确保结果是Solid类型
+        if hasattr(cq_result, 'Solids') and cq_result.Solids():
+            cq_result = cq_result.Solids()[0]
+        result = Solid(cq_result)
+        
+        # 保留第一个实体的标签和元数据
+        result._tags = solid1._tags.copy()
+        result._metadata = solid1._metadata.copy()
+        
+        return result
+    except Exception as e:
+        raise ValueError(f"差集运算失败: {e}. 请检查两个实体是否有效。")
+
+
+def intersect_rsolid(solid1: Solid, solid2: Solid) -> Solid:
+    """实体交集运算
+    
+    Args:
+        solid1: 第一个实体
+        solid2: 第二个实体
+        
+    Returns:
+        交集结果实体
+        
+    Raises:
+        ValueError: 当运算失败时
+    """
+    try:
+        cq_result = solid1.cq_solid.intersect(solid2.cq_solid)
+        # 确保结果是Solid类型
+        if hasattr(cq_result, 'Solids') and cq_result.Solids():
+            cq_result = cq_result.Solids()[0]
+        result = Solid(cq_result)
+        
+        # 合并标签和元数据
+        result._tags = solid1._tags.intersection(solid2._tags)
+        result._metadata = {**solid1._metadata, **solid2._metadata}
+        
+        return result
+    except Exception as e:
+        raise ValueError(f"交集运算失败: {e}. 请检查两个实体是否有效。")
+
+
+# =============================================================================
+# 导出函数
+# =============================================================================
+
+def export_step(shapes: Union[AnyShape, List[AnyShape]], filename: str) -> None:
+    """导出为STEP格式
+    
+    Args:
+        shapes: 要导出的几何体或几何体列表
+        filename: 输出文件名
+        
+    Raises:
+        ValueError: 当导出失败时
+    """
+    try:
+        if not isinstance(shapes, list):
+            shapes = [shapes]
+        
+        # 创建CADQuery的Workplane并添加所有几何体
+        wp = cq.Workplane()
+        for shape in shapes:
+            if isinstance(shape, Solid):
+                wp = wp.add(shape.cq_solid)
+            elif isinstance(shape, Face):
+                wp = wp.add(shape.cq_face)
+            elif isinstance(shape, Shell):
+                wp = wp.add(shape.cq_shell)
+            elif isinstance(shape, Wire):
+                wp = wp.add(shape.cq_wire)
+            elif isinstance(shape, Edge):
+                wp = wp.add(shape.cq_edge)
+            elif isinstance(shape, Vertex):
+                wp = wp.add(shape.cq_vertex)
+            elif isinstance(shape, Compound):
+                wp = wp.add(shape.cq_compound)
+        
+        # 导出到STEP文件
+        cq.exporters.export(wp, filename)
+    except Exception as e:
+        raise ValueError(f"导出STEP文件失败: {e}. 请检查几何体和文件名是否有效。")
+
+
+def export_stl(shapes: Union[AnyShape, List[AnyShape]], filename: str) -> None:
+    """导出为STL格式
+    
+    Args:
+        shapes: 要导出的几何体或几何体列表
+        filename: 输出文件名
+        
+    Raises:
+        ValueError: 当导出失败时
+    """
+    try:
+        if not isinstance(shapes, list):
+            shapes = [shapes]
+        
+        # 创建CADQuery的Workplane并添加所有几何体
+        wp = cq.Workplane()
+        for shape in shapes:
+            if isinstance(shape, Solid):
+                wp = wp.add(shape.cq_solid)
+            elif isinstance(shape, Face):
+                wp = wp.add(shape.cq_face)
+            elif isinstance(shape, Shell):
+                wp = wp.add(shape.cq_shell)
+            # STL只支持实体和面
+        
+        # 导出到STL文件
+        cq.exporters.export(wp, filename)
+    except Exception as e:
+        raise ValueError(f"导出STL文件失败: {e}. 请检查几何体和文件名是否有效。")
+
+
+# =============================================================================
+# 高级特征操作函数
+# =============================================================================
+
+def fillet_rsolid(solid: Solid, edges: List[Edge], radius: float) -> Solid:
+    """对实体的边进行圆角操作
+    
+    Args:
+        solid: 要进行圆角的实体
+        edges: 要圆角的边列表
+        radius: 圆角半径
+        
+    Returns:
+        圆角后的实体
+        
+    Raises:
+        ValueError: 当操作失败时
+    """
+    try:
+        if radius <= 0:
+            raise ValueError("圆角半径必须大于0")
+        
+        # 转换为CADQuery边对象
+        cq_edges = [edge.cq_edge for edge in edges]
+        
+        # 执行圆角操作
+        cq_result = solid.cq_solid.fillet(radius, cq_edges)
+        result = Solid(cq_result)
+        
+        # 复制标签和元数据
+        result._tags = solid._tags.copy()
+        result._metadata = solid._metadata.copy()
+        
+        return result
+    except Exception as e:
+        raise ValueError(f"圆角操作失败: {e}. 请检查实体、边和半径是否有效。")
+
+
+def chamfer_rsolid(solid: Solid, edges: List[Edge], distance: float) -> Solid:
+    """对实体的边进行倒角操作
+    
+    Args:
+        solid: 要进行倒角的实体
+        edges: 要倒角的边列表
+        distance: 倒角距离
+        
+    Returns:
+        倒角后的实体
+        
+    Raises:
+        ValueError: 当操作失败时
+    """
+    try:
+        if distance <= 0:
+            raise ValueError("倒角距离必须大于0")
+        
+        # 转换为CADQuery边对象
+        cq_edges = [edge.cq_edge for edge in edges]
+        
+        # 执行倒角操作
+        cq_result = solid.cq_solid.chamfer(distance, None, cq_edges)
+        result = Solid(cq_result)
+        
+        # 复制标签和元数据
+        result._tags = solid._tags.copy()
+        result._metadata = solid._metadata.copy()
+        
+        return result
+    except Exception as e:
+        raise ValueError(f"倒角操作失败: {e}. 请检查实体、边和距离是否有效。")
+
+
+def shell_rsolid(solid: Solid, faces_to_remove: List[Face], thickness: float) -> Solid:
+    """对实体进行抽壳操作
+    
+    Args:
+        solid: 要抽壳的实体
+        faces_to_remove: 要移除的面列表
+        thickness: 壁厚
+        
     Returns:
         抽壳后的实体
-    """
-    if not body.is_valid() or body.cq_solid is None:
-        raise ValueError("输入实体无效")
-
-    try:
-        # 获取Workplane对象
-        wp = (
-            body.cq_solid
-            if hasattr(body.cq_solid, "shell")
-            else cq.Workplane().add(body.cq_solid)
-        )
-
-        if face_tags is None or len(face_tags) == 0:
-            # 标准抽壳，所有面都保留
-            result = wp.shell(thickness)
-        else:
-            # 选择性抽壳，指定的面会被移除
-            faces_to_remove = select_face_by_tag(body, face_tags)
-            if not faces_to_remove:
-                raise ValueError(f"未找到指定标签的面: {face_tags}")
-
-            # 使用面选择器来抽壳
-            # 先选择要移除的面，然后抽壳
-            result = _shell_with_face_removal(wp, faces_to_remove, thickness)
-
-        return Body(result)
-    except Exception as e:
-        raise ValueError(f"抽壳操作失败: {e}")
-
-
-def _shell_with_face_removal(workplane, faces_to_remove, thickness):
-    """带面移除的抽壳操作
-
-    Args:
-        workplane: CADQuery Workplane对象
-        faces_to_remove: 要移除的面对象列表
-        thickness: 壁厚
-
-    Returns:
-        抽壳后的Workplane对象
-    """
-    try:
-        # 方法1：使用lambda选择器
-        def face_filter(face):
-            return face in faces_to_remove
-
-        # 尝试使用lambda选择器
-        selected_wp = workplane.faces(lambda obj: obj in faces_to_remove)
-        result = selected_wp.shell(thickness)
-        return result
-
-    except Exception as e1:
-        try:
-            # 方法2：使用字符串选择器组合
-            # 分析要移除的面的位置，生成字符串选择器
-            face_selectors = []
-            for face in faces_to_remove:
-                try:
-                    normal = face.normalAt()
-
-                    # 直接使用CADQuery坐标系的法向量生成选择器
-                    # 不需要转换，因为CADQuery的选择器就是基于CADQuery坐标系的
-                    if abs(normal.z) > 0.9:  # Z方向面
-                        if normal.z > 0:
-                            face_selectors.append("+Z")
-                        else:
-                            face_selectors.append("-Z")
-                    elif abs(normal.y) > 0.9:  # Y方向面
-                        if normal.y > 0:
-                            face_selectors.append("+Y")
-                        else:
-                            face_selectors.append("-Y")
-                    elif abs(normal.x) > 0.9:  # X方向面
-                        if normal.x > 0:
-                            face_selectors.append("+X")
-                        else:
-                            face_selectors.append("-X")
-                except:
-                    continue
-
-            if face_selectors:
-                # 组合选择器字符串
-                selector_str = " or ".join(face_selectors)
-                selected_wp = workplane.faces(selector_str)
-                result = selected_wp.shell(thickness)
-                return result
-            else:
-                raise ValueError("无法创建面选择器")
-
-        except Exception as e2:
-            # 方法3：使用索引选择
-            try:
-                # 获取所有面
-                all_faces_wp = workplane.faces()
-                all_faces = all_faces_wp.all()
-
-                # 找到要移除面的索引
-                indices_to_remove = []
-                for i, face_wp in enumerate(all_faces):
-                    face_obj = face_wp.val() if hasattr(face_wp, "val") else face_wp
-                    if face_obj in faces_to_remove:
-                        indices_to_remove.append(i)
-
-                if indices_to_remove:
-                    # 使用索引选择面
-                    if len(indices_to_remove) == 1:
-                        selected_wp = workplane.faces().vals()[indices_to_remove[0]]
-                        result = cq.Workplane().add(selected_wp).shell(thickness)
-                    else:
-                        # 多个面的情况
-                        result = workplane
-                        for idx in indices_to_remove:
-                            face_wp = workplane.faces().vals()[idx]
-                            temp_wp = cq.Workplane().add(face_wp)
-                            if hasattr(temp_wp, "shell"):
-                                result = temp_wp.shell(thickness)
-                            break  # 暂时只处理第一个面
-                    return result
-                else:
-                    raise ValueError("找不到匹配的面索引")
-
-            except Exception as e3:
-                raise ValueError(f"所有面选择方法都失败了: {e1}, {e2}, {e3}")
-
-
-def fillet(body: Body, edges: List[Line], radius: float) -> Body:
-    """圆角操作"""
-    if not body.is_valid() or body.cq_solid is None:
-        raise ValueError("输入实体无效")
-
-    try:
-        # 获取Workplane对象
-        wp = (
-            body.cq_solid
-            if hasattr(body.cq_solid, "fillet")
-            else cq.Workplane().add(body.cq_solid)
-        )
-        result = wp.fillet(radius)
-        return Body(result)
-    except Exception as e:
-        raise ValueError(f"圆角操作失败: {e}")
-
-
-def chamfer(body: Body, edges: List[Line], distance: float) -> Body:
-    """倒角操作"""
-    if not body.is_valid() or body.cq_solid is None:
-        raise ValueError("输入实体无效")
-
-    try:
-        # 获取Workplane对象
-        wp = (
-            body.cq_solid
-            if hasattr(body.cq_solid, "chamfer")
-            else cq.Workplane().add(body.cq_solid)
-        )
-        result = wp.chamfer(distance)
-        return Body(result)
-    except Exception as e:
-        raise ValueError(f"倒角操作失败: {e}")
-
-
-# ===== 布尔运算 =====
-
-
-def cut(target: Body, tool: Body) -> Body:
-    """布尔减运算"""
-    if (
-        not target.is_valid()
-        or not tool.is_valid()
-        or target.cq_solid is None
-        or tool.cq_solid is None
-    ):
-        raise ValueError("输入实体无效")
-
-    try:
-        # 确保使用Workplane对象
-        target_wp = (
-            target.cq_solid
-            if hasattr(target.cq_solid, "cut")
-            else cq.Workplane().add(target.cq_solid)
-        )
-        tool_wp = (
-            tool.cq_solid
-            if hasattr(tool.cq_solid, "cut")
-            else cq.Workplane().add(tool.cq_solid)
-        )
-
-        result = target_wp.cut(tool_wp)
-        return Body(result)
-
-    except Exception as e:
-        raise ValueError(f"布尔减运算失败: {e}")
-
-
-def union(body1: Body, body2: Body) -> Body:
-    """布尔并运算"""
-    # 类型检查
-    if not isinstance(body1, Body):
-        raise ValueError(f"第一个参数必须是Body对象，实际为: {type(body1)}")
-    if not isinstance(body2, Body):
-        raise ValueError(f"第二个参数必须是Body对象，实际为: {type(body2)}")
-
-    if (
-        not body1.is_valid()
-        or not body2.is_valid()
-        or body1.cq_solid is None
-        or body2.cq_solid is None
-    ):
-        raise ValueError("输入实体无效")
-
-    try:
-        # 确保使用Workplane对象
-        body1_wp = (
-            body1.cq_solid
-            if hasattr(body1.cq_solid, "union")
-            else cq.Workplane().add(body1.cq_solid)
-        )
-        body2_wp = (
-            body2.cq_solid
-            if hasattr(body2.cq_solid, "union")
-            else cq.Workplane().add(body2.cq_solid)
-        )
-
-        result = body1_wp.union(body2_wp)
-        return Body(result)
-
-    except Exception as e:
-        raise ValueError(f"布尔并运算失败: {e}")
-
-
-def intersect(body1: Body, body2: Body) -> Body:
-    """布尔交运算"""
-    if (
-        not body1.is_valid()
-        or not body2.is_valid()
-        or body1.cq_solid is None
-        or body2.cq_solid is None
-    ):
-        raise ValueError("输入实体无效")
-
-    try:
-        # 确保使用Workplane对象
-        body1_wp = (
-            body1.cq_solid
-            if hasattr(body1.cq_solid, "intersect")
-            else cq.Workplane().add(body1.cq_solid)
-        )
-        body2_wp = (
-            body2.cq_solid
-            if hasattr(body2.cq_solid, "intersect")
-            else cq.Workplane().add(body2.cq_solid)
-        )
-
-        result = body1_wp.intersect(body2_wp)
-        return Body(result)
-
-    except Exception as e:
-        raise ValueError(f"布尔交运算失败: {e}")
-
-
-# ===== 便利函数 =====
-
-
-def make_box(width: float, height: float, depth: float, center: bool = True) -> Body:
-    """创建立方体"""
-    try:
-        # 获取当前坐标系
-        current_cs = get_current_cs()
-
-        if center:
-            result = cq.Workplane(current_cs.to_cq_plane()).box(width, height, depth)
-        else:
-            # 非中心对齐的立方体
-            result = (
-                cq.Workplane(current_cs.to_cq_plane())
-                .center(width / 2, height / 2)
-                .box(width, height, depth)
-                .translate((0, 0, depth / 2))
-            )
-
-        if result.solids().size() > 0:
-            body = Body(result)
-            # 自动添加面标签
-            body.auto_tag_faces("box")
-            return body
-        else:
-            raise ValueError("创建立方体失败")
-    except Exception as e:
-        raise ValueError(f"创建立方体失败: {e}")
-
-
-def make_cylinder(radius: float, height: float) -> Body:
-    """创建圆柱体"""
-    try:
-        # 获取当前坐标系
-        current_cs = get_current_cs()
-
-        result = cq.Workplane(current_cs.to_cq_plane()).cylinder(height, radius)
-
-        if result.solids().size() > 0:
-            body = Body(result)
-            # 自动添加面标签
-            body.auto_tag_faces("cylinder")
-            return body
-        else:
-            raise ValueError("创建圆柱体失败")
-    except Exception as e:
-        raise ValueError(f"创建圆柱体失败: {e}")
-
-
-def make_sphere(radius: float) -> Body:
-    """创建球体"""
-    try:
-        # 获取当前坐标系
-        current_cs = get_current_cs()
-
-        result = cq.Workplane(current_cs.to_cq_plane()).sphere(radius)
-
-        if result.solids().size() > 0:
-            body = Body(result)
-            # 自动添加面标签
-            body.auto_tag_faces("sphere")
-            return body
-        else:
-            raise ValueError("创建球体失败")
-    except Exception as e:
-        raise ValueError(f"创建球体失败: {e}")
-
-
-# ===== 高级操作 =====
-
-
-def make_linear_pattern(
-    body: Body, direction: Tuple[float, float, float], count: int, spacing: float
-) -> Body:
-    """线性阵列"""
-    if not body.is_valid():
-        raise ValueError("输入实体无效")
-
-    if count < 1:
-        raise ValueError("阵列数量必须大于0")
-
-    try:
-        # 获取第一个实体的Solid对象
-        def get_solid(body):
-            if hasattr(body.cq_solid, "solids") and body.cq_solid.solids().size() > 0:
-                return body.cq_solid.solids().first()
-            elif hasattr(body.cq_solid, "val"):
-                return body.cq_solid.val()
-            return body.cq_solid
-
-        base_solid = get_solid(body)
-
-        # 从第一个实体开始
-        wp = cq.Workplane().newObject([base_solid])
-
-        # 创建其他实体并合并
-        for i in range(1, count):
-            offset_x = direction[0] * spacing * i
-            offset_y = direction[1] * spacing * i
-            offset_z = direction[2] * spacing * i
-
-            # 复制并平移实体
-            translated = base_solid.translate(cq.Vector(offset_x, offset_z, offset_y))
-            wp = wp.add(translated)
-
-        if wp.solids().size() > 0:
-            return Body(wp)
-        else:
-            raise ValueError("线性阵列未产生有效实体")
-
-    except Exception as e:
-        raise ValueError(f"线性阵列操作失败: {e}")
-
-
-def make_2d_pattern(
-    body: Body,
-    x_direction: Tuple[float, float, float],
-    y_direction: Tuple[float, float, float],
-    x_count: int,
-    y_count: int,
-    x_spacing: float,
-    y_spacing: float,
-) -> Body:
-    """2D阵列操作"""
-    if not body.is_valid():
-        raise ValueError("输入实体无效")
-
-    if x_count < 1 or y_count < 1:
-        raise ValueError("阵列数量必须大于0")
-
-    try:
-        # 获取基础实体的Solid对象
-        def get_solid(body):
-            if hasattr(body.cq_solid, "solids") and body.cq_solid.solids().size() > 0:
-                return body.cq_solid.solids().first()
-            elif hasattr(body.cq_solid, "val") and hasattr(
-                body.cq_solid.val(), "wrapped"
-            ):
-                return body.cq_solid.val()
-            elif hasattr(body.cq_solid, "wrapped"):
-                return body.cq_solid
-            else:
-                raise ValueError("无法从Body对象中提取Solid")
-
-        base_solid = get_solid(body)
-
-        # 收集所有实体
-        all_solids = []
-
-        # 创建2D网格阵列
-        for j in range(y_count):
-            for i in range(x_count):
-                offset_x = (
-                    x_direction[0] * x_spacing * i + y_direction[0] * y_spacing * j
-                )
-                offset_y = (
-                    x_direction[1] * x_spacing * i + y_direction[1] * y_spacing * j
-                )
-                offset_z = (
-                    x_direction[2] * x_spacing * i + y_direction[2] * y_spacing * j
-                )
-
-                if i == 0 and j == 0:
-                    # 第一个实体就是原始实体
-                    all_solids.append(base_solid)
-                else:
-                    # 复制并平移实体
-                    translated = base_solid.translate(
-                        cq.Vector(offset_x, offset_z, offset_y)
-                    )
-                    all_solids.append(translated)
-
-        # 创建包含所有实体的Workplane
-        wp = cq.Workplane()
-        for solid in all_solids:
-            wp = wp.add(solid)
-
-        expected_count = x_count * y_count
-        if wp.solids().size() == expected_count:
-            return Body(wp)
-        else:
-            # 如果solids计数不对，尝试使用union合并所有实体
-            result_wp = cq.Workplane().add(all_solids[0])
-            for solid in all_solids[1:]:
-                temp_wp = cq.Workplane().add(solid)
-                result_wp = result_wp.union(temp_wp)
-
-            return Body(result_wp)
-
-    except Exception as e:
-        raise ValueError(f"2D阵列操作失败: {e}")
-
-
-def make_radial_pattern(
-    body: Body,
-    center: Point,
-    axis: Tuple[float, float, float],
-    count: int,
-    angle: float,
-) -> Body:
-    """径向/环形阵列操作"""
-    if not body.is_valid():
-        raise ValueError("输入实体无效")
-
-    if count < 2:
-        raise ValueError("阵列数量必须大于1")
-
-    try:
-        # 获取基础实体的Workplane
-        base_wp = body.cq_solid
-
-        # 收集所有实体，包括原始实体
-        all_workplanes = [base_wp]
-
-        # 创建径向阵列 - 正确的角度计算
-        for i in range(1, count):
-            # 对于完整圆形分布：每个实体旋转 angle * i / count
-            # 对于部分扇形分布：每个实体旋转 angle * i / (count - 1)
-            if abs(angle - 2 * math.pi) < 0.001:  # 完整圆形（360度）
-                rotation_angle = angle * i / count
-            else:  # 部分扇形
-                rotation_angle = angle * i / (count - 1)
-
-            # 旋转实体
-            center_vec = center.to_cq_vector()
-            axis_vec = cq.Vector(axis[0], axis[2], axis[1]).normalized()
-
-            # 复制并旋转
-            rotated_wp = base_wp.rotate(
-                center_vec, axis_vec, math.degrees(rotation_angle)
-            )
-            all_workplanes.append(rotated_wp)
-
-        # 合并所有实体
-        result = all_workplanes[0]
-        for wp in all_workplanes[1:]:
-            result = result.union(wp)
-
-        return Body(result)
-
-    except Exception as e:
-        raise ValueError(f"径向阵列操作失败: {e}")
-    
-def translate_body(body: Body, vector: Tuple[float, float, float]) -> Body:
-    """平移操作"""
-    if not body.is_valid():
-        raise ValueError("输入实体无效")
-
-    try:
-        # 获取当前坐标系
-        current_cs = get_current_cs()
         
-        cadquery_vector = cq.Vector(vector[0], vector[2], vector[1])
-        # 使用CADQuery的translate方法
-        translated_wp = body.cq_solid.translate(
-            cadquery_vector  # CADQuery坐标系的平移向量
-        )
-
-        # 返回新的Body对象
-        return Body(translated_wp)
-
-    except Exception as e:
-        raise ValueError(f"平移操作失败: {e}")
-
-def rotate_body(body: Body, angle: float, axis: Tuple[float, float, float]) -> Body:
-    """旋转操作"""
-    if not body.is_valid():
-        raise ValueError("输入实体无效")
-
-    try:
-        # 获取当前坐标系
-        current_cs = get_current_cs()
-
-        cadquery_axis = cq.Vector(axis[0], axis[2], axis[1]).normalized()
-
-        # 使用CADQuery的rotate方法
-        rotated_wp = body.cq_solid.rotate(
-            cq.Vector(0, 0, 0),  # 旋转中心为原点
-            cadquery_axis,  # CADQuery坐标系的轴向量
-            math.degrees(angle)  # 转换为度数
-        )
-
-        # 返回新的Body对象
-        return Body(rotated_wp)
-
-    except Exception as e:
-        raise ValueError(f"旋转操作失败: {e}")
-
-
-def export_step(body: Body, filename: str):
-    """导出为STEP文件"""
-    try:
-        # 确保目录存在
-        import os
-
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
-
-        from cadquery import exporters
-
-        exporters.export(body.cq_solid, filename, exportType="STEP")
-
-    except Exception as e:
-        raise ValueError(f"STEP导出失败: {e}")
-
-
-def export_stl(body: Body, filename: str, tolerance: float = 0.1):
-    """导出为STL文件"""
-    try:
-        # 确保目录存在
-        import os
-
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
-
-        from cadquery import exporters
-
-        exporters.export(body.cq_solid, filename, exportType="STL", tolerance=tolerance)
-
-    except Exception as e:
-        raise ValueError(f"STL导出失败: {e}")
-
-
-def helical_sweep(
-    profile: Sketch,
-    coil_radius: float,
-    pitch: float,
-    turns: float,
-    points_per_turn: int = 12,
-    smooth: bool = True,
-) -> Body:
-    """高级螺旋扫掠操作 - 支持任意螺旋轴，正确处理坐标系转换
-
-    Args:
-        profile: 扫掠截面草图
-        coil_radius: 螺旋半径
-        pitch: 螺距（每转沿轴方向的距离）
-        turns: 圈数
-        points_per_turn: 每圈的点数（6-32，默认12）
-        smooth: 是否使用spline平滑（False使用polyline，更快但不够平滑）
-        axis_start: 螺旋轴起点（默认为当前坐标系原点）
-        axis_end: 螺旋轴终点（默认为当前坐标系Z轴方向，高度为pitch*turns）
+    Raises:
+        ValueError: 当操作失败时
     """
-    import math
-    import numpy as np
-
     try:
-        # 限制点数量范围
-        points_per_turn = max(6, min(32, points_per_turn))
-
-        # 获取当前坐标系
-        current_cs = get_current_cs()
-
-        # 设置默认螺旋轴（在当前坐标系中）
-        axis_start = make_point(0, 0, 0)
-        axis_end = make_point(0, 0, pitch * turns)
-
-        # 获取轴起点和终点的全局坐标（SimpleCAD坐标系）
-        axis_start_global = axis_start.global_coords
-        axis_end_global = axis_end.global_coords
-
-        # 在SimpleCAD坐标系中计算螺旋轴向量和长度
-        axis_vec = axis_end_global - axis_start_global
-        axis_length = np.linalg.norm(axis_vec)
-
-        if axis_length < 1e-6:
-            raise ValueError("螺旋轴起点和终点不能相同")
-
-        # 标准化轴向量（SimpleCAD坐标系）
-        axis_unit = axis_vec / axis_length
-
-        # 在SimpleCAD坐标系中创建螺旋轴的局部坐标系
-        # 找到两个垂直于轴的单位向量
-        if abs(axis_unit[2]) < 0.9:
-            ref_vec = np.array([0, 0, 1])  # 使用Z轴作为参考
-        else:
-            ref_vec = np.array([1, 0, 0])  # 使用X轴作为参考
-
-        # 计算第一个径向向量（叉积）
-        radial1 = np.cross(axis_unit, ref_vec)
-        radial1 = radial1 / np.linalg.norm(radial1)
-
-        # 计算第二个径向向量（叉积）
-        radial2 = np.cross(axis_unit, radial1)
-        radial2 = radial2 / np.linalg.norm(radial2)
-
-        # 计算总点数
-        length = int(turns * points_per_turn)
-
-        # 在SimpleCAD坐标系中创建螺旋路径点
-        pts_simplecad = []
-        for i in range(length + 1):  # +1确保完整的螺旋
-            # 参数化螺旋：t从0到turns*2π
-            t = i * turns * 2 * math.pi / length
-
-            # 沿轴方向的进度（0到1）
-            axis_progress = i / length
-
-            # 计算当前点在轴上的位置（SimpleCAD坐标系）
-            axis_pos = axis_start_global + axis_progress * axis_vec
-
-            # 计算螺旋偏移（在垂直于轴的平面内）
-            radial_offset = coil_radius * (
-                radial1 * math.cos(t) + radial2 * math.sin(t)
-            )
-
-            # 最终点位置（SimpleCAD坐标系）
-            final_pos_simplecad = axis_pos + radial_offset
-            pts_simplecad.append(final_pos_simplecad)
-
-        # 将SimpleCAD坐标转换为CADQuery坐标
-        pts_cq = []
-        for pt_simplecad in pts_simplecad:
-            pt_cq = current_cs.to_cq_coords(pt_simplecad)
-            pts_cq.append([pt_cq[0], pt_cq[1], pt_cq[2]])
-
-        # 在CADQuery中创建螺旋路径
-        if smooth:
-            path = cq.Workplane("XY").spline(pts_cq).wire()
-        else:
-            path = cq.Workplane("XY").polyline(pts_cq).wire()
-
-        # 使用给定的截面草图进行扫掠
-        profile_wire = profile.to_cq_wire()
-        profile_face = cq.Face.makeFromWires(profile_wire)
-
-        # 计算profile的初始位置（SimpleCAD坐标系）
-        # Profile应该位于螺旋起始位置，并在径向方向偏移coil_radius
-        start_pos_simplecad = axis_start_global + coil_radius * radial1
-        start_pos_cq = current_cs.to_cq_coords(start_pos_simplecad)
-
-        # 使用profile的工作平面进行扫掠
-        # 这样可以保持profile的原始方向和位置
-        profile_wp = profile.get_workplane()
-        profile_wp = profile_wp.add(profile_face)
-
-        # 将profile移动到螺旋起始位置
-        profile_wp = profile_wp.translate(
-            (start_pos_cq[0], start_pos_cq[1], start_pos_cq[2])
-        )
-
-        # 如果螺旋轴不是Z轴方向，需要调整profile的方向
-        # 将SimpleCAD的轴方向转换为CADQuery坐标系
-        axis_unit_cq = current_cs.to_cq_coords(
-            axis_unit + axis_start_global
-        ) - current_cs.to_cq_coords(axis_start_global)
-        axis_unit_cq = axis_unit_cq / np.linalg.norm(axis_unit_cq)
-
-        # 执行螺旋扫掠
-        result = profile_wp.sweep(path, isFrenet=True)
-
-        if result.solids().size() > 0:
-            return Body(result)
-        else:
-            raise ValueError("高级螺旋扫掠未产生有效实体")
-
+        if thickness <= 0:
+            raise ValueError("壁厚必须大于0")
+        
+        # 转换为CADQuery面对象
+        cq_faces = [face.cq_face for face in faces_to_remove] if faces_to_remove else None
+        
+        # 执行抽壳操作
+        cq_result = solid.cq_solid.shell(cq_faces, thickness)
+        result = Solid(cq_result)
+        
+        # 复制标签和元数据
+        result._tags = solid._tags.copy()
+        result._metadata = solid._metadata.copy()
+        
+        return result
     except Exception as e:
-        raise ValueError(f"高级螺旋扫掠操作失败: {e}")
+        raise ValueError(f"抽壳操作失败: {e}. 请检查实体、面和壁厚是否有效。")
 
 
-# ===== 面选择操作 =====
-
-
-def select_face_by_tag(body: Body, tags: List[str]):
-    """根据标签选择面
-
+def loft_rsolid(profiles: List[Wire], ruled: bool = False) -> Solid:
+    """通过多个轮廓放样创建实体
+    
     Args:
-        body: 要选择面的实体
-        tags: 要选择的面标签列表
-
+        profiles: 轮廓线列表
+        ruled: 是否为直纹面
+        
     Returns:
-        选中的面对象列表（CADQuery Face对象）
+        放样后的实体
+        
+    Raises:
+        ValueError: 当操作失败时
     """
-    if not body.is_valid():
-        raise ValueError("输入实体无效")
-
-    selected_faces = []
-    all_faces = body.get_all_faces()
-
-    if not all_faces:
-        return selected_faces
-
-    # 遍历每个标签，收集对应的面
-    for tag in tags:
-        face_indices = body.get_faces_by_tag(tag)
-        for index in face_indices:
-            if 0 <= index < len(all_faces):
-                face = all_faces[index]
-                if face not in selected_faces:
-                    selected_faces.append(face)
-
-    return selected_faces
-
-
-def create_workplane_from_face(body: Body, tag: str):
-    """从标签面创建工作平面
-
-    Args:
-        body: 包含面的实体
-        tag: 面标签
-
-    Returns:
-        CADQuery Workplane对象
-    """
-    if not body.is_valid():
-        raise ValueError("输入实体无效")
-
-    faces = select_face_by_tag(body, [tag])
-    if not faces:
-        raise ValueError(f"未找到标签为'{tag}'的面")
-
-    # 使用第一个找到的面创建工作平面
-    face = faces[0]
     try:
-        # 直接从面创建工作平面
-        wp = cq.Workplane().add(face)
-        return wp
+        if len(profiles) < 2:
+            raise ValueError("放样至少需要2个轮廓")
+        
+        # 转换为CADQuery线对象
+        cq_wires = [profile.cq_wire for profile in profiles]
+        
+        # 执行放样操作
+        cq_result = cq.Solid.makeLoft(cq_wires, ruled)
+        result = Solid(cq_result)
+        
+        # 合并所有轮廓的标签和元数据
+        all_tags = set()
+        all_metadata = {}
+        for profile in profiles:
+            all_tags.update(profile._tags)
+            all_metadata.update(profile._metadata)
+        
+        result._tags = all_tags
+        result._metadata = all_metadata
+        
+        return result
     except Exception as e:
-        raise ValueError(f"创建工作平面失败: {e}")
+        raise ValueError(f"放样操作失败: {e}. 请检查轮廓是否有效。")
 
 
-def tag_faces_automatically(body: Body, geometry_type: str = "auto"):
-    """自动为实体的面添加标签
-
+def sweep_rsolid(profile: Wire, path: Wire, 
+                 make_solid: bool = True,
+                 is_frenet: bool = False) -> Union[Solid, Shell]:
+    """沿路径扫掠轮廓创建实体
+    
     Args:
-        body: 要添加标签的实体
-        geometry_type: 几何体类型，'auto'表示自动检测
-    """
-    if not body.is_valid():
-        raise ValueError("输入实体无效")
-
-    if geometry_type == "auto":
-        # 根据面数量自动判断几何体类型
-        faces = body.get_all_faces()
-        face_count = len(faces)
-
-        if face_count == 6:
-            geometry_type = "box"
-        elif face_count == 3:
-            geometry_type = "cylinder"
-        elif face_count == 1:
-            geometry_type = "sphere"
-        else:
-            # 复杂几何体，使用通用标记
-            for i in range(face_count):
-                body.tag_face(i, f"face_{i}")
-            return
-
-    body.auto_tag_faces(geometry_type)
-
-
-def get_face_info(body: Body, tag: Optional[str] = None) -> dict:
-    """获取面的信息
-
-    Args:
-        body: 实体对象
-        tag: 面标签，None表示获取所有面信息
-
+        profile: 要扫掠的轮廓
+        path: 扫掠路径
+        make_solid: 是否创建实体（否则创建壳）
+        is_frenet: 是否使用Frenet框架
+        
     Returns:
-        面信息字典
+        扫掠后的实体或壳
+        
+    Raises:
+        ValueError: 当操作失败时
     """
-    if not body.is_valid():
-        raise ValueError("输入实体无效")
+    try:
+        # 将Wire转换为Face用于扫掠
+        try:
+            profile_face = cq.Face.makeFromWires(profile.cq_wire)
+        except:
+            # 如果Wire不闭合，无法扫掠成实体
+            raise ValueError("扫掠轮廓必须是闭合的")
+            
+        # 执行扫掠操作
+        cq_result = cq.Solid.sweep(profile_face, path.cq_wire, 
+                                   makeSolid=make_solid, isFrenet=is_frenet)
+        
+        if make_solid:
+            result = Solid(cq_result)
+        else:
+            # 如果不是实体，则创建Shell
+            result = Shell(cq_result)
+        
+        # 合并轮廓和路径的标签和元数据
+        result._tags = profile._tags.union(path._tags)
+        result._metadata = {**profile._metadata, **path._metadata}
+        
+        return result
+    except Exception as e:
+        raise ValueError(f"扫掠操作失败: {e}. 请检查轮廓和路径是否有效。")
 
-    info = {
-        "total_faces": len(body.get_all_faces()),
-        "tagged_faces": {},
-        "face_details": [],
-    }
 
-    # 收集标签信息
-    for face_tag, indices in body.face_tags.items():
-        info["tagged_faces"][face_tag] = len(indices)
+def linear_pattern_rcompound(shape: AnyShape, 
+                             direction: Tuple[float, float, float],
+                             count: int,
+                             spacing: float) -> Compound:
+    """创建线性阵列
+    
+    Args:
+        shape: 要阵列的几何体
+        direction: 阵列方向
+        count: 阵列数量
+        spacing: 阵列间距
+        
+    Returns:
+        阵列后的复合体
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if count <= 0:
+            raise ValueError("阵列数量必须大于0")
+        if spacing <= 0:
+            raise ValueError("阵列间距必须大于0")
+        
+        cs = get_current_cs()
+        global_direction = cs.transform_point(np.array(direction)) - cs.origin
+        direction_vec = Vector(*global_direction).normalized()
+        
+        shapes = []
+        for i in range(count):
+            offset = direction_vec * (spacing * i)
+            translated_shape = translate_shape(shape, (offset.x, offset.y, offset.z))
+            shapes.append(translated_shape)
+        
+        # 创建复合体
+        if isinstance(shape, Vertex):
+            cq_shapes = [s.cq_vertex for s in shapes]
+        elif isinstance(shape, Edge):
+            cq_shapes = [s.cq_edge for s in shapes]
+        elif isinstance(shape, Wire):
+            cq_shapes = [s.cq_wire for s in shapes]
+        elif isinstance(shape, Face):
+            cq_shapes = [s.cq_face for s in shapes]
+        elif isinstance(shape, Shell):
+            cq_shapes = [s.cq_shell for s in shapes]
+        elif isinstance(shape, Solid):
+            cq_shapes = [s.cq_solid for s in shapes]
+        else:
+            raise ValueError(f"不支持的几何体类型: {type(shape)}")
+        
+        cq_compound = cq.Compound.makeCompound(cq_shapes)
+        result = Compound(cq_compound)
+        
+        # 复制原始形状的标签和元数据
+        result._tags = shape._tags.copy()
+        result._metadata = shape._metadata.copy()
+        result.add_tag("linear_pattern")
+        
+        return result
+    except Exception as e:
+        raise ValueError(f"线性阵列失败: {e}. 请检查参数是否有效。")
 
-    # 如果指定了标签，返回该标签的详细信息
-    if tag:
-        faces = select_face_by_tag(body, [tag])
-        for i, face in enumerate(faces):
-            try:
-                center = face.Center()
-                normal = face.normalAt()
-                area = face.Area()
 
-                info["face_details"].append(
-                    {
-                        "index": i,
-                        "tag": tag,
-                        "center": (center.x, center.y, center.z),
-                        "normal": (normal.x, normal.y, normal.z),
-                        "area": area,
-                    }
-                )
-            except:
-                info["face_details"].append(
-                    {"index": i, "tag": tag, "error": "无法获取面信息"}
-                )
+def radial_pattern_rcompound(shape: AnyShape,
+                             center: Tuple[float, float, float],
+                             axis: Tuple[float, float, float],
+                             count: int,
+                             angle: float) -> Compound:
+    """创建径向阵列
+    
+    Args:
+        shape: 要阵列的几何体
+        center: 旋转中心
+        axis: 旋转轴
+        count: 阵列数量
+        angle: 总角度（弧度）
+        
+    Returns:
+        阵列后的复合体
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if count <= 0:
+            raise ValueError("阵列数量必须大于0")
+        if angle <= 0:
+            raise ValueError("角度必须大于0")
+        
+        shapes = []
+        angle_step = angle / (count - 1) if count > 1 else 0
+        
+        for i in range(count):
+            rotation_angle = angle_step * i
+            rotated_shape = rotate_shape(shape, rotation_angle, axis, center)
+            shapes.append(rotated_shape)
+        
+        # 创建复合体
+        if isinstance(shape, Vertex):
+            cq_shapes = [s.cq_vertex for s in shapes]
+        elif isinstance(shape, Edge):
+            cq_shapes = [s.cq_edge for s in shapes]
+        elif isinstance(shape, Wire):
+            cq_shapes = [s.cq_wire for s in shapes]
+        elif isinstance(shape, Face):
+            cq_shapes = [s.cq_face for s in shapes]
+        elif isinstance(shape, Shell):
+            cq_shapes = [s.cq_shell for s in shapes]
+        elif isinstance(shape, Solid):
+            cq_shapes = [s.cq_solid for s in shapes]
+        else:
+            raise ValueError(f"不支持的几何体类型: {type(shape)}")
+        
+        cq_compound = cq.Compound.makeCompound(cq_shapes)
+        result = Compound(cq_compound)
+        
+        # 复制原始形状的标签和元数据
+        result._tags = shape._tags.copy()
+        result._metadata = shape._metadata.copy()
+        result.add_tag("radial_pattern")
+        
+        return result
+    except Exception as e:
+        raise ValueError(f"径向阵列失败: {e}. 请检查参数是否有效。")
 
-    return info
+
+def mirror_shape(shape: AnyShape, 
+                 plane_origin: Tuple[float, float, float],
+                 plane_normal: Tuple[float, float, float]) -> AnyShape:
+    """镜像几何体
+    
+    Args:
+        shape: 要镜像的几何体
+        plane_origin: 镜像平面原点
+        plane_normal: 镜像平面法向量
+        
+    Returns:
+        镜像后的几何体
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        cs = get_current_cs()
+        global_origin = cs.transform_point(np.array(plane_origin))
+        global_normal = cs.transform_vector(np.array(plane_normal))
+        
+        # 确保法向量不是零向量
+        if np.linalg.norm(global_normal) < 1e-10:
+            raise ValueError("镜像平面法向量不能是零向量")
+        
+        # 坐标系转换：SimpleCAD (X前,Y右,Z上) -> CadQuery (X右,Y上,Z前)
+        cq_origin = Vector(global_origin[1], global_origin[2], global_origin[0])
+        cq_normal = Vector(global_normal[1], global_normal[2], global_normal[0])
+        
+        # 创建镜像平面
+        mirror_plane = Plane(origin=cq_origin, normal=cq_normal)
+        
+        # 使用Workplane进行镜像操作
+        if isinstance(shape, Solid):
+            # 对于Solid，创建一个包含该Solid的Workplane
+            wp = cq.Workplane().add(shape.cq_solid)
+            
+            # 根据法向量确定镜像平面
+            abs_normal = np.abs(cq_normal.toTuple())
+            max_idx = np.argmax(abs_normal)
+            
+            if max_idx == 0:  # X方向
+                mirror_plane_str = "YZ"
+            elif max_idx == 1:  # Y方向
+                mirror_plane_str = "XZ"
+            else:  # Z方向
+                mirror_plane_str = "XY"
+            
+            # 执行镜像
+            mirrored_wp = wp.mirror(mirror_plane_str, basePointVector=cq_origin.toTuple())
+            
+            # 获取镜像后的Solid
+            mirrored_solid = mirrored_wp.val()
+            new_shape = Solid(mirrored_solid)
+            
+        else:
+            # 对于其他类型的几何体，暂时不支持
+            raise ValueError(f"暂不支持镜像 {type(shape).__name__} 类型的几何体")
+        
+        # 复制标签和元数据
+        new_shape._tags = shape._tags.copy()
+        new_shape._metadata = shape._metadata.copy()
+        new_shape.add_tag("mirrored")
+        
+        return new_shape
+    except Exception as e:
+        raise ValueError(f"镜像操作失败: {e}. 请检查几何体和镜像平面是否有效。")
+
+
+def helical_sweep_rsolid(profile: Wire,
+                         pitch: float,
+                         height: float,
+                         radius: float,
+                         center: Tuple[float, float, float] = (0, 0, 0),
+                         dir: Tuple[float, float, float] = (0, 0, 1)) -> Solid:
+    """沿螺旋路径扫掠轮廓创建实体
+    
+    Args:
+        profile: 要扫掠的轮廓
+        pitch: 螺距
+        height: 总高度
+        radius: 螺旋半径
+        center: 螺旋中心
+        dir: 螺旋轴方向
+        
+    Returns:
+        螺旋扫掠后的实体
+        
+    Raises:
+        ValueError: 当参数无效时
+    """
+    try:
+        if pitch <= 0:
+            raise ValueError("螺距必须大于0")
+        if height <= 0:
+            raise ValueError("高度必须大于0")
+        if radius <= 0:
+            raise ValueError("半径必须大于0")
+        
+        cs = get_current_cs()
+        global_center = cs.transform_point(np.array(center))
+        global_dir = cs.transform_point(np.array(dir)) - cs.origin
+        
+        center_vec = Vector(*global_center)
+        dir_vec = Vector(*global_dir)
+        
+        # 创建螺旋路径
+        helix = cq.Wire.makeHelix(pitch, height, radius, center_vec, dir_vec)
+        
+        # 将Wire转换为Face用于扫掠
+        try:
+            profile_face = cq.Face.makeFromWires(profile.cq_wire)
+        except:
+            raise ValueError("螺旋扫掠轮廓必须是闭合的")
+        
+        # 沿螺旋路径扫掠
+        cq_result = cq.Solid.sweep(profile_face, helix, makeSolid=True)
+        result = Solid(cq_result)
+        
+        # 复制轮廓的标签和元数据
+        result._tags = profile._tags.copy()
+        result._metadata = profile._metadata.copy()
+        result.add_tag("helical_sweep")
+        
+        return result
+    except Exception as e:
+        raise ValueError(f"螺旋扫掠失败: {e}. 请检查参数是否有效。")
