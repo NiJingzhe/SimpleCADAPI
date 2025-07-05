@@ -3,87 +3,202 @@ SimpleCAD API - 简化的CAD建模Python API
 基于CADQuery实现，提供直观的几何建模接口
 """
 
-# 导入核心类
 from .core import (
-    CoordinateSystem, Point, Line, Sketch, Body,
-    WORLD_CS, LocalCoordinateSystem, get_current_cs
+    # 核心类
+    CoordinateSystem,
+    SimpleWorkplane,
+    Vertex,
+    Edge,
+    Wire,
+    Face,
+    Shell,
+    Solid,
+    Compound,
+    AnyShape,
+    TaggedMixin,
+    
+    # 坐标系函数
+    get_current_cs,
+    WORLD_CS,
 )
 
-import cadquery as cq
-
-from rich import traceback
-# 启用Rich的详细错误追踪
-traceback.install(show_locals=True, suppress=[cq])
-
-# 基础构造操作
 from .operations import (
-    # 基础几何
-    make_point, make_line, make_angle_arc, make_three_point_arc, make_segment, make_spline,
-    make_sketch,
-    make_rectangle, make_circle, make_triangle, make_ellipse,
+    # 基础几何创建
+    make_point_rvertex,
+    make_line_redge,
+    make_segment_redge,
+    make_circle_redge,
+    make_circle_rwire,
+    make_circle_rface,
+    make_rectangle_rwire,
+    make_rectangle_rface,
+    make_box_rsolid,
+    make_cylinder_rsolid,
+    make_sphere_rsolid,
+    make_three_point_arc_redge,
+    make_spline_redge,
     
-    # 便利函数
-    make_box, make_cylinder, make_sphere,
+    # 变换操作
+    translate_shape,
+    rotate_shape,
     
-    # 三维建模
-    extrude, revolve, loft, sweep,
+    # 3D操作
+    extrude_rsolid,
+    revolve_rsolid,
     
-    # 实体编辑
-    shell, fillet, chamfer,
+    # 标签和选择
+    set_tag,
+    select_faces_by_tag,
+    select_edges_by_tag,
     
     # 布尔运算
-    cut, union, intersect,
-    
-    # 高级操作
-    make_linear_pattern, make_2d_pattern, make_radial_pattern, helical_sweep,
-    
-    # 变换
-    translate_body, rotate_body,
+    union_rsolid,
+    cut_rsolid,
+    intersect_rsolid,
     
     # 导出
-    export_step, export_stl
+    export_step,
+    export_stl,
+    
+    # 高级特征操作
+    fillet_rsolid,
+    chamfer_rsolid,
+    shell_rsolid,
+    loft_rsolid,
+    sweep_rsolid,
+    linear_pattern_rcompound,
+    radial_pattern_rcompound,
+    mirror_shape,
+    helical_sweep_rsolid,
 )
 
+__version__ = "0.1.0"
+__author__ = "SimpleCAD API Team"
+__description__ = "Simplified CAD modeling Python API based on CADQuery"
 
-from .advanced import (
-    make_round_spring, make_square_spring,
-     make_bolt_body_with_triangle_thread   
-)
+# 便于使用的别名
+Workplane = SimpleWorkplane
 
-__version__ = "0.1.2"
-__author__ = "SimpleCAD Team"
+# 常用函数别名
+create_point = make_point_rvertex
+create_line = make_line_redge
+create_segment = make_segment_redge
+create_circle_edge = make_circle_redge
+create_circle_wire = make_circle_rwire
+create_circle_face = make_circle_rface
+create_rectangle_wire = make_rectangle_rwire
+create_rectangle_face = make_rectangle_rface
+create_box = make_box_rsolid
+create_cylinder = make_cylinder_rsolid
+create_sphere = make_sphere_rsolid
+create_arc = make_three_point_arc_redge
+create_spline = make_spline_redge
+
+# 变换操作别名
+translate = translate_shape
+rotate = rotate_shape
+
+# 3D操作别名
+extrude = extrude_rsolid
+revolve = revolve_rsolid
+
+# 布尔运算别名
+union = union_rsolid
+cut = cut_rsolid
+intersect = intersect_rsolid
+
+# 导出别名
+to_step = export_step
+to_stl = export_stl
 
 __all__ = [
     # 核心类
-    "CoordinateSystem", "Point", "Line", "Sketch", "Body",
-    "WORLD_CS", "LocalCoordinateSystem", "get_current_cs",
+    "CoordinateSystem",
+    "SimpleWorkplane",
+    "Workplane",
+    "Vertex",
+    "Edge", 
+    "Wire",
+    "Face",
+    "Shell",
+    "Solid",
+    "Compound",
+    "AnyShape",
+    "TaggedMixin",
     
-    # 基础操作
-    "make_point", "make_line", "make_sketch", "make_angle_arc", "make_three_point_arc", "make_segment", "make_spline",
-    "make_rectangle", "make_circle", "make_triangle", "make_ellipse",
+    # 坐标系
+    "get_current_cs",
+    "WORLD_CS",
     
-    # 便利函数  
-    "make_box", "make_cylinder", "make_sphere",
+    # 基础几何创建
+    "make_point_rvertex",
+    "make_line_redge",
+    "make_segment_redge",
+    "make_circle_redge",
+    "make_circle_rwire",
+    "make_circle_rface",
+    "make_rectangle_rwire",
+    "make_rectangle_rface",
+    "make_box_rsolid",
+    "make_cylinder_rsolid",
+    "make_sphere_rsolid",
+    "make_three_point_arc_redge",
+    "make_spline_redge",
     
-    # 三维建模
-    "extrude", "revolve", "loft", "sweep",
+    # 变换操作
+    "translate_shape",
+    "rotate_shape",
     
-    # 实体编辑
-    "shell", "fillet", "chamfer",
+    # 3D操作
+    "extrude_rsolid",
+    "revolve_rsolid",
+    
+    # 标签和选择
+    "set_tag",
+    "select_faces_by_tag",
+    "select_edges_by_tag",
     
     # 布尔运算
-    "cut", "union", "intersect",
-    
-    # 高级操作
-    "make_linear_pattern", "make_2d_pattern", "make_radial_pattern", "helical_sweep",
-
-    # 变换
-    "translate_body", "rotate_body",
+    "union_rsolid",
+    "cut_rsolid",
+    "intersect_rsolid",
     
     # 导出
-    "export_step", "export_stl",
+    "export_step",
+    "export_stl",
     
-    # 高级建模
-    "make_round_spring", "make_square_spring",
-     "make_bolt_body_with_triangle_thread"
+    # 别名
+    "create_point",
+    "create_line",
+    "create_segment",
+    "create_circle_edge",
+    "create_circle_wire",
+    "create_circle_face",
+    "create_rectangle_wire",
+    "create_rectangle_face",
+    "create_box",
+    "create_cylinder",
+    "create_sphere",
+    "create_arc",
+    "create_spline",
+    "translate",
+    "rotate",
+    "extrude",
+    "revolve",
+    "union",
+    "cut",
+    "intersect",
+    "to_step",
+    "to_stl",
+    
+    # 高级特征操作
+    "fillet_rsolid",
+    "chamfer_rsolid", 
+    "shell_rsolid",
+    "loft_rsolid",
+    "sweep_rsolid",
+    "linear_pattern_rcompound",
+    "radial_pattern_rcompound",
+    "mirror_shape",
+    "helical_sweep_rsolid",
 ]
