@@ -30,7 +30,7 @@
 
 2. 基础和高级Edge，Wire，Face，Shell，Solid创建：
 
-  - 针对Edge和Wire
+ - 针对Edge和Wire
   
      - Segment
      - AngleArc

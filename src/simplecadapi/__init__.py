@@ -27,6 +27,7 @@ from .operations import (
     make_point_rvertex,
     make_line_redge,
     make_segment_redge,
+    make_segment_rwire,
     make_circle_redge,
     make_circle_rwire,
     make_circle_rface,
@@ -35,8 +36,16 @@ from .operations import (
     make_box_rsolid,
     make_cylinder_rsolid,
     make_sphere_rsolid,
+    make_angle_arc_redge,
+    make_angle_arc_rwire,
     make_three_point_arc_redge,
+    make_three_point_arc_rwire,
     make_spline_redge,
+    make_spline_rwire,
+    make_polyline_redge,
+    make_polyline_rwire,
+    make_helix_redge,
+    make_helix_rwire,
     
     # 变换操作
     translate_shape,
@@ -83,6 +92,7 @@ Workplane = SimpleWorkplane
 create_point = make_point_rvertex
 create_line = make_line_redge
 create_segment = make_segment_redge
+create_segment_wire = make_segment_rwire
 create_circle_edge = make_circle_redge
 create_circle_wire = make_circle_rwire
 create_circle_face = make_circle_rface
@@ -91,8 +101,16 @@ create_rectangle_face = make_rectangle_rface
 create_box = make_box_rsolid
 create_cylinder = make_cylinder_rsolid
 create_sphere = make_sphere_rsolid
+create_angle_arc = make_angle_arc_redge
+create_angle_arc_wire = make_angle_arc_rwire
 create_arc = make_three_point_arc_redge
+create_arc_wire = make_three_point_arc_rwire
 create_spline = make_spline_redge
+create_spline_wire = make_spline_rwire
+create_polyline = make_polyline_redge
+create_polyline_wire = make_polyline_rwire
+create_helix = make_helix_redge
+create_helix_wire = make_helix_rwire
 
 # 变换操作别名
 translate = translate_shape
@@ -134,6 +152,7 @@ __all__ = [
     "make_point_rvertex",
     "make_line_redge",
     "make_segment_redge",
+    "make_segment_rwire",
     "make_circle_redge",
     "make_circle_rwire",
     "make_circle_rface",
@@ -142,8 +161,16 @@ __all__ = [
     "make_box_rsolid",
     "make_cylinder_rsolid",
     "make_sphere_rsolid",
+    "make_angle_arc_redge",
+    "make_angle_arc_rwire",
     "make_three_point_arc_redge",
+    "make_three_point_arc_rwire",
     "make_spline_redge",
+    "make_spline_rwire",
+    "make_polyline_redge",
+    "make_polyline_rwire",
+    "make_helix_redge",
+    "make_helix_rwire",
     
     # 变换操作
     "translate_shape",
@@ -171,6 +198,7 @@ __all__ = [
     "create_point",
     "create_line",
     "create_segment",
+    "create_segment_wire",
     "create_circle_edge",
     "create_circle_wire",
     "create_circle_face",
@@ -179,8 +207,16 @@ __all__ = [
     "create_box",
     "create_cylinder",
     "create_sphere",
+    "create_angle_arc",
+    "create_angle_arc_wire",
     "create_arc",
+    "create_arc_wire",
     "create_spline",
+    "create_spline_wire",
+    "create_polyline",
+    "create_polyline_wire",
+    "create_helix",
+    "create_helix_wire",
     "translate",
     "rotate",
     "extrude",
