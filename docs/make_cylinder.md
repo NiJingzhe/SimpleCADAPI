@@ -1,21 +1,27 @@
-# make_cylinder 函数文档
+# make_cylinder
 
 ## 定义
 ```python
 def make_cylinder(radius: float, height: float) -> Body
 ```
 
-## 作用
+## 描述
+
 直接创建圆柱体3D实体。这是创建基础旋转体的便捷函数，自动生成带标签的圆柱体。
 
-## 参数
-- `radius` (float): 圆柱体半径
-- `height` (float): 圆柱体高度
+### 参数
+- `radius` (float): 圆柱体半径，必须为正值
+- `height` (float): 圆柱体高度，必须为正值
 
-## 返回值
-- `Body`: 圆柱体实体，自动添加面标签
+### 返回值
+- `Body`: 圆柱体实体，自动添加面标签（"top", "bottom", "side"）
 
-## 示例代码
+### 特点
+- 圆柱体轴沿当前坐标系Z轴方向
+- 底面圆心位于当前坐标系原点
+- 自动添加标准面标签
+
+## 示例
 
 ### 基础圆柱体创建（来自comprehensive_test）
 ```python
