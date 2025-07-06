@@ -2453,7 +2453,7 @@ def helical_sweep_rsolid(profile: Wire,
                 # 最后的fallback，假设法向量为Z轴方向
                 profile_normal = Vector(0, 0, 1)
         
-        # 定义目标法向量：X轴正方向
+        # 定义目标法向量：Y轴正方向
         target_normal = Vector(0, 1, 0)
         
         # 检查当前法向量与目标法向量的夹角
