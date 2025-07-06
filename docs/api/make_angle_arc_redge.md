@@ -38,7 +38,7 @@ def make_angle_arc_redge(center: Tuple[float, float, float], radius: float, star
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 圆弧所在平面的法向量 (x, y, z)， 默认为 (0, 0, 1) 表示XY平面
 
-## 返回值
+### 返回值
 
 Edge: 创建的边对象，表示指定角度范围的圆弧
 
@@ -49,15 +49,15 @@ Edge: 创建的边对象，表示指定角度范围的圆弧
 ## API使用例子
 
 ```python
->>> # 创建90度圆弧（从0度到90度）
->>> arc_90 = make_angle_arc_redge((0, 0, 0), 2.0, 0, 90)
+ # 创建90度圆弧（从0度到90度）
+ arc_90 = make_angle_arc_redge((0, 0, 0), 2.0, 0, 90)
 
->>> # 创建180度半圆弧
->>> semicircle = make_angle_arc_redge((0, 0, 0), 1.5, 0, 180)
+ # 创建180度半圆弧
+ semicircle = make_angle_arc_redge((0, 0, 0), 1.5, 0, 180)
 
->>> # 创建270度圆弧
->>> arc_270 = make_angle_arc_redge((0, 0, 0), 1.0, 45, 315)
+ # 创建270度圆弧
+ arc_270 = make_angle_arc_redge((0, 0, 0), 1.0, 45, 315)
 
->>> # 创建垂直平面上的圆弧
->>> vertical_arc = make_angle_arc_redge((0, 0, 0), 1.0, 0, 90, (1, 0, 0))
+ # 创建垂直平面上的圆弧
+ vertical_arc = make_angle_arc_redge((0, 0, 0), 1.0, 0, 90, (1, 0, 0))
 ```

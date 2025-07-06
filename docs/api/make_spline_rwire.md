@@ -28,7 +28,7 @@ def make_spline_rwire(points: List[Tuple[float, float, float]], tangents: Option
 - **类型**: `bool, optional`
 - **说明**: 是否创建闭合的样条曲线，默认为False
 
-## 返回值
+### 返回值
 
 Wire: 创建的线对象，包含一个样条曲线
 
@@ -39,11 +39,11 @@ Wire: 创建的线对象，包含一个样条曲线
 ## API使用例子
 
 ```python
->>> # 创建开放样条曲线线
->>> points = [(0, 0, 0), (2, 3, 0), (4, 1, 0), (6, 2, 0)]
->>> spline_wire = make_spline_rwire(points)
+ # 创建开放样条曲线线
+ points = [(0, 0, 0), (2, 3, 0), (4, 1, 0), (6, 2, 0)]
+ spline_wire = make_spline_rwire(points)
 
->>> # 创建闭合样条曲线
->>> points = [(0, 0, 0), (2, 2, 0), (4, 0, 0), (2, -2, 0)]
->>> closed_spline = make_spline_rwire(points, closed=True)
+ # 创建闭合样条曲线
+ points = [(0, 0, 0), (2, 2, 0), (4, 0, 0), (2, -2, 0)]
+ closed_spline = make_spline_rwire(points, closed=True)
 ```

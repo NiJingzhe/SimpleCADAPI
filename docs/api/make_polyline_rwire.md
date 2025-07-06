@@ -23,7 +23,7 @@ def make_polyline_rwire(points: List[Tuple[float, float, float]], closed: bool =
 - **类型**: `bool, optional`
 - **说明**: 是否创建闭合的多段线，默认为False。 如果为True，会自动连接最后一个点和第一个点
 
-## 返回值
+### 返回值
 
 Wire: 创建的线对象，由多个直线段组成的多段线
 
@@ -34,15 +34,15 @@ Wire: 创建的线对象，由多个直线段组成的多段线
 ## API使用例子
 
 ```python
->>> # 创建L形多段线
->>> points = [(0, 0, 0), (3, 0, 0), (3, 2, 0)]
->>> l_shape = make_polyline_rwire(points)
+ # 创建L形多段线
+ points = [(0, 0, 0), (3, 0, 0), (3, 2, 0)]
+ l_shape = make_polyline_rwire(points)
 
->>> # 创建三角形轮廓
->>> triangle_points = [(0, 0, 0), (2, 0, 0), (1, 2, 0)]
->>> triangle = make_polyline_rwire(triangle_points, closed=True)
+ # 创建三角形轮廓
+ triangle_points = [(0, 0, 0), (2, 0, 0), (1, 2, 0)]
+ triangle = make_polyline_rwire(triangle_points, closed=True)
 
->>> # 创建复杂的多边形
->>> polygon_points = [(0, 0, 0), (2, 0, 0), (3, 1, 0), (2, 2, 0), (0, 2, 0)]
->>> polygon = make_polyline_rwire(polygon_points, closed=True)
+ # 创建复杂的多边形
+ polygon_points = [(0, 0, 0), (2, 0, 0), (3, 1, 0), (2, 2, 0), (0, 2, 0)]
+ polygon = make_polyline_rwire(polygon_points, closed=True)
 ```

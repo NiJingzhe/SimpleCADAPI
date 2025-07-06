@@ -23,7 +23,7 @@ def make_segment_rwire(start: Tuple[float, float, float], end: Tuple[float, floa
 - **类型**: `Tuple[float, float, float]`
 - **说明**: 结束点坐标 (x, y, z)，定义线段的终点
 
-## 返回值
+### 返回值
 
 Wire: 创建的线对象，包含一个连接两点的直线段
 
@@ -34,9 +34,9 @@ Wire: 创建的线对象，包含一个连接两点的直线段
 ## API使用例子
 
 ```python
->>> # 创建基本线段线
->>> wire = make_segment_rwire((0, 0, 0), (3, 0, 0))
+ # 创建基本线段线
+ wire = make_segment_rwire((0, 0, 0), (3, 0, 0))
 
->>> # 创建斜线段
->>> diagonal_wire = make_segment_rwire((0, 0, 0), (2, 2, 0))
+ # 创建斜线段
+ diagonal_wire = make_segment_rwire((0, 0, 0), (2, 2, 0))
 ```
