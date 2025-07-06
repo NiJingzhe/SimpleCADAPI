@@ -28,7 +28,7 @@ def make_circle_redge(center: Tuple[float, float, float], radius: float, normal:
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 圆所在平面的法向量 (x, y, z)， 默认为 (0, 0, 1) 表示XY平面
 
-## 返回值
+### 返回值
 
 Edge: 创建的边对象，表示一个完整的圆形
 
@@ -39,12 +39,12 @@ Edge: 创建的边对象，表示一个完整的圆形
 ## API使用例子
 
 ```python
->>> # 创建XY平面上的圆
->>> circle = make_circle_redge((0, 0, 0), 2.0)
+ # 创建XY平面上的圆
+ circle = make_circle_redge((0, 0, 0), 2.0)
 
->>> # 创建垂直平面上的圆
->>> vertical_circle = make_circle_redge((0, 0, 0), 1.5, (1, 0, 0))
+ # 创建垂直平面上的圆
+ vertical_circle = make_circle_redge((0, 0, 0), 1.5, (1, 0, 0))
 
->>> # 创建指定位置的圆
->>> offset_circle = make_circle_redge((2, 3, 1), 1.0, (0, 0, 1))
+ # 创建指定位置的圆
+ offset_circle = make_circle_redge((2, 3, 1), 1.0, (0, 0, 1))
 ```

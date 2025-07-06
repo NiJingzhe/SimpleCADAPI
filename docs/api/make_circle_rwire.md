@@ -28,7 +28,7 @@ def make_circle_rwire(center: Tuple[float, float, float], radius: float, normal:
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 圆所在平面的法向量 (x, y, z)， 默认为 (0, 0, 1) 表示XY平面
 
-## 返回值
+### 返回值
 
 Wire: 创建的线对象，表示一个完整的圆形轮廓
 
@@ -39,9 +39,9 @@ Wire: 创建的线对象，表示一个完整的圆形轮廓
 ## API使用例子
 
 ```python
->>> # 创建标准圆形轮廓
->>> circle_wire = make_circle_rwire((0, 0, 0), 3.0)
+ # 创建标准圆形轮廓
+ circle_wire = make_circle_rwire((0, 0, 0), 3.0)
 
->>> # 创建小圆轮廓
->>> small_circle = make_circle_rwire((1, 1, 0), 0.5)
+ # 创建小圆轮廓
+ small_circle = make_circle_rwire((1, 1, 0), 0.5)
 ```

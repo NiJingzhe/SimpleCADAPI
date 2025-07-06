@@ -34,7 +34,7 @@ def make_angle_arc_rwire(center: Tuple[float, float, float], radius: float, star
 
 - **说明**: 法向量
 
-## 返回值
+### 返回值
 
 Wire: 线对象，表示通过角度创建的圆弧线
 
@@ -45,15 +45,15 @@ Wire: 线对象，表示通过角度创建的圆弧线
 ## API使用例子
 
 ```python
->>> # 创建90度圆弧线（从0度到90度）
->>> arc_90_wire = make_angle_arc_rwire((0, 0, 0), 2.0, 0, 90)
+ # 创建90度圆弧线（从0度到90度）
+ arc_90_wire = make_angle_arc_rwire((0, 0, 0), 2.0, 0, 90)
 
->>> # 创建180度半圆弧线
->>> semicircle_wire = make_angle_arc_rwire((0, 0, 0), 1.5, 0, 180)
+ # 创建180度半圆弧线
+ semicircle_wire = make_angle_arc_rwire((0, 0, 0), 1.5, 0, 180)
 
->>> # 创建270度圆弧线
->>> arc_270_wire = make_angle_arc_rwire((0, 0, 0), 1.0, 45, 315)
+ # 创建270度圆弧线
+ arc_270_wire = make_angle_arc_rwire((0, 0, 0), 1.0, 45, 315)
 
->>> # 创建垂直平面（YZ，法相指向X轴正方向）上的圆弧线
->>> vertical_arc_wire = make_angle_arc_rwire((0, 0, 0), 1.0, 0, 90, (1, 0, 0))
+ # 创建垂直平面（YZ，法相指向X轴正方向）上的圆弧线
+ vertical_arc_wire = make_angle_arc_rwire((0, 0, 0), 1.0, 0, 90, (1, 0, 0))
 ```

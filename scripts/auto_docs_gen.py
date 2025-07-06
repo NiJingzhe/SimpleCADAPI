@@ -238,7 +238,7 @@ class APIDocumentGenerator:
         
         for line in content:
             # 检测新的例子开始（以注释开始）
-            if line.startswith('>>> #'):
+            if line.startswith(' #'):
                 # 保存之前的例子
                 if current_example:
                     examples.append('\n'.join(current_example))
@@ -246,14 +246,14 @@ class APIDocumentGenerator:
                 # 开始新的例子
                 current_example.append(line)
                 in_example_block = True
-            elif line.startswith('>>> ') or line.startswith('... '):
+            elif line.startswith(' ') or line.startswith('... '):
                 # 继续当前例子
                 current_example.append(line)
                 in_example_block = True
             elif line.strip() == '' and in_example_block:
                 # 空行，但在例子块中
                 current_example.append(line)
-            elif line.strip() != '' and not line.startswith('>>> ') and not line.startswith('... '):
+            elif line.strip() != '' and not line.startswith(' ') and not line.startswith('... '):
                 # 非代码行，可能是例子结束
                 if in_example_block and current_example:
                     examples.append('\n'.join(current_example))
@@ -318,7 +318,7 @@ class APIDocumentGenerator:
         
         # 4. 返回值说明
         if parsed_doc['returns']:
-            md_content.append("## 返回值")
+            md_content.append("### 返回值")
             md_content.append("")
             md_content.append(parsed_doc['returns'])
             md_content.append("")

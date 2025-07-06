@@ -33,7 +33,7 @@ def make_rectangle_rwire(width: float, height: float, center: Tuple[float, float
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 矩形所在平面的法向量 (x, y, z)， 默认为 (0, 0, 1) 表示XY平面
 
-## 返回值
+### 返回值
 
 Wire: 创建的线对象，表示一个封闭的矩形轮廓
 
@@ -44,12 +44,12 @@ Wire: 创建的线对象，表示一个封闭的矩形轮廓
 ## API使用例子
 
 ```python
->>> # 创建标准矩形轮廓
->>> rect = make_rectangle_rwire(4.0, 3.0)
+ # 创建标准矩形轮廓
+ rect = make_rectangle_rwire(4.0, 3.0)
 
->>> # 创建偏移的矩形
->>> offset_rect = make_rectangle_rwire(2.0, 2.0, (1, 1, 0))
+ # 创建偏移的矩形
+ offset_rect = make_rectangle_rwire(2.0, 2.0, (1, 1, 0))
 
->>> # 创建垂直平面上的矩形
->>> vertical_rect = make_rectangle_rwire(3.0, 2.0, (0, 0, 0), (1, 0, 0))
+ # 创建垂直平面上的矩形
+ vertical_rect = make_rectangle_rwire(3.0, 2.0, (0, 0, 0), (1, 0, 0))
 ```

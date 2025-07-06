@@ -23,16 +23,16 @@ def make_segment_redge(start: Tuple[float, float, float], end: Tuple[float, floa
 - **类型**: `Tuple[float, float, float]`
 - **说明**: 结束点坐标 (x, y, z)，定义线段的终点
 
-## 返回值
+### 返回值
 
 Edge: 创建的边对象，表示连接两点的直线段
 
 ## API使用例子
 
 ```python
->>> # 创建垂直线段
->>> vertical_line = make_segment_redge((0, 0, 0), (0, 0, 5))
+ # 创建垂直线段
+ vertical_line = make_segment_redge((0, 0, 0), (0, 0, 5))
 
->>> # 创建对角线段
->>> diagonal = make_segment_redge((0, 0, 0), (1, 1, 1))
+ # 创建对角线段
+ diagonal = make_segment_redge((0, 0, 0), (1, 1, 1))
 ```

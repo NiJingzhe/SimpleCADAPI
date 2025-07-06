@@ -28,7 +28,7 @@ def mirror_shape(shape: AnyShape, plane_origin: Tuple[float, float, float], plan
 - **类型**: `Tuple[float, float, float]`
 - **说明**: 镜像平面的法向量 (x, y, z)， 定义镜像平面的方向，会被标准化处理
 
-## 返回值
+### 返回值
 
 AnyShape: 镜像后的几何体，类型与输入相同
 
@@ -39,15 +39,15 @@ AnyShape: 镜像后的几何体，类型与输入相同
 ## API使用例子
 
 ```python
->>> # 沿YZ平面镜像立方体
->>> box = make_box_rsolid(2, 2, 2, (1, 0, 0))
->>> mirrored_box = mirror_shape(box, (0, 0, 0), (1, 0, 0))
+ # 沿YZ平面镜像立方体
+ box = make_box_rsolid(2, 2, 2, (1, 0, 0))
+ mirrored_box = mirror_shape(box, (0, 0, 0), (1, 0, 0))
 
->>> # 沿XY平面镜像圆柱体
->>> cylinder = make_cylinder_rsolid(1.0, 3.0, (0, 0, 1))
->>> mirrored_cyl = mirror_shape(cylinder, (0, 0, 0), (0, 0, 1))
+ # 沿XY平面镜像圆柱体
+ cylinder = make_cylinder_rsolid(1.0, 3.0, (0, 0, 1))
+ mirrored_cyl = mirror_shape(cylinder, (0, 0, 0), (0, 0, 1))
 
->>> # 沿任意平面镜像
->>> sphere = make_sphere_rsolid(1.5, (2, 2, 0))
->>> mirrored_sphere = mirror_shape(sphere, (1, 1, 0), (1, 1, 0))
+ # 沿任意平面镜像
+ sphere = make_sphere_rsolid(1.5, (2, 2, 0))
+ mirrored_sphere = mirror_shape(sphere, (1, 1, 0), (1, 1, 0))
 ```

@@ -38,7 +38,7 @@ def make_helix_redge(pitch: float, height: float, radius: float, center: Tuple[f
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 螺旋轴的方向向量 (x, y, z)， 默认为 (0, 0, 1) 表示沿Z轴方向
 
-## 返回值
+### 返回值
 
 Edge: 创建的边对象，表示一个螺旋线
 
@@ -49,12 +49,12 @@ Edge: 创建的边对象，表示一个螺旋线
 ## API使用例子
 
 ```python
->>> # 创建标准螺旋线
->>> helix = make_helix_redge(2.0, 10.0, 1.0)  # 螺距2，高度10，半径1
+ # 创建标准螺旋线
+ helix = make_helix_redge(2.0, 10.0, 1.0)  # 螺距2，高度10，半径1
 
->>> # 创建紧密螺旋线
->>> tight_helix = make_helix_redge(0.5, 5.0, 0.5)
+ # 创建紧密螺旋线
+ tight_helix = make_helix_redge(0.5, 5.0, 0.5)
 
->>> # 创建水平螺旋线
->>> horizontal_helix = make_helix_redge(1.0, 8.0, 2.0, (0, 0, 0), (1, 0, 0))
+ # 创建水平螺旋线
+ horizontal_helix = make_helix_redge(1.0, 8.0, 2.0, (0, 0, 0), (1, 0, 0))
 ```
