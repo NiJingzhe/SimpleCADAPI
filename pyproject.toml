@@ -1,47 +1,37 @@
 [project]
 name = "simplecadapi"
-version = "0.1.2"
+version = "1.0.0"
 description = "A simplified CAD modeling Python API based on CADQuery"
 readme = "README.md"
 license = { file = "LICENSE" }
-authors = [
-    { name = "倪旌哲", email = "nijingzhe@zju.edu.cn" }
-]
-maintainers = [
-    { name = "倪旌哲", email = "nijingzhe@zju.edu.cn" }
-]
+authors = [{ name = "倪旌哲", email = "nijingzhe@zju.edu.cn" }]
+maintainers = [{ name = "倪旌哲", email = "nijingzhe@zju.edu.cn" }]
 requires-python = ">=3.10"
 keywords = ["cad", "modeling", "3d", "design", "cadquery"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Manufacturing",
-    "Topic :: Scientific/Engineering",
-    "Topic :: Scientific/Engineering :: Visualization",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Operating System :: OS Independent",
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Manufacturing",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Visualization",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: OS Independent",
 ]
-dependencies = [
-    "cadquery>=2.5.2",
-    "numpy>=1.21.0",
-    "rich>=14.0.0",
-]
+dependencies = ["cadquery>=2.5.2", "numpy>=1.21.0", "rich>=14.0.0"]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-    "mypy>=1.0",
-    "black>=23.0",
-    "isort>=5.0",
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
+  "mypy>=1.0",
+  "black>=23.0",
+  "isort>=5.0",
 ]
-editor = [
-    "cq-editor>=0.5.0",
-]
+editor = ["cq-editor>=0.5.0"]
 
 [project.urls]
 Homepage = "https://github.com/NiJingzhe/SimpleCADAPI"
@@ -54,7 +44,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = [
-    "twine>=6.1.0",
-    "pytest"
-]
+dev = ["twine>=6.1.0", "pytest"]
