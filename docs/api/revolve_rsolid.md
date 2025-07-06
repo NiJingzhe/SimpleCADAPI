@@ -33,7 +33,7 @@ def revolve_rsolid(profile: Union[Wire, Face], axis: Tuple[float, float, float] 
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 旋转轴通过的点坐标 (x, y, z)， 默认为 (0, 0, 0)
 
-## 返回值
+### 返回值
 
 Solid: 旋转后的实体对象
 
@@ -44,16 +44,16 @@ Solid: 旋转后的实体对象
 ## API使用例子
 
 ```python
->>> # 旋转矩形创建圆柱体
->>> rect = make_rectangle_rface(1.0, 3.0, (2, 0, 0))  # 远离旋转轴
->>> cylinder = revolve_rsolid(rect, (0, 0, 1), 360)
+ # 旋转矩形创建圆柱体
+ rect = make_rectangle_rface(1.0, 3.0, (2, 0, 0))  # 远离旋转轴
+ cylinder = revolve_rsolid(rect, (0, 0, 1), 360)
 
->>> # 创建圆锥体
->>> triangle_points = [(1, 0, 0), (2, 0, 0), (1.5, 2, 0)]
->>> triangle = make_polyline_rwire(triangle_points, closed=True)
->>> cone = revolve_rsolid(triangle, (0, 0, 1), 360)
+ # 创建圆锥体
+ triangle_points = [(1, 0, 0), (2, 0, 0), (1.5, 2, 0)]
+ triangle = make_polyline_rwire(triangle_points, closed=True)
+ cone = revolve_rsolid(triangle, (0, 0, 1), 360)
 
->>> # 创建部分旋转体（90度扇形）
->>> rect = make_rectangle_rface(0.5, 2.0, (1.5, 0, 0))
->>> partial_solid = revolve_rsolid(rect, (0, 0, 1), 90)
+ # 创建部分旋转体（90度扇形）
+ rect = make_rectangle_rface(0.5, 2.0, (1.5, 0, 0))
+ partial_solid = revolve_rsolid(rect, (0, 0, 1), 90)
 ```

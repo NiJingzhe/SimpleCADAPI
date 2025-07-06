@@ -23,7 +23,7 @@ def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyS
 - **类型**: `Tuple[float, float, float]`
 - **说明**: 平移向量 (dx, dy, dz)， 定义在X、Y、Z方向上的平移距离
 
-## 返回值
+### 返回值
 
 AnyShape: 平移后的几何体，类型与输入相同
 
@@ -34,15 +34,15 @@ AnyShape: 平移后的几何体，类型与输入相同
 ## API使用例子
 
 ```python
->>> # 平移立方体
->>> box = make_box_rsolid(2, 2, 2)
->>> moved_box = translate_shape(box, (5, 0, 0))  # 沿X轴移动5个单位
+ # 平移立方体
+ box = make_box_rsolid(2, 2, 2)
+ moved_box = translate_shape(box, (5, 0, 0))  # 沿X轴移动5个单位
 
->>> # 平移圆形面
->>> circle = make_circle_rface((0, 0, 0), 1.0)
->>> moved_circle = translate_shape(circle, (1, 1, 2))
+ # 平移圆形面
+ circle = make_circle_rface((0, 0, 0), 1.0)
+ moved_circle = translate_shape(circle, (1, 1, 2))
 
->>> # 平移线段
->>> line = make_line_redge((0, 0, 0), (1, 0, 0))
->>> moved_line = translate_shape(line, (0, 3, 0))
+ # 平移线段
+ line = make_line_redge((0, 0, 0), (1, 0, 0))
+ moved_line = translate_shape(line, (0, 3, 0))
 ```

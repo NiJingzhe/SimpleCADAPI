@@ -132,6 +132,15 @@ wheels = [
 ]
 
 [[package]]
+name = "beartype"
+version = "0.18.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/96/15/4e623478a9628ad4cee2391f19aba0b16c1dd6fedcb2a399f0928097b597/beartype-0.18.5.tar.gz", hash = "sha256:264ddc2f1da9ec94ff639141fbe33d22e12a9f75aa863b83b7046ffff1381927", size = 1193506, upload-time = "2024-04-21T07:25:58.64Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/43/7a1259741bd989723272ac7d381a43be932422abcff09a1d9f7ba212cb74/beartype-0.18.5-py3-none-any.whl", hash = "sha256:5301a14f2a9a5540fe47ec6d34d758e9cd8331d36c4760fc7a5499ab86310089", size = 917762, upload-time = "2024-04-21T07:25:55.758Z" },
+]
+
+[[package]]
 name = "beautifulsoup4"
 version = "4.13.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2406,6 +2415,19 @@ wheels = [
 ]
 
 [[package]]
+name = "ragflow-sdk"
+version = "0.19.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "beartype" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9b/73/cb710c38e90d9f3253bf39f6ce65f80fd94ebb37d17501aca5bd3534feeb/ragflow_sdk-0.19.1.tar.gz", hash = "sha256:6bf6dbf453a870552e08a9217c0fede310169a33877decd64a49ed5b21fd2913", size = 7982, upload-time = "2025-06-20T10:29:18.921Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ef/4a/3dc10a23462cbeddfd39b8eb75d974b085476682f47952659c73eed2bf11/ragflow_sdk-0.19.1-py3-none-any.whl", hash = "sha256:c71cdcfbcf4fe9dbe9e090cea521c3970cfffaa741cb5d3129f03d6749004d74", size = 14484, upload-time = "2025-06-20T10:29:17.85Z" },
+]
+
+[[package]]
 name = "readme-renderer"
 version = "44.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2671,7 +2693,7 @@ wheels = [
 
 [[package]]
 name = "simplecadapi"
-version = "0.1.2"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "cadquery" },
@@ -2695,6 +2717,7 @@ editor = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "ragflow-sdk" },
     { name = "twine" },
 ]
 
@@ -2715,6 +2738,7 @@ provides-extras = ["dev", "editor"]
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest" },
+    { name = "ragflow-sdk", specifier = ">=0.19.1" },
     { name = "twine", specifier = ">=6.1.0" },
 ]
 

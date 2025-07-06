@@ -23,7 +23,7 @@ def make_face_from_wire_rface(wire: Wire, normal: Tuple[float, float, float] = (
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 期望的面法向量 (x, y, z)， 用于确定面的方向，默认为 (0, 0, 1)
 
-## 返回值
+### 返回值
 
 Face: 创建的面对象，由输入的线轮廓围成的面
 
@@ -34,16 +34,16 @@ Face: 创建的面对象，由输入的线轮廓围成的面
 ## API使用例子
 
 ```python
->>> # 从矩形线创建面
->>> rect_wire = make_rectangle_rwire(3.0, 2.0)
->>> rect_face = make_face_from_wire_rface(rect_wire)
+ # 从矩形线创建面
+ rect_wire = make_rectangle_rwire(3.0, 2.0)
+ rect_face = make_face_from_wire_rface(rect_wire)
 
->>> # 从圆形线创建面
->>> circle_wire = make_circle_rwire((0, 0, 0), 1.5)
->>> circle_face = make_face_from_wire_rface(circle_wire)
+ # 从圆形线创建面
+ circle_wire = make_circle_rwire((0, 0, 0), 1.5)
+ circle_face = make_face_from_wire_rface(circle_wire)
 
->>> # 从多边形线创建面
->>> points = [(0, 0, 0), (2, 0, 0), (2, 2, 0), (0, 2, 0)]
->>> poly_wire = make_polyline_rwire(points, closed=True)
->>> poly_face = make_face_from_wire_rface(poly_wire)
+ # 从多边形线创建面
+ points = [(0, 0, 0), (2, 0, 0), (2, 2, 0), (0, 2, 0)]
+ poly_wire = make_polyline_rwire(points, closed=True)
+ poly_face = make_face_from_wire_rface(poly_wire)
 ```

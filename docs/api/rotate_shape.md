@@ -34,7 +34,7 @@ def rotate_shape(shape: AnyShape, angle: float, axis: Tuple[float, float, float]
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 旋转中心点坐标 (x, y, z)， 默认为 (0, 0, 0)
 
-## 返回值
+### 返回值
 
 AnyShape: 旋转后的几何体，类型与输入相同
 
@@ -45,15 +45,15 @@ AnyShape: 旋转后的几何体，类型与输入相同
 ## API使用例子
 
 ```python
->>> # 绕Z轴旋转立方体45度
->>> box = make_box_rsolid(2, 2, 2)
->>> rotated_box = rotate_shape(box, 45)
+ # 绕Z轴旋转立方体45度
+ box = make_box_rsolid(2, 2, 2)
+ rotated_box = rotate_shape(box, 45)
 
->>> # 绕X轴旋转圆形面90度
->>> circle = make_circle_rface((0, 0, 0), 1.0)
->>> rotated_circle = rotate_shape(circle, 90, (1, 0, 0))
+ # 绕X轴旋转圆形面90度
+ circle = make_circle_rface((0, 0, 0), 1.0)
+ rotated_circle = rotate_shape(circle, 90, (1, 0, 0))
 
->>> # 围绕指定点旋转
->>> line = make_line_redge((0, 0, 0), (2, 0, 0))
->>> rotated_line = rotate_shape(line, 90, (0, 0, 1), (1, 0, 0))
+ # 围绕指定点旋转
+ line = make_line_redge((0, 0, 0), (2, 0, 0))
+ rotated_line = rotate_shape(line, 90, (0, 0, 1), (1, 0, 0))
 ```
