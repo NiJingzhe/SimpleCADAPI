@@ -46,7 +46,9 @@ from .operations import (
     make_polyline_rwire,
     make_helix_redge,
     make_helix_rwire,
-    
+    make_face_from_wire_rface,
+    make_wire_from_edges_rwire,
+
     # 变换操作
     translate_shape,
     rotate_shape,
@@ -111,6 +113,9 @@ create_polyline = make_polyline_redge
 create_polyline_wire = make_polyline_rwire
 create_helix = make_helix_redge
 create_helix_wire = make_helix_rwire
+create_face_from_wire = make_face_from_wire_rface
+create_wire_from_edges = make_wire_from_edges_rwire
+
 
 # 变换操作别名
 translate = translate_shape
@@ -171,6 +176,8 @@ __all__ = [
     "make_polyline_rwire",
     "make_helix_redge",
     "make_helix_rwire",
+    "make_face_from_wire_rface",
+    "make_wire_from_edges_rwire",
     
     # 变换操作
     "translate_shape",
@@ -226,7 +233,9 @@ __all__ = [
     "intersect",
     "to_step",
     "to_stl",
-    
+    "create_face_from_wire",
+    "create_wire_from_edges",
+
     # 高级特征操作
     "fillet_rsolid",
     "chamfer_rsolid", 

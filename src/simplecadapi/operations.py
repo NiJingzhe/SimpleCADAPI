@@ -13,6 +13,8 @@ from .core import (
     AnyShape, CoordinateSystem, SimpleWorkplane, get_current_cs
 )
 
+from cadquery.occ_impl.shapes import fuse, cut, intersect
+
 
 # =============================================================================
 # 基础图形创建函数
@@ -269,6 +271,86 @@ def make_rectangle_rface(width: float, height: float,
         raise ValueError(f"创建矩形面失败: {e}")
 
 
+def make_face_from_wire_rface(wire: Wire, normal: Tuple[float, float, float] = (0, 0, 1)) -> Face:
+    """从线创建面
+    
+    Args:
+        wire: 输入的线对象（必须是封闭的）
+        normal: 法向量，用于确定面的方向
+
+    Returns:
+        创建的面对象
+
+    Raises:
+        ValueError: 当输入无效时
+    """
+    try:
+        if not isinstance(wire, Wire):
+            raise ValueError("输入必须是Wire类型")
+
+        # 检查Wire是否封闭
+        if not wire.is_closed():
+            raise ValueError("Wire必须是封闭的才能创建面")
+
+        # 获取当前坐标系并转换法向量
+        cs = get_current_cs()
+        global_normal = cs.transform_point(np.array(normal)) - cs.origin
+        
+        # 标准化法向量
+        normal_vec = global_normal / np.linalg.norm(global_normal)
+        
+        # 创建面
+        cq_face = cq.Face.makeFromWires(wire.cq_wire)
+        
+        # 检查面的法向量是否与期望方向一致
+        # normalAt方法返回tuple (normal_vector, u_vector)
+        face_normal_tuple = cq_face.normalAt(0.5, 0.5)
+        face_normal = face_normal_tuple[0]  # 取第一个元素作为法向量
+        face_normal_vec = np.array([face_normal.x, face_normal.y, face_normal.z])
+        
+        # 计算法向量的点积，如果小于0则需要反向
+        dot_product = np.dot(normal_vec, face_normal_vec)
+        
+        if dot_product < 0:
+            # 反向面（通过反向Wire的方向）
+            # CADQuery的Wire没有直接的reverse方法，我们需要重新构建
+            # 简单的方法是使用makeFromWires的orientation参数
+            # 或者我们接受当前面的方向，添加一个警告
+            print(f"警告: 创建的面的法向量与期望方向相反 (点积: {dot_product:.3f})")
+        
+        face = Face(cq_face)
+        
+        # 复制标签和元数据
+        face._tags = wire._tags.copy()
+        face._metadata = wire._metadata.copy()
+        
+        return face
+    except Exception as e:
+        raise ValueError(f"创建面失败: {e}. 请检查输入的线是否有效且封闭。")
+    
+def make_wire_from_edges_rwire(edges: List[Edge]) -> Wire:
+        
+    """从边创建线
+
+    Args:
+        edges: 输入的边列表
+
+    Returns:
+        创建的线对象
+
+    Raises:
+        ValueError: 当输入无效时
+    """
+    try:
+        if not edges:
+            raise ValueError("边列表不能为空")
+
+        cq_wire = cq.Wire.assembleEdges([edge.cq_edge for edge in edges])
+        return Wire(cq_wire)
+    except Exception as e:
+        raise ValueError(f"创建线失败: {e}. 请检查输入的边是否有效。")
+
+
 def make_box_rsolid(width: float, height: float, depth: float,
                     center: Tuple[float, float, float] = (0, 0, 0)) -> Solid:
     """创建立方体并返回实体
@@ -327,7 +409,7 @@ def make_cylinder_rsolid(radius: float, height: float,
             
         cs = get_current_cs()
         center_global = cs.transform_point(np.array(center))
-        axis_global = cs.transform_point(np.array(axis)) - cs.origin
+        axis_global = cs.transform_vector(np.array(axis))
         
         center_vec = Vector(*center_global)
         axis_vec = Vector(*axis_global)
@@ -574,20 +656,25 @@ def make_spline_redge(points: List[Tuple[float, float, float]],
 
 
 def make_spline_rwire(points: List[Tuple[float, float, float]],
-                      tangents: Optional[List[Tuple[float, float, float]]] = None) -> Wire:
+                      tangents: Optional[List[Tuple[float, float, float]]] = None,
+                      closed: bool = False) -> Wire:
     """创建样条曲线并返回线
     
     Args:
         points: 控制点坐标列表
         tangents: 可选的切线向量列表
-        
+        closed: 是否闭合
+
     Returns:
         创建的样条曲线线
     """
     try:
         edge = make_spline_redge(points, tangents)
         cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
-        return Wire(cq_wire)
+        if closed:
+            cq_wire = cq_wire.close()  # 确保线是闭合的
+        rv = Wire(cq_wire)
+        return rv
     except Exception as e:
         raise ValueError(f"创建样条曲线线失败: {e}")
 
@@ -670,7 +757,7 @@ def make_polyline_rwire(points: List[Tuple[float, float, float]],
             edges.append(edge)
         
         cq_wire = cq.Wire.assembleEdges(edges)
-        return Wire(cq_wire)
+        return Wire(cq_wire.close() if closed else cq_wire)
     except Exception as e:
         raise ValueError(f"创建多段线失败: {e}. 请检查点坐标是否有效。")
 
@@ -828,6 +915,8 @@ def rotate_shape(shape: AnyShape,
     Raises:
         ValueError: 当参数无效时
     """
+    if angle == 0:
+        return shape
     try:
         cs = get_current_cs()
         global_axis = cs.transform_point(np.array(axis)) - cs.origin
@@ -1062,10 +1151,20 @@ def union_rsolid(solid1: Solid, solid2: Solid) -> Solid:
         ValueError: 当运算失败时
     """
     try:
-        cq_result = solid1.cq_solid.fuse(solid2.cq_solid)
+        s1 = solid1.cq_solid
+        s2 = solid2.cq_solid
+
+        # 如果intersection是0，会给出一个error
+        if s1.isNull() or s2.isNull():
+            raise ValueError("输入实体无效，无法进行并集运算。")
+        
+        rv = fuse(s1, s2)
         # 确保结果是Solid类型
-        if hasattr(cq_result, 'Solids') and cq_result.Solids():
-            cq_result = cq_result.Solids()[0]
+        if hasattr(rv, 'Solids') and rv.Solids():
+            cq_result = rv.Solids()[0]
+        else:            
+            cq_result = rv 
+            
         result = Solid(cq_result)
         
         # 合并标签和元数据
@@ -1466,7 +1565,7 @@ def radial_pattern_rcompound(shape: AnyShape,
                              center: Tuple[float, float, float],
                              axis: Tuple[float, float, float],
                              count: int,
-                             angle: float) -> Compound:
+                             total_rotation_angle: float) -> Compound:
     """创建径向阵列
     
     Args:
@@ -1485,11 +1584,11 @@ def radial_pattern_rcompound(shape: AnyShape,
     try:
         if count <= 0:
             raise ValueError("阵列数量必须大于0")
-        if angle <= 0:
+        if total_rotation_angle <= 0:
             raise ValueError("角度必须大于0")
         
         shapes = []
-        angle_step = angle / count  # 修正角度计算，均匀分布
+        angle_step = total_rotation_angle / count  # 修正角度计算，均匀分布
         
         for i in range(count):
             rotation_angle = angle_step * i

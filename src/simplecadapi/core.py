@@ -134,11 +134,28 @@ class SimpleWorkplane:
         
         # 计算Y轴以确保右手坐标系
         global_y_dir = np.cross(global_normal, global_x_dir)
-        global_y_dir = global_y_dir / np.linalg.norm(global_y_dir)
+        y_norm = np.linalg.norm(global_y_dir)
         
-        # 重新计算X轴以确保正交性
-        global_x_dir = np.cross(global_y_dir, global_normal)
-        global_x_dir = global_x_dir / np.linalg.norm(global_x_dir)
+        if y_norm < 1e-10:  # 如果叉积接近零，说明normal和x_dir平行
+            # 选择一个不平行的向量作为临时X轴
+            if abs(global_normal[0]) < 0.9:
+                temp_x = np.array([1, 0, 0])
+            else:
+                temp_x = np.array([0, 1, 0])
+            
+            # 重新计算Y轴
+            global_y_dir = np.cross(global_normal, temp_x)
+            global_y_dir = global_y_dir / np.linalg.norm(global_y_dir)
+            
+            # 重新计算X轴
+            global_x_dir = np.cross(global_y_dir, global_normal)
+            global_x_dir = global_x_dir / np.linalg.norm(global_x_dir)
+        else:
+            global_y_dir = global_y_dir / y_norm
+            
+            # 重新计算X轴以确保正交性
+            global_x_dir = np.cross(global_y_dir, global_normal)
+            global_x_dir = global_x_dir / np.linalg.norm(global_x_dir)
         
         self.cs = CoordinateSystem(
             tuple(global_origin), 
