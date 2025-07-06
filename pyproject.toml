@@ -1,6 +1,6 @@
 [project]
 name = "simplecadapi"
-version = "0.1.1"
+version = "0.1.2"
 description = "A simplified CAD modeling Python API based on CADQuery"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -56,4 +56,5 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "twine>=6.1.0",
+    "pytest"
 ]
