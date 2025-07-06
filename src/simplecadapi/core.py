@@ -3,13 +3,11 @@ SimpleCAD API核心类定义
 基于README中的API设计，使用CADQuery作为底层实现
 """
 
-from typing import List, Tuple, Union, Optional, Any, Dict, Set
-from contextlib import contextmanager
+from typing import List, Tuple, Union, Any, Dict, Set
 import numpy as np
 import cadquery as cq
 from cadquery import Vector, Plane
 from cadquery.occ_impl.shapes import (
-    Shape as CQShape, 
     Vertex as CQVertex, 
     Edge as CQEdge, 
     Wire as CQWire, 
@@ -92,6 +90,29 @@ class CoordinateSystem:
             )
         except Exception as e:
             raise ValueError(f"转换为CADQuery平面失败: {e}")
+    
+    def __str__(self) -> str:
+        """字符串表示"""
+        return self._format_string(indent=0)
+    
+    def __repr__(self) -> str:
+        """调试表示"""
+        return f"CoordinateSystem(origin={tuple(self.origin)}, x_axis={tuple(self.x_axis)}, y_axis={tuple(self.y_axis)})"
+    
+    def _format_string(self, indent: int = 0) -> str:
+        """格式化字符串表示
+        
+        Args:
+            indent: 缩进级别
+        """
+        spaces = "  " * indent
+        result = []
+        result.append(f"{spaces}CoordinateSystem:")
+        result.append(f"{spaces}  origin: [{self.origin[0]:.3f}, {self.origin[1]:.3f}, {self.origin[2]:.3f}]")
+        result.append(f"{spaces}  x_axis: [{self.x_axis[0]:.3f}, {self.x_axis[1]:.3f}, {self.x_axis[2]:.3f}]")
+        result.append(f"{spaces}  y_axis: [{self.y_axis[0]:.3f}, {self.y_axis[1]:.3f}, {self.y_axis[2]:.3f}]")
+        result.append(f"{spaces}  z_axis: [{self.z_axis[0]:.3f}, {self.z_axis[1]:.3f}, {self.z_axis[2]:.3f}]")
+        return "\n".join(result)
 
 
 # 全局世界坐标系（Z向上的右手坐标系）
@@ -179,6 +200,33 @@ class SimpleWorkplane:
         
     def __exit__(self, exc_type, exc_val, exc_tb):
         _current_cs.pop()
+    
+    def __str__(self) -> str:
+        """字符串表示"""
+        return self._format_string(indent=0)
+    
+    def __repr__(self) -> str:
+        """调试表示"""
+        return f"SimpleWorkplane(origin={tuple(self.cs.origin)}, normal={tuple(self.cs.z_axis)})"
+    
+    def _format_string(self, indent: int = 0, show_coordinate_system: bool = True) -> str:
+        """格式化字符串表示
+        
+        Args:
+            indent: 缩进级别
+            show_coordinate_system: 是否显示坐标系信息
+        """
+        spaces = "  " * indent
+        result = []
+        
+        result.append(f"{spaces}SimpleWorkplane:")
+        
+        # 坐标系信息
+        if show_coordinate_system:
+            result.append(f"{spaces}  coordinate_system:")
+            result.append(self.cs._format_string(indent + 2))
+        
+        return "\n".join(result)
 
 
 # 当前坐标系上下文管理器
@@ -250,6 +298,25 @@ class TaggedMixin:
             元数据值
         """
         return self._metadata.get(key, default)
+    
+    def _format_tags_and_metadata(self, indent: int = 0) -> str:
+        """格式化标签和元数据
+        
+        Args:
+            indent: 缩进级别
+        """
+        spaces = "  " * indent
+        result = []
+        
+        if self._tags:
+            result.append(f"{spaces}tags: [{', '.join(sorted(self._tags))}]")
+        
+        if self._metadata:
+            result.append(f"{spaces}metadata:")
+            for key, value in sorted(self._metadata.items()):
+                result.append(f"{spaces}  {key}: {value}")
+        
+        return "\n".join(result)
 
 
 class Vertex(TaggedMixin):
@@ -278,6 +345,44 @@ class Vertex(TaggedMixin):
             return (center.x, center.y, center.z)
         except Exception as e:
             raise ValueError(f"获取顶点坐标失败: {e}")
+    
+    def __str__(self) -> str:
+        """字符串表示"""
+        return self._format_string(indent=0)
+    
+    def __repr__(self) -> str:
+        """调试表示"""
+        coords = self.get_coordinates()
+        return f"Vertex(coordinates={coords})"
+    
+    def _format_string(self, indent: int = 0, show_coordinate_system: bool = False) -> str:
+        """格式化字符串表示
+        
+        Args:
+            indent: 缩进级别
+            show_coordinate_system: 是否显示坐标系信息
+        """
+        spaces = "  " * indent
+        result = []
+        
+        # 基本信息
+        coords = self.get_coordinates()
+        result.append(f"{spaces}Vertex:")
+        result.append(f"{spaces}  coordinates: [{coords[0]:.3f}, {coords[1]:.3f}, {coords[2]:.3f}]")
+        
+        # 坐标系信息
+        if show_coordinate_system:
+            current_cs = get_current_cs()
+            if current_cs != WORLD_CS:
+                result.append(f"{spaces}  coordinate_system:")
+                result.append(current_cs._format_string(indent + 2))
+        
+        # 标签和元数据
+        tags_metadata = self._format_tags_and_metadata(indent + 1)
+        if tags_metadata:
+            result.append(tags_metadata)
+        
+        return "\n".join(result)
 
 
 class Edge(TaggedMixin):
@@ -334,6 +439,47 @@ class Edge(TaggedMixin):
             return Vertex(vertices[-1])
         except Exception as e:
             raise ValueError(f"获取结束顶点失败: {e}")
+    
+    def __str__(self) -> str:
+        """字符串表示"""
+        return self._format_string(indent=0)
+    
+    def __repr__(self) -> str:
+        """调试表示"""
+        length = self.get_length()
+        return f"Edge(length={length:.3f})"
+    
+    def _format_string(self, indent: int = 0, show_coordinate_system: bool = False) -> str:
+        """格式化字符串表示
+        
+        Args:
+            indent: 缩进级别
+            show_coordinate_system: 是否显示坐标系信息
+        """
+        spaces = "  " * indent
+        result = []
+        
+        # 基本信息
+        length = self.get_length()
+        result.append(f"{spaces}Edge:")
+        result.append(f"{spaces}  length: {length:.3f}")
+        
+        # 顶点信息
+        try:
+            start_vertex = self.get_start_vertex()
+            end_vertex = self.get_end_vertex()
+            result.append(f"{spaces}  vertices:")
+            result.append(f"{spaces}    start: {start_vertex.get_coordinates()}")
+            result.append(f"{spaces}    end: {end_vertex.get_coordinates()}")
+        except Exception:
+            result.append(f"{spaces}  vertices: [unable to retrieve]")
+        
+        # 标签和元数据
+        tags_metadata = self._format_tags_and_metadata(indent + 1)
+        if tags_metadata:
+            result.append(tags_metadata)
+        
+        return "\n".join(result)
 
 
 class Wire(TaggedMixin):
@@ -374,6 +520,47 @@ class Wire(TaggedMixin):
             return bool(self.cq_wire.IsClosed())
         except Exception as e:
             raise ValueError(f"检查线闭合性失败: {e}")
+    
+    def __str__(self) -> str:
+        """字符串表示"""
+        return self._format_string(indent=0)
+    
+    def __repr__(self) -> str:
+        """调试表示"""
+        is_closed = self.is_closed()
+        edge_count = len(self.get_edges())
+        return f"Wire(edges={edge_count}, closed={is_closed})"
+    
+    def _format_string(self, indent: int = 0, show_coordinate_system: bool = False) -> str:
+        """格式化字符串表示
+        
+        Args:
+            indent: 缩进级别
+            show_coordinate_system: 是否显示坐标系信息
+        """
+        spaces = "  " * indent
+        result = []
+        
+        # 基本信息
+        edges = self.get_edges()
+        is_closed = self.is_closed()
+        result.append(f"{spaces}Wire:")
+        result.append(f"{spaces}  edge_count: {len(edges)}")
+        result.append(f"{spaces}  closed: {is_closed}")
+        
+        # 边信息（不传递坐标系显示参数，因为Wire层级会统一显示）
+        if edges:
+            result.append(f"{spaces}  edges:")
+            for i, edge in enumerate(edges):
+                result.append(f"{spaces}    edge_{i}:")
+                result.append(edge._format_string(indent + 3, False))
+        
+        # 标签和元数据
+        tags_metadata = self._format_tags_and_metadata(indent + 1)
+        if tags_metadata:
+            result.append(tags_metadata)
+        
+        return "\n".join(result)
 
 
 class Face(TaggedMixin):
@@ -429,6 +616,52 @@ class Face(TaggedMixin):
             return Wire(outer_wire)
         except Exception as e:
             raise ValueError(f"获取外边界线失败: {e}")
+    
+    def __str__(self) -> str:
+        """字符串表示"""
+        return self._format_string(indent=0)
+    
+    def __repr__(self) -> str:
+        """调试表示"""
+        area = self.get_area()
+        return f"Face(area={area:.3f})"
+    
+    def _format_string(self, indent: int = 0, show_coordinate_system: bool = False) -> str:
+        """格式化字符串表示
+        
+        Args:
+            indent: 缩进级别
+            show_coordinate_system: 是否显示坐标系信息
+        """
+        spaces = "  " * indent
+        result = []
+        
+        # 基本信息
+        area = self.get_area()
+        result.append(f"{spaces}Face:")
+        result.append(f"{spaces}  area: {area:.3f}")
+        
+        # 法向量信息
+        try:
+            normal = self.get_normal_at()
+            result.append(f"{spaces}  normal: [{normal.x:.3f}, {normal.y:.3f}, {normal.z:.3f}]")
+        except Exception:
+            result.append(f"{spaces}  normal: [unable to retrieve]")
+        
+        # 外边界线信息（不传递坐标系显示参数，因为Face层级会统一显示）
+        try:
+            outer_wire = self.get_outer_wire()
+            result.append(f"{spaces}  outer_wire:")
+            result.append(outer_wire._format_string(indent + 2, False))
+        except Exception:
+            result.append(f"{spaces}  outer_wire: [unable to retrieve]")
+        
+        # 标签和元数据
+        tags_metadata = self._format_tags_and_metadata(indent + 1)
+        if tags_metadata:
+            result.append(tags_metadata)
+        
+        return "\n".join(result)
 
 
 class Shell(TaggedMixin):
@@ -467,6 +700,51 @@ class Shell(TaggedMixin):
             return [Face(face) for face in faces]
         except Exception as e:
             raise ValueError(f"获取面列表失败: {e}")
+    
+    def __str__(self) -> str:
+        """字符串表示"""
+        return self._format_string(indent=0)
+    
+    def __repr__(self) -> str:
+        """调试表示"""
+        face_count = len(self.get_faces())
+        return f"Shell(faces={face_count})"
+    
+    def _format_string(self, indent: int = 0, show_coordinate_system: bool = False) -> str:
+        """格式化字符串表示
+        
+        Args:
+            indent: 缩进级别
+            show_coordinate_system: 是否显示坐标系信息
+        """
+        spaces = "  " * indent
+        result = []
+        
+        # 基本信息
+        faces = self.get_faces()
+        result.append(f"{spaces}Shell:")
+        result.append(f"{spaces}  face_count: {len(faces)}")
+        
+        # 坐标系信息（在Shell层级显示，子级Face不再显示）
+        if show_coordinate_system:
+            current_cs = get_current_cs()
+            if current_cs != WORLD_CS:
+                result.append(f"{spaces}  coordinate_system:")
+                result.append(current_cs._format_string(indent + 2))
+        
+        # 面信息（不传递坐标系显示参数，因为Shell层级已经显示了）
+        if faces:
+            result.append(f"{spaces}  faces:")
+            for i, face in enumerate(faces):
+                result.append(f"{spaces}    face_{i}:")
+                result.append(face._format_string(indent + 3, False))
+        
+        # 标签和元数据
+        tags_metadata = self._format_tags_and_metadata(indent + 1)
+        if tags_metadata:
+            result.append(tags_metadata)
+        
+        return "\n".join(result)
 
 
 class Solid(TaggedMixin):
@@ -631,6 +909,56 @@ class Solid(TaggedMixin):
         
         # 同时也添加到面对象本身
         face.add_tag(tag)
+    
+    def __str__(self) -> str:
+        """字符串表示"""
+        return self._format_string(indent=0)
+    
+    def __repr__(self) -> str:
+        """调试表示"""
+        volume = self.get_volume()
+        face_count = len(self.get_faces())
+        return f"Solid(volume={volume:.3f}, faces={face_count})"
+    
+    def _format_string(self, indent: int = 0, show_coordinate_system: bool = False) -> str:
+        """格式化字符串表示
+        
+        Args:
+            indent: 缩进级别
+            show_coordinate_system: 是否显示坐标系信息
+        """
+        spaces = "  " * indent
+        result = []
+        
+        # 基本信息
+        volume = self.get_volume()
+        faces = self.get_faces()
+        edges = self.get_edges()
+        result.append(f"{spaces}Solid:")
+        result.append(f"{spaces}  volume: {volume:.3f}")
+        result.append(f"{spaces}  face_count: {len(faces)}")
+        result.append(f"{spaces}  edge_count: {len(edges)}")
+        
+        # 坐标系信息（在Solid层级显示，子级Face不再显示）
+        if show_coordinate_system:
+            current_cs = get_current_cs()
+            if current_cs != WORLD_CS:
+                result.append(f"{spaces}  coordinate_system:")
+                result.append(current_cs._format_string(indent + 2))
+        
+        # 面信息（不传递坐标系显示参数，因为Solid层级已经显示了）
+        if faces:
+            result.append(f"{spaces}  faces:")
+            for i, face in enumerate(faces):
+                result.append(f"{spaces}    face_{i}:")
+                result.append(face._format_string(indent + 3, False))
+        
+        # 标签和元数据
+        tags_metadata = self._format_tags_and_metadata(indent + 1)
+        if tags_metadata:
+            result.append(tags_metadata)
+        
+        return "\n".join(result)
 
 
 class Compound(TaggedMixin):
@@ -659,7 +987,50 @@ class Compound(TaggedMixin):
             return [Solid(solid) for solid in solids]
         except Exception as e:
             raise ValueError(f"获取实体列表失败: {e}")
+    
+    def __str__(self) -> str:
+        """字符串表示"""
+        return self._format_string(indent=0)
+    
+    def __repr__(self) -> str:
+        """调试表示"""
+        solid_count = len(self.get_solids())
+        return f"Compound(solids={solid_count})"
+    
+    def _format_string(self, indent: int = 0, show_coordinate_system: bool = False) -> str:
+        """格式化字符串表示
+        
+        Args:
+            indent: 缩进级别
+            show_coordinate_system: 是否显示坐标系信息
+        """
+        spaces = "  " * indent
+        result = []
+        
+        # 基本信息
+        solids = self.get_solids()
+        result.append(f"{spaces}Compound:")
+        result.append(f"{spaces}  solid_count: {len(solids)}")
+        
+        # 坐标系信息（在Compound层级显示，子级Solid不再显示）
+        if show_coordinate_system:
+            current_cs = get_current_cs()
+            if current_cs != WORLD_CS:
+                result.append(f"{spaces}  coordinate_system:")
+                result.append(current_cs._format_string(indent + 2))
+        
+        # 实体信息（不传递坐标系显示参数，因为Compound层级已经显示了）
+        if solids:
+            result.append(f"{spaces}  solids:")
+            for i, solid in enumerate(solids):
+                result.append(f"{spaces}    solid_{i}:")
+                result.append(solid._format_string(indent + 3, False))
+        
+        # 标签和元数据
+        tags_metadata = self._format_tags_and_metadata(indent + 1)
+        if tags_metadata:
+            result.append(tags_metadata)
+        
+        return "\n".join(result)
 
-
-# 类型别名
 AnyShape = Union[Vertex, Edge, Wire, Face, Shell, Solid, Compound]

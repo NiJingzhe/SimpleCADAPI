@@ -36,7 +36,6 @@ from .operations import (
     make_helix_rwire,
     make_line_redge,
     make_point_rvertex,
-    make_polyline_redge,
     make_polyline_rwire,
     make_rectangle_rface,
     make_rectangle_rwire,
@@ -118,7 +117,6 @@ create_helix = make_helix_redge
 create_helix_wire = make_helix_rwire
 create_line = make_line_redge
 create_point = make_point_rvertex
-create_polyline = make_polyline_redge
 create_polyline_wire = make_polyline_rwire
 create_rectangle_face = make_rectangle_rface
 create_rectangle_wire = make_rectangle_rwire
@@ -168,7 +166,6 @@ __all__ = [
     "make_helix_rwire",
     "make_line_redge",
     "make_point_rvertex",
-    "make_polyline_redge",
     "make_polyline_rwire",
     "make_rectangle_rface",
     "make_rectangle_rwire",
@@ -231,7 +228,6 @@ __all__ = [
     "create_helix_wire",
     "create_line",
     "create_point",
-    "create_polyline",
     "create_polyline_wire",
     "create_rectangle_face",
     "create_rectangle_wire",

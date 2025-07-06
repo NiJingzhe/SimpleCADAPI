@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SimpleCAD API 复杂操作示例
-展示高级CAD建模技术，包括连续放样、复杂扫掠、局部坐标系、样条曲线等
+展示高级CAD建模技术，包括连续放样、复杂扫掠、螺旋扫掠、局部坐标系、样条曲线等
 """
 
 import sys
@@ -239,6 +239,117 @@ def example_swept_shape():
     output_dir = create_output_dir()
     scad.export_stl(swept_solid, os.path.join(output_dir, "swept_shape.stl"))
     print(f"扫掠体积: {swept_solid.get_volume():.2f}")
+
+def example_helical_sweep():
+    """示例2b: 螺旋扫掠操作 - 创建螺旋形状"""
+    print("\n=== 示例2b: 螺旋扫掠操作 ===")
+    
+    # 示例1: 创建螺旋弹簧
+    print("  创建螺旋弹簧...")
+    with scad.SimpleWorkplane((0, 0, 0)) as wp:
+        # 创建圆形轮廓作为弹簧的截面
+        spring_profile = scad.make_circle_rwire((0, 0, 0), 0.3)
+    
+    # 螺旋扫掠参数
+    pitch = 1.5      # 螺距：每转一圈的高度
+    height = 8.0     # 总高度
+    radius = 2.0     # 螺旋半径
+    
+    # 执行螺旋扫掠
+    spring_solid = scad.helical_sweep_rsolid(
+        profile=spring_profile,
+        pitch=pitch,
+        height=height,
+        radius=radius,
+        center=(0, 0, 0),
+        dir=(0, 0, 1)
+    )
+    
+    assert isinstance(spring_solid, scad.Solid), "螺旋扫掠操作未返回有效的Solid对象"
+    
+    # 导出螺旋弹簧
+    output_dir = create_output_dir()
+    scad.export_stl(spring_solid, os.path.join(output_dir, "helical_spring.stl"))
+    print(f"  螺旋弹簧体积: {spring_solid.get_volume():.2f}")
+    print(f"  螺距: {pitch}, 高度: {height}, 半径: {radius}")
+    
+    # 示例2: 创建方形截面的螺旋管
+    print("  创建方形截面螺旋管...")
+    with scad.SimpleWorkplane((0, 0, 0)) as wp:
+        # 创建方形轮廓
+        square_profile = scad.make_rectangle_rwire(0.6, 0.6)
+    
+    # 不同的螺旋参数
+    spiral_tube = scad.helical_sweep_rsolid(
+        profile=square_profile,
+        pitch=2.0,
+        height=6.0,
+        radius=1.5,
+        center=(0, 0, 0),
+        dir=(0, 0, 1)
+    )
+    
+    # 导出螺旋管
+    scad.export_stl(spiral_tube, os.path.join(output_dir, "helical_tube.stl"))
+    print(f"  螺旋管体积: {spiral_tube.get_volume():.2f}")
+    
+    # 示例3: 创建多重螺旋结构
+    print("  创建多重螺旋结构...")
+    
+    # 创建多个不同半径的螺旋
+    helical_parts = []
+    
+    for i, r in enumerate([1.0, 1.8, 2.6]):
+        with scad.SimpleWorkplane((0, 0, 0)) as wp:
+            # 每个螺旋使用不同大小的圆形截面
+            profile_radius = 0.2 - i * 0.05
+            helix_profile = scad.make_circle_rwire((0, 0, 0), profile_radius)
+        
+        # 创建螺旋，每个具有不同的螺距
+        helix_pitch = 1.2 + i * 0.3
+        helix_solid = scad.helical_sweep_rsolid(
+            profile=helix_profile,
+            pitch=helix_pitch,
+            height=7.0,
+            radius=r,
+            center=(0, 0, 0),
+            dir=(0, 0, 1)
+        )
+        
+        helical_parts.append(helix_solid)
+        print(f"    螺旋{i+1}: 半径={r}, 螺距={helix_pitch:.1f}, 截面半径={profile_radius:.2f}")
+    
+    # 合并所有螺旋
+    combined_helix = helical_parts[0]
+    for part in helical_parts[1:]:
+        combined_helix = scad.union_rsolid(combined_helix, part)
+    
+    # 导出多重螺旋结构
+    scad.export_stl(combined_helix, os.path.join(output_dir, "multi_helix.stl"))
+    print(f"  多重螺旋体积: {combined_helix.get_volume():.2f}")
+    
+    # 示例4: 创建螺旋楼梯状结构
+    print("  创建螺旋楼梯...")
+    
+    with scad.SimpleWorkplane((0, 0, 0)) as wp:
+        # 创建楼梯踏步的轮廓（矩形）
+        step_profile = scad.make_rectangle_rwire(1.2, 0.2)
+    
+    # 螺旋楼梯参数
+    stair_solid = scad.helical_sweep_rsolid(
+        profile=step_profile,
+        pitch=3.0,      # 较大的螺距，模拟楼梯的层高
+        height=12.0,    # 楼梯总高度
+        radius=3.0,     # 楼梯半径
+        center=(0, 0, 0),
+        dir=(0, 0, 1)
+    )
+    
+    # 导出螺旋楼梯
+    scad.export_stl(stair_solid, os.path.join(output_dir, "helical_stair.stl"))
+    print(f"  螺旋楼梯体积: {stair_solid.get_volume():.2f}")
+    
+    print("螺旋扫掠示例完成！")
 
 def example_nested_workplanes():
     """示例3: 嵌套工作平面 - 创建复杂的多级结构"""
@@ -547,6 +658,175 @@ def example_gear_like_shape():
     else:
         print(f"  错误: 定位后的齿不是Solid类型: {type(positioned_tooth)}")
 
+def example_tagged_array_operations():
+    """示例10: 标签化阵列操作 - 线性阵列后对每个实体进行标签化操作"""
+    print("\n=== 示例10: 标签化阵列操作 ===")
+    
+    # 创建基础单元 - 一个带有圆柱孔的立方体
+    print("  创建基础单元...")
+    base_unit = scad.make_box_rsolid(3, 3, 2)
+    
+    # 为基础单元自动标记面
+    base_unit.auto_tag_faces("box")
+    print(f"  基础单元体积: {base_unit.get_volume():.2f}")
+    
+    # 创建线性阵列 - 沿X轴创建5个单元
+    print("  创建线性阵列...")
+    array_solids = scad.linear_pattern_rsolidlist(base_unit, (4, 0, 0), 5, 4.0)
+    print(f"  阵列创建完成，共 {len(array_solids)} 个实体")
+    
+    # 为每个阵列单元重新标记面和边
+    for i, solid in enumerate(array_solids):
+        print(f"\n  处理第 {i+1} 个实体:")
+        
+        # 自动标记面
+        solid.auto_tag_faces("box")
+        
+        # 打印面标签信息
+        faces = solid.get_faces()
+        print(f"    面数量: {len(faces)}")
+        for j, face in enumerate(faces):
+            face_tags = [tag for tag in face._tags] if hasattr(face, '_tags') else []
+            area = face.get_area()
+            print(f"      面 {j}: 标签={face_tags}, 面积={area:.2f}")
+        
+        # 打印边标签信息
+        edges = solid.get_edges()
+        print(f"    边数量: {len(edges)}")
+        for j, edge in enumerate(edges[:6]):  # 只显示前6条边，避免输出过多
+            edge_tags = [tag for tag in edge._tags] if hasattr(edge, '_tags') else []
+            length = edge.get_length()
+            print(f"      边 {j}: 标签={edge_tags}, 长度={length:.2f}")
+        if len(edges) > 6:
+            print(f"      ... 还有 {len(edges) - 6} 条边")
+    
+    # 对不同的实体应用不同的操作
+    processed_solids = []
+    
+    for i, solid in enumerate(array_solids):
+        print(f"\n  对第 {i+1} 个实体应用操作:")
+        
+        if i == 0:
+            # 第1个实体: 抽壳 - 去除顶面
+            print("    操作: 抽壳 (去除顶面)")
+            try:
+                faces = solid.get_faces()
+                # 寻找顶面 (Z方向最大的面)
+                top_faces = []
+                max_z = -float('inf')
+                for face in faces:
+                    center = face.cq_face.Center()
+                    if center.z > max_z:
+                        max_z = center.z
+                        top_faces = [face]
+                    elif abs(center.z - max_z) < 1e-6:
+                        top_faces.append(face)
+                
+                if top_faces:
+                    shelled_solid = scad.shell_rsolid(solid, top_faces, 0.2)
+                    processed_solids.append(shelled_solid)
+                    print(f"      抽壳成功，壁厚: 0.2, 新体积: {shelled_solid.get_volume():.2f}")
+                else:
+                    processed_solids.append(solid)
+                    print("      未找到顶面，保持原状")
+            except Exception as e:
+                print(f"      抽壳失败: {e}")
+                processed_solids.append(solid)
+        
+        elif i == 1:
+            # 第2个实体: 圆角 - 对前4条边进行圆角
+            print("    操作: 圆角 (前4条边)")
+            try:
+                edges = solid.get_edges()
+                if len(edges) >= 4:
+                    filleted_solid = scad.fillet_rsolid(solid, edges[:4], 0.3)
+                    processed_solids.append(filleted_solid)
+                    print(f"      圆角成功，半径: 0.3, 新体积: {filleted_solid.get_volume():.2f}")
+                else:
+                    processed_solids.append(solid)
+                    print("      边数不足，保持原状")
+            except Exception as e:
+                print(f"      圆角失败: {e}")
+                processed_solids.append(solid)
+        
+        elif i == 2:
+            # 第3个实体: 倒角 - 对顶部边进行倒角
+            print("    操作: 倒角 (顶部边)")
+            try:
+                edges = solid.get_edges()
+                # 寻找顶部边 (Z坐标较大的边)
+                top_edges = []
+                for edge in edges:
+                    # 获取边的起始和结束顶点
+                    start_vertex = edge.get_start_vertex()
+                    end_vertex = edge.get_end_vertex()
+                    start_coords = start_vertex.get_coordinates()
+                    end_coords = end_vertex.get_coordinates()
+                    mid_z = (start_coords[2] + end_coords[2]) / 2
+                    if mid_z > 1.5:  # 顶部边的Z坐标应该接近2
+                        top_edges.append(edge)
+                
+                if top_edges and len(top_edges) >= 2:
+                    chamfered_solid = scad.chamfer_rsolid(solid, top_edges[:4], 0.2)
+                    processed_solids.append(chamfered_solid)
+                    print(f"      倒角成功，距离: 0.2, 处理了 {min(4, len(top_edges))} 条边, 新体积: {chamfered_solid.get_volume():.2f}")
+                else:
+                    processed_solids.append(solid)
+                    print("      未找到合适的顶部边，保持原状")
+            except Exception as e:
+                print(f"      倒角失败: {e}")
+                processed_solids.append(solid)
+        
+        elif i == 3:
+            # 第4个实体: 组合操作 - 先圆角再部分抽壳
+            print("    操作: 组合 (圆角 + 部分抽壳)")
+            try:
+                
+                # 再抽壳，去除一个侧面
+                faces = filleted_solid.get_faces()
+                side_faces = []
+                for face in faces:
+                    normal = face.get_normal_at()
+                    # 寻找X方向的面
+                    if abs(normal.x) > 0.8:
+                        side_faces.append(face)
+                        break
+                
+                if side_faces:
+                    final_solid = scad.shell_rsolid(filleted_solid, side_faces, 0.15)
+                    processed_solids.append(final_solid)
+                    print(f"      组合操作成功，新体积: {final_solid.get_volume():.2f}")
+                else:
+                    processed_solids.append(filleted_solid)
+                    print(f"      只完成圆角，新体积: {filleted_solid.get_volume():.2f}")
+            except Exception as e:
+                print(f"      组合操作失败: {e}")
+                processed_solids.append(solid)
+        
+        else:
+            # 第5个实体: 保持原状作为对比
+            print("    操作: 保持原状 (对比参考)")
+            processed_solids.append(solid)
+            print(f"      原始体积: {solid.get_volume():.2f}")
+    
+    # 合并所有处理后的实体用于导出
+    print("\n  合并所有处理后的实体...")
+    combined_result = processed_solids[0]
+    for solid in processed_solids[1:]:
+        combined_result = scad.union_rsolid(combined_result, solid)
+    
+    # 导出结果
+    output_dir = create_output_dir()
+    scad.export_stl(combined_result, os.path.join(output_dir, "tagged_array_operations.stl"))
+    
+    # 也分别导出每个处理后的实体
+    for i, solid in enumerate(processed_solids):
+        filename = f"array_unit_{i+1}.stl"
+        scad.export_stl(solid, os.path.join(output_dir, filename))
+        print(f"    已导出: {filename}")
+    
+    print(f"标签化阵列操作完成，总体积: {combined_result.get_volume():.2f}")
+
 def main():
     """主函数 - 运行所有示例"""
     print("SimpleCAD API 复杂操作示例")
@@ -556,6 +836,7 @@ def main():
         # 运行所有示例
         example_naca_blade()
         example_swept_shape()
+        example_helical_sweep()  # 新增螺旋扫掠示例
         example_nested_workplanes()
         example_spline_curves()
         example_boolean_operations()
@@ -563,6 +844,7 @@ def main():
         example_mirror_operations()
         example_advanced_features()
         example_gear_like_shape()
+        example_tagged_array_operations()  # 新增示例
         
         print("\n" + "=" * 50)
         print("所有示例已完成！检查 examples_output 文件夹查看生成的STL文件。")
