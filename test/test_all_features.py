@@ -119,15 +119,6 @@ class TestBasicShapes(unittest.TestCase):
         spline_wire = scad.make_spline_rwire(points)
         self.assertIsInstance(spline_wire, scad.Wire)
         
-    def test_create_polyline_edge(self):
-        """测试多段线边创建（两点）"""
-        polyline = scad.make_polyline_redge([(0, 0, 0), (1, 0, 0)])
-        self.assertIsInstance(polyline, scad.Edge)
-        
-        # 测试多点应该抛出异常
-        with self.assertRaises(ValueError):
-            scad.make_polyline_redge([(0, 0, 0), (1, 0, 0), (1, 1, 0)])
-            
     def test_create_polyline_wire(self):
         """测试多段线线创建"""
         points = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]

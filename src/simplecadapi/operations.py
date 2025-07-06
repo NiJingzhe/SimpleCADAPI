@@ -5,6 +5,7 @@ SimpleCAD API操作函数实现
 
 from typing import List, Tuple, Union, Optional, Any, Sequence
 import numpy as np
+import math
 import cadquery as cq
 from cadquery import Vector, Plane
 
@@ -21,18 +22,33 @@ from cadquery.occ_impl.shapes import fuse, cut, intersect
 # =============================================================================
 
 def make_point_rvertex(x: float, y: float, z: float) -> Vertex:
-    """创建点并返回顶点
+    """创建三维空间中的点并返回顶点对象
     
     Args:
-        x: X坐标
-        y: Y坐标
-        z: Z坐标
+        x (float): X坐标值，用于定义点在X轴方向的位置
+        y (float): Y坐标值，用于定义点在Y轴方向的位置
+        z (float): Z坐标值，用于定义点在Z轴方向的位置
         
     Returns:
-        创建的顶点
+        Vertex: 创建的顶点对象，包含指定坐标的点
         
     Raises:
-        ValueError: 当坐标无效时
+        ValueError: 当坐标无效时抛出异常
+        
+    Usage:
+        创建三维空间中的几何点，通常用作其他几何对象的构造参数，如作为线段的端点、
+        圆弧的控制点等。支持当前坐标系变换。
+        
+    Example:
+        >>> # 创建原点
+        >>> origin = make_point_rvertex(0, 0, 0)
+        >>> 
+        >>> # 创建指定坐标的点
+        >>> point = make_point_rvertex(1.5, 2.0, 3.0)
+        >>> 
+        >>> # 在工作平面中创建点
+        >>> with SimpleWorkplane((1, 1, 1)):
+        ...     local_point = make_point_rvertex(0, 0, 0)  # 实际位置为(1, 1, 1)
     """
     try:
         cs = get_current_cs()
@@ -45,17 +61,32 @@ def make_point_rvertex(x: float, y: float, z: float) -> Vertex:
 
 def make_line_redge(start: Tuple[float, float, float], 
                     end: Tuple[float, float, float]) -> Edge:
-    """创建线段并返回边
+    """创建两点之间的直线段并返回边对象
     
     Args:
-        start: 起始点坐标
-        end: 结束点坐标
+        start (Tuple[float, float, float]): 起始点坐标 (x, y, z)，定义线段的起点
+        end (Tuple[float, float, float]): 结束点坐标 (x, y, z)，定义线段的终点
         
     Returns:
-        创建的边
+        Edge: 创建的边对象，表示连接两点的直线段
         
     Raises:
-        ValueError: 当坐标无效时
+        ValueError: 当坐标无效或起始点与结束点重合时抛出异常
+        
+    Usage:
+        创建两点之间的直线段，是构建复杂几何形状的基础元素。可用于构造线框、
+        创建草图轮廓、定义路径等。支持当前坐标系变换。
+        
+    Example:
+        >>> # 创建水平线段
+        >>> line = make_line_redge((0, 0, 0), (5, 0, 0))
+        >>> 
+        >>> # 创建三维空间中的线段
+        >>> line_3d = make_line_redge((1, 1, 1), (3, 2, 4))
+        >>> 
+        >>> # 在工作平面中创建线段
+        >>> with SimpleWorkplane((0, 0, 1)):
+        ...     elevated_line = make_line_redge((0, 0, 0), (2, 2, 0))
     """
     try:
         cs = get_current_cs()
@@ -73,28 +104,53 @@ def make_line_redge(start: Tuple[float, float, float],
 
 def make_segment_redge(start: Tuple[float, float, float], 
                        end: Tuple[float, float, float]) -> Edge:
-    """创建线段并返回边（别名函数）
+    """创建线段并返回边对象（make_line_redge的别名函数）
     
     Args:
-        start: 起始点坐标
-        end: 结束点坐标
+        start (Tuple[float, float, float]): 起始点坐标 (x, y, z)，定义线段的起点
+        end (Tuple[float, float, float]): 结束点坐标 (x, y, z)，定义线段的终点
         
     Returns:
-        创建的边
+        Edge: 创建的边对象，表示连接两点的直线段
+        
+    Usage:
+        与make_line_redge功能完全相同，提供更直观的函数名称。用于创建两点之间的
+        直线段，是构建复杂几何形状的基础元素。
+        
+    Example:
+        >>> # 创建垂直线段
+        >>> vertical_line = make_segment_redge((0, 0, 0), (0, 0, 5))
+        >>> 
+        >>> # 创建对角线段
+        >>> diagonal = make_segment_redge((0, 0, 0), (1, 1, 1))
     """
     return make_line_redge(start, end)
 
 
 def make_segment_rwire(start: Tuple[float, float, float], 
                        end: Tuple[float, float, float]) -> Wire:
-    """创建线段并返回线
+    """创建线段并返回线对象
     
     Args:
-        start: 起始点坐标
-        end: 结束点坐标
+        start (Tuple[float, float, float]): 起始点坐标 (x, y, z)，定义线段的起点
+        end (Tuple[float, float, float]): 结束点坐标 (x, y, z)，定义线段的终点
         
     Returns:
-        创建的线
+        Wire: 创建的线对象，包含一个连接两点的直线段
+        
+    Raises:
+        ValueError: 当坐标无效或创建线对象失败时抛出异常
+        
+    Usage:
+        创建包含单个线段的线对象，用于构建更复杂的线框结构。与make_segment_redge
+        不同，此函数返回的是线对象，可以与其他线对象连接形成复杂路径。
+        
+    Example:
+        >>> # 创建基本线段线
+        >>> wire = make_segment_rwire((0, 0, 0), (3, 0, 0))
+        >>> 
+        >>> # 创建斜线段
+        >>> diagonal_wire = make_segment_rwire((0, 0, 0), (2, 2, 0))
     """
     try:
         edge = make_line_redge(start, end)
@@ -107,18 +163,33 @@ def make_segment_rwire(start: Tuple[float, float, float],
 def make_circle_redge(center: Tuple[float, float, float], 
                       radius: float,
                       normal: Tuple[float, float, float] = (0, 0, 1)) -> Edge:
-    """创建圆并返回边
+    """创建圆形并返回边对象
     
     Args:
-        center: 圆心坐标
-        radius: 半径
-        normal: 法向量
+        center (Tuple[float, float, float]): 圆心坐标 (x, y, z)，定义圆的中心位置
+        radius (float): 圆的半径，必须为正数
+        normal (Tuple[float, float, float], optional): 圆所在平面的法向量 (x, y, z)，
+            默认为 (0, 0, 1) 表示XY平面
         
     Returns:
-        创建的圆边
+        Edge: 创建的边对象，表示一个完整的圆形
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当半径小于等于0或其他参数无效时抛出异常
+        
+    Usage:
+        创建圆形边对象，用于构建圆形轮廓、圆弧路径等。圆的方向由法向量确定，
+        支持在任意平面内创建圆形。支持当前坐标系变换。
+        
+    Example:
+        >>> # 创建XY平面上的圆
+        >>> circle = make_circle_redge((0, 0, 0), 2.0)
+        >>> 
+        >>> # 创建垂直平面上的圆
+        >>> vertical_circle = make_circle_redge((0, 0, 0), 1.5, (1, 0, 0))
+        >>> 
+        >>> # 创建指定位置的圆
+        >>> offset_circle = make_circle_redge((2, 3, 1), 1.0, (0, 0, 1))
     """
     try:
         if radius <= 0:
@@ -140,15 +211,30 @@ def make_circle_redge(center: Tuple[float, float, float],
 def make_circle_rwire(center: Tuple[float, float, float], 
                       radius: float,
                       normal: Tuple[float, float, float] = (0, 0, 1)) -> Wire:
-    """创建圆并返回线
+    """创建圆形并返回线对象
     
     Args:
-        center: 圆心坐标
-        radius: 半径
-        normal: 法向量
+        center (Tuple[float, float, float]): 圆心坐标 (x, y, z)，定义圆的中心位置
+        radius (float): 圆的半径，必须为正数
+        normal (Tuple[float, float, float], optional): 圆所在平面的法向量 (x, y, z)，
+            默认为 (0, 0, 1) 表示XY平面
         
     Returns:
-        创建的圆线
+        Wire: 创建的线对象，表示一个完整的圆形轮廓
+        
+    Raises:
+        ValueError: 当半径小于等于0或其他参数无效时抛出异常
+        
+    Usage:
+        创建圆形线对象，用于构建封闭的圆形轮廓。与make_circle_redge不同，
+        此函数返回的是线对象，可以直接用于创建面或进行其他线操作。
+        
+    Example:
+        >>> # 创建标准圆形轮廓
+        >>> circle_wire = make_circle_rwire((0, 0, 0), 3.0)
+        >>> 
+        >>> # 创建小圆轮廓
+        >>> small_circle = make_circle_rwire((1, 1, 0), 0.5)
     """
     try:
         edge = make_circle_redge(center, radius, normal)
@@ -161,15 +247,32 @@ def make_circle_rwire(center: Tuple[float, float, float],
 def make_circle_rface(center: Tuple[float, float, float], 
                       radius: float,
                       normal: Tuple[float, float, float] = (0, 0, 1)) -> Face:
-    """创建圆并返回面
+    """创建圆形并返回面对象
     
     Args:
-        center: 圆心坐标
-        radius: 半径
-        normal: 法向量
+        center (Tuple[float, float, float]): 圆心坐标 (x, y, z)，定义圆的中心位置
+        radius (float): 圆的半径，必须为正数
+        normal (Tuple[float, float, float], optional): 圆所在平面的法向量 (x, y, z)，
+            默认为 (0, 0, 1) 表示XY平面
         
     Returns:
-        创建的圆面
+        Face: 创建的面对象，表示一个实心的圆形面
+        
+    Raises:
+        ValueError: 当半径小于等于0或其他参数无效时抛出异常
+        
+    Usage:
+        创建圆形面对象，用于构建实心圆形截面。可以用于拉伸、旋转等操作来创建
+        圆柱体、圆锥体等三维几何体。面积等于πr²。
+        
+    Example:
+        >>> # 创建标准圆形面
+        >>> circle_face = make_circle_rface((0, 0, 0), 2.0)
+        >>> area = circle_face.get_area()  # 面积为π×2²≈12.57
+        >>> 
+        >>> # 创建用于拉伸的圆形截面
+        >>> profile = make_circle_rface((0, 0, 0), 1.0)
+        >>> cylinder = extrude_rsolid(profile, (0, 0, 1), 5.0)
     """
     try:
         wire = make_circle_rwire(center, radius, normal)
@@ -182,19 +285,35 @@ def make_circle_rface(center: Tuple[float, float, float],
 def make_rectangle_rwire(width: float, height: float, 
                          center: Tuple[float, float, float] = (0, 0, 0),
                          normal: Tuple[float, float, float] = (0, 0, 1)) -> Wire:
-    """创建矩形并返回线
+    """创建矩形并返回线对象
     
     Args:
-        width: 宽度
-        height: 高度
-        center: 中心点坐标
-        normal: 法向量
+        width (float): 矩形的宽度，必须为正数
+        height (float): 矩形的高度，必须为正数
+        center (Tuple[float, float, float], optional): 矩形中心坐标 (x, y, z)，
+            默认为 (0, 0, 0)
+        normal (Tuple[float, float, float], optional): 矩形所在平面的法向量 (x, y, z)，
+            默认为 (0, 0, 1) 表示XY平面
         
     Returns:
-        创建的矩形线
+        Wire: 创建的线对象，表示一个封闭的矩形轮廓
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当宽度或高度小于等于0或其他参数无效时抛出异常
+        
+    Usage:
+        创建矩形线对象，用于构建矩形轮廓。矩形以指定中心点为中心，在指定平面内
+        创建。可以用于构建复杂的多边形轮廓或作为拉伸的基础轮廓。
+        
+    Example:
+        >>> # 创建标准矩形轮廓
+        >>> rect = make_rectangle_rwire(4.0, 3.0)
+        >>> 
+        >>> # 创建偏移的矩形
+        >>> offset_rect = make_rectangle_rwire(2.0, 2.0, (1, 1, 0))
+        >>> 
+        >>> # 创建垂直平面上的矩形
+        >>> vertical_rect = make_rectangle_rwire(3.0, 2.0, (0, 0, 0), (1, 0, 0))
     """
     try:
         if width <= 0 or height <= 0:
@@ -252,16 +371,34 @@ def make_rectangle_rwire(width: float, height: float,
 def make_rectangle_rface(width: float, height: float, 
                          center: Tuple[float, float, float] = (0, 0, 0),
                          normal: Tuple[float, float, float] = (0, 0, 1)) -> Face:
-    """创建矩形并返回面
+    """创建矩形并返回面对象
     
     Args:
-        width: 宽度
-        height: 高度
-        center: 中心点坐标
-        normal: 法向量
+        width (float): 矩形的宽度，必须为正数
+        height (float): 矩形的高度，必须为正数
+        center (Tuple[float, float, float], optional): 矩形中心坐标 (x, y, z)，
+            默认为 (0, 0, 0)
+        normal (Tuple[float, float, float], optional): 矩形所在平面的法向量 (x, y, z)，
+            默认为 (0, 0, 1) 表示XY平面
         
     Returns:
-        创建的矩形面
+        Face: 创建的面对象，表示一个实心的矩形面
+        
+    Raises:
+        ValueError: 当宽度或高度小于等于0或其他参数无效时抛出异常
+        
+    Usage:
+        创建矩形面对象，用于构建实心矩形截面。可以用于拉伸、旋转等操作来创建
+        立方体、棱柱等三维几何体。面积等于width×height。
+        
+    Example:
+        >>> # 创建标准矩形面
+        >>> rect_face = make_rectangle_rface(5.0, 3.0)
+        >>> area = rect_face.get_area()  # 面积为5×3=15
+        >>> 
+        >>> # 创建用于拉伸的矩形截面
+        >>> profile = make_rectangle_rface(2.0, 2.0)
+        >>> box = extrude_rsolid(profile, (0, 0, 1), 3.0)
     """
     try:
         wire = make_rectangle_rwire(width, height, center, normal)
@@ -272,17 +409,36 @@ def make_rectangle_rface(width: float, height: float,
 
 
 def make_face_from_wire_rface(wire: Wire, normal: Tuple[float, float, float] = (0, 0, 1)) -> Face:
-    """从线创建面
+    """从封闭的线对象创建面对象
     
     Args:
-        wire: 输入的线对象（必须是封闭的）
-        normal: 法向量，用于确定面的方向
-
+        wire (Wire): 输入的线对象，必须是封闭的线轮廓
+        normal (Tuple[float, float, float], optional): 期望的面法向量 (x, y, z)，
+            用于确定面的方向，默认为 (0, 0, 1)
+        
     Returns:
-        创建的面对象
-
+        Face: 创建的面对象，由输入的线轮廓围成的面
+        
     Raises:
-        ValueError: 当输入无效时
+        ValueError: 当输入的线对象无效、不封闭或创建面失败时抛出异常
+        
+    Usage:
+        将封闭的线轮廓转换为面对象，用于从复杂的线框轮廓创建面。输入的线必须
+        是封闭的，函数会检查面的法向量方向，如果与期望方向相反会发出警告。
+        
+    Example:
+        >>> # 从矩形线创建面
+        >>> rect_wire = make_rectangle_rwire(3.0, 2.0)
+        >>> rect_face = make_face_from_wire_rface(rect_wire)
+        >>> 
+        >>> # 从圆形线创建面
+        >>> circle_wire = make_circle_rwire((0, 0, 0), 1.5)
+        >>> circle_face = make_face_from_wire_rface(circle_wire)
+        >>> 
+        >>> # 从多边形线创建面
+        >>> points = [(0, 0, 0), (2, 0, 0), (2, 2, 0), (0, 2, 0)]
+        >>> poly_wire = make_polyline_rwire(points, closed=True)
+        >>> poly_face = make_face_from_wire_rface(poly_wire)
     """
     try:
         if not isinstance(wire, Wire):
@@ -329,17 +485,31 @@ def make_face_from_wire_rface(wire: Wire, normal: Tuple[float, float, float] = (
         raise ValueError(f"创建面失败: {e}. 请检查输入的线是否有效且封闭。")
     
 def make_wire_from_edges_rwire(edges: List[Edge]) -> Wire:
-        
-    """从边创建线
-
+    """从边对象列表创建线对象
+    
     Args:
-        edges: 输入的边列表
-
+        edges (List[Edge]): 输入的边对象列表，边应该能够连接成连续的线
+        
     Returns:
-        创建的线对象
-
+        Wire: 创建的线对象，由输入的边组成的连续线
+        
     Raises:
-        ValueError: 当输入无效时
+        ValueError: 当边列表为空或边无法连接时抛出异常
+        
+    Usage:
+        将多个边对象连接成一个连续的线对象。边的顺序很重要，相邻的边应该
+        能够连接在一起。用于构建复杂的线框结构。
+        
+    Example:
+        >>> # 创建L形线
+        >>> edge1 = make_line_redge((0, 0, 0), (2, 0, 0))  # 水平线
+        >>> edge2 = make_line_redge((2, 0, 0), (2, 2, 0))  # 垂直线
+        >>> l_wire = make_wire_from_edges_rwire([edge1, edge2])
+        >>> 
+        >>> # 创建包含直线和圆弧的复杂线
+        >>> line = make_line_redge((0, 0, 0), (2, 0, 0))
+        >>> arc = make_three_point_arc_redge((2, 0, 0), (3, 1, 0), (2, 2, 0))
+        >>> complex_wire = make_wire_from_edges_rwire([line, arc])
     """
     try:
         if not edges:
@@ -353,19 +523,40 @@ def make_wire_from_edges_rwire(edges: List[Edge]) -> Wire:
 
 def make_box_rsolid(width: float, height: float, depth: float,
                     center: Tuple[float, float, float] = (0, 0, 0)) -> Solid:
-    """创建立方体并返回实体
+    """创建立方体并返回实体对象
     
     Args:
-        width: 宽度
-        height: 高度
-        depth: 深度
-        center: 中心点坐标
+        width (float): 立方体的宽度（X方向尺寸），必须为正数
+        height (float): 立方体的高度（Y方向尺寸），必须为正数
+        depth (float): 立方体的深度（Z方向尺寸），必须为正数
+        center (Tuple[float, float, float], optional): 立方体的中心坐标 (x, y, z)，
+            默认为 (0, 0, 0)
         
     Returns:
-        创建的立方体实体
+        Solid: 创建的实体对象，表示一个立方体
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当宽度、高度或深度小于等于0时抛出异常
+        
+    Usage:
+        创建矩形立方体实体，是最基础的三维几何体之一。自动为立方体的面添加
+        标签（top、bottom、front、back、left、right），便于后续的面选择操作。
+        体积等于width×height×depth。
+        
+    Example:
+        >>> # 创建标准单位立方体
+        >>> unit_cube = make_box_rsolid(1.0, 1.0, 1.0)
+        >>> volume = unit_cube.get_volume()  # 体积为1
+        >>> 
+        >>> # 创建矩形立方体
+        >>> rect_box = make_box_rsolid(4.0, 2.0, 3.0)
+        >>> 
+        >>> # 创建偏移的立方体
+        >>> offset_box = make_box_rsolid(2.0, 2.0, 2.0, (1, 1, 1))
+        >>> 
+        >>> # 获取立方体的面进行后续操作
+        >>> faces = unit_cube.get_faces()
+        >>> top_faces = [f for f in faces if f.has_tag("top")]
     """
     try:
         if width <= 0 or height <= 0 or depth <= 0:
@@ -389,19 +580,40 @@ def make_box_rsolid(width: float, height: float, depth: float,
 def make_cylinder_rsolid(radius: float, height: float,
                          center: Tuple[float, float, float] = (0, 0, 0),
                          axis: Tuple[float, float, float] = (0, 0, 1)) -> Solid:
-    """创建圆柱体并返回实体
+    """创建圆柱体并返回实体对象
     
     Args:
-        radius: 半径
-        height: 高度
-        center: 中心点坐标
-        axis: 轴向向量
+        radius (float): 圆柱体的半径，必须为正数
+        height (float): 圆柱体的高度，必须为正数
+        center (Tuple[float, float, float], optional): 圆柱体底面中心坐标 (x, y, z)，
+            默认为 (0, 0, 0)
+        axis (Tuple[float, float, float], optional): 圆柱体的轴向向量 (x, y, z)，
+            定义圆柱体的方向，默认为 (0, 0, 1) 表示沿Z轴方向
         
     Returns:
-        创建的圆柱体实体
+        Solid: 创建的实体对象，表示一个圆柱体
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当半径或高度小于等于0时抛出异常
+        
+    Usage:
+        创建圆柱体实体，是基础的三维几何体之一。自动为圆柱体的面添加标签
+        （top、bottom、cylindrical），便于后续的面选择操作。体积等于πr²h。
+        
+    Example:
+        >>> # 创建标准圆柱体
+        >>> cylinder = make_cylinder_rsolid(2.0, 5.0)
+        >>> volume = cylinder.get_volume()  # 体积为π×2²×5≈62.83
+        >>> 
+        >>> # 创建水平圆柱体
+        >>> horizontal_cyl = make_cylinder_rsolid(1.0, 4.0, (0, 0, 0), (1, 0, 0))
+        >>> 
+        >>> # 创建偏移的圆柱体
+        >>> offset_cyl = make_cylinder_rsolid(1.5, 3.0, (2, 2, 0))
+        >>> 
+        >>> # 获取圆柱体的面进行后续操作
+        >>> faces = cylinder.get_faces()
+        >>> top_faces = [f for f in faces if f.has_tag("top")]
     """
     try:
         if radius <= 0 or height <= 0:
@@ -427,17 +639,37 @@ def make_cylinder_rsolid(radius: float, height: float,
 
 def make_sphere_rsolid(radius: float,
                        center: Tuple[float, float, float] = (0, 0, 0)) -> Solid:
-    """创建球体并返回实体
+    """创建球体并返回实体对象
     
     Args:
-        radius: 半径
-        center: 中心点坐标
+        radius (float): 球体的半径，必须为正数
+        center (Tuple[float, float, float], optional): 球体的中心坐标 (x, y, z)，
+            默认为 (0, 0, 0)
         
     Returns:
-        创建的球体实体
+        Solid: 创建的实体对象，表示一个球体
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当半径小于等于0时抛出异常
+        
+    Usage:
+        创建球体实体，是基础的三维几何体之一。自动为球体的面添加标签（surface），
+        便于后续的面选择操作。体积等于(4/3)πr³。
+        
+    Example:
+        >>> # 创建标准单位球体
+        >>> unit_sphere = make_sphere_rsolid(1.0)
+        >>> volume = unit_sphere.get_volume()  # 体积为(4/3)π≈4.19
+        >>> 
+        >>> # 创建大球体
+        >>> large_sphere = make_sphere_rsolid(3.0)
+        >>> 
+        >>> # 创建偏移的球体
+        >>> offset_sphere = make_sphere_rsolid(2.0, (1, 1, 1))
+        >>> 
+        >>> # 获取球体的面进行后续操作
+        >>> faces = unit_sphere.get_faces()
+        >>> surface_faces = [f for f in faces if f.has_tag("surface")]
     """
     try:
         if radius <= 0:
@@ -465,18 +697,33 @@ def make_sphere_rsolid(radius: float,
 def make_three_point_arc_redge(start: Tuple[float, float, float],
                                middle: Tuple[float, float, float],
                                end: Tuple[float, float, float]) -> Edge:
-    """通过三点创建圆弧并返回边
+    """通过三点创建圆弧并返回边对象
     
     Args:
-        start: 起始点坐标
-        middle: 中间点坐标
-        end: 结束点坐标
+        start (Tuple[float, float, float]): 圆弧的起始点坐标 (x, y, z)
+        middle (Tuple[float, float, float]): 圆弧上的中间点坐标 (x, y, z)，
+            用于确定圆弧的曲率和方向
+        end (Tuple[float, float, float]): 圆弧的结束点坐标 (x, y, z)
         
     Returns:
-        创建的圆弧边
+        Edge: 创建的边对象，表示通过三点的圆弧
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当三个点共线或坐标无效时抛出异常
+        
+    Usage:
+        通过三个点创建圆弧边，三个点不能共线。圆弧从起始点经过中间点到结束点。
+        中间点的位置决定了圆弧的弯曲程度和方向。
+        
+    Example:
+        >>> # 创建90度圆弧
+        >>> arc = make_three_point_arc_redge((0, 0, 0), (1, 1, 0), (2, 0, 0))
+        >>> 
+        >>> # 创建大圆弧
+        >>> large_arc = make_three_point_arc_redge((0, 0, 0), (0, 3, 0), (0, 6, 0))
+        >>> 
+        >>> # 创建3D圆弧
+        >>> arc_3d = make_three_point_arc_redge((0, 0, 0), (1, 1, 1), (2, 0, 2))
     """
     try:
         cs = get_current_cs()
@@ -497,15 +744,31 @@ def make_three_point_arc_redge(start: Tuple[float, float, float],
 def make_three_point_arc_rwire(start: Tuple[float, float, float],
                                middle: Tuple[float, float, float],
                                end: Tuple[float, float, float]) -> Wire:
-    """通过三点创建圆弧并返回线
+    """通过三点创建圆弧并返回线对象
     
     Args:
-        start: 起始点坐标
-        middle: 中间点坐标
-        end: 结束点坐标
+        start (Tuple[float, float, float]): 圆弧的起始点坐标 (x, y, z)
+        middle (Tuple[float, float, float]): 圆弧上的中间点坐标 (x, y, z)，
+            用于确定圆弧的曲率和方向
+        end (Tuple[float, float, float]): 圆弧的结束点坐标 (x, y, z)
         
     Returns:
-        创建的圆弧线
+        Wire: 创建的线对象，包含一个通过三点的圆弧
+        
+    Raises:
+        ValueError: 当三个点共线或坐标无效时抛出异常
+        
+    Usage:
+        通过三个点创建圆弧线对象，与make_three_point_arc_redge功能相同，
+        但返回的是线对象，可以与其他线对象连接或用于构建复杂轮廓。
+        
+    Example:
+        >>> # 创建圆弧线
+        >>> arc_wire = make_three_point_arc_rwire((0, 0, 0), (1, 1, 0), (0, 2, 0))
+        >>> 
+        >>> # 与直线连接创建复杂轮廓
+        >>> line = make_segment_rwire((0, 2, 0), (3, 2, 0))
+        >>> # 然后可以连接arc_wire和line
     """
     try:
         edge = make_three_point_arc_redge(start, middle, end)
@@ -520,20 +783,38 @@ def make_angle_arc_redge(center: Tuple[float, float, float],
                          start_angle: float,
                          end_angle: float,
                          normal: Tuple[float, float, float] = (0, 0, 1)) -> Edge:
-    """创建角度圆弧并返回边
+    """通过角度创建圆弧并返回边对象
     
     Args:
-        center: 圆心坐标
-        radius: 半径
-        start_angle: 起始角度（弧度）
-        end_angle: 结束角度（弧度）
-        normal: 法向量
+        center (Tuple[float, float, float]): 圆弧的中心点坐标 (x, y, z)
+        radius (float): 圆弧的半径，必须为正数
+        start_angle (float): 起始角度，单位为度数（0-360）
+        end_angle (float): 结束角度，单位为度数（0-360）
+        normal (Tuple[float, float, float], optional): 圆弧所在平面的法向量 (x, y, z)，
+            默认为 (0, 0, 1) 表示XY平面
         
     Returns:
-        创建的圆弧边
+        Edge: 创建的边对象，表示指定角度范围的圆弧
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当半径小于等于0或其他参数无效时抛出异常
+        
+    Usage:
+        通过指定中心点、半径和角度范围创建圆弧边。角度采用度数制，
+        0度对应X轴正方向，逆时针为正角度。可以创建任意角度范围的圆弧。
+        
+    Example:
+        >>> # 创建90度圆弧（从0度到90度）
+        >>> arc_90 = make_angle_arc_redge((0, 0, 0), 2.0, 0, 90)
+        >>> 
+        >>> # 创建180度半圆弧
+        >>> semicircle = make_angle_arc_redge((0, 0, 0), 1.5, 0, 180)
+        >>> 
+        >>> # 创建270度圆弧
+        >>> arc_270 = make_angle_arc_redge((0, 0, 0), 1.0, 45, 315)
+        >>> 
+        >>> # 创建垂直平面上的圆弧
+        >>> vertical_arc = make_angle_arc_redge((0, 0, 0), 1.0, 0, 90, (1, 0, 0))
     """
     try:
         if radius <= 0:
@@ -588,18 +869,41 @@ def make_angle_arc_rwire(center: Tuple[float, float, float],
                          start_angle: float,
                          end_angle: float,
                          normal: Tuple[float, float, float] = (0, 0, 1)) -> Wire:
-    """创建角度圆弧并返回线
     
+    """ 通过角度创建圆弧并返回线对象
+
     Args:
         center: 圆心坐标
         radius: 半径
         start_angle: 起始角度（弧度）
         end_angle: 结束角度（弧度）
         normal: 法向量
-        
+
     Returns:
-        创建的圆弧线
+        Wire: 线对象，表示通过角度创建的圆弧线
+        
+    Raises:
+        ValueError: 当半径小于等于0或其他参数无效时
+        
+    Usage:
+        通过指定中心点、半径和角度范围创建圆弧线。
+        角度采用度数制，0度对应X轴正方向，逆时针为正角度。
+        可以创建任意角度范围的圆弧线。
+        
+    Example:
+        >>> # 创建90度圆弧线（从0度到90度）
+        >>> arc_90_wire = make_angle_arc_rwire((0, 0, 0), 2.0, 0, 90)
+        >>> 
+        >>> # 创建180度半圆弧线
+        >>> semicircle_wire = make_angle_arc_rwire((0, 0, 0), 1.5, 0, 180)
+        >>> # 创建270度圆弧线
+        >>> arc_270_wire = make_angle_arc_rwire((0, 0, 0), 1.0, 45, 315)
+        >>> 
+        >>> # 创建垂直平面（YZ，法相指向X轴正方向）上的圆弧线
+        >>> vertical_arc_wire = make_angle_arc_rwire((0, 0, 0), 1.0, 0, 90, (1, 0, 0))
     """
+    
+    
     try:
         edge = make_angle_arc_redge(center, radius, start_angle, end_angle, normal)
         cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
@@ -610,17 +914,37 @@ def make_angle_arc_rwire(center: Tuple[float, float, float],
 
 def make_spline_redge(points: List[Tuple[float, float, float]],
                       tangents: Optional[List[Tuple[float, float, float]]] = None) -> Edge:
-    """创建样条曲线并返回边
+    """创建样条曲线并返回边对象
     
     Args:
-        points: 控制点坐标列表
-        tangents: 可选的切线向量列表
+        points (List[Tuple[float, float, float]]): 控制点坐标列表 [(x, y, z), ...]，
+            至少需要2个点，点的顺序决定样条曲线的走向
+        tangents (Optional[List[Tuple[float, float, float]]], optional): 
+            可选的切线向量列表 [(x, y, z), ...]，如果提供则数量必须与控制点一致
         
     Returns:
-        创建的样条曲线边
+        Edge: 创建的边对象，表示通过控制点的平滑样条曲线
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当控制点少于2个或切线向量数量不匹配时抛出异常
+        
+    Usage:
+        创建平滑的样条曲线边，用于构建复杂的曲线路径。样条曲线会平滑地通过
+        所有控制点，可选择性地指定每个点的切线方向来控制曲线的形状。
+        
+    Example:
+        >>> # 创建简单的样条曲线
+        >>> points = [(0, 0, 0), (1, 2, 0), (3, 1, 0), (4, 3, 0)]
+        >>> spline = make_spline_redge(points)
+        >>> 
+        >>> # 创建带切线控制的样条曲线
+        >>> points = [(0, 0, 0), (2, 0, 0), (4, 0, 0)]
+        >>> tangents = [(1, 0, 0), (0, 1, 0), (1, 0, 0)]
+        >>> controlled_spline = make_spline_redge(points, tangents)
+        >>> 
+        >>> # 创建3D样条曲线
+        >>> points_3d = [(0, 0, 0), (1, 1, 1), (2, 0, 2), (3, 1, 1)]
+        >>> spline_3d = make_spline_redge(points_3d)
     """
     try:
         if len(points) < 2:
@@ -658,15 +982,33 @@ def make_spline_redge(points: List[Tuple[float, float, float]],
 def make_spline_rwire(points: List[Tuple[float, float, float]],
                       tangents: Optional[List[Tuple[float, float, float]]] = None,
                       closed: bool = False) -> Wire:
-    """创建样条曲线并返回线
+    """创建样条曲线并返回线对象
     
     Args:
-        points: 控制点坐标列表
-        tangents: 可选的切线向量列表
-        closed: 是否闭合
-
+        points (List[Tuple[float, float, float]]): 控制点坐标列表 [(x, y, z), ...]，
+            至少需要2个点，点的顺序决定样条曲线的走向
+        tangents (Optional[List[Tuple[float, float, float]]], optional): 
+            可选的切线向量列表 [(x, y, z), ...]，如果提供则数量必须与控制点一致
+        closed (bool, optional): 是否创建闭合的样条曲线，默认为False
+        
     Returns:
-        创建的样条曲线线
+        Wire: 创建的线对象，包含一个样条曲线
+        
+    Raises:
+        ValueError: 当控制点少于2个或切线向量数量不匹配时抛出异常
+        
+    Usage:
+        创建样条曲线线对象，与make_spline_redge功能相同但返回线对象。
+        可以设置为闭合样条曲线，适用于构建复杂的封闭轮廓。
+        
+    Example:
+        >>> # 创建开放样条曲线线
+        >>> points = [(0, 0, 0), (2, 3, 0), (4, 1, 0), (6, 2, 0)]
+        >>> spline_wire = make_spline_rwire(points)
+        >>> 
+        >>> # 创建闭合样条曲线
+        >>> points = [(0, 0, 0), (2, 2, 0), (4, 0, 0), (2, -2, 0)]
+        >>> closed_spline = make_spline_rwire(points, closed=True)
     """
     try:
         edge = make_spline_redge(points, tangents)
@@ -679,52 +1021,38 @@ def make_spline_rwire(points: List[Tuple[float, float, float]],
         raise ValueError(f"创建样条曲线线失败: {e}")
 
 
-def make_polyline_redge(points: List[Tuple[float, float, float]],
-                        closed: bool = False) -> Edge:
-    """创建多段线并返回边（仅适用于两点间的单段）
-    
-    Args:
-        points: 顶点坐标列表
-        closed: 是否闭合
-        
-    Returns:
-        创建的多段线边
-        
-    Raises:
-        ValueError: 当参数无效时
-    """
-    try:
-        if len(points) < 2:
-            raise ValueError("至少需要2个点")
-        if len(points) > 2:
-            raise ValueError("Edge类型只支持两点间的线段，多点请使用make_polyline_rwire")
-            
-        cs = get_current_cs()
-        start_global = cs.transform_point(np.array(points[0]))
-        end_global = cs.transform_point(np.array(points[1]))
-        
-        start_vec = Vector(*start_global)
-        end_vec = Vector(*end_global)
-        
-        cq_edge = cq.Edge.makeLine(start_vec, end_vec)
-        return Edge(cq_edge)
-    except Exception as e:
-        raise ValueError(f"创建多段线边失败: {e}. 请检查点坐标是否有效。")
-
-
 def make_polyline_rwire(points: List[Tuple[float, float, float]],
                         closed: bool = False) -> Wire:
-    """创建多段线并返回线
+    """创建多段线并返回线对象
     
     Args:
-        points: 顶点坐标列表
-        closed: 是否闭合
+        points (List[Tuple[float, float, float]]): 顶点坐标列表 [(x, y, z), ...]，
+            至少需要2个点，相邻点之间用直线连接
+        closed (bool, optional): 是否创建闭合的多段线，默认为False。
+            如果为True，会自动连接最后一个点和第一个点
         
     Returns:
-        创建的多段线
+        Wire: 创建的线对象，由多个直线段组成的多段线
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当顶点少于2个时抛出异常
+        
+    Usage:
+        创建由多个直线段连接的多段线，用于构建折线、多边形轮廓等。
+        相邻点之间用直线连接，可以创建开放或闭合的多段线。
+        
+    Example:
+        >>> # 创建L形多段线
+        >>> points = [(0, 0, 0), (3, 0, 0), (3, 2, 0)]
+        >>> l_shape = make_polyline_rwire(points)
+        >>> 
+        >>> # 创建三角形轮廓
+        >>> triangle_points = [(0, 0, 0), (2, 0, 0), (1, 2, 0)]
+        >>> triangle = make_polyline_rwire(triangle_points, closed=True)
+        >>> 
+        >>> # 创建复杂的多边形
+        >>> polygon_points = [(0, 0, 0), (2, 0, 0), (3, 1, 0), (2, 2, 0), (0, 2, 0)]
+        >>> polygon = make_polyline_rwire(polygon_points, closed=True)
     """
     try:
         if len(points) < 2:
@@ -767,20 +1095,36 @@ def make_helix_redge(pitch: float,
                      radius: float,
                      center: Tuple[float, float, float] = (0, 0, 0),
                      dir: Tuple[float, float, float] = (0, 0, 1)) -> Edge:
-    """创建螺旋线并返回边
+    """创建螺旋线并返回边对象
     
     Args:
-        pitch: 螺距
-        height: 总高度
-        radius: 螺旋半径
-        center: 螺旋中心
-        dir: 螺旋轴方向
+        pitch (float): 螺距，每转一圈在轴向上的距离，必须为正数
+        height (float): 螺旋线的总高度，必须为正数
+        radius (float): 螺旋线的半径，必须为正数
+        center (Tuple[float, float, float], optional): 螺旋线的中心点坐标 (x, y, z)，
+            默认为 (0, 0, 0)
+        dir (Tuple[float, float, float], optional): 螺旋轴的方向向量 (x, y, z)，
+            默认为 (0, 0, 1) 表示沿Z轴方向
         
     Returns:
-        创建的螺旋线边
+        Edge: 创建的边对象，表示一个螺旋线
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当螺距、高度或半径小于等于0时抛出异常
+        
+    Usage:
+        创建螺旋线边对象，用于构建螺旋形状的路径或进行螺旋扫掠。
+        螺旋线绕指定轴旋转，同时沿轴向移动，形成螺旋形状。
+        
+    Example:
+        >>> # 创建标准螺旋线
+        >>> helix = make_helix_redge(2.0, 10.0, 1.0)  # 螺距2，高度10，半径1
+        >>> 
+        >>> # 创建紧密螺旋线
+        >>> tight_helix = make_helix_redge(0.5, 5.0, 0.5)
+        >>> 
+        >>> # 创建水平螺旋线
+        >>> horizontal_helix = make_helix_redge(1.0, 8.0, 2.0, (0, 0, 0), (1, 0, 0))
     """
     try:
         if pitch <= 0:
@@ -814,17 +1158,35 @@ def make_helix_rwire(pitch: float,
                      radius: float,
                      center: Tuple[float, float, float] = (0, 0, 0),
                      dir: Tuple[float, float, float] = (0, 0, 1)) -> Wire:
-    """创建螺旋线并返回线
+    """创建螺旋线并返回线对象
     
     Args:
-        pitch: 螺距
-        height: 总高度
-        radius: 螺旋半径
-        center: 螺旋中心
-        dir: 螺旋轴方向
+        pitch (float): 螺距，每转一圈在轴向上的距离，必须为正数
+        height (float): 螺旋线的总高度，必须为正数
+        radius (float): 螺旋线的半径，必须为正数
+        center (Tuple[float, float, float], optional): 螺旋线的中心点坐标 (x, y, z)，
+            默认为 (0, 0, 0)
+        dir (Tuple[float, float, float], optional): 螺旋轴的方向向量 (x, y, z)，
+            默认为 (0, 0, 1) 表示沿Z轴方向
         
     Returns:
-        创建的螺旋线
+        Wire: 创建的线对象，包含一个螺旋线
+        
+    Raises:
+        ValueError: 当螺距、高度或半径小于等于0时抛出异常
+        
+    Usage:
+        创建螺旋线线对象，与make_helix_redge功能相同但返回线对象。
+        可以用于后续的扫掠操作或作为复杂路径的一部分。
+        
+    Example:
+        >>> # 创建螺旋线线对象
+        >>> helix_wire = make_helix_rwire(1.5, 6.0, 1.0)
+        >>> 
+        >>> # 用于扫掠操作的螺旋路径
+        >>> profile = make_circle_rface((0, 0, 0), 0.1)
+        >>> helix_path = make_helix_rwire(2.0, 10.0, 2.0)
+        >>> # 然后可以用 sweep_rsolid(profile, helix_path) 创建螺旋扫掠
     """
     try:
         cs = get_current_cs()
@@ -846,17 +1208,35 @@ def make_helix_rwire(pitch: float,
 # =============================================================================
 
 def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyShape:
-    """平移几何体
+    """平移几何体到新位置
     
     Args:
-        shape: 要平移的几何体
-        vector: 平移向量
+        shape (AnyShape): 要平移的几何体，可以是点、边、线、面、实体等任意几何对象
+        vector (Tuple[float, float, float]): 平移向量 (dx, dy, dz)，
+            定义在X、Y、Z方向上的平移距离
         
     Returns:
-        平移后的几何体
+        AnyShape: 平移后的几何体，类型与输入相同
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当几何体或平移向量无效时抛出异常
+        
+    Usage:
+        将几何体从当前位置平移到新位置，不改变几何体的形状和大小。
+        平移操作支持当前坐标系变换，适用于所有类型的几何对象。
+        
+    Example:
+        >>> # 平移立方体
+        >>> box = make_box_rsolid(2, 2, 2)
+        >>> moved_box = translate_shape(box, (5, 0, 0))  # 沿X轴移动5个单位
+        >>> 
+        >>> # 平移圆形面
+        >>> circle = make_circle_rface((0, 0, 0), 1.0)
+        >>> moved_circle = translate_shape(circle, (1, 1, 2))
+        >>> 
+        >>> # 平移线段
+        >>> line = make_line_redge((0, 0, 0), (1, 0, 0))
+        >>> moved_line = translate_shape(line, (0, 3, 0))
     """
     try:
         cs = get_current_cs()
@@ -901,19 +1281,39 @@ def rotate_shape(shape: AnyShape,
                  angle: float,
                  axis: Tuple[float, float, float] = (0, 0, 1),
                  origin: Tuple[float, float, float] = (0, 0, 0)) -> AnyShape:
-    """旋转几何体
+    """旋转几何体到新方向
     
     Args:
-        shape: 要旋转的几何体
-        angle: 旋转角度（弧度）
-        axis: 旋转轴向量
-        origin: 旋转中心点
+        shape (AnyShape): 要旋转的几何体，可以是点、边、线、面、实体等任意几何对象
+        angle (float): 旋转角度，单位为度数（0-360），正值表示逆时针旋转
+        axis (Tuple[float, float, float], optional): 旋转轴向量 (x, y, z)，
+            默认为 (0, 0, 1) 表示绕Z轴旋转
+        origin (Tuple[float, float, float], optional): 旋转中心点坐标 (x, y, z)，
+            默认为 (0, 0, 0)
         
     Returns:
-        旋转后的几何体
+        AnyShape: 旋转后的几何体，类型与输入相同
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当几何体或旋转参数无效时抛出异常
+        
+    Usage:
+        围绕指定轴和中心点旋转几何体，不改变几何体的形状和大小。
+        旋转操作支持当前坐标系变换，适用于所有类型的几何对象。
+        角度使用度数制，正值表示右手定则的逆时针旋转。
+        
+    Example:
+        >>> # 绕Z轴旋转立方体45度
+        >>> box = make_box_rsolid(2, 2, 2)
+        >>> rotated_box = rotate_shape(box, 45)
+        >>> 
+        >>> # 绕X轴旋转圆形面90度
+        >>> circle = make_circle_rface((0, 0, 0), 1.0)
+        >>> rotated_circle = rotate_shape(circle, 90, (1, 0, 0))
+        >>> 
+        >>> # 围绕指定点旋转
+        >>> line = make_line_redge((0, 0, 0), (2, 0, 0))
+        >>> rotated_line = rotate_shape(line, 90, (0, 0, 1), (1, 0, 0))
     """
     if angle == 0:
         return shape
@@ -968,15 +1368,34 @@ def extrude_rsolid(profile: Union[Wire, Face],
     """拉伸轮廓创建实体
     
     Args:
-        profile: 要拉伸的轮廓（线或面）
-        direction: 拉伸方向
-        distance: 拉伸距离
+        profile (Union[Wire, Face]): 要拉伸的轮廓，可以是封闭的线或面
+        direction (Tuple[float, float, float]): 拉伸方向向量 (x, y, z)，
+            定义拉伸的方向，会被标准化处理
+        distance (float): 拉伸距离，必须为正数
         
     Returns:
-        拉伸后的实体
+        Solid: 拉伸后的实体对象
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当轮廓不是封闭的线、距离小于等于0或其他参数无效时抛出异常
+        
+    Usage:
+        沿指定方向拉伸二维轮廓创建三维实体。如果输入是线，必须是封闭的线；
+        如果输入是面，直接进行拉伸。这是创建柱状、管状等规则几何体的基础操作。
+        
+    Example:
+        >>> # 拉伸圆形面创建圆柱体
+        >>> circle = make_circle_rface((0, 0, 0), 1.0)
+        >>> cylinder = extrude_rsolid(circle, (0, 0, 1), 5.0)
+        >>> 
+        >>> # 拉伸矩形面创建立方体
+        >>> rect = make_rectangle_rface(2.0, 2.0)
+        >>> box = extrude_rsolid(rect, (0, 0, 1), 3.0)
+        >>> 
+        >>> # 拉伸复杂轮廓
+        >>> points = [(0, 0, 0), (2, 0, 0), (2, 1, 0), (0, 1, 0)]
+        >>> profile_wire = make_polyline_rwire(points, closed=True)
+        >>> extruded_shape = extrude_rsolid(profile_wire, (0, 0, 1), 4.0)
     """
     try:
         if distance <= 0:
@@ -1015,19 +1434,40 @@ def revolve_rsolid(profile: Union[Wire, Face],
                    axis: Tuple[float, float, float] = (0, 0, 1),
                    angle: float = 2 * np.pi,
                    origin: Tuple[float, float, float] = (0, 0, 0)) -> Solid:
-    """旋转轮廓创建实体
+    """围绕轴旋转轮廓创建实体
     
     Args:
-        profile: 要旋转的轮廓（线或面）
-        axis: 旋转轴向量
-        angle: 旋转角度（弧度）
-        origin: 旋转中心点
+        profile (Union[Wire, Face]): 要旋转的轮廓，可以是封闭的线或面
+        axis (Tuple[float, float, float], optional): 旋转轴向量 (x, y, z)，
+            定义旋转轴的方向，默认为 (0, 0, 1)
+        angle (float, optional): 旋转角度，单位为度数（0-360），
+            默认为360度（完整旋转），正值表示逆时针旋转
+        origin (Tuple[float, float, float], optional): 旋转轴通过的点坐标 (x, y, z)，
+            默认为 (0, 0, 0)
         
     Returns:
-        旋转后的实体
+        Solid: 旋转后的实体对象
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当轮廓不是封闭的线、角度小于等于0或其他参数无效时抛出异常
+        
+    Usage:
+        围绕指定轴旋转二维轮廓创建三维实体。常用于创建轴对称的几何体，
+        如圆柱体、圆锥体、球体等。如果输入是线，必须是封闭的线。
+        
+    Example:
+        >>> # 旋转矩形创建圆柱体
+        >>> rect = make_rectangle_rface(1.0, 3.0, (2, 0, 0))  # 远离旋转轴
+        >>> cylinder = revolve_rsolid(rect, (0, 0, 1), 360)
+        >>> 
+        >>> # 创建圆锥体
+        >>> triangle_points = [(1, 0, 0), (2, 0, 0), (1.5, 2, 0)]
+        >>> triangle = make_polyline_rwire(triangle_points, closed=True)
+        >>> cone = revolve_rsolid(triangle, (0, 0, 1), 360)
+        >>> 
+        >>> # 创建部分旋转体（90度扇形）
+        >>> rect = make_rectangle_rface(0.5, 2.0, (1.5, 0, 0))
+        >>> partial_solid = revolve_rsolid(rect, (0, 0, 1), 90)
     """
     try:
         if angle <= 0:
@@ -1141,14 +1581,32 @@ def union_rsolid(solid1: Solid, solid2: Solid) -> Solid:
     """实体并集运算
     
     Args:
-        solid1: 第一个实体
-        solid2: 第二个实体
+        solid1 (Solid): 第一个参与运算的实体对象
+        solid2 (Solid): 第二个参与运算的实体对象
         
     Returns:
-        并集结果实体
+        Solid: 两个实体的并集结果，包含两个实体的所有体积
         
     Raises:
-        ValueError: 当运算失败时
+        ValueError: 当输入实体无效或运算失败时抛出异常
+        
+    Usage:
+        计算两个实体的并集，返回包含两个实体所有体积的新实体。
+        并集运算会合并两个实体的重叠部分，结果体积大于等于任一输入实体。
+        
+    Example:
+        >>> # 创建两个重叠的立方体
+        >>> box1 = make_box_rsolid(2, 2, 2, (0, 0, 0))
+        >>> box2 = make_box_rsolid(2, 2, 2, (1, 0, 0))
+        >>> 
+        >>> # 计算并集
+        >>> union_result = union_rsolid(box1, box2)
+        >>> # 结果是一个组合的形状，体积小于两个立方体体积之和
+        >>> 
+        >>> # 圆柱和立方体的并集
+        >>> cylinder = make_cylinder_rsolid(1.0, 3.0)
+        >>> box = make_box_rsolid(1, 1, 1, (0, 0, 1))
+        >>> combined = union_rsolid(cylinder, box)
     """
     try:
         s1 = solid1.cq_solid
@@ -1177,17 +1635,37 @@ def union_rsolid(solid1: Solid, solid2: Solid) -> Solid:
 
 
 def cut_rsolid(solid1: Solid, solid2: Solid) -> Solid:
-    """实体差集运算
+    """实体差集运算（布尔减法）
     
     Args:
-        solid1: 被减实体
-        solid2: 减去的实体
+        solid1 (Solid): 被减实体，作为基础实体
+        solid2 (Solid): 减去的实体，将从基础实体中移除
         
     Returns:
-        差集结果实体
+        Solid: 差集结果实体，从solid1中减去solid2的重叠部分
         
     Raises:
-        ValueError: 当运算失败时
+        ValueError: 当输入实体无效或运算失败时抛出异常
+        
+    Usage:
+        从第一个实体中减去第二个实体的重叠部分，常用于创建孔洞、凹槽等。
+        结果实体的体积等于solid1减去两个实体重叠部分的体积。
+        
+    Example:
+        >>> # 在立方体中创建圆形孔
+        >>> box = make_box_rsolid(4, 4, 4)
+        >>> hole = make_cylinder_rsolid(1.0, 4.0)
+        >>> box_with_hole = cut_rsolid(box, hole)
+        >>> 
+        >>> # 创建槽形结构
+        >>> base = make_box_rsolid(6, 3, 2)
+        >>> slot = make_box_rsolid(4, 1, 2, (0, 0, 1))
+        >>> slotted_base = cut_rsolid(base, slot)
+        >>> 
+        >>> # 从球体中减去立方体
+        >>> sphere = make_sphere_rsolid(2.0)
+        >>> cube = make_box_rsolid(2, 2, 2)
+        >>> carved_sphere = cut_rsolid(sphere, cube)
     """
     try:
         cq_result = solid1.cq_solid.cut(solid2.cq_solid)
@@ -1206,17 +1684,38 @@ def cut_rsolid(solid1: Solid, solid2: Solid) -> Solid:
 
 
 def intersect_rsolid(solid1: Solid, solid2: Solid) -> Solid:
-    """实体交集运算
+    """实体交集运算（布尔交集）
     
     Args:
-        solid1: 第一个实体
-        solid2: 第二个实体
+        solid1 (Solid): 第一个参与运算的实体对象
+        solid2 (Solid): 第二个参与运算的实体对象
         
     Returns:
-        交集结果实体
+        Solid: 两个实体的交集结果，只包含两个实体的重叠部分
         
     Raises:
-        ValueError: 当运算失败时
+        ValueError: 当输入实体无效或运算失败时抛出异常
+        
+    Usage:
+        计算两个实体的交集，返回只包含两个实体重叠部分的新实体。
+        如果两个实体不相交，可能返回空实体。交集体积小于等于任一输入实体。
+        
+    Example:
+        >>> # 计算两个重叠立方体的交集
+        >>> box1 = make_box_rsolid(3, 3, 3, (0, 0, 0))
+        >>> box2 = make_box_rsolid(3, 3, 3, (1, 1, 0))
+        >>> intersection = intersect_rsolid(box1, box2)
+        >>> # 结果是一个2×2×3的立方体
+        >>> 
+        >>> # 球体和立方体的交集
+        >>> sphere = make_sphere_rsolid(2.0)
+        >>> cube = make_box_rsolid(3, 3, 3)
+        >>> rounded_cube = intersect_rsolid(sphere, cube)
+        >>> 
+        >>> # 圆柱体和平面的交集
+        >>> cylinder = make_cylinder_rsolid(1.5, 4.0)
+        >>> slab = make_box_rsolid(4, 4, 2, (0, 0, 1))
+        >>> partial_cylinder = intersect_rsolid(cylinder, slab)
     """
     try:
         cq_result = solid1.cq_solid.intersect(solid2.cq_solid)
@@ -1330,15 +1829,37 @@ def fillet_rsolid(solid: Solid, edges: List[Edge], radius: float) -> Solid:
     """对实体的边进行圆角操作
     
     Args:
-        solid: 要进行圆角的实体
-        edges: 要圆角的边列表
-        radius: 圆角半径
+        solid (Solid): 要进行圆角操作的实体对象
+        edges (List[Edge]): 要进行圆角的边列表，通常从实体获取
+        radius (float): 圆角半径，必须为正数，不能大于相邻面的最小尺寸
         
     Returns:
-        圆角后的实体
+        Solid: 圆角后的实体对象
         
     Raises:
-        ValueError: 当操作失败时
+        ValueError: 当圆角半径小于等于0或圆角操作失败时抛出异常
+        
+    Usage:
+        对实体的指定边进行圆角处理，创建平滑的过渡面。常用于消除尖锐边缘，
+        改善外观和减少应力集中。圆角半径不能太大，否则可能导致几何冲突。
+        
+    Example:
+        >>> # 对立方体的所有边进行圆角
+        >>> box = make_box_rsolid(4, 4, 4)
+        >>> all_edges = box.get_edges()
+        >>> rounded_box = fillet_rsolid(box, all_edges[:4], 0.5)  # 只对前4条边圆角
+        >>> 
+        >>> # 对圆柱体的边进行圆角
+        >>> cylinder = make_cylinder_rsolid(2.0, 5.0)
+        >>> edges = cylinder.get_edges()
+        >>> # 选择顶部和底部的圆边
+        >>> circular_edges = [e for e in edges if e.has_tag("circular")]
+        >>> rounded_cylinder = fillet_rsolid(cylinder, circular_edges, 0.3)
+        >>> 
+        >>> # 对复杂几何体的特定边圆角
+        >>> complex_solid = union_rsolid(box, cylinder)
+        >>> selected_edges = complex_solid.get_edges()[:6]
+        >>> smoothed_solid = fillet_rsolid(complex_solid, selected_edges, 0.2)
     """
     try:
         if radius <= 0:
@@ -1364,15 +1885,35 @@ def chamfer_rsolid(solid: Solid, edges: List[Edge], distance: float) -> Solid:
     """对实体的边进行倒角操作
     
     Args:
-        solid: 要进行倒角的实体
-        edges: 要倒角的边列表
-        distance: 倒角距离
+        solid (Solid): 要进行倒角操作的实体对象
+        edges (List[Edge]): 要进行倒角的边列表，通常从实体获取
+        distance (float): 倒角距离，必须为正数，定义从边缘向内的倒角深度
         
     Returns:
-        倒角后的实体
+        Solid: 倒角后的实体对象
         
     Raises:
-        ValueError: 当操作失败时
+        ValueError: 当倒角距离小于等于0或倒角操作失败时抛出异常
+        
+    Usage:
+        对实体的指定边进行倒角处理，创建斜面过渡。与圆角不同，倒角创建的是
+        平面过渡而不是圆弧过渡。常用于机械零件的边缘处理，便于装配和安全。
+        
+    Example:
+        >>> # 对立方体的边进行倒角
+        >>> box = make_box_rsolid(4, 4, 4)
+        >>> edges = box.get_edges()
+        >>> chamfered_box = chamfer_rsolid(box, edges[:4], 0.3)
+        >>> 
+        >>> # 对圆柱体的边倒角
+        >>> cylinder = make_cylinder_rsolid(2.0, 5.0)
+        >>> cylinder_edges = cylinder.get_edges()
+        >>> chamfered_cylinder = chamfer_rsolid(cylinder, cylinder_edges[:2], 0.2)
+        >>> 
+        >>> # 选择性倒角
+        >>> complex_solid = make_box_rsolid(6, 3, 2)
+        >>> top_edges = [e for e in complex_solid.get_edges() if e.has_tag("top")]
+        >>> chamfered_top = chamfer_rsolid(complex_solid, top_edges, 0.1)
     """
     try:
         if distance <= 0:
@@ -1395,18 +1936,39 @@ def chamfer_rsolid(solid: Solid, edges: List[Edge], distance: float) -> Solid:
 
 
 def shell_rsolid(solid: Solid, faces_to_remove: List[Face], thickness: float) -> Solid:
-    """对实体进行抽壳操作
+    """对实体进行抽壳操作，创建空心结构
     
     Args:
-        solid: 要抽壳的实体
-        faces_to_remove: 要移除的面列表
-        thickness: 壁厚
+        solid (Solid): 要抽壳的实体对象
+        faces_to_remove (List[Face]): 要移除的面列表，这些面将被开口，
+            如果为空列表则不移除任何面（闭合抽壳）
+        thickness (float): 壁厚，必须为正数，定义抽壳后的壁厚度
         
     Returns:
-        抽壳后的实体
+        Solid: 抽壳后的实体对象，内部为空心结构
         
     Raises:
-        ValueError: 当操作失败时
+        ValueError: 当壁厚小于等于0或抽壳操作失败时抛出异常
+        
+    Usage:
+        将实体转换为空心结构，常用于创建容器、外壳等。通过移除指定面
+        创建开口，壁厚决定了外壳的厚度。如果不移除任何面则创建闭合空心体。
+        
+    Example:
+        >>> # 创建空心立方体容器
+        >>> box = make_box_rsolid(4, 4, 4)
+        >>> top_faces = [f for f in box.get_faces() if f.has_tag("top")]
+        >>> container = shell_rsolid(box, top_faces, 0.2)
+        >>> 
+        >>> # 创建空心球体
+        >>> sphere = make_sphere_rsolid(3.0)
+        >>> # 不移除任何面，创建闭合空心球
+        >>> hollow_sphere = shell_rsolid(sphere, [], 0.3)
+        >>> 
+        >>> # 创建有开口的圆柱体容器
+        >>> cylinder = make_cylinder_rsolid(2.0, 5.0)
+        >>> top_faces = [f for f in cylinder.get_faces() if f.has_tag("top")]
+        >>> cup = shell_rsolid(cylinder, top_faces, 0.1)
     """
     try:
         if thickness <= 0:
@@ -1432,14 +1994,37 @@ def loft_rsolid(profiles: List[Wire], ruled: bool = False) -> Solid:
     """通过多个轮廓放样创建实体
     
     Args:
-        profiles: 轮廓线列表
-        ruled: 是否为直纹面
+        profiles (List[Wire]): 轮廓线列表，至少需要2个轮廓，
+            轮廓按顺序连接，第一个为起始轮廓，最后一个为结束轮廓
+        ruled (bool, optional): 是否为直纹面，默认为False。
+            True表示轮廓间用直线连接，False表示用平滑曲面连接
         
     Returns:
-        放样后的实体
+        Solid: 放样后的实体对象
         
     Raises:
-        ValueError: 当操作失败时
+        ValueError: 当轮廓少于2个或放样操作失败时抛出异常
+        
+    Usage:
+        通过多个二维轮廓创建三维实体，轮廓间通过放样面连接。
+        常用于创建复杂的过渡形状，如飞机机翼、船体等变截面结构。
+        
+    Example:
+        >>> # 创建方形到圆形的过渡体
+        >>> square = make_rectangle_rwire(2, 2, (0, 0, 0))
+        >>> circle = make_circle_rwire((0, 0, 3), 1.0)
+        >>> transition = loft_rsolid([square, circle])
+        >>> 
+        >>> # 创建多层过渡的复杂形状
+        >>> bottom = make_rectangle_rwire(4, 4, (0, 0, 0))
+        >>> middle = make_circle_rwire((0, 0, 2), 2.0)
+        >>> top = make_rectangle_rwire(1, 1, (0, 0, 4))
+        >>> complex_shape = loft_rsolid([bottom, middle, top])
+        >>> 
+        >>> # 创建直纹面放样
+        >>> profile1 = make_circle_rwire((0, 0, 0), 2.0)
+        >>> profile2 = make_circle_rwire((0, 0, 5), 1.0)
+        >>> ruled_loft = loft_rsolid([profile1, profile2], ruled=True)
     """
     try:
         if len(profiles) < 2:
@@ -1473,16 +2058,39 @@ def sweep_rsolid(profile: Face, path: Wire,
     """沿路径扫掠轮廓创建实体
     
     Args:
-        profile: 要扫掠的轮廓
-        path: 扫掠路径
-        make_solid: 是否创建实体（否则创建壳）
-        is_frenet: 是否使用Frenet框架
+        profile (Face): 要扫掠的轮廓面，定义扫掠的横截面形状
+        path (Wire): 扫掠路径线，定义轮廓沿其移动的路径
+        make_solid (bool, optional): 是否创建实体，默认为True。
+            False时创建壳体
+        is_frenet (bool, optional): 是否使用Frenet框架，默认为False。
+            True时轮廓沿路径的法向量旋转，False时保持轮廓方向
         
     Returns:
-        扫掠后的实体或壳
+        Union[Solid, Shell]: 扫掠后的实体或壳体，取决于make_solid参数
         
     Raises:
-        ValueError: 当操作失败时
+        ValueError: 当轮廓、路径无效或扫掠操作失败时抛出异常
+        
+    Usage:
+        沿指定路径扫掠二维轮廓创建三维实体或壳体。常用于创建管道、导线、
+        复杂曲面等。Frenet框架控制轮廓在路径上的旋转行为。
+        
+    Example:
+        >>> # 沿直线扫掠圆形创建圆管
+        >>> circle = make_circle_rface((0, 0, 0), 0.5)
+        >>> line_path = make_segment_rwire((0, 0, 0), (10, 0, 0))
+        >>> tube = sweep_rsolid(circle, line_path)
+        >>> 
+        >>> # 沿螺旋路径扫掠创建螺旋管
+        >>> square = make_rectangle_rface(0.2, 0.2)
+        >>> helix_path = make_helix_rwire(1.0, 5.0, 2.0)
+        >>> spiral_tube = sweep_rsolid(square, helix_path, is_frenet=True)
+        >>> 
+        >>> # 沿曲线扫掠创建复杂形状
+        >>> profile = make_rectangle_rface(1.0, 0.5)
+        >>> curve_points = [(0, 0, 0), (2, 2, 1), (4, 0, 2), (6, -1, 3)]
+        >>> curve_path = make_spline_rwire(curve_points)
+        >>> swept_shape = sweep_rsolid(profile, curve_path)
     """
     try:
         # 执行扫掠操作
@@ -1511,16 +2119,35 @@ def linear_pattern_rsolidlist(shape: AnyShape,
     """创建线性阵列
     
     Args:
-        shape: 要阵列的几何体
-        direction: 阵列方向
-        count: 阵列数量
-        spacing: 阵列间距
+        shape (AnyShape): 要阵列的几何体，可以是任意类型的几何对象
+        direction (Tuple[float, float, float]): 阵列方向向量 (x, y, z)，
+            定义阵列的方向，会被标准化处理
+        count (int): 阵列数量，必须为正整数，包括原始对象
+        spacing (float): 阵列间距，必须为正数，定义相邻对象间的距离
         
     Returns:
-        阵列后的复合体
+        List[Solid]: 阵列后的几何体列表，包含原始对象和所有复制的对象
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当阵列数量小于等于0或间距小于等于0时抛出异常
+        
+    Usage:
+        沿指定方向创建几何体的线性阵列，生成指定数量的等间距排列对象。
+        常用于创建重复结构，如齿轮齿、栅栏、螺栓阵列等。
+        
+    Example:
+        >>> # 创建立方体的线性阵列
+        >>> box = make_box_rsolid(1, 1, 1)
+        >>> boxes = linear_pattern_rsolidlist(box, (2, 0, 0), 5, 2.0)
+        >>> # 创建5个立方体，沿X轴方向间距2.0
+        >>> 
+        >>> # 创建圆柱体的对角线阵列
+        >>> cylinder = make_cylinder_rsolid(0.5, 2.0)
+        >>> cylinders = linear_pattern_rsolidlist(cylinder, (1, 1, 0), 4, 1.5)
+        >>> 
+        >>> # 创建复杂几何体的阵列
+        >>> complex_shape = union_rsolid(box, cylinder)
+        >>> array = linear_pattern_rsolidlist(complex_shape, (0, 3, 0), 3, 3.0)
     """
     try:
         if count <= 0:
@@ -1577,20 +2204,38 @@ def radial_pattern_rsolidlist(shape: AnyShape,
                              axis: Tuple[float, float, float],
                              count: int,
                              total_rotation_angle: float) -> List[Solid]:
-    """创建径向阵列
+    """创建径向阵列（圆形阵列）
     
     Args:
-        shape: 要阵列的几何体
-        center: 旋转中心
-        axis: 旋转轴
-        count: 阵列数量
-        angle: 总角度（弧度）
+        shape (AnyShape): 要阵列的几何体，可以是任意类型的几何对象
+        center (Tuple[float, float, float]): 旋转中心点坐标 (x, y, z)
+        axis (Tuple[float, float, float]): 旋转轴向量 (x, y, z)，定义旋转轴方向
+        count (int): 阵列数量，必须为正整数，包括原始对象
+        total_rotation_angle (float): 总旋转角度，单位为度数（0-360），
+            定义整个阵列的角度范围
         
     Returns:
-        阵列后的复合体
+        List[Solid]: 径向阵列后的几何体列表，包含原始对象和所有旋转的对象
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当阵列数量小于等于0或角度无效时抛出异常
+        
+    Usage:
+        围绕指定轴创建几何体的径向阵列，生成等角度间隔的旋转排列。
+        常用于创建齿轮、花瓣、螺栓圆形分布等对称结构。
+        
+    Example:
+        >>> # 创建立方体的径向阵列（6个，360度）
+        >>> box = make_box_rsolid(1, 0.5, 0.5, (2, 0, 0))  # 距离中心2单位
+        >>> radial_boxes = radial_pattern_rsolidlist(box, (0, 0, 0), (0, 0, 1), 6, 360)
+        >>> 
+        >>> # 创建半圆阵列
+        >>> cylinder = make_cylinder_rsolid(0.3, 1.0, (1.5, 0, 0))
+        >>> half_circle = radial_pattern_rsolidlist(cylinder, (0, 0, 0), (0, 0, 1), 4, 180)
+        >>> 
+        >>> # 围绕Y轴的径向阵列
+        >>> element = make_sphere_rsolid(0.5, (3, 0, 0))
+        >>> vertical_array = radial_pattern_rsolidlist(element, (0, 0, 0), (0, 1, 0), 8, 360)
     """
     try:
         if count <= 0:
@@ -1645,15 +2290,34 @@ def mirror_shape(shape: AnyShape,
     """镜像几何体
     
     Args:
-        shape: 要镜像的几何体
-        plane_origin: 镜像平面原点
-        plane_normal: 镜像平面法向量
+        shape (AnyShape): 要镜像的几何体，可以是任意类型的几何对象
+        plane_origin (Tuple[float, float, float]): 镜像平面上的一个点坐标 (x, y, z)，
+            定义镜像平面的位置
+        plane_normal (Tuple[float, float, float]): 镜像平面的法向量 (x, y, z)，
+            定义镜像平面的方向，会被标准化处理
         
     Returns:
-        镜像后的几何体
+        AnyShape: 镜像后的几何体，类型与输入相同
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当几何体或镜像平面参数无效时抛出异常
+        
+    Usage:
+        将几何体沿指定平面进行镜像复制，创建对称的几何结构。
+        镜像平面由一个点和法向量定义，几何体在平面另一侧生成对称副本。
+        
+    Example:
+        >>> # 沿YZ平面镜像立方体
+        >>> box = make_box_rsolid(2, 2, 2, (1, 0, 0))
+        >>> mirrored_box = mirror_shape(box, (0, 0, 0), (1, 0, 0))
+        >>> 
+        >>> # 沿XY平面镜像圆柱体
+        >>> cylinder = make_cylinder_rsolid(1.0, 3.0, (0, 0, 1))
+        >>> mirrored_cyl = mirror_shape(cylinder, (0, 0, 0), (0, 0, 1))
+        >>> 
+        >>> # 沿任意平面镜像
+        >>> sphere = make_sphere_rsolid(1.5, (2, 2, 0))
+        >>> mirrored_sphere = mirror_shape(sphere, (1, 1, 0), (1, 1, 0))
     """
     try:
         cs = get_current_cs()
@@ -1717,18 +2381,41 @@ def helical_sweep_rsolid(profile: Wire,
     """沿螺旋路径扫掠轮廓创建实体
     
     Args:
-        profile: 要扫掠的轮廓
-        pitch: 螺距
-        height: 总高度
-        radius: 螺旋半径
-        center: 螺旋中心
-        dir: 螺旋轴方向
+        profile (Wire): 要扫掠的轮廓线，必须是封闭的线轮廓
+        pitch (float): 螺距，每转一圈在轴向上的距离，必须为正数
+        height (float): 螺旋的总高度，必须为正数
+        radius (float): 螺旋的半径，必须为正数
+        center (Tuple[float, float, float], optional): 螺旋中心点坐标 (x, y, z)，
+            默认为 (0, 0, 0)
+        dir (Tuple[float, float, float], optional): 螺旋轴方向向量 (x, y, z)，
+            默认为 (0, 0, 1) 表示沿Z轴方向
         
     Returns:
-        螺旋扫掠后的实体
+        Solid: 螺旋扫掠后的实体对象
         
     Raises:
-        ValueError: 当参数无效时
+        ValueError: 当轮廓不封闭、螺距/高度/半径无效或扫掠失败时抛出异常
+        
+    Usage:
+        沿螺旋路径扫掠二维轮廓创建三维实体，常用于创建螺纹、弹簧、
+        螺旋管道等具有螺旋特征的几何体。轮廓必须是封闭的。
+        
+        函数会自动矫正profile的朝向和位置：
+        - 确保profile的法向量朝向X轴正方向或负方向
+        - 将profile移动到距离旋转中心指定半径的位置
+        
+    Example:
+        >>> # 创建螺旋弹簧
+        >>> circle_profile = make_circle_rwire((0, 0, 0), 0.2)
+        >>> spring = helical_sweep_rsolid(circle_profile, 1.0, 10.0, 2.0)
+        >>> 
+        >>> # 创建方形截面的螺旋管
+        >>> square_profile = make_rectangle_rwire(0.5, 0.5)
+        >>> square_helix = helical_sweep_rsolid(square_profile, 2.0, 8.0, 1.5)
+        >>> 
+        >>> # 创建紧密螺旋结构
+        >>> small_circle = make_circle_rwire((0, 0, 0), 0.1)
+        >>> tight_helix = helical_sweep_rsolid(small_circle, 0.5, 5.0, 1.0)
     """
     try:
         if pitch <= 0:
@@ -1743,26 +2430,102 @@ def helical_sweep_rsolid(profile: Wire,
         global_dir = cs.transform_point(np.array(dir)) - cs.origin
         
         center_vec = Vector(*global_center)
-        dir_vec = Vector(*global_dir)
+        dir_vec = Vector(*global_dir).normalized()
+        
+        # 复制profile以避免修改原始轮廓
+        corrected_profile = Wire(profile.cq_wire.copy())
+        
+        # 将Wire转换为Face用于扫掠
+        try:
+            profile_face = cq.Face.makeFromWires(corrected_profile.cq_wire)
+        except:
+            raise ValueError("螺旋扫掠轮廓必须是闭合的")
+        
+        # 1. 矫正profile的法向量：确保法向量朝向X轴正方向
+        # 获取profile的法向量（在面的中心点）
+        try:
+            # 获取face的法向量，normalAt返回(Vector, Vector)，取第一个
+            profile_normal = profile_face.normalAt(0.5, 0.5)[0]
+        except:
+            try:
+                profile_normal = profile_face.normalAt(0, 0)[0]
+            except:
+                # 最后的fallback，假设法向量为Z轴方向
+                profile_normal = Vector(0, 0, 1)
+        
+        # 定义目标法向量：X轴正方向
+        target_normal = Vector(0, 1, 0)
+        
+        # 检查当前法向量与目标法向量的夹角
+        dot_product = profile_normal.dot(target_normal)
+        
+        # 如果法向量不朝向X轴正方向，需要旋转
+        if abs(dot_product) < 0.99:  # 容差，允许约8度的偏差
+            # 计算旋转轴（叉积）
+            rotation_axis = profile_normal.cross(target_normal)
+            
+            # 如果法向量与X轴相反（dot_product < 0），需要180度旋转
+            if dot_product < -0.99:
+                # 使用Y轴或Z轴作为旋转轴
+                rotation_axis = Vector(0, 1, 0)
+                rotation_angle = math.pi
+            elif rotation_axis.Length > 1e-6:
+                # 计算旋转角度
+                rotation_angle = math.acos(max(-1, min(1, abs(dot_product))))
+                rotation_axis = rotation_axis.normalized()
+            else:
+                # 如果叉积为零向量，说明已经平行，不需要旋转
+                rotation_angle = 0
+                rotation_axis = Vector(0, 0, 1)
+            
+            # 如果需要旋转
+            if rotation_angle > 1e-6:
+                # 获取profile的中心点作为旋转中心
+                profile_center = profile_face.Center()
+                rotation_center = Vector(profile_center.x, profile_center.y, profile_center.z)
+                
+                # 应用旋转
+                profile_face = profile_face.rotate(rotation_center, rotation_axis, math.degrees(rotation_angle))
+        
+        # 2. 矫正profile的位置：将profile移动到指定半径的位置
+        # 获取旋转后的profile中心点
+        profile_center = profile_face.Center()
+        
+        # 计算当前profile中心到旋转中心的距离
+        current_center = Vector(profile_center.x, profile_center.y, profile_center.z)
+        spiral_center = center_vec
+        
+        # 计算在垂直于旋转轴的平面上的投影
+        to_profile = current_center - spiral_center
+        projection_on_axis = to_profile.dot(dir_vec) * dir_vec
+        radial_vector = to_profile - projection_on_axis
+        
+        # 如果radial_vector太小，默认使用X轴方向
+        if radial_vector.Length < 1e-6:
+            radial_vector = Vector(1, 0, 0)
+        
+        # 归一化径向向量并缩放到目标半径
+        radial_direction = radial_vector.normalized()
+        target_position = spiral_center + radial_direction * radius + projection_on_axis
+        
+        # 计算平移向量
+        translation = target_position - current_center
+        
+        # 应用平移
+        profile_face = profile_face.translate(translation)
         
         # 创建螺旋路径
         helix = cq.Wire.makeHelix(pitch, height, radius, center_vec, dir_vec)
         
-        # 将Wire转换为Face用于扫掠
-        try:
-            profile_face = cq.Face.makeFromWires(profile.cq_wire)
-        except:
-            raise ValueError("螺旋扫掠轮廓必须是闭合的")
-        
         # 沿螺旋路径扫掠
-        cq_result = cq.Solid.sweep(profile_face, helix, makeSolid=True)
+        cq_result = cq.Solid.sweep(profile_face, helix, makeSolid=True, isFrenet=True)
         result = Solid(cq_result)
         
         # 复制轮廓的标签和元数据
         result._tags = profile._tags.copy()
         result._metadata = profile._metadata.copy()
         result.add_tag("helical_sweep")
-        
+       
         return result
     except Exception as e:
         raise ValueError(f"螺旋扫掠失败: {e}. 请检查参数是否有效。")
