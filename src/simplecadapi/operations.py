@@ -3,7 +3,7 @@ SimpleCAD API操作函数实现
 基于README中的API设计，实现各种几何操作
 """
 
-from typing import List, Tuple, Union, Optional, Any
+from typing import List, Tuple, Union, Optional, Any, Sequence
 import numpy as np
 import cadquery as cq
 from cadquery import Vector, Plane
@@ -1238,7 +1238,7 @@ def intersect_rsolid(solid1: Solid, solid2: Solid) -> Solid:
 # 导出函数
 # =============================================================================
 
-def export_step(shapes: Union[AnyShape, List[AnyShape]], filename: str) -> None:
+def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> None:
     """导出为STEP格式
     
     Args:
@@ -1249,12 +1249,15 @@ def export_step(shapes: Union[AnyShape, List[AnyShape]], filename: str) -> None:
         ValueError: 当导出失败时
     """
     try:
-        if not isinstance(shapes, list):
-            shapes = [shapes]
+        # 处理输入类型
+        if isinstance(shapes, (list, tuple)):
+            shape_list = list(shapes)
+        else:
+            shape_list = [shapes]
         
         # 创建CADQuery的Workplane并添加所有几何体
         wp = cq.Workplane()
-        for shape in shapes:
+        for shape in shape_list:
             if isinstance(shape, Solid):
                 wp = wp.add(shape.cq_solid)
             elif isinstance(shape, Face):
@@ -1280,7 +1283,7 @@ def export_step(shapes: Union[AnyShape, List[AnyShape]], filename: str) -> None:
         raise ValueError(f"导出STEP文件失败: {e}. 请检查几何体和文件名是否有效。")
 
 
-def export_stl(shapes: Union[AnyShape, List[AnyShape]], filename: str) -> None:
+def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> None:
     """导出为STL格式
     
     Args:
@@ -1291,12 +1294,15 @@ def export_stl(shapes: Union[AnyShape, List[AnyShape]], filename: str) -> None:
         ValueError: 当导出失败时
     """
     try:
-        if not isinstance(shapes, list):
-            shapes = [shapes]
+        # 处理输入类型
+        if isinstance(shapes, (list, tuple)):
+            shape_list = list(shapes)
+        else:
+            shape_list = [shapes]
         
         # 创建CADQuery的Workplane并添加所有几何体
         wp = cq.Workplane()
-        for shape in shapes:
+        for shape in shape_list:
             if isinstance(shape, Solid):
                 wp = wp.add(shape.cq_solid)
             elif isinstance(shape, Face):
@@ -1498,10 +1504,10 @@ def sweep_rsolid(profile: Face, path: Wire,
         raise ValueError(f"扫掠操作失败: {e}. 请检查轮廓和路径是否有效。")
 
 
-def linear_pattern_rcompound(shape: AnyShape, 
+def linear_pattern_rsolidlist(shape: AnyShape, 
                              direction: Tuple[float, float, float],
                              count: int,
-                             spacing: float) -> Compound:
+                             spacing: float) -> List[Solid]:
     """创建线性阵列
     
     Args:
@@ -1554,18 +1560,23 @@ def linear_pattern_rcompound(shape: AnyShape,
         # 复制原始形状的标签和元数据
         result._tags = shape._tags.copy()
         result._metadata = shape._metadata.copy()
-        result.add_tag("linear_pattern")
-        
-        return result
+
+        rv = []
+        for i, s in enumerate(result.get_solids()):
+            s.add_tag(f"linear_pattern_{i+1}")
+            rv.append(s)
+            
+        return rv     
+    
     except Exception as e:
         raise ValueError(f"线性阵列失败: {e}. 请检查参数是否有效。")
 
 
-def radial_pattern_rcompound(shape: AnyShape,
+def radial_pattern_rsolidlist(shape: AnyShape,
                              center: Tuple[float, float, float],
                              axis: Tuple[float, float, float],
                              count: int,
-                             total_rotation_angle: float) -> Compound:
+                             total_rotation_angle: float) -> List[Solid]:
     """创建径向阵列
     
     Args:
@@ -1617,9 +1628,13 @@ def radial_pattern_rcompound(shape: AnyShape,
         # 复制原始形状的标签和元数据
         result._tags = shape._tags.copy()
         result._metadata = shape._metadata.copy()
-        result.add_tag("radial_pattern")
         
-        return result
+        rv = []
+        for i, s in enumerate(shapes):
+            s.add_tag(f"radial_pattern_{i+1}")
+            rv.append(s)
+
+        return rv
     except Exception as e:
         raise ValueError(f"径向阵列失败: {e}. 请检查参数是否有效。")
 

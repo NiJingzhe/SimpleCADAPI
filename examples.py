@@ -383,11 +383,11 @@ def example_pattern_operations():
         base_unit = scad.union_rsolid(base_unit, decoration)
     
     # 线性阵列
-    linear_array = scad.linear_pattern_rcompound(base_unit, (2, 0, 0), 5, 2.0)
+    linear_array = scad.linear_pattern_rsolidlist(base_unit, (2, 0, 0), 5, 2.0)
     
     # 对基础单元进行径向阵列（而不是线性阵列）
-    radial_array = scad.radial_pattern_rcompound(base_unit, (0, 0, 0), (0, 0, 1), 6, 2*math.pi)
-    
+    radial_array = scad.radial_pattern_rsolidlist(base_unit, (0, 0, 0), (0, 0, 1), 6, 360)
+
     # 导出结果
     output_dir = create_output_dir()
     scad.export_stl(radial_array, os.path.join(output_dir, "pattern_array.stl"))
@@ -508,7 +508,7 @@ def example_gear_like_shape():
             print("  单个齿合并成功，创建径向阵列...")
             
             # 使用径向阵列创建所有齿
-            teeth_array = scad.radial_pattern_rcompound(
+            teeth_array = scad.radial_pattern_rsolidlist(
                 positioned_tooth, 
                 (0, 0, 0),      # 旋转中心
                 (0, 0, 1),      # 旋转轴（Z轴）
@@ -517,15 +517,17 @@ def example_gear_like_shape():
             )
             
             print(f"  径向阵列类型: {type(teeth_array)}")
-            print(f"  径向阵列是否为复合体: {isinstance(teeth_array, scad.Compound)}")
+            print(f"  径向阵列是否为列表: {isinstance(teeth_array, list)}")
+            if isinstance(teeth_array, list) and len(teeth_array) > 0:
+                print(f"  数组长度: {len(teeth_array)}")
+                print(f"  第一个元素类型: {type(teeth_array[0])}")
             
             # 合并齿轮和齿
             gear = base_disk
-            if isinstance(teeth_array, scad.Compound):
-                solids = teeth_array.get_solids()
-                print(f"  复合体中的实体数量: {len(solids)}")
+            if isinstance(teeth_array, list):
+                print(f"  复合体中的实体数量: {len(teeth_array)}")
                 
-                for i, tooth_solid in enumerate(solids):
+                for i, tooth_solid in enumerate(teeth_array):
                     if isinstance(tooth_solid, scad.Solid):
                         old_volume = gear.get_volume()
                         gear = scad.union_rsolid(gear, tooth_solid)

@@ -317,10 +317,10 @@ class TestAdvancedFeatures(unittest.TestCase):
         small_box = scad.create_box(0.5, 0.5, 0.5)
         
         try:
-            pattern = scad.linear_pattern_rcompound(small_box, (1, 0, 0), 5, 1.0)
+            pattern = scad.linear_pattern_rsolidlist(small_box, (1, 0, 0), 5, 1.0)
             self.assertIsInstance(pattern, scad.Compound)
             # 检查复合体包含5个实体
-            solids = pattern.get_solids()
+            solids = pattern
             self.assertEqual(len(solids), 5)
         except Exception as e:
             self.skipTest(f"Linear pattern operation not fully implemented: {e}")
@@ -330,10 +330,10 @@ class TestAdvancedFeatures(unittest.TestCase):
         small_box = scad.create_box(0.2, 0.2, 1.0, center=(2, 0, 0))
         
         try:
-            pattern = scad.radial_pattern_rcompound(small_box, (0, 0, 0), (0, 0, 1), 6, 2*np.pi)
+            pattern = scad.radial_pattern_rsolidlist(small_box, (0, 0, 0), (0, 0, 1), 6, 2*np.pi)
             self.assertIsInstance(pattern, scad.Compound)
             # 检查复合体包含6个实体
-            solids = pattern.get_solids()
+            solids = pattern
             self.assertEqual(len(solids), 6)
         except Exception as e:
             self.skipTest(f"Radial pattern operation not fully implemented: {e}")
