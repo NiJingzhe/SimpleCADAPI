@@ -34,7 +34,7 @@ def make_box_rsolid(width: float, height: float, depth: float, center: Tuple[flo
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 立方体的中心坐标 (x, y, z)， 默认为 (0, 0, 0)
 
-## 返回值
+### 返回值
 
 Solid: 创建的实体对象，表示一个立方体
 
@@ -45,17 +45,17 @@ Solid: 创建的实体对象，表示一个立方体
 ## API使用例子
 
 ```python
->>> # 创建标准单位立方体
->>> unit_cube = make_box_rsolid(1.0, 1.0, 1.0)
->>> volume = unit_cube.get_volume()  # 体积为1
+ # 创建标准单位立方体
+ unit_cube = make_box_rsolid(1.0, 1.0, 1.0)
+ volume = unit_cube.get_volume()  # 体积为1
 
->>> # 创建矩形立方体
->>> rect_box = make_box_rsolid(4.0, 2.0, 3.0)
+ # 创建矩形立方体
+ rect_box = make_box_rsolid(4.0, 2.0, 3.0)
 
->>> # 创建偏移的立方体
->>> offset_box = make_box_rsolid(2.0, 2.0, 2.0, (1, 1, 1))
+ # 创建偏移的立方体
+ offset_box = make_box_rsolid(2.0, 2.0, 2.0, (1, 1, 1))
 
->>> # 获取立方体的面进行后续操作
->>> faces = unit_cube.get_faces()
->>> top_faces = [f for f in faces if f.has_tag("top")]
+ # 获取立方体的面进行后续操作
+ faces = unit_cube.get_faces()
+ top_faces = [f for f in faces if f.has_tag("top")]
 ```

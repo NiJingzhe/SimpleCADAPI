@@ -33,7 +33,7 @@ def make_cylinder_rsolid(radius: float, height: float, center: Tuple[float, floa
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 圆柱体的轴向向量 (x, y, z)， 定义圆柱体的方向，默认为 (0, 0, 1) 表示沿Z轴方向
 
-## 返回值
+### 返回值
 
 Solid: 创建的实体对象，表示一个圆柱体
 
@@ -44,17 +44,17 @@ Solid: 创建的实体对象，表示一个圆柱体
 ## API使用例子
 
 ```python
->>> # 创建标准圆柱体
->>> cylinder = make_cylinder_rsolid(2.0, 5.0)
->>> volume = cylinder.get_volume()  # 体积为π×2²×5≈62.83
+ # 创建标准圆柱体
+ cylinder = make_cylinder_rsolid(2.0, 5.0)
+ volume = cylinder.get_volume()  # 体积为π×2²×5≈62.83
 
->>> # 创建水平圆柱体
->>> horizontal_cyl = make_cylinder_rsolid(1.0, 4.0, (0, 0, 0), (1, 0, 0))
+ # 创建水平圆柱体
+ horizontal_cyl = make_cylinder_rsolid(1.0, 4.0, (0, 0, 0), (1, 0, 0))
 
->>> # 创建偏移的圆柱体
->>> offset_cyl = make_cylinder_rsolid(1.5, 3.0, (2, 2, 0))
+ # 创建偏移的圆柱体
+ offset_cyl = make_cylinder_rsolid(1.5, 3.0, (2, 2, 0))
 
->>> # 获取圆柱体的面进行后续操作
->>> faces = cylinder.get_faces()
->>> top_faces = [f for f in faces if f.has_tag("top")]
+ # 获取圆柱体的面进行后续操作
+ faces = cylinder.get_faces()
+ top_faces = [f for f in faces if f.has_tag("top")]
 ```
