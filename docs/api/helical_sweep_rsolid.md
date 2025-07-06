@@ -46,7 +46,7 @@ def helical_sweep_rsolid(profile: Wire, pitch: float, height: float, radius: flo
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 螺旋轴方向向量 (x, y, z)， 默认为 (0, 0, 1) 表示沿Z轴方向
 
-## 返回值
+### 返回值
 
 Solid: 螺旋扫掠后的实体对象
 
@@ -57,15 +57,15 @@ Solid: 螺旋扫掠后的实体对象
 ## API使用例子
 
 ```python
->>> # 创建螺旋弹簧
->>> circle_profile = make_circle_rwire((0, 0, 0), 0.2)
->>> spring = helical_sweep_rsolid(circle_profile, 1.0, 10.0, 2.0)
+ # 创建螺旋弹簧
+ circle_profile = make_circle_rwire((0, 0, 0), 0.2)
+ spring = helical_sweep_rsolid(circle_profile, 1.0, 10.0, 2.0)
 
->>> # 创建方形截面的螺旋管
->>> square_profile = make_rectangle_rwire(0.5, 0.5)
->>> square_helix = helical_sweep_rsolid(square_profile, 2.0, 8.0, 1.5)
+ # 创建方形截面的螺旋管
+ square_profile = make_rectangle_rwire(0.5, 0.5)
+ square_helix = helical_sweep_rsolid(square_profile, 2.0, 8.0, 1.5)
 
->>> # 创建紧密螺旋结构
->>> small_circle = make_circle_rwire((0, 0, 0), 0.1)
->>> tight_helix = helical_sweep_rsolid(small_circle, 0.5, 5.0, 1.0)
+ # 创建紧密螺旋结构
+ small_circle = make_circle_rwire((0, 0, 0), 0.1)
+ tight_helix = helical_sweep_rsolid(small_circle, 0.5, 5.0, 1.0)
 ```

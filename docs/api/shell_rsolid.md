@@ -28,7 +28,7 @@ def shell_rsolid(solid: Solid, faces_to_remove: List[Face], thickness: float) ->
 - **类型**: `float`
 - **说明**: 壁厚，必须为正数，定义抽壳后的壁厚度
 
-## 返回值
+### 返回值
 
 Solid: 抽壳后的实体对象，内部为空心结构
 
@@ -39,19 +39,19 @@ Solid: 抽壳后的实体对象，内部为空心结构
 ## API使用例子
 
 ```python
->>> # 创建空心立方体容器
->>> box = make_box_rsolid(4, 4, 4)
->>> top_faces = [f for f in box.get_faces() if f.has_tag("top")]
->>> container = shell_rsolid(box, top_faces, 0.2)
+ # 创建空心立方体容器
+ box = make_box_rsolid(4, 4, 4)
+ top_faces = [f for f in box.get_faces() if f.has_tag("top")]
+ container = shell_rsolid(box, top_faces, 0.2)
 
->>> # 创建空心球体
->>> sphere = make_sphere_rsolid(3.0)
+ # 创建空心球体
+ sphere = make_sphere_rsolid(3.0)
 
->>> # 不移除任何面，创建闭合空心球
->>> hollow_sphere = shell_rsolid(sphere, [], 0.3)
+ # 不移除任何面，创建闭合空心球
+ hollow_sphere = shell_rsolid(sphere, [], 0.3)
 
->>> # 创建有开口的圆柱体容器
->>> cylinder = make_cylinder_rsolid(2.0, 5.0)
->>> top_faces = [f for f in cylinder.get_faces() if f.has_tag("top")]
->>> cup = shell_rsolid(cylinder, top_faces, 0.1)
+ # 创建有开口的圆柱体容器
+ cylinder = make_cylinder_rsolid(2.0, 5.0)
+ top_faces = [f for f in cylinder.get_faces() if f.has_tag("top")]
+ cup = shell_rsolid(cylinder, top_faces, 0.1)
 ```

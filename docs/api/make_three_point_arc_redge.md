@@ -28,7 +28,7 @@ def make_three_point_arc_redge(start: Tuple[float, float, float], middle: Tuple[
 - **类型**: `Tuple[float, float, float]`
 - **说明**: 圆弧的结束点坐标 (x, y, z)
 
-## 返回值
+### 返回值
 
 Edge: 创建的边对象，表示通过三点的圆弧
 
@@ -39,12 +39,12 @@ Edge: 创建的边对象，表示通过三点的圆弧
 ## API使用例子
 
 ```python
->>> # 创建90度圆弧
->>> arc = make_three_point_arc_redge((0, 0, 0), (1, 1, 0), (2, 0, 0))
+ # 创建90度圆弧
+ arc = make_three_point_arc_redge((0, 0, 0), (1, 1, 0), (2, 0, 0))
 
->>> # 创建大圆弧
->>> large_arc = make_three_point_arc_redge((0, 0, 0), (0, 3, 0), (0, 6, 0))
+ # 创建大圆弧
+ large_arc = make_three_point_arc_redge((0, 0, 0), (0, 3, 0), (0, 6, 0))
 
->>> # 创建3D圆弧
->>> arc_3d = make_three_point_arc_redge((0, 0, 0), (1, 1, 1), (2, 0, 2))
+ # 创建3D圆弧
+ arc_3d = make_three_point_arc_redge((0, 0, 0), (1, 1, 1), (2, 0, 2))
 ```

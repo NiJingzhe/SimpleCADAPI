@@ -44,4 +44,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = ["twine>=6.1.0", "pytest"]
+dev = [
+    "twine>=6.1.0",
+ "pytest",
+ "ragflow-sdk>=0.19.1",
+]

@@ -28,7 +28,7 @@ def make_circle_rface(center: Tuple[float, float, float], radius: float, normal:
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 圆所在平面的法向量 (x, y, z)， 默认为 (0, 0, 1) 表示XY平面
 
-## 返回值
+### 返回值
 
 Face: 创建的面对象，表示一个实心的圆形面
 
@@ -39,11 +39,11 @@ Face: 创建的面对象，表示一个实心的圆形面
 ## API使用例子
 
 ```python
->>> # 创建标准圆形面
->>> circle_face = make_circle_rface((0, 0, 0), 2.0)
->>> area = circle_face.get_area()  # 面积为π×2²≈12.57
+ # 创建标准圆形面
+ circle_face = make_circle_rface((0, 0, 0), 2.0)
+ area = circle_face.get_area()  # 面积为π×2²≈12.57
 
->>> # 创建用于拉伸的圆形截面
->>> profile = make_circle_rface((0, 0, 0), 1.0)
->>> cylinder = extrude_rsolid(profile, (0, 0, 1), 5.0)
+ # 创建用于拉伸的圆形截面
+ profile = make_circle_rface((0, 0, 0), 1.0)
+ cylinder = extrude_rsolid(profile, (0, 0, 1), 5.0)
 ```
