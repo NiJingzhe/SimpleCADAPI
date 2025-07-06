@@ -3,6 +3,8 @@ SimpleCAD API - 简化的CAD建模Python API
 基于CADQuery实现，提供直观的几何建模接口
 """
 
+from rich import traceback
+
 from .core import (
     # 核心类
     CoordinateSystem,
@@ -16,7 +18,6 @@ from .core import (
     Compound,
     AnyShape,
     TaggedMixin,
-
     # 坐标系函数
     get_current_cs,
     WORLD_CS,
@@ -47,38 +48,31 @@ from .operations import (
     make_three_point_arc_redge,
     make_three_point_arc_rwire,
     make_wire_from_edges_rwire,
-
     # 变换操作
     mirror_shape,
     rotate_shape,
     translate_shape,
-
     # 3D操作
     extrude_rsolid,
     helical_sweep_rsolid,
     loft_rsolid,
     revolve_rsolid,
     sweep_rsolid,
-
     # 标签和选择
     select_edges_by_tag,
     select_faces_by_tag,
     set_tag,
-
     # 布尔运算
     cut_rsolid,
     intersect_rsolid,
     union_rsolid,
-
     # 导出
     export_step,
     export_stl,
-
     # 高级特征操作
     chamfer_rsolid,
     fillet_rsolid,
     shell_rsolid,
-
     # 其他
     linear_pattern_rsolidlist,
     radial_pattern_rsolidlist,
@@ -148,11 +142,9 @@ __all__ = [
     "Compound",
     "AnyShape",
     "TaggedMixin",
-
     # 坐标系
     "get_current_cs",
     "WORLD_CS",
-
     # 基础几何创建
     "make_angle_arc_redge",
     "make_angle_arc_rwire",
@@ -177,42 +169,34 @@ __all__ = [
     "make_three_point_arc_redge",
     "make_three_point_arc_rwire",
     "make_wire_from_edges_rwire",
-
     # 变换操作
     "mirror_shape",
     "rotate_shape",
     "translate_shape",
-
     # 3D操作
     "extrude_rsolid",
     "helical_sweep_rsolid",
     "loft_rsolid",
     "revolve_rsolid",
     "sweep_rsolid",
-
     # 标签和选择
     "select_edges_by_tag",
     "select_faces_by_tag",
     "set_tag",
-
     # 布尔运算
     "cut_rsolid",
     "intersect_rsolid",
     "union_rsolid",
-
     # 导出
     "export_step",
     "export_stl",
-
     # 高级特征操作
     "chamfer_rsolid",
     "fillet_rsolid",
     "shell_rsolid",
-
     # 其他
     "linear_pattern_rsolidlist",
     "radial_pattern_rsolidlist",
-
     # 别名
     "create_angle_arc",
     "create_angle_arc_wire",
@@ -247,3 +231,6 @@ __all__ = [
     "translate",
     "union",
 ]
+
+
+traceback.install(show_locals=True, suppress=("rich", "traceback"))
