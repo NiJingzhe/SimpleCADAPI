@@ -46,6 +46,7 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "twine>=6.1.0",
- "pytest",
- "ragflow-sdk>=0.19.1",
+    "pytest",
+    "ragflow-sdk>=0.19.1",
+    "cq-editor>=0.5.0",
 ]
