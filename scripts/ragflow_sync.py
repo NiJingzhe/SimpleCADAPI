@@ -221,7 +221,6 @@ class SimpleCADAPIRAGFlowSync:
             
             # 创建分块标题和内容
             chunk_title = f"{title}" if title else f"Section {i+1}"
-            full_content = f"# {chunk_title}\n\n{content}"
             
             # 提取重要关键词
             keywords = self._extract_keywords(content, chunk_title, doc_name)
@@ -230,6 +229,7 @@ class SimpleCADAPIRAGFlowSync:
             if keywords is None:
                 keywords = []
             keywords = [k for k in keywords if k is not None and k.strip()]
+            keywords_str = ', '.join(keywords) if keywords else ''
             
             try:
                 # 简化内容格式，避免特殊字符问题
@@ -238,17 +238,13 @@ class SimpleCADAPIRAGFlowSync:
                     clean_content = f"Empty content for section: {chunk_title}"
                 
                 # 创建简单的内容格式
-                final_content = f"{chunk_title}\n\n{clean_content}"
+                final_content = f"# {chunk_title}\n\n{clean_content}\n\n# tags: {keywords_str}\n\n"
                 
                 # 确保关键词都是有效的字符串
                 clean_keywords = []
                 for kw in keywords:
                     if kw and isinstance(kw, str) and len(kw.strip()) > 0:
                         clean_keywords.append(kw.strip())
-                
-                # 限制关键词数量和长度
-                clean_keywords = clean_keywords[:5]  # 只取前5个关键词
-                clean_keywords = [kw[:50] for kw in clean_keywords]  # 限制每个关键词长度
                 
                 print(f"    添加分块: {chunk_title}")
                 print(f"    内容长度: {len(final_content)}, 关键词: {clean_keywords}")
