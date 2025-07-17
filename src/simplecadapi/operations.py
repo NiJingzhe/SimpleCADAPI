@@ -1395,8 +1395,6 @@ def rotate_shape(
             origin_vec = Vector(*global_origin)
             axis_vec = Vector(*global_axis).normalized() + origin_vec
 
-            print(f"旋转轴向量: {axis_vec}, 旋转中心: {origin_vec}, 旋转角度: {angle}")
-
             if isinstance(shape, Vertex):
                 new_cq_shape = shape.cq_vertex.rotate(origin_vec, axis_vec, angle)
                 new_shape = Vertex(new_cq_shape)
