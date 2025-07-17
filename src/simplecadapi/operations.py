@@ -3,7 +3,7 @@ SimpleCAD API操作函数实现
 基于README中的API设计，实现各种几何操作
 """
 
-from typing import List, Tuple, Union, Optional, Sequence
+from typing import List, Tuple, Union, Optional, Sequence, cast
 import numpy as np
 import math
 import cadquery as cq
@@ -561,8 +561,8 @@ def make_box_rsolid(
         width (float): 立方体的宽度（X方向尺寸），必须为正数
         height (float): 立方体的高度（Y方向尺寸），必须为正数
         depth (float): 立方体的深度（Z方向尺寸），必须为正数
-        center (Tuple[float, float, float], optional): 立方体的中心坐标 (x, y, z)，
-            默认为 (0, 0, 0)
+        center (Tuple[float, float, float], optional): 立方体的XY面中心坐标 (x, y, z)，
+            默认为 (0, 0, 0)，注意这里的中心是立方体底面的中心点
 
     Returns:
         Solid: 创建的实体对象，表示一个立方体
@@ -596,9 +596,10 @@ def make_box_rsolid(
 
         cs = get_current_cs()
         center_global = cs.transform_point(np.array(center))
+        pnt = center_global - np.array([width / 2, height / 2, 0])
 
         # 创建立方体
-        cq_solid = cq.Solid.makeBox(width, height, depth, Vector(*center_global))
+        cq_solid = cq.Solid.makeBox(width, height, depth, Vector(*pnt))
         solid = Solid(cq_solid)
 
         # 自动标记面
@@ -1385,47 +1386,50 @@ def rotate_shape(
     """
     if angle == 0:
         return shape
-    try:
-        cs = get_current_cs()
-        global_axis = cs.transform_point(np.array(axis)) - cs.origin
-        global_origin = cs.transform_point(np.array(origin))
+    else:
+        try:
+            cs = get_current_cs()
+            global_axis = cs.transform_point(np.array(axis)) - cs.origin
+            global_origin = cs.transform_point(np.array(origin))
 
-        axis_vec = Vector(*global_axis)
-        origin_vec = Vector(*global_origin)
+            origin_vec = Vector(*global_origin)
+            axis_vec = Vector(*global_axis).normalized() + origin_vec
 
-        if isinstance(shape, Vertex):
-            new_cq_shape = shape.cq_vertex.rotate(origin_vec, axis_vec, angle)
-            new_shape = Vertex(new_cq_shape)
-        elif isinstance(shape, Edge):
-            new_cq_shape = shape.cq_edge.rotate(origin_vec, axis_vec, angle)
-            new_shape = Edge(new_cq_shape)
-        elif isinstance(shape, Wire):
-            new_cq_shape = shape.cq_wire.rotate(origin_vec, axis_vec, angle)
-            new_shape = Wire(new_cq_shape)
-        elif isinstance(shape, Face):
-            new_cq_shape = shape.cq_face.rotate(origin_vec, axis_vec, angle)
-            new_shape = Face(new_cq_shape)
-        elif isinstance(shape, Shell):
-            new_cq_shape = shape.cq_shell.rotate(origin_vec, axis_vec, angle)
-            new_shape = Shell(new_cq_shape)
-        elif isinstance(shape, Solid):
-            new_cq_shape = shape.cq_solid.rotate(origin_vec, axis_vec, angle)
-            new_shape = Solid(new_cq_shape)
-        elif isinstance(shape, Compound):
-            new_cq_shape = shape.cq_compound.rotate(origin_vec, axis_vec, angle)
-            new_shape = Compound(new_cq_shape)
-        else:
-            raise ValueError(f"不支持的几何体类型: {type(shape)}")  # type: ignore[unreachable]
+            print(f"旋转轴向量: {axis_vec}, 旋转中心: {origin_vec}, 旋转角度: {angle}")
 
-        # 复制标签和元数据
-        new_shape._tags = shape._tags.copy()
-        new_shape._metadata = shape._metadata.copy()
+            if isinstance(shape, Vertex):
+                new_cq_shape = shape.cq_vertex.rotate(origin_vec, axis_vec, angle)
+                new_shape = Vertex(new_cq_shape)
+            elif isinstance(shape, Edge):
+                new_cq_shape = shape.cq_edge.rotate(origin_vec, axis_vec, angle)
+                new_shape = Edge(new_cq_shape)
+            elif isinstance(shape, Wire):
+                new_cq_shape = shape.cq_wire.rotate(origin_vec, axis_vec, angle)
+                new_shape = Wire(new_cq_shape)
+            elif isinstance(shape, Face):
+                new_cq_shape = shape.cq_face.rotate(origin_vec, axis_vec, angle)
+                new_shape = Face(new_cq_shape)
+            elif isinstance(shape, Shell):
+                new_cq_shape = shape.cq_shell.rotate(origin_vec, axis_vec, angle)
+                new_shape = Shell(new_cq_shape)
+            elif isinstance(shape, Solid):
+                new_cq_shape = shape.cq_solid.rotate(origin_vec, axis_vec, angle)
+                new_shape = Solid(new_cq_shape)
+            elif isinstance(shape, Compound):
+                new_cq_shape = shape.cq_compound.rotate(origin_vec, axis_vec, angle)
+                new_shape = Compound(new_cq_shape)
+            else:
+                raise ValueError(f"不支持的几何体类型: {type(shape)}")  # type: ignore[unreachable]
 
-        return new_shape
-    except Exception as e:
-        raise ValueError(
-            f"旋转几何体失败: {e}. 请检查几何体、角度、轴向和中心点是否有效。"
-        )
+            # 复制标签和元数据
+            new_shape._tags = shape._tags.copy()
+            new_shape._metadata = shape._metadata.copy()
+
+            return new_shape
+        except Exception as e:
+            raise ValueError(
+                f"旋转几何体失败: {e}. 请检查几何体、角度、轴向和中心点是否有效。"
+            )
 
 
 # =============================================================================
