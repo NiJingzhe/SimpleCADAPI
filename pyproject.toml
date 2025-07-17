@@ -1,6 +1,6 @@
 [project]
 name = "simplecadapi"
-version = "1.0.1"
+version = "1.0.2"
 description = "A simplified CAD modeling Python API based on CADQuery"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -44,9 +44,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = [
-    "twine>=6.1.0",
-    "pytest",
-    "ragflow-sdk>=0.19.1",
-    "cq-editor>=0.5.0",
-]
+dev = ["twine>=6.1.0", "pytest", "ragflow-sdk>=0.19.1", "cq-editor>=0.5.0"]

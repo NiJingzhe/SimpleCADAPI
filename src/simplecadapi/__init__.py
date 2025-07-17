@@ -78,8 +78,8 @@ from .operations import (
     radial_pattern_rsolidlist,
 )
 
-__version__ = "0.1.0"
-__author__ = "SimpleCAD API Team"
+__version__ = "1.0.2"
+__author__ = "Jingzhe Ni"
 __description__ = "Simplified CAD modeling Python API based on CADQuery"
 
 # 便于使用的别名
