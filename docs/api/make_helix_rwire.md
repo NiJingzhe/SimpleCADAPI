@@ -45,16 +45,3 @@ Wire: 创建的线对象，包含一个螺旋线
 ## 异常
 
 - **ValueError**: 当螺距、高度或半径小于等于0时抛出异常
-
-## API使用例子
-
-```python
- # 创建螺旋线线对象
- helix_wire = make_helix_rwire(1.5, 6.0, 1.0)
-
- # 用于扫掠操作的螺旋路径
- profile = make_circle_rface((0, 0, 0), 0.1)
- helix_path = make_helix_rwire(2.0, 10.0, 2.0)
-
- # 然后可以用 sweep_rsolid(profile, helix_path) 创建螺旋扫掠
-```

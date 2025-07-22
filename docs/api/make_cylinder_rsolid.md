@@ -3,7 +3,7 @@
 ## API定义
 
 ```python
-def make_cylinder_rsolid(radius: float, height: float, center: Tuple[float, float, float] = (0, 0, 0), axis: Tuple[float, float, float] = (0, 0, 1)) -> Solid
+def make_cylinder_rsolid(radius: float, height: float, bottom_face_center: Tuple[float, float, float] = (0, 0, 0), axis: Tuple[float, float, float] = (0, 0, 1)) -> Solid
 ```
 
 ## API作用
@@ -23,7 +23,7 @@ def make_cylinder_rsolid(radius: float, height: float, center: Tuple[float, floa
 - **类型**: `float`
 - **说明**: 圆柱体的高度，必须为正数
 
-### center
+### bottom_face_center
 
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 圆柱体底面中心坐标 (x, y, z)， 默认为 (0, 0, 0)
@@ -40,21 +40,3 @@ Solid: 创建的实体对象，表示一个圆柱体
 ## 异常
 
 - **ValueError**: 当半径或高度小于等于0时抛出异常
-
-## API使用例子
-
-```python
- # 创建标准圆柱体
- cylinder = make_cylinder_rsolid(2.0, 5.0)
- volume = cylinder.get_volume()  # 体积为π×2²×5≈62.83
-
- # 创建水平圆柱体
- horizontal_cyl = make_cylinder_rsolid(1.0, 4.0, (0, 0, 0), (1, 0, 0))
-
- # 创建偏移的圆柱体
- offset_cyl = make_cylinder_rsolid(1.5, 3.0, (2, 2, 0))
-
- # 获取圆柱体的面进行后续操作
- faces = cylinder.get_faces()
- top_faces = [f for f in faces if f.has_tag("top")]
-```

@@ -40,21 +40,3 @@ List[Solid]: 阵列后的几何体列表，包含原始对象和所有复制的�
 ## 异常
 
 - **ValueError**: 当阵列数量小于等于0或间距小于等于0时抛出异常
-
-## API使用例子
-
-```python
- # 创建立方体的线性阵列
- box = make_box_rsolid(1, 1, 1)
- boxes = linear_pattern_rsolidlist(box, (2, 0, 0), 5, 2.0)
-
- # 创建5个立方体，沿X轴方向间距2.0
-
- # 创建圆柱体的对角线阵列
- cylinder = make_cylinder_rsolid(0.5, 2.0)
- cylinders = linear_pattern_rsolidlist(cylinder, (1, 1, 0), 4, 1.5)
-
- # 创建复杂几何体的阵列
- complex_shape = union_rsolid(box, cylinder)
- array = linear_pattern_rsolidlist(complex_shape, (0, 3, 0), 3, 3.0)
-```

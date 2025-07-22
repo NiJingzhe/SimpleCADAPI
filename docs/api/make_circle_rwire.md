@@ -35,13 +35,3 @@ Wire: 创建的线对象，表示一个完整的圆形轮廓
 ## 异常
 
 - **ValueError**: 当半径小于等于0或其他参数无效时抛出异常
-
-## API使用例子
-
-```python
- # 创建标准圆形轮廓
- circle_wire = make_circle_rwire((0, 0, 0), 3.0)
-
- # 创建小圆轮廓
- small_circle = make_circle_rwire((1, 1, 0), 0.5)
-```

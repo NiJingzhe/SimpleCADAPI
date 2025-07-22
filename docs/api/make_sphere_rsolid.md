@@ -30,21 +30,3 @@ Solid: 创建的实体对象，表示一个球体
 ## 异常
 
 - **ValueError**: 当半径小于等于0时抛出异常
-
-## API使用例子
-
-```python
- # 创建标准单位球体
- unit_sphere = make_sphere_rsolid(1.0)
- volume = unit_sphere.get_volume()  # 体积为(4/3)π≈4.19
-
- # 创建大球体
- large_sphere = make_sphere_rsolid(3.0)
-
- # 创建偏移的球体
- offset_sphere = make_sphere_rsolid(2.0, (1, 1, 1))
-
- # 获取球体的面进行后续操作
- faces = unit_sphere.get_faces()
- surface_faces = [f for f in faces if f.has_tag("surface")]
-```

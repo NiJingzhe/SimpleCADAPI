@@ -39,13 +39,5 @@ Vertex: 创建的顶点对象，包含指定坐标的点
 ## API使用例子
 
 ```python
- # 创建原点
- origin = make_point_rvertex(0, 0, 0)
-
- # 创建指定坐标的点
- point = make_point_rvertex(1.5, 2.0, 3.0)
-
- # 在工作平面中创建点
- with SimpleWorkplane((1, 1, 1)):
 ...     local_point = make_point_rvertex(0, 0, 0)  # 实际位置为(1, 1, 1)
 ```

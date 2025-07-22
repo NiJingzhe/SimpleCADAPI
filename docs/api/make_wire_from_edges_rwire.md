@@ -25,17 +25,3 @@ Wire: 创建的线对象，由输入的边组成的连续线
 ## 异常
 
 - **ValueError**: 当边列表为空或边无法连接时抛出异常
-
-## API使用例子
-
-```python
- # 创建L形线
- edge1 = make_line_redge((0, 0, 0), (2, 0, 0))  # 水平线
- edge2 = make_line_redge((2, 0, 0), (2, 2, 0))  # 垂直线
- l_wire = make_wire_from_edges_rwire([edge1, edge2])
-
- # 创建包含直线和圆弧的复杂线
- line = make_line_redge((0, 0, 0), (2, 0, 0))
- arc = make_three_point_arc_redge((2, 0, 0), (3, 1, 0), (2, 2, 0))
- complex_wire = make_wire_from_edges_rwire([line, arc])
-```

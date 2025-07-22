@@ -35,16 +35,3 @@ Edge: 创建的边对象，表示一个完整的圆形
 ## 异常
 
 - **ValueError**: 当半径小于等于0或其他参数无效时抛出异常
-
-## API使用例子
-
-```python
- # 创建XY平面上的圆
- circle = make_circle_redge((0, 0, 0), 2.0)
-
- # 创建垂直平面上的圆
- vertical_circle = make_circle_redge((0, 0, 0), 1.5, (1, 0, 0))
-
- # 创建指定位置的圆
- offset_circle = make_circle_redge((2, 3, 1), 1.0, (0, 0, 1))
-```

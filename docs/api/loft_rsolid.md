@@ -30,23 +30,3 @@ Solid: 放样后的实体对象
 ## 异常
 
 - **ValueError**: 当轮廓少于2个或放样操作失败时抛出异常
-
-## API使用例子
-
-```python
- # 创建方形到圆形的过渡体
- square = make_rectangle_rwire(2, 2, (0, 0, 0))
- circle = make_circle_rwire((0, 0, 3), 1.0)
- transition = loft_rsolid([square, circle])
-
- # 创建多层过渡的复杂形状
- bottom = make_rectangle_rwire(4, 4, (0, 0, 0))
- middle = make_circle_rwire((0, 0, 2), 2.0)
- top = make_rectangle_rwire(1, 1, (0, 0, 4))
- complex_shape = loft_rsolid([bottom, middle, top])
-
- # 创建直纹面放样
- profile1 = make_circle_rwire((0, 0, 0), 2.0)
- profile2 = make_circle_rwire((0, 0, 5), 1.0)
- ruled_loft = loft_rsolid([profile1, profile2], ruled=True)
-```

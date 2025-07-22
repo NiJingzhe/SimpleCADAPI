@@ -30,20 +30,3 @@ Edge: 创建的边对象，表示通过控制点的平滑样条曲线
 ## 异常
 
 - **ValueError**: 当控制点少于2个或切线向量数量不匹配时抛出异常
-
-## API使用例子
-
-```python
- # 创建简单的样条曲线
- points = [(0, 0, 0), (1, 2, 0), (3, 1, 0), (4, 3, 0)]
- spline = make_spline_redge(points)
-
- # 创建带切线控制的样条曲线
- points = [(0, 0, 0), (2, 0, 0), (4, 0, 0)]
- tangents = [(1, 0, 0), (0, 1, 0), (1, 0, 0)]
- controlled_spline = make_spline_redge(points, tangents)
-
- # 创建3D样条曲线
- points_3d = [(0, 0, 0), (1, 1, 1), (2, 0, 2), (3, 1, 1)]
- spline_3d = make_spline_redge(points_3d)
-```

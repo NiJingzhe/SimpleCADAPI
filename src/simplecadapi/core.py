@@ -3,7 +3,8 @@ SimpleCAD API核心类定义
 基于README中的API设计，使用CADQuery作为底层实现
 """
 
-from typing import List, Tuple, Union, Any, Dict, Set
+from __future__ import annotations
+from typing import List, Optional, Tuple, Union, Any, Dict, Set, cast
 import numpy as np
 import cadquery as cq
 from cadquery import Vector, Plane
@@ -283,9 +284,9 @@ class TaggedMixin:
         """
         return tag in self._tags
 
-    def get_tags(self) -> Set[str]:
+    def get_tags(self) -> list[str]:
         """获取所有标签"""
-        return self._tags.copy()
+        return list(set(self._tags.copy()))
 
     def set_metadata(self, key: str, value: Any) -> None:
         """设置元数据
@@ -328,7 +329,52 @@ class TaggedMixin:
         return "\n".join(result)
 
 
-class Vertex(TaggedMixin):
+class TopoMixein:
+    """拓扑管理混入类"""
+
+    def __init__(self, level: int, self_shape_ref: AnyShape) -> None:
+
+        self.level: int = level
+        self.self_shape_ref: AnyShape = self_shape_ref
+        self.children: List[AnyShape] = []
+        self.parent: Optional[AnyShape] = None
+
+    def set_parent(self, parent: AnyShape) -> None:
+        """设置父级几何体
+
+        Args:
+            parent: 父级几何体
+        """
+        self.parent = parent
+
+    def add_child(self, child: AnyShape) -> None:
+        """添加子级几何体
+
+        Args:
+            child: 子级几何体
+        """
+        if child not in self.children:
+            self.children.append(child)
+            child.set_parent(self.self_shape_ref)
+
+    def get_children(self) -> List[AnyShape]:
+        """获取所有子级几何体
+
+        Returns:
+            子级几何体列表
+        """
+        return self.children
+
+    def get_parent(self) -> Optional[AnyShape]:
+        """获取父级几何体
+
+        Returns:
+            父级几何体或None
+        """
+        return self.parent
+
+
+class Vertex(TaggedMixin, TopoMixein):
     """顶点类，包装CADQuery的Vertex，添加标签功能"""
 
     def __init__(self, cq_vertex: CQVertex):
@@ -340,6 +386,7 @@ class Vertex(TaggedMixin):
         try:
             self.cq_vertex = cq_vertex
             TaggedMixin.__init__(self)
+            TopoMixein.__init__(self, level=0, self_shape_ref=self)
         except Exception as e:
             raise ValueError(f"初始化顶点失败: {e}. 请检查输入的顶点对象是否有效。")
 
@@ -398,7 +445,7 @@ class Vertex(TaggedMixin):
         return "\n".join(result)
 
 
-class Edge(TaggedMixin):
+class Edge(TaggedMixin, TopoMixein):
     """边类，包装CADQuery的Edge，添加标签功能"""
 
     def __init__(self, cq_edge: CQEdge):
@@ -410,6 +457,12 @@ class Edge(TaggedMixin):
         try:
             self.cq_edge = cq_edge
             TaggedMixin.__init__(self)
+            TopoMixein.__init__(self, level=1, self_shape_ref=self)
+
+            for v in self.cq_edge.Vertices():
+                vertex = Vertex(v)
+                self.add_child(vertex)
+
         except Exception as e:
             raise ValueError(f"初始化边失败: {e}. 请检查输入的边对象是否有效。")
 
@@ -432,10 +485,10 @@ class Edge(TaggedMixin):
             起始顶点
         """
         try:
-            vertices = self.cq_edge.Vertices()
-            if len(vertices) < 1:
+            if len(self.get_children()) < 1:
                 raise ValueError("边没有顶点")
-            return Vertex(vertices[0])
+
+            return cast(Vertex, self.get_children()[0])
         except Exception as e:
             raise ValueError(f"获取起始顶点失败: {e}")
 
@@ -446,10 +499,10 @@ class Edge(TaggedMixin):
             结束顶点
         """
         try:
-            vertices = self.cq_edge.Vertices()
-            if len(vertices) < 2:
+            if len(self.get_children()) < 2:
                 raise ValueError("边没有足够的顶点")
-            return Vertex(vertices[-1])
+
+            return cast(Vertex, self.get_children()[-1])
         except Exception as e:
             raise ValueError(f"获取结束顶点失败: {e}")
 
@@ -460,7 +513,16 @@ class Edge(TaggedMixin):
     def __repr__(self) -> str:
         """调试表示"""
         length = self.get_length()
-        return f"Edge(length={length:.3f})"
+
+        try:
+            start_coord = self.get_start_vertex().get_coordinates()
+            end_coord = self.get_end_vertex().get_coordinates()
+            part1 = f"from: {start_coord}, to: {end_coord}"
+        except Exception:
+
+            part1 = "from: [unable to retrieve], to: [unable to retrieve], ususally this is a circle"
+
+        return f"Edge({part1}, length={length:.3f}, tags={self.get_tags()})"
 
     def _format_string(
         self, indent: int = 0, show_coordinate_system: bool = False
@@ -487,7 +549,7 @@ class Edge(TaggedMixin):
             result.append(f"{spaces}    start: {start_vertex.get_coordinates()}")
             result.append(f"{spaces}    end: {end_vertex.get_coordinates()}")
         except Exception:
-            result.append(f"{spaces}  vertices: [unable to retrieve]")
+            result.append(f"{spaces}  vertices: [unable to retrieve, usually a circle]")
 
         # 标签和元数据
         tags_metadata = self._format_tags_and_metadata(indent + 1)
@@ -497,7 +559,7 @@ class Edge(TaggedMixin):
         return "\n".join(result)
 
 
-class Wire(TaggedMixin):
+class Wire(TaggedMixin, TopoMixein):
     """线类，包装CADQuery的Wire，添加标签功能"""
 
     def __init__(self, cq_wire: CQWire):
@@ -509,6 +571,11 @@ class Wire(TaggedMixin):
         try:
             self.cq_wire = cq_wire
             TaggedMixin.__init__(self)
+            TopoMixein.__init__(self, level=2, self_shape_ref=self)
+
+            for e in self.cq_wire.Edges():
+                self.add_child(Edge(e))
+
         except Exception as e:
             raise ValueError(f"初始化线失败: {e}. 请检查输入的线对象是否有效。")
 
@@ -519,8 +586,7 @@ class Wire(TaggedMixin):
             边列表
         """
         try:
-            edges = self.cq_wire.Edges()
-            return [Edge(edge) for edge in edges]
+            return cast(List[Edge], self.get_children())
         except Exception as e:
             raise ValueError(f"获取边列表失败: {e}")
 
@@ -536,6 +602,16 @@ class Wire(TaggedMixin):
         except Exception as e:
             raise ValueError(f"检查线闭合性失败: {e}")
 
+    def _tag_edges(self) -> None:
+        """给构成wire的edges打tag"""
+
+        for i, edge in enumerate(self.get_edges()):
+            for tags in self.get_tags():
+                edge.add_tag(tags)
+
+            edge.add_tag("edge")
+            edge.add_tag(f"{i}")
+
     def __str__(self) -> str:
         """字符串表示"""
         return self._format_string(indent=0)
@@ -544,7 +620,10 @@ class Wire(TaggedMixin):
         """调试表示"""
         is_closed = self.is_closed()
         edge_count = len(self.get_edges())
-        return f"Wire(edges={edge_count}, closed={is_closed})"
+
+        return (
+            f"Wire(edge_count={edge_count}, closed={is_closed}, tags={self.get_tags()})"
+        )
 
     def _format_string(
         self, indent: int = 0, show_coordinate_system: bool = False
@@ -580,7 +659,7 @@ class Wire(TaggedMixin):
         return "\n".join(result)
 
 
-class Face(TaggedMixin):
+class Face(TaggedMixin, TopoMixein):
     """面类，包装CADQuery的Face，添加标签功能"""
 
     def __init__(self, cq_face: CQFace):
@@ -592,6 +671,17 @@ class Face(TaggedMixin):
         try:
             self.cq_face = cq_face
             TaggedMixin.__init__(self)
+            TopoMixein.__init__(self, level=3, self_shape_ref=self)
+
+            outer_wire = Wire(self.cq_face.outerWire())
+            outer_wire.add_tag("outer_wire")
+            self.add_child(outer_wire)
+
+            for w in self.cq_face.innerWires():
+                iw = Wire(w)
+                iw.add_tag("inner_wire")
+                self.add_child(iw)
+
         except Exception as e:
             raise ValueError(f"初始化面失败: {e}. 请检查输入的面对象是否有效。")
 
@@ -622,6 +712,20 @@ class Face(TaggedMixin):
         except Exception as e:
             raise ValueError(f"获取法向量失败: {e}")
 
+    def _tag_wires(self) -> None:
+        """为面上的边线添加标签"""
+        for tags in self.get_tags():
+            self.get_outer_wire().add_tag(tags)
+        self.get_outer_wire().add_tag("outer_wire")
+        self.get_outer_wire()._tag_edges()
+        for i, iw in enumerate(self.get_inner_wires()):
+            for tag in self.get_tags():
+                iw.add_tag(tag)
+
+            iw.add_tag("inner_wire")
+            iw.add_tag(f"{i}")
+            iw._tag_edges()
+
     def get_outer_wire(self) -> Wire:
         """获取外边界线
 
@@ -629,10 +733,31 @@ class Face(TaggedMixin):
             外边界线
         """
         try:
-            outer_wire = self.cq_face.outerWire()
-            return Wire(outer_wire)
+            return [
+                w
+                for w in cast(List[Wire], self.get_children())
+                if w.is_closed() and w.has_tag("outer_wire")
+            ][0]
         except Exception as e:
             raise ValueError(f"获取外边界线失败: {e}")
+
+    def get_inner_wires(self) -> List[Wire]:
+        """获取内边界线
+
+        Returns:
+            内边界线列表
+        """
+        try:
+            return [
+                w
+                for w in cast(List[Wire], self.get_children())
+                if w.is_closed() and w.has_tag("inner_wire")
+            ]
+        except Exception as e:
+            raise ValueError(f"获取内边界线失败: {e}")
+
+    def get_center(self) -> Vector:
+        return self.cq_face.Center()
 
     def __str__(self) -> str:
         """字符串表示"""
@@ -641,7 +766,7 @@ class Face(TaggedMixin):
     def __repr__(self) -> str:
         """调试表示"""
         area = self.get_area()
-        return f"Face(area={area:.3f})"
+        return f"Face(area={area:.3f}, normal={self.get_normal_at()}, center={self.get_center()}, tags={self.get_tags()})"
 
     def _format_string(
         self, indent: int = 0, show_coordinate_system: bool = False
@@ -658,7 +783,7 @@ class Face(TaggedMixin):
         # 基本信息
         area = self.get_area()
         result.append(f"{spaces}Face:")
-        result.append(f"{spaces}  area: {area:.3f}")
+        result.append(f"{spaces}  area: {area:.3f}, center: {self.get_center()}")
 
         # 法向量信息
         try:
@@ -677,90 +802,13 @@ class Face(TaggedMixin):
         except Exception:
             result.append(f"{spaces}  outer_wire: [unable to retrieve]")
 
-        # 标签和元数据
-        tags_metadata = self._format_tags_and_metadata(indent + 1)
-        if tags_metadata:
-            result.append(tags_metadata)
-
-        return "\n".join(result)
-
-
-class Shell(TaggedMixin):
-    """壳类，包装CADQuery的Shell，添加标签功能"""
-
-    def __init__(self, cq_shell: Union[CQShell, Any]):
-        """初始化壳
-
-        Args:
-            cq_shell: CADQuery的壳对象或其他Shape对象
-        """
         try:
-            # 如果是CADQuery的Shape，检查是否为Shell或可转换为Shell
-            if hasattr(cq_shell, "ShapeType"):
-                if cq_shell.ShapeType() == "Shell":
-                    self.cq_shell = cq_shell
-                elif hasattr(cq_shell, "Shells") and cq_shell.Shells():
-                    # 如果是复合体，取第一个Shell
-                    self.cq_shell = cq_shell.Shells()[0]
-                else:
-                    self.cq_shell = cq_shell
-            else:
-                self.cq_shell = cq_shell
-            TaggedMixin.__init__(self)
-        except Exception as e:
-            raise ValueError(f"初始化壳失败: {e}. 请检查输入的壳对象是否有效。")
-
-    def get_faces(self) -> List[Face]:
-        """获取组成壳的面
-
-        Returns:
-            面列表
-        """
-        try:
-            faces = self.cq_shell.Faces()
-            return [Face(face) for face in faces]
-        except Exception as e:
-            raise ValueError(f"获取面列表失败: {e}")
-
-    def __str__(self) -> str:
-        """字符串表示"""
-        return self._format_string(indent=0)
-
-    def __repr__(self) -> str:
-        """调试表示"""
-        face_count = len(self.get_faces())
-        return f"Shell(faces={face_count})"
-
-    def _format_string(
-        self, indent: int = 0, show_coordinate_system: bool = False
-    ) -> str:
-        """格式化字符串表示
-
-        Args:
-            indent: 缩进级别
-            show_coordinate_system: 是否显示坐标系信息
-        """
-        spaces = "  " * indent
-        result = []
-
-        # 基本信息
-        faces = self.get_faces()
-        result.append(f"{spaces}Shell:")
-        result.append(f"{spaces}  face_count: {len(faces)}")
-
-        # 坐标系信息（在Shell层级显示，子级Face不再显示）
-        if show_coordinate_system:
-            current_cs = get_current_cs()
-            if current_cs != WORLD_CS:
-                result.append(f"{spaces}  coordinate_system:")
-                result.append(current_cs._format_string(indent + 2))
-
-        # 面信息（不传递坐标系显示参数，因为Shell层级已经显示了）
-        if faces:
-            result.append(f"{spaces}  faces:")
-            for i, face in enumerate(faces):
-                result.append(f"{spaces}    face_{i}:")
-                result.append(face._format_string(indent + 3, False))
+            inner_wires = self.get_inner_wires()
+            for inner_wire in inner_wires:
+                result.append(f"{spaces}  inner_wire:")
+                result.append(inner_wire._format_string(indent + 2, False))
+        except Exception:
+            result.append(f"{spaces}  inner_wires: [unable to retrieve]")
 
         # 标签和元数据
         tags_metadata = self._format_tags_and_metadata(indent + 1)
@@ -770,7 +818,7 @@ class Shell(TaggedMixin):
         return "\n".join(result)
 
 
-class Solid(TaggedMixin):
+class Solid(TaggedMixin, TopoMixein):
     """实体类，包装CADQuery的Solid，添加标签功能"""
 
     def __init__(self, cq_solid: Union[CQSolid, Any]):
@@ -789,6 +837,11 @@ class Solid(TaggedMixin):
             else:
                 self.cq_solid = cq_solid
             TaggedMixin.__init__(self)
+            TopoMixein.__init__(self, level=4, self_shape_ref=self)
+
+            for f in self.cq_solid.Faces():
+                self.add_child(Face(f))
+
         except Exception as e:
             raise ValueError(f"初始化实体失败: {e}. 请检查输入的实体对象是否有效。")
 
@@ -810,20 +863,9 @@ class Solid(TaggedMixin):
             面列表
         """
         try:
-            faces = self.cq_solid.Faces()
-            face_objects = []
-
-            for i, face in enumerate(faces):
-                face_obj = Face(face)
-
-                # 恢复之前保存的标签
-                if hasattr(self, "_face_tags") and i in self._face_tags:
-                    for tag in self._face_tags[i]:
-                        face_obj.add_tag(tag)
-
-                face_objects.append(face_obj)
-
-            return face_objects
+            return [
+                f for f in cast(List[Face], self.get_children()) if isinstance(f, Face)
+            ]
         except Exception as e:
             raise ValueError(f"获取面列表失败: {e}")
 
@@ -834,8 +876,13 @@ class Solid(TaggedMixin):
             边列表
         """
         try:
-            edges = self.cq_solid.Edges()
-            return [Edge(edge) for edge in edges]
+            edges = []
+            for face in self.get_faces():
+                edges.extend(face.get_outer_wire().get_edges())
+                for inner_wire in face.get_inner_wires():
+                    edges.extend(inner_wire.get_edges())
+
+            return edges
         except Exception as e:
             raise ValueError(f"获取边列表失败: {e}")
 
@@ -851,9 +898,6 @@ class Solid(TaggedMixin):
                 self._face_tags = {}
 
             faces = self.get_faces()
-
-            # 清除之前的标签
-            self._face_tags.clear()
 
             if geometry_type == "box" and len(faces) == 6:
                 self._auto_tag_box_faces(faces)
@@ -899,20 +943,31 @@ class Solid(TaggedMixin):
             print(f"警告: 自动标记立方体面失败: {e}")
 
     def _auto_tag_cylinder_faces(self, faces: List[Face]) -> None:
-        """为圆柱体面自动添加标签"""
+        """为圆柱体面自动添加标签，使用边的数量来区分侧面和平面"""
         try:
-            for i, face in enumerate(faces):
-                # 简化实现：根据面的位置添加标签
-                center = face.cq_face.Center()
-                if abs(center.z) > 0.1:  # 假设是顶面或底面
-                    if center.z > 0:
-                        tag = "top"
-                    else:
-                        tag = "bottom"
-                else:
-                    tag = "side"
+            plane_faces = []
+            side_faces = []
 
-                self._tag_face(face, tag)
+            for face in faces:
+                if len(face.get_outer_wire().get_edges()) == 3:
+                    side_faces.append(face)
+                else:
+                    plane_faces.append(face)
+
+            # 对 plane_faces 按照 z 坐标排序
+            if len(plane_faces) != 2:
+                raise ValueError(f"预期找到2个平面面，但找到了 {len(plane_faces)} 个")
+
+            # 按中心点 z 坐标排序
+            plane_faces.sort(key=lambda f: f.cq_face.Center().z)
+            bottom_face, top_face = plane_faces
+
+            self._tag_face(bottom_face, "bottom")
+            self._tag_face(top_face, "top")
+
+            for face in side_faces:
+                self._tag_face(face, "side")
+
         except Exception as e:
             print(f"警告: 自动标记圆柱体面失败: {e}")
 
@@ -923,15 +978,9 @@ class Solid(TaggedMixin):
             face: 面对象
             tag: 标签名称
         """
-        if not hasattr(self, "_face_tags"):
-            self._face_tags = {}
-
-        # 使用面的索引作为键
-        face_index = len(self._face_tags)
-        self._face_tags[face_index] = {tag}
-
         # 同时也添加到面对象本身
         face.add_tag(tag)
+        face._tag_wires()
 
     def __str__(self) -> str:
         """字符串表示"""
@@ -941,10 +990,10 @@ class Solid(TaggedMixin):
         """调试表示"""
         volume = self.get_volume()
         face_count = len(self.get_faces())
-        return f"Solid(volume={volume:.3f}, faces={face_count})"
+        return f"Solid(volume={volume:.3f}, faces={face_count}, tags={self.get_tags()})"
 
     def _format_string(
-        self, indent: int = 0, show_coordinate_system: bool = False
+        self, indent: int = 0, show_coordinate_system: bool = True
     ) -> str:
         """格式化字符串表示
 
@@ -986,80 +1035,4 @@ class Solid(TaggedMixin):
         return "\n".join(result)
 
 
-class Compound(TaggedMixin):
-    """复合体类，包装CADQuery的Compound，添加标签功能"""
-
-    def __init__(self, cq_compound: CQCompound):
-        """初始化复合体
-
-        Args:
-            cq_compound: CADQuery的复合体对象
-        """
-        try:
-            self.cq_compound = cq_compound
-            TaggedMixin.__init__(self)
-        except Exception as e:
-            raise ValueError(f"初始化复合体失败: {e}. 请检查输入的复合体对象是否有效。")
-
-    def get_solids(self) -> List[Solid]:
-        """获取组成复合体的实体
-
-        Returns:
-            实体列表
-        """
-        try:
-            solids = self.cq_compound.Solids()
-            return [Solid(solid) for solid in solids]
-        except Exception as e:
-            raise ValueError(f"获取实体列表失败: {e}")
-
-    def __str__(self) -> str:
-        """字符串表示"""
-        return self._format_string(indent=0)
-
-    def __repr__(self) -> str:
-        """调试表示"""
-        solid_count = len(self.get_solids())
-        return f"Compound(solids={solid_count})"
-
-    def _format_string(
-        self, indent: int = 0, show_coordinate_system: bool = False
-    ) -> str:
-        """格式化字符串表示
-
-        Args:
-            indent: 缩进级别
-            show_coordinate_system: 是否显示坐标系信息
-        """
-        spaces = "  " * indent
-        result = []
-
-        # 基本信息
-        solids = self.get_solids()
-        result.append(f"{spaces}Compound:")
-        result.append(f"{spaces}  solid_count: {len(solids)}")
-
-        # 坐标系信息（在Compound层级显示，子级Solid不再显示）
-        if show_coordinate_system:
-            current_cs = get_current_cs()
-            if current_cs != WORLD_CS:
-                result.append(f"{spaces}  coordinate_system:")
-                result.append(current_cs._format_string(indent + 2))
-
-        # 实体信息（不传递坐标系显示参数，因为Compound层级已经显示了）
-        if solids:
-            result.append(f"{spaces}  solids:")
-            for i, solid in enumerate(solids):
-                result.append(f"{spaces}    solid_{i}:")
-                result.append(solid._format_string(indent + 3, False))
-
-        # 标签和元数据
-        tags_metadata = self._format_tags_and_metadata(indent + 1)
-        if tags_metadata:
-            result.append(tags_metadata)
-
-        return "\n".join(result)
-
-
-AnyShape = Union[Vertex, Edge, Wire, Face, Shell, Solid, Compound]
-
+AnyShape = Union[Vertex, Edge, Wire, Face, Solid]

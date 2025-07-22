@@ -30,19 +30,3 @@ Wire: 创建的线对象，由多个直线段组成的多段线
 ## 异常
 
 - **ValueError**: 当顶点少于2个时抛出异常
-
-## API使用例子
-
-```python
- # 创建L形多段线
- points = [(0, 0, 0), (3, 0, 0), (3, 2, 0)]
- l_shape = make_polyline_rwire(points)
-
- # 创建三角形轮廓
- triangle_points = [(0, 0, 0), (2, 0, 0), (1, 2, 0)]
- triangle = make_polyline_rwire(triangle_points, closed=True)
-
- # 创建复杂的多边形
- polygon_points = [(0, 0, 0), (2, 0, 0), (3, 1, 0), (2, 2, 0), (0, 2, 0)]
- polygon = make_polyline_rwire(polygon_points, closed=True)
-```

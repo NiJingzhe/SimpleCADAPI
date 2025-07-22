@@ -217,7 +217,9 @@ class TestBooleanOperations(unittest.TestCase):
 
     def setUp(self):
         self.box1 = scad.make_box_rsolid(2.0, 2.0, 2.0)
-        self.box2 = scad.make_box_rsolid(1.0, 1.0, 3.0, center=(0.5, 0.5, 0))
+        self.box2 = scad.make_box_rsolid(
+            1.0, 1.0, 3.0, bottom_face_center=(0.5, 0.5, 0)
+        )
 
     def test_union(self):
         """测试并集运算"""
@@ -321,7 +323,7 @@ class TestAdvancedFeatures(unittest.TestCase):
 
     def test_radial_pattern(self):
         """测试径向阵列"""
-        small_box = scad.create_box(0.2, 0.2, 1.0, center=(2, 0, 0))
+        small_box = scad.create_box(0.2, 0.2, 1.0, bottom_face_center=(2, 0, 0))
 
         pattern = scad.radial_pattern_rsolidlist(
             small_box, (0, 0, 0), (0, 0, 1), 6, 2 * np.pi
@@ -455,7 +457,7 @@ class TestExport(unittest.TestCase):
     def test_export_multiple_shapes(self):
         """测试导出多个几何体"""
         box1 = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        box2 = scad.make_box_rsolid(0.5, 0.5, 0.5, center=(2, 0, 0))
+        box2 = scad.make_box_rsolid(0.5, 0.5, 0.5, bottom_face_center=(2, 0, 0))
         stl_path = os.path.join(self.temp_dir, "multiple.stl")
 
         try:
@@ -477,8 +479,8 @@ class TestComplexExamples(unittest.TestCase):
         base = scad.make_box_rsolid(10, 5, 2)
 
         # 创建孔
-        hole1 = scad.make_cylinder_rsolid(1, 3, center=(2, 0, 0))
-        hole2 = scad.make_cylinder_rsolid(1, 3, center=(8, 0, 0))
+        hole1 = scad.make_cylinder_rsolid(1, 3, bottom_face_center=(2, 0, 0))
+        hole2 = scad.make_cylinder_rsolid(1, 3, bottom_face_center=(4, 0, 0))
 
         # 组合
         bracket = scad.cut_rsolid(base, hole1)
@@ -499,7 +501,7 @@ class TestComplexExamples(unittest.TestCase):
         gear_base = scad.extrude_rsolid(base_circle, (0, 0, 1), 1)
 
         # 创建中心孔
-        center_hole = scad.make_cylinder_rsolid(1, 1.5, center=(0, 0, 0.5))
+        center_hole = scad.make_cylinder_rsolid(1, 1.5, bottom_face_center=(0, 0, 0.5))
         gear_base = scad.cut_rsolid(gear_base, center_hole)
 
         # 创建齿（简化版本）
@@ -516,9 +518,9 @@ class TestComplexExamples(unittest.TestCase):
     def test_complex_boolean_operations(self):
         """测试复杂布尔运算"""
         # 创建三个重叠的立方体
-        box1 = scad.make_box_rsolid(2, 2, 2, center=(0, 0, 0))
-        box2 = scad.make_box_rsolid(2, 2, 2, center=(1, 0, 0))
-        box3 = scad.make_box_rsolid(2, 2, 2, center=(0, 1, 0))
+        box1 = scad.make_box_rsolid(2, 2, 2, bottom_face_center=(0, 0, 0))
+        box2 = scad.make_box_rsolid(2, 2, 2, bottom_face_center=(1, 0, 0))
+        box3 = scad.make_box_rsolid(2, 2, 2, bottom_face_center=(0, 1, 0))
 
         # 复合布尔运算：(box1 ∪ box2) ∩ box3
         union_result = scad.union_rsolid(box1, box2)

@@ -35,25 +35,3 @@ Solid: 圆角后的实体对象
 ## 异常
 
 - **ValueError**: 当圆角半径小于等于0或圆角操作失败时抛出异常
-
-## API使用例子
-
-```python
- # 对立方体的所有边进行圆角
- box = make_box_rsolid(4, 4, 4)
- all_edges = box.get_edges()
- rounded_box = fillet_rsolid(box, all_edges[:4], 0.5)  # 只对前4条边圆角
-
- # 对圆柱体的边进行圆角
- cylinder = make_cylinder_rsolid(2.0, 5.0)
- edges = cylinder.get_edges()
-
- # 选择顶部和底部的圆边
- circular_edges = [e for e in edges if e.has_tag("circular")]
- rounded_cylinder = fillet_rsolid(cylinder, circular_edges, 0.3)
-
- # 对复杂几何体的特定边圆角
- complex_solid = union_rsolid(box, cylinder)
- selected_edges = complex_solid.get_edges()[:6]
- smoothed_solid = fillet_rsolid(complex_solid, selected_edges, 0.2)
-```
