@@ -35,15 +35,3 @@ Wire: 创建的线对象，包含一个通过三点的圆弧
 ## 异常
 
 - **ValueError**: 当三个点共线或坐标无效时抛出异常
-
-## API使用例子
-
-```python
- # 创建圆弧线
- arc_wire = make_three_point_arc_rwire((0, 0, 0), (1, 1, 0), (0, 2, 0))
-
- # 与直线连接创建复杂轮廓
- line = make_segment_rwire((0, 2, 0), (3, 2, 0))
-
- # 然后可以连接arc_wire和line
-```

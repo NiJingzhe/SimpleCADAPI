@@ -40,16 +40,3 @@ Wire: 创建的线对象，表示一个封闭的矩形轮廓
 ## 异常
 
 - **ValueError**: 当宽度或高度小于等于0或其他参数无效时抛出异常
-
-## API使用例子
-
-```python
- # 创建标准矩形轮廓
- rect = make_rectangle_rwire(4.0, 3.0)
-
- # 创建偏移的矩形
- offset_rect = make_rectangle_rwire(2.0, 2.0, (1, 1, 0))
-
- # 创建垂直平面上的矩形
- vertical_rect = make_rectangle_rwire(3.0, 2.0, (0, 0, 0), (1, 0, 0))
-```

@@ -35,15 +35,3 @@ Face: 创建的面对象，表示一个实心的圆形面
 ## 异常
 
 - **ValueError**: 当半径小于等于0或其他参数无效时抛出异常
-
-## API使用例子
-
-```python
- # 创建标准圆形面
- circle_face = make_circle_rface((0, 0, 0), 2.0)
- area = circle_face.get_area()  # 面积为π×2²≈12.57
-
- # 创建用于拉伸的圆形截面
- profile = make_circle_rface((0, 0, 0), 1.0)
- cylinder = extrude_rsolid(profile, (0, 0, 1), 5.0)
-```

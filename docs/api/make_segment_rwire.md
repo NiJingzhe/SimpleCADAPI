@@ -30,13 +30,3 @@ Wire: 创建的线对象，包含一个连接两点的直线段
 ## 异常
 
 - **ValueError**: 当坐标无效或创建线对象失败时抛出异常
-
-## API使用例子
-
-```python
- # 创建基本线段线
- wire = make_segment_rwire((0, 0, 0), (3, 0, 0))
-
- # 创建斜线段
- diagonal_wire = make_segment_rwire((0, 0, 0), (2, 2, 0))
-```

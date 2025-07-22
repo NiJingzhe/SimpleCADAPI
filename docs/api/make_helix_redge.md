@@ -45,16 +45,3 @@ Edge: 创建的边对象，表示一个螺旋线
 ## 异常
 
 - **ValueError**: 当螺距、高度或半径小于等于0时抛出异常
-
-## API使用例子
-
-```python
- # 创建标准螺旋线
- helix = make_helix_redge(2.0, 10.0, 1.0)  # 螺距2，高度10，半径1
-
- # 创建紧密螺旋线
- tight_helix = make_helix_redge(0.5, 5.0, 0.5)
-
- # 创建水平螺旋线
- horizontal_helix = make_helix_redge(1.0, 8.0, 2.0, (0, 0, 0), (1, 0, 0))
-```

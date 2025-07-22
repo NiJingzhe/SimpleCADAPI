@@ -35,19 +35,3 @@ AnyShape: 镜像后的几何体，类型与输入相同
 ## 异常
 
 - **ValueError**: 当几何体或镜像平面参数无效时抛出异常
-
-## API使用例子
-
-```python
- # 沿YZ平面镜像立方体
- box = make_box_rsolid(2, 2, 2, (1, 0, 0))
- mirrored_box = mirror_shape(box, (0, 0, 0), (1, 0, 0))
-
- # 沿XY平面镜像圆柱体
- cylinder = make_cylinder_rsolid(1.0, 3.0, (0, 0, 1))
- mirrored_cyl = mirror_shape(cylinder, (0, 0, 0), (0, 0, 1))
-
- # 沿任意平面镜像
- sphere = make_sphere_rsolid(1.5, (2, 2, 0))
- mirrored_sphere = mirror_shape(sphere, (1, 1, 0), (1, 1, 0))
-```

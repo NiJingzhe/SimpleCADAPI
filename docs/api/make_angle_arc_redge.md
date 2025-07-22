@@ -45,19 +45,3 @@ Edge: 创建的边对象，表示指定角度范围的圆弧
 ## 异常
 
 - **ValueError**: 当半径小于等于0或其他参数无效时抛出异常
-
-## API使用例子
-
-```python
- # 创建90度圆弧（从0度到90度）
- arc_90 = make_angle_arc_redge((0, 0, 0), 2.0, 0, 90)
-
- # 创建180度半圆弧
- semicircle = make_angle_arc_redge((0, 0, 0), 1.5, 0, 180)
-
- # 创建270度圆弧
- arc_270 = make_angle_arc_redge((0, 0, 0), 1.0, 45, 315)
-
- # 创建垂直平面上的圆弧
- vertical_arc = make_angle_arc_redge((0, 0, 0), 1.0, 0, 90, (1, 0, 0))
-```

@@ -14,9 +14,7 @@ from .core import (
     Edge,
     Wire,
     Face,
-    Shell,
     Solid,
-    Compound,
     AnyShape,
     get_current_cs,
 )
@@ -553,7 +551,7 @@ def make_box_rsolid(
     width: float,
     height: float,
     depth: float,
-    center: Tuple[float, float, float] = (0, 0, 0),
+    bottom_face_center: Tuple[float, float, float] = (0, 0, 0),
 ) -> Solid:
     """创建立方体并返回实体对象
 
@@ -561,7 +559,7 @@ def make_box_rsolid(
         width (float): 立方体的宽度（X方向尺寸），必须为正数
         height (float): 立方体的高度（Y方向尺寸），必须为正数
         depth (float): 立方体的深度（Z方向尺寸），必须为正数
-        center (Tuple[float, float, float], optional): 立方体的XY面中心坐标 (x, y, z)，
+        bottom_face_center (Tuple[float, float, float], optional): 立方体的底面中心坐标 (x, y, z)，
             默认为 (0, 0, 0)，注意这里的中心是立方体底面的中心点
 
     Returns:
@@ -595,7 +593,7 @@ def make_box_rsolid(
             raise ValueError("宽度、高度和深度必须大于0")
 
         cs = get_current_cs()
-        center_global = cs.transform_point(np.array(center))
+        center_global = cs.transform_point(np.array(bottom_face_center))
         pnt = center_global - np.array([width / 2, height / 2, 0])
 
         # 创建立方体
@@ -604,6 +602,9 @@ def make_box_rsolid(
 
         # 自动标记面
         solid.auto_tag_faces("box")
+        solid.add_tag("box")
+        solid.add_tag(f"bottom center: {bottom_face_center}")
+        solid.add_tag("size: {width}x{height}x{depth}")
 
         return solid
     except Exception as e:
@@ -613,7 +614,7 @@ def make_box_rsolid(
 def make_cylinder_rsolid(
     radius: float,
     height: float,
-    center: Tuple[float, float, float] = (0, 0, 0),
+    bottom_face_center: Tuple[float, float, float] = (0, 0, 0),
     axis: Tuple[float, float, float] = (0, 0, 1),
 ) -> Solid:
     """创建圆柱体并返回实体对象
@@ -621,7 +622,7 @@ def make_cylinder_rsolid(
     Args:
         radius (float): 圆柱体的半径，必须为正数
         height (float): 圆柱体的高度，必须为正数
-        center (Tuple[float, float, float], optional): 圆柱体底面中心坐标 (x, y, z)，
+        bottom_face_center (Tuple[float, float, float], optional): 圆柱体底面中心坐标 (x, y, z)，
             默认为 (0, 0, 0)
         axis (Tuple[float, float, float], optional): 圆柱体的轴向向量 (x, y, z)，
             定义圆柱体的方向，默认为 (0, 0, 1) 表示沿Z轴方向
@@ -642,9 +643,9 @@ def make_cylinder_rsolid(
          volume = cylinder.get_volume()  # 体积为π×2²×5≈62.83
 
          # 创建水平圆柱体
-         horizontal_cyl = make_cylinder_rsolid(1.0, 4.0, (0, 0, 0), (1, 0, 0))
+         horizontal_cyl = make_cylinder_rsolid(radius=1.0, height=4.0, bottom_face_center=(0, 0, 0), axis=(1, 0, 0))
 
-         # 创建偏移的圆柱体
+         # 创建偏移的圆柱体,底面中心在(2, 2, 0)
          offset_cyl = make_cylinder_rsolid(1.5, 3.0, (2, 2, 0))
 
          # 获取圆柱体的面进行后续操作
@@ -656,7 +657,7 @@ def make_cylinder_rsolid(
             raise ValueError("半径和高度必须大于0")
 
         cs = get_current_cs()
-        center_global = cs.transform_point(np.array(center))
+        center_global = cs.transform_point(np.array(bottom_face_center))
         axis_global = cs.transform_vector(np.array(axis))
 
         center_vec = Vector(*center_global)
@@ -667,6 +668,9 @@ def make_cylinder_rsolid(
 
         # 自动标记面
         solid.auto_tag_faces("cylinder")
+        solid.add_tag("cylinder")
+        solid.add_tag(f"bottom center: {bottom_face_center}")
+        solid.add_tag(f"size: {radius}x{height}")
 
         return solid
     except Exception as e:
@@ -733,6 +737,9 @@ def make_sphere_rsolid(
 
         # 自动标记面
         solid.auto_tag_faces("sphere")
+        solid.add_tag("sphere")
+        solid.add_tag(f"center: {center}")
+        solid.add_tag(f"radius: {radius}")
 
         return solid
     except Exception as e:
@@ -1325,15 +1332,9 @@ def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyS
         elif isinstance(shape, Face):
             new_cq_shape = shape.cq_face.translate(translation_vec)
             new_shape = Face(new_cq_shape)
-        elif isinstance(shape, Shell):
-            new_cq_shape = shape.cq_shell.translate(translation_vec)
-            new_shape = Shell(new_cq_shape)
         elif isinstance(shape, Solid):
             new_cq_shape = shape.cq_solid.translate(translation_vec)
             new_shape = Solid(new_cq_shape)
-        elif isinstance(shape, Compound):
-            new_cq_shape = shape.cq_compound.translate(translation_vec)
-            new_shape = Compound(new_cq_shape)
 
         # 复制标签和元数据
         new_shape._tags = shape._tags.copy()
@@ -1407,15 +1408,9 @@ def rotate_shape(
             elif isinstance(shape, Face):
                 new_cq_shape = shape.cq_face.rotate(origin_vec, axis_vec, angle)
                 new_shape = Face(new_cq_shape)
-            elif isinstance(shape, Shell):
-                new_cq_shape = shape.cq_shell.rotate(origin_vec, axis_vec, angle)
-                new_shape = Shell(new_cq_shape)
             elif isinstance(shape, Solid):
                 new_cq_shape = shape.cq_solid.rotate(origin_vec, axis_vec, angle)
                 new_shape = Solid(new_cq_shape)
-            elif isinstance(shape, Compound):
-                new_cq_shape = shape.cq_compound.rotate(origin_vec, axis_vec, angle)
-                new_shape = Compound(new_cq_shape)
             else:
                 raise ValueError(f"不支持的几何体类型: {type(shape)}")  # type: ignore[unreachable]
 
@@ -1484,7 +1479,9 @@ def extrude_rsolid(
             if profile.is_closed():
                 face = Face(cq.Face.makeFromWires(profile.cq_wire))
             else:
-                raise ValueError("拉伸的线必须是闭合的")
+                raise ValueError(
+                    "如果传入线框作为拉伸对象，那么线框必须是闭合的, 而你的线框没有闭合，请检查构成线框的点是否正确"
+                )
         elif isinstance(profile, Face):
             face = profile
         else:
@@ -1494,8 +1491,41 @@ def extrude_rsolid(
         cq_solid = cq.Solid.extrudeLinear(face.cq_face, direction_vec)
         solid = Solid(cq_solid)
 
+        side_face_count = 0
+        profile_face_normal = None
+        for face_after_extrusion in solid.get_faces():
+            if face_after_extrusion.cq_face.Center() == face.cq_face.Center():
+                face_after_extrusion._tags = profile._tags.copy()
+                face_after_extrusion.add_tag("extrusion start face")
+                face_after_extrusion._metadata = profile._metadata.copy()
+                profile_face_normal = face_after_extrusion.cq_face.normalAt(
+                    face.cq_face.Center().x, face.cq_face.Center().y
+                )[0]
+
+        if profile_face_normal is None:
+            raise ValueError("没有找到和Profile一致的面对象")
+
+        for face_after_extrusion in solid.get_faces():
+            # 开始根据法向量判断顶面底面和侧面
+            face_center = face_after_extrusion.cq_face.Center()
+            # 如果法向量和dir正交，认为是侧面
+            face_normal, _ = face_after_extrusion.cq_face.normalAt(
+                face_center.x, face_center.y
+            )
+            if face_normal.dot(direction_vec) == 0:
+                face_after_extrusion._tags = profile._tags.copy()
+                face_after_extrusion.add_tag("extrusion side face")
+                side_face_count += 1
+                face_after_extrusion.add_tag(f"{side_face_count}")
+
+            # 法向量夹角180度，是顶面
+            if face_normal.getAngle(profile_face_normal) == math.pi:
+                face_after_extrusion._tags = profile._tags.copy()
+                face_after_extrusion.add_tag("extrusion end face")
+
         # 复制标签和元数据
         solid._tags = profile._tags.copy()
+        solid.add_tag("extrusion solid")
         solid._metadata = profile._metadata.copy()
 
         return solid
@@ -1701,7 +1731,6 @@ def union_rsolid(solid1: Solid, solid2: Solid) -> Solid:
     try:
         s1 = solid1.cq_solid
         s2 = solid2.cq_solid
-
         # 如果intersection是0，会给出一个error
         if s1.isNull() or s2.isNull():
             raise ValueError("输入实体无效，无法进行并集运算。")
@@ -1714,6 +1743,11 @@ def union_rsolid(solid1: Solid, solid2: Solid) -> Solid:
             cq_result = rv
 
         result = Solid(cq_result)
+
+        if result.get_volume() == solid1.get_volume():
+            raise ValueError(
+                "输入的两个实体完全没有接触，是分离的，请检查实体的位置是否正确。可能的原因是错误的在实体创建时候将center参数指定错误(尤其是make_box_rsolid和make_cylinder_rsolid等)，请务必注意center参数表示的是实体底面中心点的位置，不是实体的几何中心。"
+            )
 
         # 合并标签和元数据
         result._tags = solid1._tags.union(solid2._tags)
@@ -1760,6 +1794,19 @@ def cut_rsolid(solid1: Solid, solid2: Solid) -> Solid:
     try:
         s1 = solid1.cq_solid
         s2 = solid2.cq_solid
+
+        intersection = intersect(s1, s2)
+        if hasattr(intersection, "Solids") and intersection.Solids():
+            intersection = intersection.Solids()[0]
+        else:
+            intersection = intersection
+
+        intersection = Solid(intersection)
+
+        if intersection.get_volume() == 0:
+            raise ValueError(
+                "输入的两个实体完全没有交集，是分离的，不满足cut操作的基本要求。请检查实体的位置是否正确。可能的原因是错误的在实体创建时候将center参数指定错误(尤其是make_box_rsolid和make_cylinder_rsolid等)，请务必注意center参数表示的是实体底面中心点的位置，不是实体的几何中心。"
+            )
 
         if s1.isNull() or s2.isNull():
             raise ValueError("输入实体无效，无法进行差集运算。")
@@ -1871,20 +1918,16 @@ def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> N
                 wp = wp.add(shape.cq_solid)
             elif isinstance(shape, Face):
                 wp = wp.add(shape.cq_face)
-            elif isinstance(shape, Shell):
-                wp = wp.add(shape.cq_shell)
             elif isinstance(shape, Wire):
                 wp = wp.add(shape.cq_wire)
             elif isinstance(shape, Edge):
                 wp = wp.add(shape.cq_edge)
             elif isinstance(shape, Vertex):
                 wp = wp.add(shape.cq_vertex)
-            elif isinstance(shape, Compound):
-                # 处理复合体：将其中的所有几何体添加到工作平面
-                solids = shape.get_solids()
-                for solid in solids:
-                    wp = wp.add(solid.cq_solid)
-                # 注意：复合体可能还包含其他类型的几何体，但这里先只处理实体
+            else:
+                raise ValueError(
+                    "export_step函数只支持Solid、Face、Wire、Edge和Vertex类型的几何体"
+                )
 
         # 导出到STEP文件
         cq.exporters.export(wp, filename)
@@ -1916,14 +1959,8 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
                 wp = wp.add(shape.cq_solid)
             elif isinstance(shape, Face):
                 wp = wp.add(shape.cq_face)
-            elif isinstance(shape, Shell):
-                wp = wp.add(shape.cq_shell)
-            elif isinstance(shape, Compound):
-                # 处理复合体：将其中的所有实体和面添加到工作平面
-                solids = shape.get_solids()
-                for solid in solids:
-                    wp = wp.add(solid.cq_solid)
-            # STL只支持实体和面
+            else:
+                raise ValueError("export_stl函数只支持Solid和Face类型的几何体")
 
         # 导出到STL文件
         cq.exporters.export(wp, filename)
@@ -2165,16 +2202,12 @@ def loft_rsolid(profiles: List[Wire], ruled: bool = False) -> Solid:
         raise ValueError(f"放样操作失败: {e}. 请检查轮廓是否有效。")
 
 
-def sweep_rsolid(
-    profile: Face, path: Wire, make_solid: bool = True, is_frenet: bool = False
-) -> Union[Solid, Shell]:
+def sweep_rsolid(profile: Face, path: Wire, is_frenet: bool = False) -> Solid:
     """沿路径扫掠轮廓创建实体
 
     Args:
         profile (Face): 要扫掠的轮廓面，定义扫掠的横截面形状
         path (Wire): 扫掠路径线，定义轮廓沿其移动的路径
-        make_solid (bool, optional): 是否创建实体，默认为True。
-            False时创建壳体
         is_frenet (bool, optional): 是否使用Frenet框架，默认为False。
             True时轮廓沿路径的法向量旋转，False时保持轮廓方向
 
@@ -2205,17 +2238,14 @@ def sweep_rsolid(
          curve_path = make_spline_rwire(curve_points)
          swept_shape = sweep_rsolid(profile, curve_path)
     """
+    make_solid = True  # 默认创建实体
     try:
         # 执行扫掠操作
         cq_result = cq.Solid.sweep(
             profile.cq_face, path.cq_wire, makeSolid=make_solid, isFrenet=is_frenet
         )
 
-        if make_solid:
-            result = Solid(cq_result)
-        else:
-            # 如果不是实体，则创建Shell
-            result = Shell(cq_result)
+        result = Solid(cq_result)
 
         # 合并轮廓和路径的标签和元数据
         result._tags = profile._tags.union(path._tags)
@@ -2278,31 +2308,8 @@ def linear_pattern_rsolidlist(
             translated_shape = translate_shape(shape, (offset.x, offset.y, offset.z))
             shapes.append(translated_shape)
 
-        # 创建复合体
-        if isinstance(shape, Vertex):
-            cq_shapes = [s.cq_vertex for s in shapes]
-        elif isinstance(shape, Edge):
-            cq_shapes = [s.cq_edge for s in shapes]
-        elif isinstance(shape, Wire):
-            cq_shapes = [s.cq_wire for s in shapes]
-        elif isinstance(shape, Face):
-            cq_shapes = [s.cq_face for s in shapes]
-        elif isinstance(shape, Shell):
-            cq_shapes = [s.cq_shell for s in shapes]
-        elif isinstance(shape, Solid):
-            cq_shapes = [s.cq_solid for s in shapes]
-        else:
-            raise ValueError(f"不支持的几何体类型: {type(shape)}")
-
-        cq_compound = cq.Compound.makeCompound(cq_shapes)
-        result = Compound(cq_compound)
-
-        # 复制原始形状的标签和元数据
-        result._tags = shape._tags.copy()
-        result._metadata = shape._metadata.copy()
-
         rv = []
-        for i, s in enumerate(result.get_solids()):
+        for i, s in enumerate(shapes):
             s.add_tag(f"linear_pattern_{i+1}")
             rv.append(s)
 
@@ -2365,29 +2372,6 @@ def radial_pattern_rsolidlist(
             rotation_angle = angle_step * i
             rotated_shape = rotate_shape(shape, rotation_angle, axis, center)
             shapes.append(rotated_shape)
-
-        # 创建复合体
-        if isinstance(shape, Vertex):
-            cq_shapes = [s.cq_vertex for s in shapes]
-        elif isinstance(shape, Edge):
-            cq_shapes = [s.cq_edge for s in shapes]
-        elif isinstance(shape, Wire):
-            cq_shapes = [s.cq_wire for s in shapes]
-        elif isinstance(shape, Face):
-            cq_shapes = [s.cq_face for s in shapes]
-        elif isinstance(shape, Shell):
-            cq_shapes = [s.cq_shell for s in shapes]
-        elif isinstance(shape, Solid):
-            cq_shapes = [s.cq_solid for s in shapes]
-        else:
-            raise ValueError(f"不支持的几何体类型: {type(shape)}")
-
-        cq_compound = cq.Compound.makeCompound(cq_shapes)
-        result = Compound(cq_compound)
-
-        # 复制原始形状的标签和元数据
-        result._tags = shape._tags.copy()
-        result._metadata = shape._metadata.copy()
 
         rv = []
         for i, s in enumerate(shapes):

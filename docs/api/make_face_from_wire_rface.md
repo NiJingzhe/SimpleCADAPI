@@ -30,20 +30,3 @@ Face: 创建的面对象，由输入的线轮廓围成的面
 ## 异常
 
 - **ValueError**: 当输入的线对象无效、不封闭或创建面失败时抛出异常
-
-## API使用例子
-
-```python
- # 从矩形线创建面
- rect_wire = make_rectangle_rwire(3.0, 2.0)
- rect_face = make_face_from_wire_rface(rect_wire)
-
- # 从圆形线创建面
- circle_wire = make_circle_rwire((0, 0, 0), 1.5)
- circle_face = make_face_from_wire_rface(circle_wire)
-
- # 从多边形线创建面
- points = [(0, 0, 0), (2, 0, 0), (2, 2, 0), (0, 2, 0)]
- poly_wire = make_polyline_rwire(points, closed=True)
- poly_face = make_face_from_wire_rface(poly_wire)
-```

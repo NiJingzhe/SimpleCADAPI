@@ -45,19 +45,3 @@ List[Solid]: 径向阵列后的几何体列表，包含原始对象和所有旋�
 ## 异常
 
 - **ValueError**: 当阵列数量小于等于0或角度无效时抛出异常
-
-## API使用例子
-
-```python
- # 创建立方体的径向阵列（6个，360度）
- box = make_box_rsolid(1, 0.5, 0.5, (2, 0, 0))  # 距离中心2单位
- radial_boxes = radial_pattern_rsolidlist(box, (0, 0, 0), (0, 0, 1), 6, 360)
-
- # 创建半圆阵列
- cylinder = make_cylinder_rsolid(0.3, 1.0, (1.5, 0, 0))
- half_circle = radial_pattern_rsolidlist(cylinder, (0, 0, 0), (0, 0, 1), 4, 180)
-
- # 围绕Y轴的径向阵列
- element = make_sphere_rsolid(0.5, (3, 0, 0))
- vertical_array = radial_pattern_rsolidlist(element, (0, 0, 0), (0, 1, 0), 8, 360)
-```

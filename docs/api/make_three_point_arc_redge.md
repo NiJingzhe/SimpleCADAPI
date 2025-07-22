@@ -35,16 +35,3 @@ Edge: 创建的边对象，表示通过三点的圆弧
 ## 异常
 
 - **ValueError**: 当三个点共线或坐标无效时抛出异常
-
-## API使用例子
-
-```python
- # 创建90度圆弧
- arc = make_three_point_arc_redge((0, 0, 0), (1, 1, 0), (2, 0, 0))
-
- # 创建大圆弧
- large_arc = make_three_point_arc_redge((0, 0, 0), (0, 3, 0), (0, 6, 0))
-
- # 创建3D圆弧
- arc_3d = make_three_point_arc_redge((0, 0, 0), (1, 1, 1), (2, 0, 2))
-```

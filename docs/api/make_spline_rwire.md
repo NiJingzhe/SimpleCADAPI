@@ -35,15 +35,3 @@ Wire: 创建的线对象，包含一个样条曲线
 ## 异常
 
 - **ValueError**: 当控制点少于2个或切线向量数量不匹配时抛出异常
-
-## API使用例子
-
-```python
- # 创建开放样条曲线线
- points = [(0, 0, 0), (2, 3, 0), (4, 1, 0), (6, 2, 0)]
- spline_wire = make_spline_rwire(points)
-
- # 创建闭合样条曲线
- points = [(0, 0, 0), (2, 2, 0), (4, 0, 0), (2, -2, 0)]
- closed_spline = make_spline_rwire(points, closed=True)
-```
