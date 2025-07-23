@@ -20,6 +20,7 @@ from typing import List, Dict, Tuple
 PROJECT_ROOT = Path(__file__).parent.parent
 SRC_DIR = PROJECT_ROOT / "src" / "simplecadapi"
 OPERATIONS_FILE = SRC_DIR / "operations.py"
+EVOLVE_FILE = SRC_DIR / "evolve.py"
 INIT_FILE = SRC_DIR / "__init__.py"
 
 # 函数分类规则
@@ -96,6 +97,29 @@ def extract_functions_from_operations() -> List[str]:
         return functions
 
     with open(OPERATIONS_FILE, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # 使用正则表达式提取函数定义
+    pattern = r"^def\s+(\w+)\s*\("
+    matches = re.findall(pattern, content, re.MULTILINE)
+
+    # 过滤掉私有函数和内部函数
+    for func_name in matches:
+        if not func_name.startswith("_"):
+            functions.append(func_name)
+
+    return sorted(functions)
+
+
+def extract_functions_from_evolve() -> List[str]:
+    """从 operations.py 文件中提取所有函数名"""
+    functions = []
+
+    if not EVOLVE_FILE.exists():
+        print(f"错误: {EVOLVE_FILE} 文件不存在")
+        return functions
+
+    with open(EVOLVE_FILE, "r", encoding="utf-8") as f:
         content = f.read()
 
     # 使用正则表达式提取函数定义
@@ -208,6 +232,27 @@ def generate_core_imports() -> str:
 def generate_operations_imports(categorized_functions: Dict[str, List[str]]) -> str:
     """生成 operations 模块的导入语句"""
     import_lines = ["from .operations import ("]
+
+    for category, functions in categorized_functions.items():
+        if not functions:
+            continue
+
+        import_lines.append(f"    # {category}")
+        for func in functions:
+            import_lines.append(f"    {func},")
+        import_lines.append("")
+
+    # 移除最后一个空行
+    if import_lines[-1] == "":
+        import_lines.pop()
+
+    import_lines.append(")")
+
+    return "\n".join(import_lines)
+
+def generate_evolve_imports(categorized_functions: Dict[str, List[str]]) -> str:
+    """生成 evolve 模块的导入语句"""
+    import_lines = ["from .evolve import ("]
 
     for category, functions in categorized_functions.items():
         if not functions:
@@ -346,7 +391,6 @@ def generate_init_file(functions: List[str]) -> str:
     lines.append("")
 
     # 版本信息
-    lines.append('__version__ = "0.1.0"')
     lines.append('__author__ = "SimpleCAD API Team"')
     lines.append(
         '__description__ = "Simplified CAD modeling Python API based on CADQuery"'
@@ -473,12 +517,18 @@ def main():
     operations_functions = extract_functions_from_operations()
     print(f"✅ 找到 {len(operations_functions)} 个函数")
 
-    if not operations_functions:
+    # 提取函数
+    print("📋 提取 evolve.py 中的函数...")
+    evolve_functions = extract_functions_from_evolve()
+    print(f"✅ 找到 {len(evolve_functions)} 个函数")
+
+
+    if not operations_functions and not evolve_functions:
         print("❌ 未找到任何函数，退出")
         return
 
     # 比较变更
-    new_additions, removed_functions = compare_with_existing(operations_functions)
+    new_additions, removed_functions = compare_with_existing(operations_functions + evolve_functions)
 
     if new_additions:
         print(f"\n🆕 新增函数 ({len(new_additions)} 个):")
