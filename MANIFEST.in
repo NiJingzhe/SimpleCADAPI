@@ -10,7 +10,7 @@ recursive-include docs *.md
 recursive-include src *.py
 include src/simplecadapi/py.typed
 
-recursive-include auto_tools *.py
+recursive-include src/auto_tools *.py
 
 # 排除不需要的文件
 exclude .python-version

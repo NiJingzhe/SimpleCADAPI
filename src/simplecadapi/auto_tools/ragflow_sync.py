@@ -30,7 +30,7 @@ class SimpleCADAPIRAGFlowSync:
         self.dataset_name = dataset_name
         self.rag_client = RAGFlow(api_key=api_key, base_url=base_url)
         self.dataset: Optional[DataSet] = None
-        self.docs_dir = Path(__file__).parent.parent / "docs"
+        self.docs_dir = Path(__file__).parent.parent.parent.parent / "docs"
         self.cache_file = Path(__file__).parent / "ragflow_cache.json"
         self.file_hashes = self._load_cache()
         

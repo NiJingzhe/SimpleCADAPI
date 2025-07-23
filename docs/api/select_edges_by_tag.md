@@ -6,6 +6,8 @@
 def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]
 ```
 
+*来源文件: operations.py*
+
 ## API参数说明
 
 ### shape
@@ -16,6 +18,6 @@ def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]
 
 - **说明**: 标签名称
 
-### 返回值
+## 返回值说明
 
 匹配标签的边列表

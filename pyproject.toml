@@ -1,6 +1,6 @@
 [project]
 name = "simplecadapi"
-version = "1.0.4"
+version = "1.0.6"
 description = "A simplified CAD modeling Python API based on CADQuery"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -47,7 +47,7 @@ build-backend = "hatchling.build"
 dev = ["twine>=6.1.0", "pytest", "ragflow-sdk>=0.19.1", "cq-editor>=0.5.0"]
 
 [project.scripts]
-evolve = "auto_tools.evolution:main"
-make-export = "auto_tools.make_export:main"
-auto-docs-gen = "auto_tools.auto_docs_gen:main"
-ragflow-sync = "auto_tools.ragflow_sync:main"
+evolve = "simplecadapi.auto_tools.evolution:main"
+make-export = "simplecadapi.auto_tools.make_export:main"
+auto-docs-gen = "simplecadapi.auto_tools.auto_docs_gen:main"
+ragflow-sync = "simplecadapi.auto_tools.ragflow_sync:main"

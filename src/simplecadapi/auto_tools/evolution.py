@@ -5,7 +5,7 @@
 
 from pathlib import Path
 
-EVOLVE_FILE = Path(__file__).parent.parent / "src" / "simplecadapi" / "evolve.py"
+EVOLVE_FILE = Path(__file__).parent.parent / "evolve.py"
 
 
 def extract_source_code_from_file(file_path: Path):
@@ -108,7 +108,7 @@ def combine_import_into_function(imports: list, function: str):
     return f"{function[:docstring_end]}\n{import_str}{function[docstring_end:]}"
 
 
-if __name__ == "__main__":
+def main():
 
     import argparse
 
@@ -159,3 +159,7 @@ if __name__ == "__main__":
     # 追加到 evolve.py
     with open(evolve_file, "a", encoding="utf-8") as f:
         f.write("\n\n" + result_function + "\n")
+
+        
+if __name__ == "__main__":
+    main()

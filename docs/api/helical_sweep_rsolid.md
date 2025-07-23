@@ -6,6 +6,8 @@
 def helical_sweep_rsolid(profile: Wire, pitch: float, height: float, radius: float, center: Tuple[float, float, float] = (0, 0, 0), dir: Tuple[float, float, float] = (0, 0, 1)) -> Solid
 ```
 
+*来源文件: operations.py*
+
 ## API作用
 
 沿螺旋路径扫掠二维轮廓创建三维实体，常用于创建螺纹、弹簧、
@@ -46,10 +48,24 @@ def helical_sweep_rsolid(profile: Wire, pitch: float, height: float, radius: flo
 - **类型**: `Tuple[float, float, float], optional`
 - **说明**: 螺旋轴方向向量 (x, y, z)， 默认为 (0, 0, 1) 表示沿Z轴方向
 
-### 返回值
+## 返回值说明
 
 Solid: 螺旋扫掠后的实体对象
 
 ## 异常
 
 - **ValueError**: 当轮廓不封闭、螺距/高度/半径无效或扫掠失败时抛出异常
+
+## API使用例子
+
+```python
+# 创建螺旋弹簧
+circle_profile = make_circle_rwire((0, 0, 0), 0.2)
+spring = helical_sweep_rsolid(circle_profile, 1.0, 10.0, 2.0)
+# 创建方形截面的螺旋管
+square_profile = make_rectangle_rwire(0.5, 0.5)
+square_helix = helical_sweep_rsolid(square_profile, 2.0, 8.0, 1.5)
+# 创建紧密螺旋结构
+small_circle = make_circle_rwire((0, 0, 0), 0.1)
+tight_helix = helical_sweep_rsolid(small_circle, 0.5, 5.0, 1.0)
+```

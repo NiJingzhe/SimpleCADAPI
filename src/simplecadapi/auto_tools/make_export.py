@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple
 
 # 项目根目录
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 SRC_DIR = PROJECT_ROOT / "src" / "simplecadapi"
 OPERATIONS_FILE = SRC_DIR / "operations.py"
 EVOLVE_FILE = SRC_DIR / "evolve.py"
@@ -489,6 +489,12 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "--show-api-only",
+        action="store_true",
+        help="仅显示 API 函数，不生成 __init__.py 文件",
+    )
+
+    parser.add_argument(
         "--force", action="store_true", help="强制模式，跳过所有确认提示"
     )
 
@@ -505,7 +511,8 @@ def main():
     """主函数"""
     args = parse_arguments()
 
-    print("🚀 开始更新 __init__.py 文件...")
+    if args.verbose:
+        print("🚀 开始更新 __init__.py 文件...")
 
     # 检查必要文件是否存在
     if not OPERATIONS_FILE.exists():
@@ -513,40 +520,38 @@ def main():
         return
 
     # 提取函数
-    print("📋 提取 operations.py 中的函数...")
     operations_functions = extract_functions_from_operations()
-    print(f"✅ 找到 {len(operations_functions)} 个函数")
+    if args.verbose:
+        print(f"✅ 找到 {len(operations_functions)} 个函数")
 
     # 提取函数
-    print("📋 提取 evolve.py 中的函数...")
+    if args.verbose:
+        print("📋 提取 evolve.py 中的函数...")
     evolve_functions = extract_functions_from_evolve()
-    print(f"✅ 找到 {len(evolve_functions)} 个函数")
+    if args.verbose:
+        print(f"✅ 找到 {len(evolve_functions)} 个函数")
 
 
     if not operations_functions and not evolve_functions:
         print("❌ 未找到任何函数，退出")
         return
+    
+    operations_functions.extend(evolve_functions)
 
     # 比较变更
-    new_additions, removed_functions = compare_with_existing(operations_functions + evolve_functions)
+    new_additions, removed_functions = compare_with_existing(operations_functions)
 
     if new_additions:
-        print(f"\n🆕 新增函数 ({len(new_additions)} 个):")
-        for func in new_additions:
-            print(f"  + {func}")
+        if args.verbose:
+            print(f"\n🆕 新增函数 ({len(new_additions)} 个):")
+            for func in new_additions:
+                print(f"  + {func}")
 
     if removed_functions:
-        print(f"\n🗑️  删除函数 ({len(removed_functions)} 个):")
-        for func in removed_functions:
-            print(f"  - {func}")
-
-    if not new_additions and not removed_functions:
-        print("\nℹ️  没有检测到函数变更")
-        if not args.force and not args.dry_run:
-            response = input("是否仍要重新生成文件? (y/N): ")
-            if response.lower() != "y":
-                print("取消操作")
-                return
+        if args.verbose:
+            print(f"\n🗑️  删除函数 ({len(removed_functions)} 个):")
+            for func in removed_functions:
+                print(f"  - {func}")
 
     # 显示函数分类（详细模式）
     if args.verbose:
@@ -569,6 +574,13 @@ def main():
         print(f"  别名数: {len([f for f in operations_functions if f in ALIAS_RULES])}")
         print("  (使用 --verbose 查看详细信息)")
         print("\n💡 要实际执行更改，请移除 --dry-run 参数")
+        return
+
+    if args.show_api_only:
+        print("\n📜 API 函数列表:")
+        for func in operations_functions:
+            print(f"  - {func}")
+
         return
 
     # 备份原文件

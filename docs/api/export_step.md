@@ -6,6 +6,8 @@
 def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> None
 ```
 
+*来源文件: operations.py*
+
 ## API参数说明
 
 ### shapes
