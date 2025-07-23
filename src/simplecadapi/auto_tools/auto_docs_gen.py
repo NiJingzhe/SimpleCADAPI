@@ -8,7 +8,7 @@ import os
 from typing import List, Dict, Optional
 import sys
 # 添加src目录到路径以便导入模块
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # 尝试导入模块（虽然此脚本主要通过AST解析，但导入可以用于验证）
 try:
@@ -434,8 +434,8 @@ def main():
     
     # 定义要处理的源文件列表
     source_files = [
-        os.path.join(script_dir, "..", "src", "simplecadapi", "operations.py"),
-        os.path.join(script_dir, "..", "src", "simplecadapi", "evolve.py")
+        os.path.join(script_dir, "..", "operations.py"),
+        os.path.join(script_dir, "..", "evolve.py")
     ]
     
     # 检查文件是否存在
@@ -445,7 +445,7 @@ def main():
         return
 
     # 创建输出目录
-    output_dir = os.path.join(script_dir, "..", "docs", "api")
+    output_dir = os.path.join(script_dir, "..", "..", "..", "docs", "api")
     
     # 创建文档生成器
     generator = APIDocumentGenerator(existing_files, output_dir)
