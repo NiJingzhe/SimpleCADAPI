@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import List, Dict, Tuple
 
 # 项目根目录
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-SRC_DIR = PROJECT_ROOT / "src" / "simplecadapi"
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+SRC_DIR = PROJECT_ROOT / "simplecadapi"
 OPERATIONS_FILE = SRC_DIR / "operations.py"
 EVOLVE_FILE = SRC_DIR / "evolve.py"
 INIT_FILE = SRC_DIR / "__init__.py"
