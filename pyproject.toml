@@ -1,6 +1,6 @@
 [project]
 name = "simplecadapi"
-version = "1.0.6"
+version = "1.0.8"
 description = "A simplified CAD modeling Python API based on CADQuery"
 readme = "README.md"
 license = { file = "LICENSE" }

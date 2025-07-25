@@ -39,8 +39,7 @@ def extract_functions_from_source(source_code: str):
     tree = ast.parse(source_code)
     extractor = FunctionBodyExtractor()
     extractor.visit(tree)
-    return extractor.function_bodies
-
+    return [function for function in extractor.function_bodies.values()] 
 
 def extract_import_from_source(source_code: str) -> list[str]:
     """
