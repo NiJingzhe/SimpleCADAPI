@@ -7,6 +7,7 @@ import ast
 import os
 from typing import List, Dict, Optional
 import sys
+
 # 添加src目录到路径以便导入模块
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -17,13 +18,14 @@ except ImportError as e:
     # print(f"警告: 无法导入模块: {e}") # 不强制要求能导入，只要文件存在即可
     pass
 
+
 class APIDocumentGenerator:
     """API文档生成器"""
 
     def __init__(self, source_files: List[str], output_dir: str = "docs"):
-        self.source_files = source_files # List of file paths to process
+        self.source_files = source_files  # List of file paths to process
         self.output_dir = output_dir
-        self.apis = [] # Store all extracted APIs
+        self.apis = []  # Store all extracted APIs
         # 创建输出目录
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -66,7 +68,7 @@ class APIDocumentGenerator:
                         file_apis += 1
             print(f"    从 {os.path.basename(file_path)} 提取到 {file_apis} 个API")
             total_apis += file_apis
-            
+
         print(f"成功总共提取到 {total_apis} 个API")
         return self.apis
 
@@ -91,7 +93,7 @@ class APIDocumentGenerator:
                 "signature": signature,
                 "docstring": docstring,
                 "parsed_doc": parsed_doc,
-                "source_file": os.path.basename(file_path) # 记录来源文件
+                "source_file": os.path.basename(file_path),  # 记录来源文件
             }
         except Exception as e:
             print(f"提取函数 {node.name} (来自 {file_path}) 信息时出错: {e}")
@@ -109,11 +111,11 @@ class APIDocumentGenerator:
                 if arg.annotation:
                     arg_str += f": {ast.unparse(arg.annotation)}"
             except (AttributeError, Exception):
-                 # Fallback for older Python versions or issues
-                 if arg.annotation:
-                     arg_str += f": {ast.dump(arg.annotation)}" # 或者简单地用占位符
+                # Fallback for older Python versions or issues
+                if arg.annotation:
+                    arg_str += f": {ast.dump(arg.annotation)}"  # 或者简单地用占位符
             args.append(arg_str)
-            
+
         # 处理默认参数
         defaults = node.args.defaults
         if defaults:
@@ -126,17 +128,17 @@ class APIDocumentGenerator:
                         args[arg_index] += f" = {ast.unparse(default)}"
                     except (AttributeError, Exception):
                         # Fallback for older Python versions or issues
-                        args[arg_index] += f" = ..." # 或者简单地用占位符
-                        
+                        args[arg_index] += f" = ..."  # 或者简单地用占位符
+
         # 构建返回类型
         return_type = ""
         if node.returns:
             try:
                 return_type = f" -> {ast.unparse(node.returns)}"
             except (AttributeError, Exception):
-                 # Fallback for older Python versions or issues
-                 return_type = f" -> ..." # 或者简单地用占位符
-                 
+                # Fallback for older Python versions or issues
+                return_type = f" -> ..."  # 或者简单地用占位符
+
         return f"def {node.name}({', '.join(args)}){return_type}"
 
     def _parse_docstring(self, docstring: str) -> Dict:
@@ -149,7 +151,7 @@ class APIDocumentGenerator:
             "usage": "",
             "examples": [],
         }
-        lines = docstring.split("\n") # 修正：使用 \n 分割
+        lines = docstring.split("\n")  # 修正：使用 \n 分割
         current_section = "description"
         current_content = []
         for line in lines:
@@ -173,7 +175,7 @@ class APIDocumentGenerator:
 
     def _add_section_content(self, parsed: Dict, section: str, content: List[str]):
         """添加段落内容到解析结果"""
-        content_str = "\n".join(content) # 修正：用 \n 连接
+        content_str = "\n".join(content)  # 修正：用 \n 连接
         if section == "description":
             parsed["description"] = content_str
         elif section == "args":
@@ -203,8 +205,8 @@ class APIDocumentGenerator:
                 # 找到第一个冒号的位置
                 colon_idx = line.find(":")
                 param_info = line[:colon_idx].strip()
-                description = line[colon_idx+1:].strip()
-                
+                description = line[colon_idx + 1 :].strip()
+
                 # 解析参数名和类型
                 name = param_info
                 type_info = ""
@@ -212,10 +214,10 @@ class APIDocumentGenerator:
                     # 查找最后一个 ( 和 )
                     last_open = param_info.rfind("(")
                     last_close = param_info.rfind(")")
-                    if last_open < last_close: # 确保顺序正确
-                         name = param_info[:last_open].strip()
-                         type_info = param_info[last_open+1:last_close].strip()
-                         
+                    if last_open < last_close:  # 确保顺序正确
+                        name = param_info[:last_open].strip()
+                        type_info = param_info[last_open + 1 : last_close].strip()
+
                 current_arg = {
                     "name": name,
                     "type": type_info,
@@ -235,7 +237,7 @@ class APIDocumentGenerator:
         raises = []
         for line in content:
             # 同样，避免将缩进行误认为是新异常
-             if ":" in line and not line.startswith((" ", "\t")):
+            if ":" in line and not line.startswith((" ", "\t")):
                 parts = line.split(":", 1)
                 if len(parts) == 2:
                     exception_type = parts[0].strip()
@@ -257,8 +259,8 @@ class APIDocumentGenerator:
                     current_block = []
             else:
                 current_block.append(line)
-        if current_block: # Add the last block
-             examples.append("\n".join(current_block))
+        if current_block:  # Add the last block
+            examples.append("\n".join(current_block))
 
         return examples
 
@@ -271,13 +273,15 @@ class APIDocumentGenerator:
                 self._generate_single_api_doc(api)
                 generated_count += 1
             except Exception as e:
-                 print(f"生成文档 {api['name']}.md 时出错: {e}")
+                print(f"生成文档 {api['name']}.md 时出错: {e}")
         # 生成API索引文档
         try:
             self._generate_api_index()
         except Exception as e:
-             print(f"生成索引文档 README.md 时出错: {e}")
-        print(f"文档生成完成！输出目录: {self.output_dir} (成功生成 {generated_count} 个API文档)")
+            print(f"生成索引文档 README.md 时出错: {e}")
+        print(
+            f"文档生成完成！输出目录: {self.output_dir} (成功生成 {generated_count} 个API文档)"
+        )
 
     def _generate_single_api_doc(self, api: Dict):
         """生成单个API的markdown文档"""
@@ -296,8 +300,8 @@ class APIDocumentGenerator:
         md_content.append(signature)
         md_content.append("```")
         md_content.append("")
-        md_content.append(f"*来源文件: {source_file}*") # 添加来源信息
-        md_content.append("") 
+        md_content.append(f"*来源文件: {source_file}*")  # 添加来源信息
+        md_content.append("")
         # 2. API作用 / Usage
         if parsed_doc["usage"]:
             md_content.append("## API作用")
@@ -333,18 +337,18 @@ class APIDocumentGenerator:
             md_content.append("## API使用例子")
             md_content.append("")
             for i, example_block in enumerate(parsed_doc["examples"]):
-                 if len(parsed_doc["examples"]) > 1:
-                      md_content.append(f"### 例子 {i+1}")
-                 md_content.append("```python")
-                 md_content.append(example_block)
-                 md_content.append("```")
-                 md_content.append("")
+                if len(parsed_doc["examples"]) > 1:
+                    md_content.append(f"### 例子 {i+1}")
+                md_content.append("```python")
+                md_content.append(example_block)
+                md_content.append("```")
+                md_content.append("")
 
         # 写入文件
         filename = f"{name}.md"
         filepath = os.path.join(self.output_dir, filename)
         with open(filepath, "w", encoding="utf-8") as f:
-            f.write("\n".join(md_content)) # 用 \n 连接
+            f.write("\n".join(md_content))  # 用 \n 连接
         # print(f"  生成文档: {filename}") # 可在 extract_apis 中打印
 
     def _generate_api_index(self):
@@ -352,9 +356,11 @@ class APIDocumentGenerator:
         md_content = []
         md_content.append("# SimpleCAD API 文档索引")
         md_content.append("")
-        md_content.append("本文档包含了 SimpleCAD API (来自 `operations.py` 和 `evolve.py`) 的所有函数说明。")
+        md_content.append(
+            "本文档包含了 SimpleCAD API (来自 `operations.py` 和 `evolve.py`) 的所有函数说明。"
+        )
         md_content.append("")
-        
+
         # 按功能分类
         categories = {
             "基础图形创建": [],
@@ -364,19 +370,19 @@ class APIDocumentGenerator:
             "布尔运算": [],
             "导出功能": [],
             "高级特征": [],
-            "自进化": [], # 新增的分类
+            "自进化": [],  # 新增的分类
             "其他": [],
         }
-        
+
         # 分类逻辑
         for api in self.apis:
             name = api["name"]
             source_file = api.get("source_file", "")
-            
+
             # 首先检查是否来自evolve.py，如果是则归入“自进化”
             if source_file == "evolve.py":
                 categories["自进化"].append(api)
-                continue # 处理完后跳过后续分类
+                continue  # 处理完后跳过后续分类
 
             # 否则，按原有规则对operations.py中的API进行分类
             categorized = False
@@ -403,9 +409,9 @@ class APIDocumentGenerator:
             ):
                 categories["高级特征"].append(api)
                 categorized = True
-                
+
             if not categorized:
-                 categories["其他"].append(api) # 添加到未分类列表
+                categories["其他"].append(api)  # 添加到未分类列表
 
         # 生成分类索引
         for category, api_list in categories.items():
@@ -413,17 +419,19 @@ class APIDocumentGenerator:
                 md_content.append(f"## {category}")
                 md_content.append("")
                 # 按名称排序
-                sorted_apis = sorted(api_list, key=lambda x: x['name'])
+                sorted_apis = sorted(api_list, key=lambda x: x["name"])
                 for api in sorted_apis:
                     # 在索引中也显示来源文件
                     source_info = f" *(来自 {api['source_file']})*"
-                    md_content.append(f"- [{api['name']}]({api['name']}.md){source_info}")
+                    md_content.append(
+                        f"- [{api['name']}]({api['name']}.md){source_info}"
+                    )
                 md_content.append("")
-                
+
         # 写入索引文件
         index_path = os.path.join(self.output_dir, "README.md")
         with open(index_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(md_content)) # 用 \n 连接
+            f.write("\n".join(md_content))  # 用 \n 连接
         print("  生成索引文档: README.md")
 
 
@@ -431,13 +439,13 @@ def main():
     """主函数"""
     # 获取脚本目录
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    
+
     # 定义要处理的源文件列表
     source_files = [
         os.path.join(script_dir, "..", "operations.py"),
-        os.path.join(script_dir, "..", "evolve.py")
+        os.path.join(script_dir, "..", "evolve.py"),
     ]
-    
+
     # 检查文件是否存在
     existing_files = [f for f in source_files if os.path.exists(f)]
     if not existing_files:
@@ -445,24 +453,27 @@ def main():
         return
 
     # 创建输出目录
-    output_dir = os.path.join(script_dir, "..", "..", "..", "docs", "api")
-    
+    output_dir = os.path.join(script_dir, "..", "..", "docs", "api")
+
     # 创建文档生成器
     generator = APIDocumentGenerator(existing_files, output_dir)
-    
+
     # 提取API信息
     apis = generator.extract_apis()
     if not apis:
         print("没有找到任何带有docstring的API函数")
         return
-        
+
     # 生成文档
     generator.generate_markdown_docs()
-    
+
     print(f"\n✅ 文档生成完成！")
     print(f"📁 输出目录: {output_dir}")
-    print(f"📄 生成了 {len([a for a in apis if a.get('parsed_doc')])} 个API文档") # 更准确地计算
+    print(
+        f"📄 生成了 {len([a for a in apis if a.get('parsed_doc')])} 个API文档"
+    )  # 更准确地计算
     print(f"📋 索引文件: {os.path.join(output_dir, 'README.md')}")
+
 
 if __name__ == "__main__":
     main()
