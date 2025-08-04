@@ -25,7 +25,7 @@ class APIDocumentGenerator:
     def __init__(self, source_files: List[str], output_dir: str = "docs"):
         self.source_files = source_files  # List of file paths to process
         self.output_dir = output_dir
-        self.apis = []  # Store all extracted APIs
+        self.apis: List[Dict] = []  # Store all extracted APIs
         # 创建输出目录
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -153,7 +153,7 @@ class APIDocumentGenerator:
         }
         lines = docstring.split("\n")  # 修正：使用 \n 分割
         current_section = "description"
-        current_content = []
+        current_content: List[str] = []
         for line in lines:
             line = line.strip()
             # 检查是否是新的段落
@@ -251,7 +251,7 @@ class APIDocumentGenerator:
         """解析Examples段落"""
         # 原逻辑较复杂，简化为按空行分隔例子块
         examples = []
-        current_block = []
+        current_block: List[str] = []
         for line in content:
             if line.strip() == "":
                 if current_block:
