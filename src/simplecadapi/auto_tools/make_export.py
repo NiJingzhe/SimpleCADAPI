@@ -90,7 +90,7 @@ ALIAS_RULES = {
 
 def extract_functions_from_operations() -> List[str]:
     """从 operations.py 文件中提取所有函数名"""
-    functions = []
+    functions: List[str] = []
 
     if not OPERATIONS_FILE.exists():
         print(f"错误: {OPERATIONS_FILE} 文件不存在")
@@ -113,7 +113,7 @@ def extract_functions_from_operations() -> List[str]:
 
 def extract_functions_from_evolve() -> List[str]:
     """从 operations.py 文件中提取所有函数名"""
-    functions = []
+    functions: List[str] = []
 
     if not EVOLVE_FILE.exists():
         print(f"错误: {EVOLVE_FILE} 文件不存在")
@@ -137,7 +137,7 @@ def extract_functions_from_evolve() -> List[str]:
 def extract_functions_from_core() -> List[str]:
     """从 core.py 文件中提取需要导出的函数和类"""
     core_file = SRC_DIR / "core.py"
-    functions = []
+    functions: List[str] = []
 
     if not core_file.exists():
         print(f"警告: {core_file} 文件不存在")
@@ -164,7 +164,7 @@ def extract_functions_from_core() -> List[str]:
 
 def categorize_functions(functions: List[str]) -> Dict[str, List[str]]:
     """将函数按类别分组"""
-    categorized = {}
+    categorized: Dict[str, List[str]] = {}
 
     for category, prefixes in FUNCTION_CATEGORIES.items():
         categorized[category] = []
@@ -282,7 +282,7 @@ def generate_aliases(functions: List[str]) -> str:
     alias_lines.append("")
 
     # 按类别组织别名
-    alias_categories = {}
+    alias_categories: Dict[str, List[Tuple[str, str]]] = {}
     for func in functions:
         if func in ALIAS_RULES:
             alias = ALIAS_RULES[func]
@@ -577,9 +577,20 @@ def main():
         return
 
     if args.show_api_only:
-        print("\n📜 API 函数列表:")
-        for func in operations_functions:
-            print(f"  - {func}")
+        print("\n📜 API 函数列表 (按类别分组):")
+        
+        # 按类别分组显示函数
+        categorized = categorize_functions(operations_functions)
+        total_functions = 0
+        
+        for category, funcs in categorized.items():
+            if funcs:
+                print(f"\n🔹 {category} ({len(funcs)} 个函数):")
+                for func in sorted(funcs):
+                    print(f"  - {func}")
+                total_functions += len(funcs)
+        
+        print(f"\n📊 总计: {total_functions} 个函数")
 
         return
 
