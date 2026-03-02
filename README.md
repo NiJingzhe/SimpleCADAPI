@@ -75,6 +75,15 @@
   - 支持代码自进化开发流程
 - **使用**: `python evolution.py <script_path>`
 
+#### 4. `skill_pack.py` - Skills Spec打包
+- **功能**: 将项目代码与文档按 Agent Skills 规范打包为可移植的技能目录
+- **特点**:
+  - 生成标准技能结构：`SKILL.md`、`scripts/`、`references/`、`assets/project_snapshot/`
+  - 快照打包范围聚焦于`src/simplecadapi`、`docs`、`README.md`、`pyproject.toml`、`LICENSE`
+  - 自动生成单技能导入脚本（`with_skill.sh`）、Jupyter 启动脚本（`jupyter_with_skill.sh`）、新增案例脚本（`add_new_case.sh`）与辅助脚本（导出、文档、校验、重打包）
+  - 支持可选文档刷新（`--refresh-docs`）与压缩归档（`--archive`）
+- **使用**: `skill-pack [--project-root <path>] [--output-root <dir>] [--skill-name <name>] [--refresh-docs] [--archive]`
+
 ### 自进化开发流程
 
 这套工具支持以下自进化开发流程：
@@ -82,6 +91,7 @@
 1. **开发新API**: 在`operations.py`或`evolve.py`中添加新函数
 2. **自动导出**: 运行`make_export.py`更新`__init__.py`
 3. **生成文档**: 运行`auto_docs_gen.py`生成API文档
-4. **持续进化**: 重复上述流程实现API的持续进化
+4. **技能打包**: 运行`skill-pack`生成可分发的skills目录
+5. **持续进化**: 重复上述流程实现API与skills的持续进化
 
 所有工具都支持错误处理和详细的日志输出，确保开发流程的稳定性和可追踪性。

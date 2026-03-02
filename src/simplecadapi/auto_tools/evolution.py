@@ -39,7 +39,8 @@ def extract_functions_from_source(source_code: str):
     tree = ast.parse(source_code)
     extractor = FunctionBodyExtractor()
     extractor.visit(tree)
-    return [function for function in extractor.function_bodies.values()] 
+    return [function for function in extractor.function_bodies.values()]
+
 
 def extract_import_from_source(source_code: str) -> list[str]:
     """
@@ -85,26 +86,51 @@ def combine_import_into_function(imports: list, function: str):
     将导入语句组合成一个函数体字符串
     """
     if not imports:
-        return ""
+        return function
 
-    # 在函数的DocString后方添加导入语句
-    import_str = "    " + "\n    ".join(imports) + "\n\n"
+    lines = function.splitlines()
+    if not lines:
+        return function
 
-    # 定位到函数Docstring结束的位置
-    docstring_start = (
-        function.find('"""') if '"""' in function else function.find("'''")
-    )
-    docstring_end = (
-        function.find('"""', docstring_start + 3)
-        if '"""' in function[docstring_start + 3 :]
-        else function.find("'''", docstring_start + 3)
-    )
-    docstring_end += 3
-    if docstring_end == -1:
-        docstring_end = function.find("\n") + 1
+    insert_at = _find_import_insert_index(lines)
+    import_lines = [f"    {item}" for item in imports]
 
-    # 在函数的DocString后方添加导入语句
-    return f"{function[:docstring_end]}\n{import_str}{function[docstring_end:]}"
+    merged_lines = lines[:insert_at] + [""] + import_lines + [""] + lines[insert_at:]
+    return "\n".join(merged_lines)
+
+
+def _find_import_insert_index(lines: list[str]) -> int:
+    """
+    查找函数内导入语句应插入的位置。
+
+    优先插入到docstring后；如果没有docstring，则插入到函数定义行之后。
+    """
+    if len(lines) <= 1:
+        return len(lines)
+
+    index = 1
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+
+    if index >= len(lines):
+        return 1
+
+    stripped = lines[index].strip()
+    if not (stripped.startswith('"""') or stripped.startswith("'''")):
+        return 1
+
+    quote = '"""' if stripped.startswith('"""') else "'''"
+
+    if stripped.count(quote) >= 2 and len(stripped) > len(quote) * 2:
+        return index + 1
+
+    index += 1
+    while index < len(lines):
+        if quote in lines[index]:
+            return index + 1
+        index += 1
+
+    return 1
 
 
 def main():
@@ -126,30 +152,30 @@ def main():
     )
 
     args = parser.parse_args()
-    
+
     file_path = Path(args.file_path)
     evolve_file = Path(args.evolve_file)
-    
+
     if not file_path.exists():
         print(f"错误: 文件 {file_path} 不存在。")
         exit(1)
-        
+
     if not evolve_file.exists():
         print(f"错误: evolve.py 文件 {evolve_file} 不存在。")
         exit(1)
-        
+
     # 提取源代码
     source_code = extract_source_code_from_file(file_path)
     if not source_code.strip():
         print(f"警告: 文件 {file_path} 为空或只包含空白字符。")
         exit(1)
-        
+
     # 提取函数
     function_body = extract_functions_from_source(source_code)[0]
     if not function_body:
         print(f"警告: 文件 {file_path} 中未找到任何函数。")
         exit(1)
-        
+
     # 提取导入语句
     imports = extract_import_from_source(source_code)
 
@@ -159,6 +185,6 @@ def main():
     with open(evolve_file, "a", encoding="utf-8") as f:
         f.write("\n\n" + result_function + "\n")
 
-        
+
 if __name__ == "__main__":
     main()

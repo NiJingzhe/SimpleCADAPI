@@ -53,9 +53,12 @@ dev = [
     "pytest",
     "cq-editor>=0.5.0",
     "cadquery>=2.5.2",
+    "jupyterlab>=4.5.5",
+    "ipykernel>=6.29.5",
 ]
 
 [project.scripts]
 evolve = "simplecadapi.auto_tools.evolution:main"
 make-export = "simplecadapi.auto_tools.make_export:main"
 auto-docs-gen = "simplecadapi.auto_tools.auto_docs_gen:main"
+skill-pack = "simplecadapi.auto_tools.skill_pack:main"
