@@ -679,6 +679,73 @@ def make_cylinder_rsolid(
         )
 
 
+def make_cone_rsolid(
+    bottom_radius: float,
+    height: float,
+    top_radius: float = 0.0,
+    bottom_face_center: Tuple[float, float, float] = (0, 0, 0),
+    axis: Tuple[float, float, float] = (0, 0, 1),
+) -> Solid:
+    """创建圆锥体并返回实体对象
+
+    Args:
+        bottom_radius (float): 圆锥体的底面半径，必须为正数
+        height (float): 圆锥体的高度，必须为正数
+        top_radius (float, optional): 圆锥体的顶面半径，默认为0.0（尖锥）
+        bottom_face_center (Tuple[float, float, float], optional): 圆锥体底面中心坐标 (x, y, z)，
+            默认为 (0, 0, 0)
+        axis (Tuple[float, float, float], optional): 圆锥体的轴向向量 (x, y, z)，
+            定义圆锥体的方向，默认为 (0, 0, 1) 表示沿Z轴方向
+
+    Returns:
+        Solid: 创建的实体对象，表示一个圆锥体
+
+    Raises:
+        ValueError: 当半径或高度小于等于0时抛出异常
+
+    Usage:
+        创建圆锥体实体，是基础的三维几何体之一。自动为圆锥体的面添加标签
+        （top、bottom、conical），便于后续的面选择操作。
+
+    Example:
+         # 创建标准圆锥体（尖锥）
+         cone = make_cone_rsolid(2.0, 5.0)
+         volume = cone.get_volume()  # 体积为(1/3)π×2²×5≈20.94
+
+         # 创建截锥体
+         truncated_cone = make_cone_rsolid(3.0, 4.0, 1.0)
+    """
+    try:
+        if bottom_radius <= 0 or height <= 0:
+            raise ValueError("底面半径和高度必须大于0")
+
+        cs = get_current_cs()
+        center_global = cs.transform_point(np.array(bottom_face_center))
+        axis_global = cs.transform_vector(np.array(axis))
+
+        center_vec = Vector(*center_global)
+        axis_vec = Vector(*axis_global)
+
+        # 使用正确的makeCone参数：bottom_radius, top_radius, height, center, direction
+        cq_solid = cq.Solid.makeCone(
+            bottom_radius, top_radius, height, center_vec, axis_vec
+        )
+        solid = Solid(cq_solid)
+
+        # 自动标记面
+        solid.add_tag("cone")
+        solid.add_tag(f"bottom center: {bottom_face_center}")
+        solid.add_tag(
+            f"size: bottom_radius: {bottom_radius}, top_radius: {top_radius}, height: {height}"
+        )
+
+        return solid
+    except Exception as e:
+        raise ValueError(
+            f"创建圆锥体失败: {e}. 请检查半径、高度、中心点和轴向是否有效。"
+        )
+
+
 def make_sphere_rsolid(
     radius: float, center: Tuple[float, float, float] = (0, 0, 0)
 ) -> Solid:
@@ -1697,201 +1764,362 @@ def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]:
 # =============================================================================
 
 
-def union_rsolid(solid1: Solid, solid2: Solid) -> Solid:
-    """实体并集运算
+def union_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
+    """实体列表并集运算
 
     Args:
-        solid1 (Solid): 第一个参与运算的实体对象
-        solid2 (Solid): 第二个参与运算的实体对象
+        *solids: 需要尝试并集的实体对象，可以传入：
+            - 单个序列：union_rsolidlist([solid1, solid2, ...])
+            - 多个参数：union_rsolidlist(solid1, solid2, ...)
+            - 混合输入：union_rsolidlist(solid1, [solid2, solid3], ...)，会自动展开所有序列
 
     Returns:
-        Solid: 两个实体的并集结果，包含两个实体的所有体积
+        List[Solid]: 并集运算后的实体列表。可以合并为整体的实体会被融合，
+            无法融合的实体会原样保留。
 
     Raises:
-        ValueError: 当输入实体无效或运算失败时抛出异常
+        ValueError: 当输入列表无效或内部包含非Solid对象时抛出异常
 
     Usage:
-        计算两个实体的并集，返回包含两个实体所有体积的新实体。
-        并集运算会合并两个实体的重叠部分，结果体积大于等于任一输入实体。
+        将一组实体尝试进行并集运算。任何可以通过并集连接成整体的实体
+        都会被融合成一个新的实体；无法连接的实体保持独立。该过程会一直
+        进行，直到没有新的实体可以被成功融合为止。
 
     Example:
-         # 创建两个重叠的立方体
+         # 创建三个实体，其中前两个接触可以融合，第三个独立
          box1 = make_box_rsolid(2, 2, 2, (0, 0, 0))
          box2 = make_box_rsolid(2, 2, 2, (1, 0, 0))
+         sphere = make_sphere_rsolid(1.0, (10, 0, 0))
 
-         # 计算并集
-         union_result = union_rsolid(box1, box2)
-         # 结果是一个组合的形状，体积小于两个立方体体积之和
-
-         # 圆柱和立方体的并集
-         cylinder = make_cylinder_rsolid(1.0, 3.0)
-         box = make_box_rsolid(1, 1, 1, (0, 0, 1))
-         combined = union_rsolid(cylinder, box)
+         # 多种调用方式都支持且等价
+         union_results1 = union_rsolidlist([box1, box2, sphere])
+         union_results2 = union_rsolidlist(box1, box2, sphere)
+         union_results3 = union_rsolidlist(box1, [box2, sphere])
+         # union_results长度为2：一个融合后的立方体组合和一个独立的球体
     """
-    try:
-        s1 = solid1.cq_solid
-        s2 = solid2.cq_solid
-        # 如果intersection是0，会给出一个error
+
+    def _attempt_fuse(base: Solid, candidate: Solid) -> Optional[Solid]:
+        s1 = base.cq_solid
+        s2 = candidate.cq_solid
+
         if s1.isNull() or s2.isNull():
             raise ValueError("输入实体无效，无法进行并集运算。")
 
-        rv = fuse(s1, s2)
-        # 确保结果是Solid类型
-        if hasattr(rv, "Solids") and rv.Solids():
-            cq_result = rv.Solids()[0]
+        fused_shape = fuse(s1, s2)
+        if hasattr(fused_shape, "Solids") and fused_shape.Solids():
+            cq_result = fused_shape.Solids()[0]
         else:
-            cq_result = rv
+            cq_result = fused_shape
 
-        result = Solid(cq_result)
+        fused_solid = Solid(cq_result)
+        if math.isclose(
+            fused_solid.get_volume(),
+            base.get_volume(),
+            rel_tol=1e-9,
+            abs_tol=1e-12,
+        ):
+            return None
 
-        if result.get_volume() == solid1.get_volume():
-            raise ValueError(
-                "输入的两个实体完全没有接触，是分离的，请检查实体的位置是否正确。可能的原因是错误的在实体创建时候将center参数指定错误(尤其是make_box_rsolid和make_cylinder_rsolid等)，请务必注意center参数表示的是实体底面中心点的位置，不是实体的几何中心。"
-            )
+        fused_solid._tags = base._tags.union(candidate._tags)
+        fused_solid._metadata = {**base._metadata, **candidate._metadata}
 
-        # 合并标签和元数据
-        result._tags = solid1._tags.union(solid2._tags)
-        result._metadata = {**solid1._metadata, **solid2._metadata}
+        return fused_solid
+
+    try:
+        # 递归展开所有参数：将Solid直接添加，将序列展开
+        def _flatten_solids(args):
+            result = []
+            for arg in args:
+                if isinstance(arg, Solid):
+                    result.append(arg)
+                elif isinstance(arg, Sequence) and not isinstance(arg, (str, bytes)):
+                    result.extend(_flatten_solids(arg))
+                else:
+                    result.append(arg)  # 保留非Solid对象，后续会进行类型检查
+            return result
+
+        remaining = _flatten_solids(solids)
+
+        if not remaining:
+            return []
+
+        for solid in remaining:
+            if not isinstance(solid, Solid):
+                raise ValueError("union_rsolidlist函数只接受Solid类型的对象")
+
+        result: List[Solid] = []
+
+        while remaining:
+            base = remaining.pop(0)
+            merged = True
+
+            while merged:
+                merged = False
+                idx = 0
+                while idx < len(remaining):
+                    candidate = remaining[idx]
+                    fused = _attempt_fuse(base, candidate)
+                    if fused is None:
+                        idx += 1
+                        continue
+
+                    base = fused
+                    remaining.pop(idx)
+                    merged = True
+
+                # 如果在本轮中没有融合发生，则跳出内循环
+
+            result.append(base)
 
         return result
     except Exception as e:
-        raise ValueError(f"并集运算失败: {e}. 请检查两个实体是否有效。")
+        raise ValueError(f"并集运算失败: {e}. 请检查实体列表是否有效。")
 
 
-def cut_rsolid(solid1: Solid, solid2: Solid) -> Solid:
+def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
     """实体差集运算（布尔减法）
 
     Args:
-        solid1 (Solid): 被减实体，作为基础实体
-        solid2 (Solid): 减去的实体，将从基础实体中移除
+        *solids: 需要进行差集运算的实体对象，可以传入：
+            - 单个序列：cut_rsolidlist([solid1, solid2, ...])
+            - 多个参数：cut_rsolidlist(solid1, solid2, ...)
+            - 混合输入：cut_rsolidlist(solid1, [solid2, solid3], ...)，会自动展开所有序列
+
+            第一个实体作为基础实体，后续实体依次从基础实体中减去。
 
     Returns:
-        Solid: 差集结果实体，从solid1中减去solid2的重叠部分
+        List[Solid]: 差集运算结果的实体列表。从第一个实体中依次减去其他所有实体。
+            返回包含结果的列表：[result_solid]
 
     Raises:
         ValueError: 当输入实体无效或运算失败时抛出异常
 
     Usage:
-        从第一个实体中减去第二个实体的重叠部分，常用于创建孔洞、凹槽等。
-        结果实体的体积等于solid1减去两个实体重叠部分的体积。
+        从第一个实体中依次减去其他实体的重叠部分，常用于创建孔洞、凹槽等。
+        结果实体的体积 = solid1体积 - (solid1∩solid2) - (结果∩solid3) - ...
 
     Example:
-         # 在立方体中创建圆形孔
+         # 在立方体中创建圆形孔（两种方式等价）
          box = make_box_rsolid(4, 4, 4)
          hole = make_cylinder_rsolid(1.0, 4.0)
-         box_with_hole = cut_rsolid(box, hole)
+         result1 = cut_rsolidlist(box, hole)
+         result2 = cut_rsolidlist([box, hole])
 
-         # 创建槽形结构
+         # 创建多个孔的结构
          base = make_box_rsolid(6, 3, 2)
-         slot = make_box_rsolid(4, 1, 2, (0, 0, 1))
-         slotted_base = cut_rsolid(base, slot)
+         hole1 = make_cylinder_rsolid(0.5, 2, (1, 0, 0))
+         hole2 = make_cylinder_rsolid(0.5, 2, (5, 0, 0))
+         slotted_base = cut_rsolidlist(base, hole1, hole2)
 
          # 从球体中减去立方体
          sphere = make_sphere_rsolid(2.0)
          cube = make_box_rsolid(2, 2, 2)
-         carved_sphere = cut_rsolid(sphere, cube)
+         carved_sphere = cut_rsolidlist(sphere, cube)
     """
     try:
-        s1 = solid1.cq_solid
-        s2 = solid2.cq_solid
+        # 递归展开所有参数：将Solid直接添加，将序列展开
+        def _flatten_solids(args):
+            result = []
+            for arg in args:
+                if isinstance(arg, Solid):
+                    result.append(arg)
+                elif isinstance(arg, Sequence) and not isinstance(arg, (str, bytes)):
+                    result.extend(_flatten_solids(arg))
+                else:
+                    result.append(arg)  # 保留非Solid对象，后续会进行类型检查
+            return result
 
-        intersection = intersect(s1, s2)
-        if hasattr(intersection, "Solids") and intersection.Solids():
-            intersection = intersection.Solids()[0]
-        else:
-            intersection = intersection
+        remaining = _flatten_solids(solids)
 
-        intersection = Solid(intersection)
+        if not remaining:
+            return []
 
-        if intersection.get_volume() == 0:
-            raise ValueError(
-                "输入的两个实体完全没有交集，是分离的，不满足cut操作的基本要求。请检查实体的位置是否正确。可能的原因是错误的在实体创建时候将center参数指定错误(尤其是make_box_rsolid和make_cylinder_rsolid等)，请务必注意center参数表示的是实体底面中心点的位置，不是实体的几何中心。"
-            )
+        if len(remaining) == 1:
+            return [remaining[0]]
 
-        if s1.isNull() or s2.isNull():
-            raise ValueError("输入实体无效，无法进行差集运算。")
+        for solid in remaining:
+            if not isinstance(solid, Solid):
+                raise ValueError("cut_rsolidlist函数只接受Solid类型的对象")
 
-        rv = cut(s1, s2)
+        # 从第一个实体开始，依次减去其他实体
+        result_solid = remaining[0]
 
-        if hasattr(rv, "Solids") and rv.Solids():
-            cq_result = rv.Solids()[0]
-        else:
-            cq_result = rv
+        for i in range(1, len(remaining)):
+            candidate = remaining[i]
 
-        result = Solid(cq_result)
+            s1 = result_solid.cq_solid
+            s2 = candidate.cq_solid
+
+            if s1.isNull() or s2.isNull():
+                raise ValueError("输入实体无效，无法进行差集运算。")
+
+            # 检查是否有交集
+            intersection = intersect(s1, s2)
+            if hasattr(intersection, "Solids") and intersection.Solids():
+                intersection_solid = intersection.Solids()[0]
+            else:
+                intersection_solid = intersection
+
+            intersection_obj = Solid(intersection_solid)
+
+            if intersection_obj.get_volume() < 1e-12:
+                # 没有有效的交集，跳过此次切割
+                continue
+
+            # 执行差集操作
+            rv = cut(s1, s2)
+
+            if hasattr(rv, "Solids") and rv.Solids():
+                cq_result = rv.Solids()[0]
+            else:
+                cq_result = rv
+
+            result_solid = Solid(cq_result)
 
         # 保留第一个实体的标签和元数据
-        result._tags = solid1._tags.copy()
-        result._metadata = solid1._metadata.copy()
+        result_solid._tags = remaining[0]._tags.copy()
+        result_solid._metadata = remaining[0]._metadata.copy()
+        result_solid.add_tag("cut_result")
 
-        return result
+        return [result_solid]
     except Exception as e:
-        raise ValueError(f"差集运算失败: {e}. 请检查两个实体是否有效。")
+        raise ValueError(f"差集运算失败: {e}. 请检查实体列表是否有效。")
 
 
-def intersect_rsolid(solid1: Solid, solid2: Solid) -> Solid:
+def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
     """实体交集运算（布尔交集）
 
     Args:
-        solid1 (Solid): 第一个参与运算的实体对象
-        solid2 (Solid): 第二个参与运算的实体对象
+        *solids: 需要进行交集运算的实体对象，可以传入：
+            - 单个序列：intersect_rsolidlist([solid1, solid2, ...])
+            - 多个参数：intersect_rsolidlist(solid1, solid2, ...)
+            - 混合输入：intersect_rsolidlist(solid1, [solid2, solid3], ...)，会自动展开所有序列
 
     Returns:
-        Solid: 两个实体的交集结果，只包含两个实体的重叠部分
+        List[Solid]: 交集运算结果的实体列表。所有输入实体的共同交集部分。
+            如果没有有效的交集，返回空列表。
 
     Raises:
         ValueError: 当输入实体无效或运算失败时抛出异常
 
     Usage:
-        计算两个实体的交集，返回只包含两个实体重叠部分的新实体。
-        如果两个实体不相交，可能返回空实体。交集体积小于等于任一输入实体。
+        计算多个实体的交集，返回只包含所有实体重叠部分的新实体列表。
+        如果多个实体不相交，可能返回空列表。交集体积小于等于任一输入实体。
 
     Example:
-         # 计算两个重叠立方体的交集
+         # 计算多个实体的交集（两个方式等价）
          box1 = make_box_rsolid(3, 3, 3, (0, 0, 0))
          box2 = make_box_rsolid(3, 3, 3, (1, 1, 0))
-         intersection = intersect_rsolid(box1, box2)
-         # 结果是一个2×2×3的立方体
+         sphere = make_sphere_rsolid(2.5)
+         intersection1 = intersect_rsolidlist([box1, box2, sphere])
+         intersection2 = intersect_rsolidlist(box1, box2, sphere)
+         # 两种调用方式等价
 
          # 球体和立方体的交集
          sphere = make_sphere_rsolid(2.0)
          cube = make_box_rsolid(3, 3, 3)
-         rounded_cube = intersect_rsolid(sphere, cube)
+         rounded_cube = intersect_rsolidlist(sphere, cube)
 
-         # 圆柱体和平面的交集
+         # 三个实体的交集
          cylinder = make_cylinder_rsolid(1.5, 4.0)
          slab = make_box_rsolid(4, 4, 2, (0, 0, 1))
-         partial_cylinder = intersect_rsolid(cylinder, slab)
+         intersection = intersect_rsolidlist(cylinder, slab, sphere)
     """
     try:
+        # 递归展开所有参数：将Solid直接添加，将序列展开
+        def _flatten_solids(args):
+            result = []
+            for arg in args:
+                if isinstance(arg, Solid):
+                    result.append(arg)
+                elif isinstance(arg, Sequence) and not isinstance(arg, (str, bytes)):
+                    result.extend(_flatten_solids(arg))
+                else:
+                    result.append(arg)  # 保留非Solid对象，后续会进行类型检查
+            return result
 
-        s1 = solid1.cq_solid
-        s2 = solid2.cq_solid
+        remaining = _flatten_solids(solids)
 
-        if s1.isNull() or s2.isNull():
-            raise ValueError("输入实体无效，无法进行交集运算。")
+        if not remaining:
+            return []
 
-        rv = intersect(s1, s2)
+        for solid in remaining:
+            if not isinstance(solid, Solid):
+                raise ValueError("intersect_rsolidlist函数只接受Solid类型的对象")
 
-        if hasattr(rv, "Solids") and rv.Solids():
-            cq_result = rv.Solids()[0]
-        else:
-            cq_result = rv
+        if len(remaining) == 1:
+            # 只有一个实体，直接返回
+            return [remaining[0]]
 
-        result = Solid(cq_result)
+        # 从第一个实体开始，依次与后续实体进行交集运算
+        result_solid = remaining[0]
 
-        # 合并标签和元数据
-        result._tags = solid1._tags.intersection(solid2._tags)
-        result._metadata = {**solid1._metadata, **solid2._metadata}
+        for i in range(1, len(remaining)):
+            candidate = remaining[i]
 
-        return result
+            s1 = result_solid.cq_solid
+            s2 = candidate.cq_solid
+
+            if s1.isNull() or s2.isNull():
+                raise ValueError("输入实体无效，无法进行交集运算。")
+
+            rv = intersect(s1, s2)
+
+            if hasattr(rv, "Solids") and rv.Solids():
+                cq_result = rv.Solids()[0]
+            else:
+                cq_result = rv
+
+            result_solid = Solid(cq_result)
+
+            # 检查交集是否为空
+            if result_solid.get_volume() < 1e-12:
+                # 交集体积太小，视为无交集
+                return []
+
+        # 合并所有输入实体的标签和元数据
+        all_tags: set = set()
+        all_metadata: dict = {}
+        for solid in remaining:
+            all_tags = (
+                all_tags.intersection(solid._tags) if all_tags else solid._tags.copy()
+            )
+            all_metadata.update(solid._metadata)
+
+        result_solid._tags = all_tags
+        result_solid._metadata = all_metadata
+        result_solid.add_tag("intersect_result")
+
+        return [result_solid]
     except Exception as e:
-        raise ValueError(f"交集运算失败: {e}. 请检查两个实体是否有效。")
+        raise ValueError(f"交集运算失败: {e}. 请检查实体列表是否有效。")
 
 
 # =============================================================================
 # 导出函数
 # =============================================================================
+
+
+_EXPORTABLE_TYPES = (Solid, Face, Wire, Edge, Vertex)
+
+
+def _normalize_shape_input(
+    shapes: Union[AnyShape, Sequence[AnyShape]],
+) -> List[AnyShape]:
+    """将导出输入标准化为平坦的几何体列表"""
+
+    if isinstance(shapes, _EXPORTABLE_TYPES):
+        return [shapes]
+
+    if isinstance(shapes, Sequence) and not isinstance(shapes, (str, bytes)):
+        normalized: List[AnyShape] = []
+        for item in shapes:
+            normalized.extend(_normalize_shape_input(cast(AnyShape, item)))
+        return normalized
+
+    raise ValueError(
+        "export 函数只支持 Solid、Face、Wire、Edge、Vertex 或其序列类型的输入"
+    )
 
 
 def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> None:
@@ -1905,11 +2133,7 @@ def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> N
         ValueError: 当导出失败时
     """
     try:
-        # 处理输入类型
-        if isinstance(shapes, (list, tuple)):
-            shape_list = list(shapes)
-        else:
-            shape_list = [shapes]
+        shape_list = _normalize_shape_input(shapes)
 
         # 创建CADQuery的Workplane并添加所有几何体
         wp = cq.Workplane()
@@ -1946,11 +2170,7 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
         ValueError: 当导出失败时
     """
     try:
-        # 处理输入类型
-        if isinstance(shapes, (list, tuple)):
-            shape_list = list(shapes)
-        else:
-            shape_list = [shapes]
+        shape_list = _normalize_shape_input(shapes)
 
         # 创建CADQuery的Workplane并添加所有几何体
         wp = cq.Workplane()
@@ -2005,7 +2225,7 @@ def fillet_rsolid(solid: Solid, edges: List[Edge], radius: float) -> Solid:
          rounded_cylinder = fillet_rsolid(cylinder, circular_edges, 0.3)
 
          # 对复杂几何体的特定边圆角
-         complex_solid = union_rsolid(box, cylinder)
+         complex_solid = union_rsolidlist([box, cylinder])[0]
          selected_edges = complex_solid.get_edges()[:6]
          smoothed_solid = fillet_rsolid(complex_solid, selected_edges, 0.2)
     """
@@ -2289,7 +2509,7 @@ def linear_pattern_rsolidlist(
          cylinders = linear_pattern_rsolidlist(cylinder, (1, 1, 0), 4, 1.5)
 
          # 创建复杂几何体的阵列
-         complex_shape = union_rsolid(box, cylinder)
+         complex_shape = union_rsolidlist([box, cylinder])[0]
          array = linear_pattern_rsolidlist(complex_shape, (0, 3, 0), 3, 3.0)
     """
     try:
@@ -2310,7 +2530,7 @@ def linear_pattern_rsolidlist(
 
         rv = []
         for i, s in enumerate(shapes):
-            s.add_tag(f"linear_pattern_{i+1}")
+            s.add_tag(f"linear_pattern_{i + 1}")
             rv.append(s)
 
         return rv
@@ -2375,7 +2595,7 @@ def radial_pattern_rsolidlist(
 
         rv = []
         for i, s in enumerate(shapes):
-            s.add_tag(f"radial_pattern_{i+1}")
+            s.add_tag(f"radial_pattern_{i + 1}")
             rv.append(s)
 
         return rv

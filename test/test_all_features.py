@@ -77,6 +77,40 @@ class TestBasicShapes(unittest.TestCase):
         expected_volume = (4 / 3) * np.pi * 1.0**3
         self.assertAlmostEqual(volume, expected_volume, places=5)
 
+    def test_create_cone(self):
+        """测试圆锥体创建"""
+        # 测试标准圆锥体（尖锥）
+        cone = scad.make_cone_rsolid(2.0, 3.0)
+        volume = cone.get_volume()
+        expected_volume = (1 / 3) * np.pi * 2.0**2 * 3.0
+        self.assertAlmostEqual(volume, expected_volume, places=5)
+        self.assertTrue(cone.has_tag("cone"))
+
+    def test_create_truncated_cone(self):
+        """测试截锥体创建"""
+        # 测试截锥体（顶面半径不为0）
+        truncated_cone = scad.make_cone_rsolid(3.0, 4.0, 1.0)
+        volume = truncated_cone.get_volume()
+        # 截锥体积公式：V = (1/3)πh(R² + Rr + r²)
+        # 其中 R = 3.0, r = 1.0, h = 4.0
+        expected_volume = (1 / 3) * np.pi * 4.0 * (3.0**2 + 3.0 * 1.0 + 1.0**2)
+        self.assertAlmostEqual(volume, expected_volume, places=5)
+        self.assertTrue(truncated_cone.has_tag("cone"))
+
+    def test_create_cone_with_offset(self):
+        """测试偏移圆锥体创建"""
+        # 测试底面中心偏移的圆锥体
+        offset_cone = scad.make_cone_rsolid(1.5, 2.0, bottom_face_center=(2, 2, 0))
+        self.assertIsInstance(offset_cone, scad.Solid)
+        self.assertTrue(offset_cone.has_tag("cone"))
+
+    def test_create_cone_with_axis(self):
+        """测试不同轴向的圆锥体创建"""
+        # 测试水平方向的圆锥体
+        horizontal_cone = scad.make_cone_rsolid(1.0, 3.0, axis=(1, 0, 0))
+        self.assertIsInstance(horizontal_cone, scad.Solid)
+        self.assertTrue(horizontal_cone.has_tag("cone"))
+
     def test_create_arc(self):
         """测试三点圆弧创建"""
         arc = scad.make_three_point_arc_redge((0, 0, 0), (1, 1, 0), (2, 0, 0))
@@ -223,26 +257,56 @@ class TestBooleanOperations(unittest.TestCase):
 
     def test_union(self):
         """测试并集运算"""
-        result = scad.union_rsolid(self.box1, self.box2)
+        results = scad.union_rsolidlist([self.box1, self.box2])
+        self.assertIsInstance(results, list)
+        self.assertEqual(len(results), 1)
+        result = results[0]
         self.assertIsInstance(result, scad.Solid)
         # 并集体积应该大于任一单独体积
         self.assertGreater(result.get_volume(), self.box1.get_volume())
         self.assertGreater(result.get_volume(), self.box2.get_volume())
 
+    def test_union_disconnected_solids(self):
+        """测试并集运算在实体不接触时返回原始数量"""
+
+        box_far_1 = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 0, 0))
+        box_far_2 = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(5, 0, 0))
+        box_far_3 = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 5, 0))
+
+        solids = [box_far_1, box_far_2, box_far_3]
+        results = scad.union_rsolidlist(solids)
+
+        self.assertIsInstance(results, list)
+        self.assertEqual(len(results), len(solids))
+        for solid in results:
+            self.assertIsInstance(solid, scad.Solid)
+
     def test_cut(self):
         """测试差集运算"""
-        result = scad.cut_rsolid(self.box1, self.box2)
+        result_list = scad.cut_rsolidlist(self.box1, self.box2)
+        self.assertIsInstance(result_list, list)
+        self.assertEqual(len(result_list), 1)
+        result = result_list[0]
         self.assertIsInstance(result, scad.Solid)
         # 差集体积应该小于原体积
         self.assertLess(result.get_volume(), self.box1.get_volume())
 
     def test_intersect(self):
         """测试交集运算"""
-        result = scad.intersect_rsolid(self.box1, self.box2)
+        result_list = scad.intersect_rsolidlist(self.box1, self.box2)
+        self.assertIsInstance(result_list, list)
+        self.assertEqual(len(result_list), 1)
+        result = result_list[0]
         self.assertIsInstance(result, scad.Solid)
         # 交集体积应该小于任一体积
         self.assertLess(result.get_volume(), self.box1.get_volume())
         self.assertLess(result.get_volume(), self.box2.get_volume())
+
+    def test_legacy_boolean_api_removed(self):
+        """测试旧布尔运算API已移除"""
+        self.assertFalse(hasattr(scad, "union_rsolid"))
+        self.assertFalse(hasattr(scad, "cut_rsolid"))
+        self.assertFalse(hasattr(scad, "intersect_rsolid"))
 
 
 class TestAdvancedFeatures(unittest.TestCase):
@@ -469,6 +533,22 @@ class TestExport(unittest.TestCase):
         except Exception as e:
             self.skipTest(f"Multiple shapes export not fully implemented: {e}")
 
+    def test_export_nested_shape_list(self):
+        """测试导出嵌套几何体列表"""
+        box = scad.make_box_rsolid(0.8, 0.8, 0.8)
+        cylinder = scad.make_cylinder_rsolid(0.4, 1.0)
+        sphere = scad.make_sphere_rsolid(0.5)
+
+        nested_shapes = [box, [cylinder, sphere]]
+        step_path = os.path.join(self.temp_dir, "nested.step")
+
+        try:
+            scad.export_step(nested_shapes, step_path)
+            self.assertTrue(os.path.exists(step_path))
+            self.assertGreater(os.path.getsize(step_path), 0)
+        except Exception as e:
+            self.skipTest(f"Nested shapes export not fully implemented: {e}")
+
 
 class TestComplexExamples(unittest.TestCase):
     """测试复杂示例"""
@@ -483,8 +563,12 @@ class TestComplexExamples(unittest.TestCase):
         hole2 = scad.make_cylinder_rsolid(1, 3, bottom_face_center=(4, 0, 0))
 
         # 组合
-        bracket = scad.cut_rsolid(base, hole1)
-        bracket = scad.cut_rsolid(bracket, hole2)
+        bracket_list = scad.cut_rsolidlist(base, hole1)
+        self.assertEqual(len(bracket_list), 1)
+        bracket = bracket_list[0]
+        bracket_list = scad.cut_rsolidlist(bracket, hole2)
+        self.assertEqual(len(bracket_list), 1)
+        bracket = bracket_list[0]
 
         # 添加标签
         scad.set_tag(bracket, "bracket")
@@ -502,18 +586,52 @@ class TestComplexExamples(unittest.TestCase):
 
         # 创建中心孔
         center_hole = scad.make_cylinder_rsolid(1, 1.5, bottom_face_center=(0, 0, 0.5))
-        gear_base = scad.cut_rsolid(gear_base, center_hole)
+        gear_base_list = scad.cut_rsolidlist(gear_base, center_hole)
+        self.assertEqual(len(gear_base_list), 1)
+        gear_base = gear_base_list[0]
 
         # 创建齿（简化版本）
         tooth_profile = scad.make_rectangle_rface(0.5, 0.3, center=(4.5, 0, 0))
         tooth = scad.extrude_rsolid(tooth_profile, (0, 0, 1), 1.2)
 
         # 合并一个齿到基础上
-        gear = scad.union_rsolid(gear_base, tooth)
+        gear_list = scad.union_rsolidlist([gear_base, tooth])
+        self.assertIsInstance(gear_list, list)
+        self.assertEqual(len(gear_list), 1)
+        gear = gear_list[0]
 
         # 验证
         self.assertIsInstance(gear, scad.Solid)
         self.assertGreater(gear.get_volume(), gear_base.get_volume())
+
+    def test_create_cone_complex_shape(self):
+        """测试创建包含圆锥体的复杂形状"""
+        # 创建基础圆柱体
+        base_cylinder = scad.make_cylinder_rsolid(2.0, 3.0)
+
+        # 创建圆锥体作为顶部
+        cone_top = scad.make_cone_rsolid(2.0, 2.0, 0.5, bottom_face_center=(0, 0, 3.0))
+
+        # 合并圆柱体和圆锥体
+        combined_list = scad.union_rsolidlist([base_cylinder, cone_top])
+        self.assertIsInstance(combined_list, list)
+        self.assertEqual(len(combined_list), 1)
+        combined_shape = combined_list[0]
+
+        # 验证
+        self.assertIsInstance(combined_shape, scad.Solid)
+        self.assertGreater(combined_shape.get_volume(), base_cylinder.get_volume())
+
+        # 测试从圆锥体上切割
+        cut_cone = scad.make_cone_rsolid(1.0, 1.5, bottom_face_center=(0, 0, 0))
+        result_list = scad.cut_rsolidlist(combined_shape, cut_cone)
+
+        # 验证切割后的体积小于原体积
+        self.assertIsInstance(result_list, list)
+        self.assertEqual(len(result_list), 1)
+        result = result_list[0]
+        self.assertIsInstance(result, scad.Solid)
+        self.assertLess(result.get_volume(), combined_shape.get_volume())
 
     def test_complex_boolean_operations(self):
         """测试复杂布尔运算"""
@@ -523,10 +641,14 @@ class TestComplexExamples(unittest.TestCase):
         box3 = scad.make_box_rsolid(2, 2, 2, bottom_face_center=(0, 1, 0))
 
         # 复合布尔运算：(box1 ∪ box2) ∩ box3
-        union_result = scad.union_rsolid(box1, box2)
-        final_result = scad.intersect_rsolid(union_result, box3)
+        union_results = scad.union_rsolidlist([box1, box2])
+        self.assertTrue(union_results)
+        final_results = scad.intersect_rsolidlist(union_results[0], box3)
 
         # 验证
+        self.assertIsInstance(final_results, list)
+        self.assertEqual(len(final_results), 1)
+        final_result = final_results[0]
         self.assertIsInstance(final_result, scad.Solid)
         self.assertGreater(final_result.get_volume(), 0)
         self.assertLess(final_result.get_volume(), box1.get_volume())
@@ -545,6 +667,15 @@ class TestErrorHandling(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             scad.make_sphere_rsolid(-1)
+
+        with self.assertRaises(ValueError):
+            scad.make_cone_rsolid(-1, 1)
+
+        with self.assertRaises(ValueError):
+            scad.make_cone_rsolid(1, -1)
+
+        with self.assertRaises(ValueError):
+            scad.make_cone_rsolid(0, 1)
 
     def test_invalid_coordinates(self):
         """测试无效坐标"""
