@@ -41,6 +41,7 @@ FUNCTION_CATEGORIES = {
         "make_helix_",
         "make_face_from_wire_",
         "make_wire_from_edges_",
+        "make_cone_",
     ],
     "变换操作": ["translate_", "rotate_", "scale_", "mirror_"],
     "3D操作": ["extrude_", "revolve_", "loft_", "sweep_", "helical_sweep_"],
@@ -80,9 +81,9 @@ ALIAS_RULES = {
     "rotate_shape": "rotate",
     "extrude_rsolid": "extrude",
     "revolve_rsolid": "revolve",
-    "union_rsolid": "union",
-    "cut_rsolid": "cut",
-    "intersect_rsolid": "intersect",
+    "union_rsolidlist": "union",
+    "cut_rsolidlist": "cut",
+    "intersect_rsolidlist": "intersect",
     "export_step": "to_step",
     "export_stl": "to_stl",
 }
@@ -250,6 +251,7 @@ def generate_operations_imports(categorized_functions: Dict[str, List[str]]) -> 
 
     return "\n".join(import_lines)
 
+
 def generate_evolve_imports(categorized_functions: Dict[str, List[str]]) -> str:
     """生成 evolve 模块的导入语句"""
     import_lines = ["from .evolve import ("]
@@ -370,7 +372,9 @@ def generate_all_list(functions: List[str]) -> str:
     return "\n".join(all_lines)
 
 
-def generate_init_file(functions: List[str]) -> str:
+def generate_init_file(
+    operations_functions: List[str], evolve_functions: List[str]
+) -> str:
     """生成完整的 __init__.py 文件内容"""
     lines = []
 
@@ -386,9 +390,16 @@ def generate_init_file(functions: List[str]) -> str:
     lines.append("")
 
     # operations 模块导入
-    categorized = categorize_functions(functions)
-    lines.append(generate_operations_imports(categorized))
-    lines.append("")
+    if operations_functions:
+        categorized_operations = categorize_functions(operations_functions)
+        lines.append(generate_operations_imports(categorized_operations))
+        lines.append("")
+
+    # evolve 模块导入
+    if evolve_functions:
+        categorized_evolve = categorize_functions(evolve_functions)
+        lines.append(generate_evolve_imports(categorized_evolve))
+        lines.append("")
 
     # 版本信息
     lines.append('__author__ = "SimpleCAD API Team"')
@@ -397,12 +408,15 @@ def generate_init_file(functions: List[str]) -> str:
     )
     lines.append("")
 
+    # 合并所有函数用于别名和 __all__ 列表
+    all_functions = operations_functions + evolve_functions
+
     # 别名定义
-    lines.append(generate_aliases(functions))
+    lines.append(generate_aliases(all_functions))
     lines.append("")
 
     # __all__ 列表
-    lines.append(generate_all_list(functions))
+    lines.append(generate_all_list(all_functions))
     lines.append("")
 
     return "\n".join(lines)
@@ -442,26 +456,39 @@ def compare_with_existing(new_functions: List[str]) -> Tuple[List[str], List[str
         with open(INIT_FILE, "r", encoding="utf-8") as f:
             content = f.read()
 
-        # 从现有文件中提取函数名（从 from .operations import 部分）
-        import_match = re.search(
+        # 从现有文件中提取函数名（从 from .operations import 和 from .evolve import 部分）
+        existing_functions = []
+
+        # 提取 operations 模块的函数
+        operations_match = re.search(
             r"from \.operations import \((.*?)\)", content, re.DOTALL
         )
-        if import_match:
-            import_content = import_match.group(1)
-            # 提取函数名
-            existing_functions = re.findall(
-                r"^\s*(\w+),?\s*$", import_content, re.MULTILINE
+        if operations_match:
+            operations_content = operations_match.group(1)
+            operations_functions = re.findall(
+                r"^\s*(\w+),?\s*$", operations_content, re.MULTILINE
             )
-            existing_functions = [
-                f.rstrip(",") for f in existing_functions if not f.startswith("#")
+            operations_functions = [
+                f.rstrip(",") for f in operations_functions if not f.startswith("#")
             ]
+            existing_functions.extend(operations_functions)
 
-            new_additions = [f for f in new_functions if f not in existing_functions]
-            removed_functions = [
-                f for f in existing_functions if f not in new_functions
+        # 提取 evolve 模块的函数
+        evolve_match = re.search(r"from \.evolve import \((.*?)\)", content, re.DOTALL)
+        if evolve_match:
+            evolve_content = evolve_match.group(1)
+            evolve_functions = re.findall(
+                r"^\s*(\w+),?\s*$", evolve_content, re.MULTILINE
+            )
+            evolve_functions = [
+                f.rstrip(",") for f in evolve_functions if not f.startswith("#")
             ]
+            existing_functions.extend(evolve_functions)
 
-            return new_additions, removed_functions
+        new_additions = [f for f in new_functions if f not in existing_functions]
+        removed_functions = [f for f in existing_functions if f not in new_functions]
+
+        return new_additions, removed_functions
     except Exception as e:
         print(f"比较文件时出错: {e}")
 
@@ -519,27 +546,27 @@ def main():
         print(f"❌ 错误: {OPERATIONS_FILE} 文件不存在")
         return
 
-    # 提取函数
+    # 提取 operations.py 中的函数
     operations_functions = extract_functions_from_operations()
     if args.verbose:
-        print(f"✅ 找到 {len(operations_functions)} 个函数")
+        print(f"✅ 从 operations.py 找到 {len(operations_functions)} 个函数")
 
-    # 提取函数
+    # 提取 evolve.py 中的函数
     if args.verbose:
         print("📋 提取 evolve.py 中的函数...")
     evolve_functions = extract_functions_from_evolve()
     if args.verbose:
-        print(f"✅ 找到 {len(evolve_functions)} 个函数")
-
+        print(f"✅ 从 evolve.py 找到 {len(evolve_functions)} 个函数")
 
     if not operations_functions and not evolve_functions:
         print("❌ 未找到任何函数，退出")
         return
-    
-    operations_functions.extend(evolve_functions)
+
+    # 合并所有函数用于比较
+    all_functions = operations_functions + evolve_functions
 
     # 比较变更
-    new_additions, removed_functions = compare_with_existing(operations_functions)
+    new_additions, removed_functions = compare_with_existing(all_functions)
 
     if new_additions:
         if args.verbose:
@@ -556,41 +583,69 @@ def main():
     # 显示函数分类（详细模式）
     if args.verbose:
         print("\n📊 函数分类统计:")
-        categorized = categorize_functions(operations_functions)
-        for category, funcs in categorized.items():
+        print("  Operations 模块:")
+        categorized_operations = categorize_functions(operations_functions)
+        for category, funcs in categorized_operations.items():
             if funcs:
-                print(f"  {category}: {len(funcs)} 个函数")
+                print(f"    {category}: {len(funcs)} 个函数")
                 for func in funcs[:3]:  # 只显示前3个
-                    print(f"    - {func}")
+                    print(f"      - {func}")
                 if len(funcs) > 3:
-                    print(f"    ... 和其他 {len(funcs) - 3} 个函数")
+                    print(f"      ... 和其他 {len(funcs) - 3} 个函数")
+
+        print("  Evolve 模块:")
+        categorized_evolve = categorize_functions(evolve_functions)
+        for category, funcs in categorized_evolve.items():
+            if funcs:
+                print(f"    {category}: {len(funcs)} 个函数")
+                for func in funcs[:3]:  # 只显示前3个
+                    print(f"      - {func}")
+                if len(funcs) > 3:
+                    print(f"      ... 和其他 {len(funcs) - 3} 个函数")
 
     # 预览模式
     if args.dry_run:
         print("\n👁️  预览模式 - 将要进行的更改:")
-        new_content = generate_init_file(operations_functions)
+        new_content = generate_init_file(operations_functions, evolve_functions)
         print(f"  生成的文件大小: {len(new_content)} 字符")
-        print(f"  总函数数: {len(operations_functions)}")
-        print(f"  别名数: {len([f for f in operations_functions if f in ALIAS_RULES])}")
+        print(f"  Operations 函数数: {len(operations_functions)}")
+        print(f"  Evolve 函数数: {len(evolve_functions)}")
+        print(f"  总函数数: {len(all_functions)}")
+        print(f"  别名数: {len([f for f in all_functions if f in ALIAS_RULES])}")
         print("  (使用 --verbose 查看详细信息)")
         print("\n💡 要实际执行更改，请移除 --dry-run 参数")
         return
 
     if args.show_api_only:
-        print("\n📜 API 函数列表 (按类别分组):")
-        
-        # 按类别分组显示函数
-        categorized = categorize_functions(operations_functions)
-        total_functions = 0
-        
-        for category, funcs in categorized.items():
+        print("\n📜 API 函数列表 (按模块和类别分组):")
+
+        # Operations 模块函数
+        print("\n🔹 Operations 模块:")
+        categorized_operations = categorize_functions(operations_functions)
+        total_operations = 0
+
+        for category, funcs in categorized_operations.items():
             if funcs:
-                print(f"\n🔹 {category} ({len(funcs)} 个函数):")
+                print(f"\n  {category} ({len(funcs)} 个函数):")
                 for func in sorted(funcs):
-                    print(f"  - {func}")
-                total_functions += len(funcs)
-        
-        print(f"\n📊 总计: {total_functions} 个函数")
+                    print(f"    - {func}")
+                total_operations += len(funcs)
+
+        # Evolve 模块函数
+        print("\n🔹 Evolve 模块:")
+        categorized_evolve = categorize_functions(evolve_functions)
+        total_evolve = 0
+
+        for category, funcs in categorized_evolve.items():
+            if funcs:
+                print(f"\n  {category} ({len(funcs)} 个函数):")
+                for func in sorted(funcs):
+                    print(f"    - {func}")
+                total_evolve += len(funcs)
+
+        print(
+            f"\n📊 总计: Operations {total_operations} 个函数, Evolve {total_evolve} 个函数, 总计 {total_operations + total_evolve} 个函数"
+        )
 
         return
 
@@ -600,7 +655,7 @@ def main():
 
     # 生成新的 __init__.py 文件
     print("\n🔄 生成新的 __init__.py 文件...")
-    new_content = generate_init_file(operations_functions)
+    new_content = generate_init_file(operations_functions, evolve_functions)
 
     # 写入文件
     with open(INIT_FILE, "w", encoding="utf-8") as f:
@@ -619,10 +674,16 @@ def main():
 
     # 显示统计信息
     print(f"\n📈 统计信息:")
-    print(f"  总函数数: {len(operations_functions)}")
-    print(f"  别名数: {len([f for f in operations_functions if f in ALIAS_RULES])}")
-    categorized = categorize_functions(operations_functions)
-    print(f"  类别数: {len([c for c, f in categorized.items() if f])}")
+    print(f"  Operations 函数数: {len(operations_functions)}")
+    print(f"  Evolve 函数数: {len(evolve_functions)}")
+    print(f"  总函数数: {len(all_functions)}")
+    print(f"  别名数: {len([f for f in all_functions if f in ALIAS_RULES])}")
+    categorized_operations = categorize_functions(operations_functions)
+    categorized_evolve = categorize_functions(evolve_functions)
+    print(
+        f"  Operations 类别数: {len([c for c, f in categorized_operations.items() if f])}"
+    )
+    print(f"  Evolve 类别数: {len([c for c, f in categorized_evolve.items() if f])}")
 
     # 建议下一步操作
     print(f"\n💡 建议:")

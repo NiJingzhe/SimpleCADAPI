@@ -14,7 +14,6 @@ from .core import (
     Solid,
     AnyShape,
     TaggedMixin,
-
     # 坐标系函数
     get_current_cs,
     WORLD_CS,
@@ -45,44 +44,44 @@ from .operations import (
     make_three_point_arc_redge,
     make_three_point_arc_rwire,
     make_wire_from_edges_rwire,
-
     # 变换操作
     mirror_shape,
     rotate_shape,
     translate_shape,
-
     # 3D操作
     extrude_rsolid,
     helical_sweep_rsolid,
     loft_rsolid,
     revolve_rsolid,
     sweep_rsolid,
-
     # 标签和选择
     select_edges_by_tag,
     select_faces_by_tag,
     set_tag,
-
     # 布尔运算
-    cut_rsolid,
-    intersect_rsolid,
-    union_rsolid,
-
+    cut_rsolidlist,
+    intersect_rsolidlist,
+    union_rsolidlist,
     # 导出
     export_step,
     export_stl,
-
     # 高级特征操作
     chamfer_rsolid,
     fillet_rsolid,
     shell_rsolid,
-
     # 其他
     linear_pattern_rsolidlist,
+    make_cone_rsolid,
     radial_pattern_rsolidlist,
 )
 
-__version__ = "0.1.0"
+from .evolve import (
+    # 其他
+    make_n_hole_flange_rsolid,
+    make_naca_propeller_blade_rsolid,
+    make_threaded_rod_rsolid,
+)
+
 __author__ = "SimpleCAD API Team"
 __description__ = "Simplified CAD modeling Python API based on CADQuery"
 
@@ -90,9 +89,9 @@ __description__ = "Simplified CAD modeling Python API based on CADQuery"
 Workplane = SimpleWorkplane
 
 # 布尔运算别名
-cut = cut_rsolid
-intersect = intersect_rsolid
-union = union_rsolid
+cut = cut_rsolidlist
+intersect = intersect_rsolidlist
+union = union_rsolidlist
 
 # 导出别名
 to_step = export_step
@@ -144,11 +143,9 @@ __all__ = [
     "Solid",
     "AnyShape",
     "TaggedMixin",
-
     # 坐标系
     "get_current_cs",
     "WORLD_CS",
-
     # 基础几何创建
     "make_angle_arc_redge",
     "make_angle_arc_rwire",
@@ -173,42 +170,38 @@ __all__ = [
     "make_three_point_arc_redge",
     "make_three_point_arc_rwire",
     "make_wire_from_edges_rwire",
-
     # 变换操作
     "mirror_shape",
     "rotate_shape",
     "translate_shape",
-
     # 3D操作
     "extrude_rsolid",
     "helical_sweep_rsolid",
     "loft_rsolid",
     "revolve_rsolid",
     "sweep_rsolid",
-
     # 标签和选择
     "select_edges_by_tag",
     "select_faces_by_tag",
     "set_tag",
-
     # 布尔运算
-    "cut_rsolid",
-    "intersect_rsolid",
-    "union_rsolid",
-
+    "cut_rsolidlist",
+    "intersect_rsolidlist",
+    "union_rsolidlist",
     # 导出
     "export_step",
     "export_stl",
-
     # 高级特征操作
     "chamfer_rsolid",
     "fillet_rsolid",
     "shell_rsolid",
-
     # 其他
     "linear_pattern_rsolidlist",
+    "make_cone_rsolid",
     "radial_pattern_rsolidlist",
-
+    "make_n_hole_flange_rsolid",
+    "make_naca_propeller_blade_rsolid",
+    "make_threaded_rod_rsolid",
     # 别名
     "create_angle_arc",
     "create_angle_arc_wire",

@@ -7,12 +7,31 @@ SimpleCAD API 复杂操作示例
 import sys
 import os
 import math
+from typing import Sequence
 
 from simplecadapi.operations import make_cylinder_rsolid
 
 sys.path.insert(0, "src")
 
 import simplecadapi as scad
+
+
+def _expect_single_union(solids: Sequence[scad.Solid], context: str) -> scad.Solid:
+    union_results = scad.union_rsolidlist(list(solids))
+    if len(union_results) != 1:
+        raise ValueError(
+            f"{context}：并集结果包含{len(union_results)}个Solid，无法得到单个整体。"
+        )
+    return union_results[0]
+
+
+def _expect_single_cut(base: scad.Solid, tool: scad.Solid, context: str) -> scad.Solid:
+    cut_results = scad.cut_rsolidlist(base, tool)
+    if len(cut_results) != 1:
+        raise ValueError(
+            f"{context}：差集结果包含{len(cut_results)}个Solid，无法得到单个整体。"
+        )
+    return cut_results[0]
 
 
 def create_output_dir():
@@ -142,7 +161,7 @@ def example_naca_blade():
             profile_wire = scad.make_spline_rwire(section_points, closed=True)
             profiles.append(profile_wire)
             print(
-                f"  创建第{i+1}个截面，位置: {x_position:.1f}, 弦长: {current_chord:.2f}, 扭转: {current_twist:.1f}°, 攻角: {attack_angle:.1f}°"
+                f"  创建第{i + 1}个截面，位置: {x_position:.1f}, 弦长: {current_chord:.2f}, 扭转: {current_twist:.1f}°, 攻角: {attack_angle:.1f}°"
             )
 
     # 执行放样生成桨叶
@@ -180,10 +199,10 @@ def example_naca_blade():
         if isinstance(rotated_blade, scad.Solid):
             blade_solids.append(rotated_blade)
             print(
-                f"  创建第{i+1}个桨叶，角度: {angle}°，体积: {rotated_blade.get_volume():.2f}"
+                f"  创建第{i + 1}个桨叶，角度: {angle}°，体积: {rotated_blade.get_volume():.2f}"
             )
         else:
-            print(f"  警告: 第{i+1}个桨叶旋转失败，类型: {type(rotated_blade)}")
+            print(f"  警告: 第{i + 1}个桨叶旋转失败，类型: {type(rotated_blade)}")
 
     print(len(blade_solids), "个桨叶被创建")
 
@@ -192,11 +211,13 @@ def example_naca_blade():
         if isinstance(blade, scad.Solid):
             old_volume = central_axis.get_volume()
             blade_volume = blade.get_volume()
-            print(f"  准备合并第{i+1}个桨叶，桨叶体积: {blade_volume:.2f}")
+            print(f"  准备合并第{i + 1}个桨叶，桨叶体积: {blade_volume:.2f}")
 
             try:
                 # 使用更安全的合并方法
-                merged_axis = scad.union_rsolid(central_axis, blade)
+                merged_axis = _expect_single_union(
+                    [central_axis, blade], f"合并第{i + 1}个桨叶"
+                )
                 new_volume = merged_axis.get_volume()
                 print(f"  合并后体积: {old_volume:.2f} -> {new_volume:.2f}")
 
@@ -206,17 +227,17 @@ def example_naca_blade():
                 )  # 至少增加10%的桨叶体积
                 if new_volume >= expected_min_volume:
                     central_axis = merged_axis
-                    print(f"  第{i+1}个桨叶合并成功")
+                    print(f"  第{i + 1}个桨叶合并成功")
                 else:
-                    print(f"  警告: 第{i+1}个桨叶合并异常，体积增加不足")
+                    print(f"  警告: 第{i + 1}个桨叶合并异常，体积增加不足")
                     # 仍然使用合并结果，但输出警告
                     central_axis = merged_axis
 
             except Exception as e:
-                print(f"  错误: 合并第{i+1}个桨叶失败: {e}")
+                print(f"  错误: 合并第{i + 1}个桨叶失败: {e}")
                 break
         else:
-            print(f"  警告: 第{i+1}个桨叶不是Solid类型: {type(blade)}")
+            print(f"  警告: 第{i + 1}个桨叶不是Solid类型: {type(blade)}")
 
     # 导出结果
     output_dir = create_output_dir()
@@ -344,13 +365,15 @@ def example_helical_sweep():
 
         helical_parts.append(helix_solid)
         print(
-            f"    螺旋{i+1}: 半径={r}, 螺距={helix_pitch:.1f}, 截面半径={profile_radius:.2f}"
+            f"    螺旋{i + 1}: 半径={r}, 螺距={helix_pitch:.1f}, 截面半径={profile_radius:.2f}"
         )
 
     # 合并所有螺旋
     combined_helix = helical_parts[0]
-    for part in helical_parts[1:]:
-        combined_helix = scad.union_rsolid(combined_helix, part)
+    for idx, part in enumerate(helical_parts[1:], start=2):
+        combined_helix = _expect_single_union(
+            [combined_helix, part], f"多重螺旋第{idx}段合并"
+        )
 
     # 导出多重螺旋结构
     scad.export_stl(combined_helix, os.path.join(output_dir, "multi_helix.stl"))
@@ -416,8 +439,8 @@ def example_nested_workplanes():
 
     # 合并所有部件
     combined = parts[0]
-    for part in parts[1:]:
-        combined = scad.union_rsolid(combined, part)
+    for idx, part in enumerate(parts[1:], start=2):
+        combined = _expect_single_union([combined, part], f"嵌套结构第{idx}部分合并")
 
     # 导出结果
     output_dir = create_output_dir()
@@ -478,7 +501,7 @@ def example_boolean_operations():
     # 创建中心孔
     center_hole = scad.make_cylinder_rsolid(1.5, 5)
     # 移动到中心
-    base = scad.cut_rsolid(base, center_hole)
+    base = _expect_single_cut(base, center_hole, "机械零件中心孔切割")
 
     # 创建侧面的通孔
     with scad.SimpleWorkplane(origin=(0, 0, 2)) as wp:
@@ -491,7 +514,7 @@ def example_boolean_operations():
             shape=hole_x, angle=90, axis=(0, 1, 0), origin=(0, 0, 0)
         )
         if isinstance(rotated_hole_x, scad.Solid):
-            base = scad.cut_rsolid(base, rotated_hole_x)
+            base = _expect_single_cut(base, rotated_hole_x, "机械零件X向通孔切割")
 
         hole_y = scad.make_cylinder_rsolid(radius=0.8, height=20)
         hole_y = scad.translate_shape(hole_y, (0, 0, -10))
@@ -499,7 +522,7 @@ def example_boolean_operations():
             shape=hole_y, angle=90, axis=(1, 0, 0), origin=(0, 0, 0)
         )
         if isinstance(rotated_hole_y, scad.Solid):
-            base = scad.cut_rsolid(base, rotated_hole_y)
+            base = _expect_single_cut(base, rotated_hole_y, "机械零件Y向通孔切割")
 
     # 添加加强筋
     with scad.SimpleWorkplane((0, 0, 4)) as wp:
@@ -509,7 +532,9 @@ def example_boolean_operations():
 
             with scad.SimpleWorkplane((x, y, 0)) as wp_rib:
                 rib = scad.make_box_rsolid(0.5, 0.5, 1)
-                base = scad.union_rsolid(base, rib)
+                base = _expect_single_union(
+                    [base, rib], f"机械零件加强筋角度{angle}°合并"
+                )
 
     # 导出结果
     output_dir = create_output_dir()
@@ -527,7 +552,9 @@ def example_pattern_operations():
     # 在顶部添加装饰
     with scad.SimpleWorkplane((0, 0, 2)) as wp:
         decoration = scad.make_sphere_rsolid(0.4)
-        base_unit = scad.union_rsolid(base_unit, decoration)
+        base_unit = _expect_single_union(
+            [base_unit, decoration], "基础单元与顶部装饰合并"
+        )
 
     # 线性阵列
     linear_array = scad.linear_pattern_rsolidlist(base_unit, (2, 0, 0), 5, 2.0)
@@ -553,19 +580,19 @@ def example_mirror_operations():
     # 添加一个偏移的特征
     with scad.SimpleWorkplane((1, 0, 3)) as wp:
         feature = scad.make_cylinder_rsolid(0.8, 1)
-        base = scad.union_rsolid(base, feature)
+        base = _expect_single_union([base, feature], "镜像示例添加特征")
 
     # 添加侧面的切口
     with scad.SimpleWorkplane((2, 0, 1.5)) as wp:
         cutout = scad.make_sphere_rsolid(1)
-        base = scad.cut_rsolid(base, cutout)
+        base = _expect_single_cut(base, cutout, "镜像示例切口")
 
     # 镜像到另一半
     mirrored = scad.mirror_shape(base, (0, 0, 0), (1, 0, 0))
 
     # 合并原始和镜像 - 确保镜像结果是Solid类型
     if isinstance(mirrored, scad.Solid):
-        symmetric_part = scad.union_rsolid(base, mirrored)
+        symmetric_part = _expect_single_union([base, mirrored], "镜像示例合并对称体")
     else:
         print("警告: 镜像操作没有返回Solid类型")
         symmetric_part = base
@@ -592,7 +619,9 @@ def example_advanced_features():
     # 添加底部支撑
     with scad.SimpleWorkplane((0, 0, -0.15)) as wp:
         support = scad.make_box_rsolid(5, 5, 0.3)
-        container = scad.union_rsolid(container, support)
+        container = _expect_single_union(
+            [container, support], "高级特征示例添加底部支撑"
+        )
 
     # 添加把手
     with scad.SimpleWorkplane((3, 0, 2)) as wp:
@@ -600,10 +629,10 @@ def example_advanced_features():
         handle_hole = scad.make_cylinder_rsolid(0.3, 1)
         rotated_hole = scad.rotate_shape(handle_hole, math.pi / 2, (0, 1, 0), (0, 0, 0))
         if isinstance(rotated_hole, scad.Solid):
-            handle = scad.cut_rsolid(handle_main, rotated_hole)
+            handle = _expect_single_cut(handle_main, rotated_hole, "高级特征把手切割")
         else:
             handle = handle_main
-        container = scad.union_rsolid(container, handle)
+        container = _expect_single_union([container, handle], "高级特征示例添加把手")
 
     # 应用圆角
     all_edges = container.get_edges()
@@ -625,7 +654,7 @@ def example_gear_like_shape():
 
     # 创建中心孔
     center_hole = scad.make_cylinder_rsolid(0.5, 1)
-    base_disk = scad.cut_rsolid(base_disk, center_hole)
+    base_disk = _expect_single_cut(base_disk, center_hole, "齿轮中心孔切割")
     print(f"  打孔后圆盘体积: {base_disk.get_volume():.2f}")
 
     # 创建齿轮齿 - 使用径向阵列的正确方法
@@ -652,7 +681,9 @@ def example_gear_like_shape():
         print(f"  单个齿体积: {positioned_tooth.get_volume():.2f}")
 
         # 首先测试单个齿的合并
-        test_gear = scad.union_rsolid(base_disk, positioned_tooth)
+        test_gear = _expect_single_union(
+            [base_disk, positioned_tooth], "齿轮示例单齿合并"
+        )
         print(f"  单个齿合并后体积: {test_gear.get_volume():.2f}")
 
         # 如果单个齿合并成功，再使用径向阵列
@@ -682,10 +713,12 @@ def example_gear_like_shape():
                 for i, tooth_solid in enumerate(teeth_array):
                     if isinstance(tooth_solid, scad.Solid):
                         old_volume = gear.get_volume()
-                        gear = scad.union_rsolid(gear, tooth_solid)
+                        gear = _expect_single_union(
+                            [gear, tooth_solid], f"齿轮示例合并第{i + 1}个齿"
+                        )
                         new_volume = gear.get_volume()
                         print(
-                            f"    合并第{i+1}个齿: {old_volume:.2f} -> {new_volume:.2f}"
+                            f"    合并第{i + 1}个齿: {old_volume:.2f} -> {new_volume:.2f}"
                         )
 
             # 导出结果
@@ -721,7 +754,7 @@ def example_tagged_array_operations():
 
     # 为每个阵列单元重新标记面和边
     for i, solid in enumerate(array_solids):
-        print(f"\n  处理第 {i+1} 个实体:")
+        print(f"\n  处理第 {i + 1} 个实体:")
 
         # 自动标记面
         solid.auto_tag_faces("box")
@@ -748,7 +781,7 @@ def example_tagged_array_operations():
     processed_solids = []
 
     for i, solid in enumerate(array_solids):
-        print(f"\n  对第 {i+1} 个实体应用操作:")
+        print(f"\n  对第 {i + 1} 个实体应用操作:")
 
         if i == 0:
             # 第1个实体: 抽壳 - 去除顶面
@@ -831,7 +864,6 @@ def example_tagged_array_operations():
             # 第4个实体: 组合操作 - 先圆角再部分抽壳
             print("    操作: 组合 (圆角 + 部分抽壳)")
             try:
-
                 # 再抽壳，去除一个侧面
                 faces = filleted_solid.get_faces()
                 side_faces = []
@@ -864,8 +896,10 @@ def example_tagged_array_operations():
     # 合并所有处理后的实体用于导出
     print("\n  合并所有处理后的实体...")
     combined_result = processed_solids[0]
-    for solid in processed_solids[1:]:
-        combined_result = scad.union_rsolid(combined_result, solid)
+    for idx, solid in enumerate(processed_solids[1:], start=2):
+        combined_result = _expect_single_union(
+            [combined_result, solid], f"标签化阵列合并第{idx}个实体"
+        )
 
     # 导出结果
     output_dir = create_output_dir()
@@ -875,7 +909,7 @@ def example_tagged_array_operations():
 
     # 也分别导出每个处理后的实体
     for i, solid in enumerate(processed_solids):
-        filename = f"array_unit_{i+1}.stl"
+        filename = f"array_unit_{i + 1}.stl"
         scad.export_stl(solid, os.path.join(output_dir, filename))
         print(f"    已导出: {filename}")
 
