@@ -8,6 +8,10 @@ def select_faces_by_tag(solid: Solid, tag: str) -> List[Face]
 
 *来源文件: operations.py*
 
+## API作用
+
+根据标签选择面
+
 ## API参数说明
 
 ### solid

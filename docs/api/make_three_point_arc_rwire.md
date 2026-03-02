@@ -10,6 +10,8 @@ def make_three_point_arc_rwire(start: Tuple[float, float, float], middle: Tuple[
 
 ## API作用
 
+通过三点创建圆弧并返回线对象
+
 通过三个点创建圆弧线对象，与make_three_point_arc_redge功能相同，
 但返回的是线对象，可以与其他线对象连接或用于构建复杂轮廓。
 
@@ -40,9 +42,14 @@ Wire: 创建的线对象，包含一个通过三点的圆弧
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建圆弧线
 arc_wire = make_three_point_arc_rwire((0, 0, 0), (1, 1, 0), (0, 2, 0))
+```
+
+### 例子 2
+```python
 # 与直线连接创建复杂轮廓
 line = make_segment_rwire((0, 2, 0), (3, 2, 0))
 # 然后可以连接arc_wire和line

@@ -10,6 +10,8 @@ def make_cylinder_rsolid(radius: float, height: float, bottom_face_center: Tuple
 
 ## API作用
 
+创建圆柱体并返回实体对象
+
 创建圆柱体实体，是基础的三维几何体之一。自动为圆柱体的面添加标签
 （top、bottom、cylindrical），便于后续的面选择操作。体积等于πr²h。
 
@@ -45,14 +47,27 @@ Solid: 创建的实体对象，表示一个圆柱体
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建标准圆柱体
 cylinder = make_cylinder_rsolid(2.0, 5.0)
 volume = cylinder.get_volume()  # 体积为π×2²×5≈62.83
+```
+
+### 例子 2
+```python
 # 创建水平圆柱体
 horizontal_cyl = make_cylinder_rsolid(radius=1.0, height=4.0, bottom_face_center=(0, 0, 0), axis=(1, 0, 0))
+```
+
+### 例子 3
+```python
 # 创建偏移的圆柱体,底面中心在(2, 2, 0)
 offset_cyl = make_cylinder_rsolid(1.5, 3.0, (2, 2, 0))
+```
+
+### 例子 4
+```python
 # 获取圆柱体的面进行后续操作
 faces = cylinder.get_faces()
 top_faces = [f for f in faces if f.has_tag("top")]

@@ -10,6 +10,8 @@ def make_polyline_rwire(points: List[Tuple[float, float, float]], closed: bool =
 
 ## API作用
 
+创建多段线并返回线对象
+
 创建由多个直线段连接的多段线，用于构建折线、多边形轮廓等。
 相邻点之间用直线连接，可以创建开放或闭合的多段线。
 
@@ -35,13 +37,22 @@ Wire: 创建的线对象，由多个直线段组成的多段线
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建L形多段线
 points = [(0, 0, 0), (3, 0, 0), (3, 2, 0)]
 l_shape = make_polyline_rwire(points)
+```
+
+### 例子 2
+```python
 # 创建三角形轮廓
 triangle_points = [(0, 0, 0), (2, 0, 0), (1, 2, 0)]
 triangle = make_polyline_rwire(triangle_points, closed=True)
+```
+
+### 例子 3
+```python
 # 创建复杂的多边形
 polygon_points = [(0, 0, 0), (2, 0, 0), (3, 1, 0), (2, 2, 0), (0, 2, 0)]
 polygon = make_polyline_rwire(polygon_points, closed=True)

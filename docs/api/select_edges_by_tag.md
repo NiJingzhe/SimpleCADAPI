@@ -8,6 +8,10 @@ def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]
 
 *来源文件: operations.py*
 
+## API作用
+
+根据标签选择边
+
 ## API参数说明
 
 ### shape

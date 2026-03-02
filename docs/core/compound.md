@@ -41,7 +41,7 @@ from simplecadapi import (
     make_box_rsolid,
     make_cylinder_rsolid,
     make_sphere_rsolid,
-    union_rsolid
+    union_rsolidlist
 )
 
 # 创建多个实体

@@ -10,6 +10,8 @@ def make_rectangle_rface(width: float, height: float, center: Tuple[float, float
 
 ## API作用
 
+创建矩形并返回面对象
+
 创建矩形面对象，用于构建实心矩形截面。可以用于拉伸、旋转等操作来创建
 立方体、棱柱等三维几何体。面积等于width×height。
 
@@ -45,10 +47,15 @@ Face: 创建的面对象，表示一个实心的矩形面
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建标准矩形面
 rect_face = make_rectangle_rface(5.0, 3.0)
 area = rect_face.get_area()  # 面积为5×3=15
+```
+
+### 例子 2
+```python
 # 创建用于拉伸的矩形截面
 profile = make_rectangle_rface(2.0, 2.0)
 box = extrude_rsolid(profile, (0, 0, 1), 3.0)

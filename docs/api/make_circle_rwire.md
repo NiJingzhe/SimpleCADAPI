@@ -10,6 +10,8 @@ def make_circle_rwire(center: Tuple[float, float, float], radius: float, normal:
 
 ## API作用
 
+创建圆形并返回线对象
+
 创建圆形线对象，用于构建封闭的圆形轮廓。与make_circle_redge不同，
 此函数返回的是线对象，可以直接用于创建面或进行其他线操作。
 
@@ -40,9 +42,14 @@ Wire: 创建的线对象，表示一个完整的圆形轮廓
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建标准圆形轮廓
 circle_wire = make_circle_rwire((0, 0, 0), 3.0)
+```
+
+### 例子 2
+```python
 # 创建小圆轮廓
 small_circle = make_circle_rwire((1, 1, 0), 0.5)
 ```

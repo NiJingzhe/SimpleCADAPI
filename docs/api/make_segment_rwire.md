@@ -10,6 +10,8 @@ def make_segment_rwire(start: Tuple[float, float, float], end: Tuple[float, floa
 
 ## API作用
 
+创建线段并返回线对象
+
 创建包含单个线段的线对象，用于构建更复杂的线框结构。与make_segment_redge
 不同，此函数返回的是线对象，可以与其他线对象连接形成复杂路径。
 
@@ -35,9 +37,14 @@ Wire: 创建的线对象，包含一个连接两点的直线段
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建基本线段线
 wire = make_segment_rwire((0, 0, 0), (3, 0, 0))
+```
+
+### 例子 2
+```python
 # 创建斜线段
 diagonal_wire = make_segment_rwire((0, 0, 0), (2, 2, 0))
 ```

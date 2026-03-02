@@ -10,6 +10,8 @@ def fillet_rsolid(solid: Solid, edges: List[Edge], radius: float) -> Solid
 
 ## API作用
 
+对实体的边进行圆角操作
+
 对实体的指定边进行圆角处理，创建平滑的过渡面。常用于消除尖锐边缘，
 改善外观和减少应力集中。圆角半径不能太大，否则可能导致几何冲突。
 
@@ -40,19 +42,28 @@ Solid: 圆角后的实体对象
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 对立方体的所有边进行圆角
 box = make_box_rsolid(4, 4, 4)
 all_edges = box.get_edges()
 rounded_box = fillet_rsolid(box, all_edges[:4], 0.5)  # 只对前4条边圆角
+```
+
+### 例子 2
+```python
 # 对圆柱体的边进行圆角
 cylinder = make_cylinder_rsolid(2.0, 5.0)
 edges = cylinder.get_edges()
 # 选择顶部和底部的圆边
 circular_edges = [e for e in edges if e.has_tag("circular")]
 rounded_cylinder = fillet_rsolid(cylinder, circular_edges, 0.3)
+```
+
+### 例子 3
+```python
 # 对复杂几何体的特定边圆角
-complex_solid = union_rsolid(box, cylinder)
+complex_solid = union_rsolidlist([box, cylinder])[0]
 selected_edges = complex_solid.get_edges()[:6]
 smoothed_solid = fillet_rsolid(complex_solid, selected_edges, 0.2)
 ```

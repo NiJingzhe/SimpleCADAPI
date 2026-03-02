@@ -8,6 +8,10 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
 
 *来源文件: operations.py*
 
+## API作用
+
+导出为STL格式
+
 ## API参数说明
 
 ### shapes

@@ -157,7 +157,7 @@ create_and_analyze_shells()
 from simplecadapi import (
     make_box_rsolid, 
     make_cylinder_rsolid, 
-    union_rsolid, 
+    union_rsolidlist, 
     shell_rsolid
 )
 
@@ -176,8 +176,8 @@ def create_complex_shell():
     cylinder2.add_tag("protrusion_2")
     
     # 合并几何体
-    combined = union_rsolid(main_body, cylinder1)
-    combined = union_rsolid(combined, cylinder2)
+    combined = union_rsolidlist([main_body, cylinder1])[0]
+    combined = union_rsolidlist([combined, cylinder2])[0]
     combined.add_tag("combined_solid")
     
     # 创建壳

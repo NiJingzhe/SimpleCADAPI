@@ -10,6 +10,7 @@
 - [make_circle_redge](make_circle_redge.md) *(来自 operations.py)*
 - [make_circle_rface](make_circle_rface.md) *(来自 operations.py)*
 - [make_circle_rwire](make_circle_rwire.md) *(来自 operations.py)*
+- [make_cone_rsolid](make_cone_rsolid.md) *(来自 operations.py)*
 - [make_cylinder_rsolid](make_cylinder_rsolid.md) *(来自 operations.py)*
 - [make_face_from_wire_rface](make_face_from_wire_rface.md) *(来自 operations.py)*
 - [make_helix_redge](make_helix_redge.md) *(来自 operations.py)*
@@ -49,9 +50,9 @@
 
 ## 布尔运算
 
-- [cut_rsolid](cut_rsolid.md) *(来自 operations.py)*
-- [intersect_rsolid](intersect_rsolid.md) *(来自 operations.py)*
-- [union_rsolid](union_rsolid.md) *(来自 operations.py)*
+- [cut_rsolidlist](cut_rsolidlist.md) *(来自 operations.py)*
+- [intersect_rsolidlist](intersect_rsolidlist.md) *(来自 operations.py)*
+- [union_rsolidlist](union_rsolidlist.md) *(来自 operations.py)*
 
 ## 导出功能
 
@@ -64,6 +65,12 @@
 - [fillet_rsolid](fillet_rsolid.md) *(来自 operations.py)*
 - [helical_sweep_rsolid](helical_sweep_rsolid.md) *(来自 operations.py)*
 - [shell_rsolid](shell_rsolid.md) *(来自 operations.py)*
+
+## 自进化
+
+- [make_n_hole_flange_rsolid](make_n_hole_flange_rsolid.md) *(来自 evolve.py)*
+- [make_naca_propeller_blade_rsolid](make_naca_propeller_blade_rsolid.md) *(来自 evolve.py)*
+- [make_threaded_rod_rsolid](make_threaded_rod_rsolid.md) *(来自 evolve.py)*
 
 ## 其他
 
