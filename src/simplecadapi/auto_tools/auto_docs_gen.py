@@ -1,368 +1,215 @@
 #!/usr/bin/env python3
+"""Generate markdown API docs from source files.
+
+The generator extracts top-level public functions from source files,
+parses their docstrings, and writes API markdown pages plus an index page.
 """
-自动文档生成脚本
-从operations.py和evolve.py中提取所有API并生成格式统一的markdown文档
-"""
+
+from __future__ import annotations
+
+import argparse
 import ast
-import os
-from typing import List, Dict, Optional
-import sys
+import textwrap
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Iterable, List, Sequence
 
-# 添加src目录到路径以便导入模块
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-# 尝试导入模块（虽然此脚本主要通过AST解析，但导入可以用于验证）
-try:
-    from simplecadapi import operations, evolve
-except ImportError as e:
-    # print(f"警告: 无法导入模块: {e}") # 不强制要求能导入，只要文件存在即可
-    pass
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_SOURCES: tuple[Path, ...] = (
+    PROJECT_ROOT / "src/simplecadapi/operations.py",
+    PROJECT_ROOT / "src/simplecadapi/evolve.py",
+)
+DEFAULT_OUTPUT_DIRS: tuple[Path, ...] = (PROJECT_ROOT / "docs/api",)
+
+MISSING = object()
+
+
+@dataclass
+class ApiInfo:
+    """Container for extracted API metadata."""
+
+    name: str
+    signature: str
+    source_file: str
+    parsed_doc: Dict[str, object]
 
 
 class APIDocumentGenerator:
-    """API文档生成器"""
+    """Generate markdown docs for API functions."""
 
-    def __init__(self, source_files: List[str], output_dir: str = "docs"):
-        self.source_files = source_files  # List of file paths to process
-        self.output_dir = output_dir
-        self.apis: List[Dict] = []  # Store all extracted APIs
-        # 创建输出目录
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+    def __init__(
+        self,
+        source_files: Sequence[Path],
+        output_dirs: Sequence[Path],
+        clean_stale: bool = True,
+        quiet: bool = False,
+    ):
+        self.source_files = list(source_files)
+        self.output_dirs = list(output_dirs)
+        self.clean_stale = clean_stale
+        self.quiet = quiet
+        self.apis: List[ApiInfo] = []
 
-    def extract_apis(self) -> List[Dict]:
-        """从指定的源文件列表中提取所有API信息"""
-        print("正在分析源文件...")
-        total_apis = 0
+    def log(self, message: str) -> None:
+        if not self.quiet:
+            print(message)
+
+    def extract_apis(self) -> List[ApiInfo]:
+        """Extract all top-level public functions with docstrings."""
+        self.log("正在分析源文件...")
+
+        extracted: List[ApiInfo] = []
         for file_path in self.source_files:
-            if not os.path.exists(file_path):
-                print(f"警告: 找不到文件 {file_path}，跳过。")
+            if not file_path.exists():
+                self.log(f"警告: 找不到文件 {file_path}，跳过。")
                 continue
 
-            print(f"  正在处理 {file_path}...")
-            # 读取源代码文件
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    source_code = f.read()
-            except Exception as e:
-                print(f"读取文件 {file_path} 时出错: {e}")
-                continue
+            self.log(f"  正在处理 {file_path}...")
+            source = file_path.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(file_path))
 
-            # 解析AST
-            try:
-                tree = ast.parse(source_code)
-            except SyntaxError as e:
-                print(f"解析文件 {file_path} 时出现语法错误: {e}")
-                continue
+            file_count = 0
+            for node in tree.body:
+                if not isinstance(node, ast.FunctionDef):
+                    continue
+                if node.name.startswith("_"):
+                    continue
 
-            # 提取所有函数定义
-            file_apis = 0
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
-                    # 跳过私有函数
-                    if node.name.startswith("_"):
-                        continue
-                    api_info = self._extract_function_info(node, source_code, file_path)
-                    if api_info:
-                        self.apis.append(api_info)
-                        file_apis += 1
-            print(f"    从 {os.path.basename(file_path)} 提取到 {file_apis} 个API")
-            total_apis += file_apis
+                docstring = ast.get_docstring(node)
+                if not docstring:
+                    continue
 
-        print(f"成功总共提取到 {total_apis} 个API")
-        return self.apis
+                extracted.append(
+                    ApiInfo(
+                        name=node.name,
+                        signature=self._get_function_signature(node),
+                        source_file=file_path.name,
+                        parsed_doc=self._parse_docstring(docstring),
+                    )
+                )
+                file_count += 1
 
-    def _extract_function_info(
-        self, node: ast.FunctionDef, source_code: str, file_path: str
-    ) -> Optional[Dict]:
-        """提取单个函数的信息"""
-        try:
-            # 获取函数名
-            func_name = node.name
-            # 获取函数签名
-            signature = self._get_function_signature(node)
-            # 获取docstring
-            docstring = ast.get_docstring(node)
-            if not docstring:
-                # print(f"  警告: 函数 {func_name} 没有docstring，跳过。") # 可选：警告无docstring的函数
-                return None
-            # 解析docstring
-            parsed_doc = self._parse_docstring(docstring)
-            return {
-                "name": func_name,
-                "signature": signature,
-                "docstring": docstring,
-                "parsed_doc": parsed_doc,
-                "source_file": os.path.basename(file_path),  # 记录来源文件
-            }
-        except Exception as e:
-            print(f"提取函数 {node.name} (来自 {file_path}) 信息时出错: {e}")
-            return None
+            self.log(f"    从 {file_path.name} 提取到 {file_count} 个API")
 
-    def _get_function_signature(self, node: ast.FunctionDef) -> str:
-        """获取函数签名"""
-        # 构建参数列表
-        args = []
-        # 处理普通参数
-        for arg in node.args.args:
-            arg_str = arg.arg
-            # 添加类型注解 (使用 ast.unparse if available, otherwise basic)
-            try:
-                if arg.annotation:
-                    arg_str += f": {ast.unparse(arg.annotation)}"
-            except (AttributeError, Exception):
-                # Fallback for older Python versions or issues
-                if arg.annotation:
-                    arg_str += f": {ast.dump(arg.annotation)}"  # 或者简单地用占位符
-            args.append(arg_str)
+        self.apis = extracted
+        self.log(f"成功总共提取到 {len(extracted)} 个API")
+        return extracted
 
-        # 处理默认参数
-        defaults = node.args.defaults
-        if defaults:
-            # 为有默认值的参数添加默认值
-            num_defaults = len(defaults)
-            for i, default in enumerate(defaults):
-                arg_index = len(args) - num_defaults + i
-                if arg_index < len(args):
-                    try:
-                        args[arg_index] += f" = {ast.unparse(default)}"
-                    except (AttributeError, Exception):
-                        # Fallback for older Python versions or issues
-                        args[arg_index] += f" = ..."  # 或者简单地用占位符
+    def generate_markdown_docs(self) -> None:
+        """Generate markdown docs for all configured output directories."""
+        if not self.apis:
+            self.log("没有可生成的API文档。")
+            return
 
-        # 构建返回类型
-        return_type = ""
-        if node.returns:
-            try:
-                return_type = f" -> {ast.unparse(node.returns)}"
-            except (AttributeError, Exception):
-                # Fallback for older Python versions or issues
-                return_type = f" -> ..."  # 或者简单地用占位符
+        for output_dir in self.output_dirs:
+            self._generate_for_single_output_dir(output_dir)
 
-        return f"def {node.name}({', '.join(args)}){return_type}"
+    def _generate_for_single_output_dir(self, output_dir: Path) -> None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self.log(f"正在生成markdown文档到: {output_dir}")
 
-    def _parse_docstring(self, docstring: str) -> Dict:
-        """解析docstring，提取各个部分"""
-        parsed = {
-            "description": "",
-            "args": [],
-            "returns": "",
-            "raises": [],
-            "usage": "",
-            "examples": [],
-        }
-        lines = docstring.split("\n")  # 修正：使用 \n 分割
-        current_section = "description"
-        current_content: List[str] = []
-        for line in lines:
-            line = line.strip()
-            # 检查是否是新的段落
-            if line in ["Args:", "Returns:", "Raises:", "Usage:", "Example:"]:
-                # 保存当前段落内容
-                if current_content:
-                    self._add_section_content(parsed, current_section, current_content)
-                    current_content = []
-                # 切换到新段落
-                current_section = line.rstrip(":").lower()
-                continue
-            # 添加内容到当前段落
-            if line:
-                current_content.append(line)
-        # 处理最后一个段落
-        if current_content:
-            self._add_section_content(parsed, current_section, current_content)
-        return parsed
+        generated_files = set()
+        created_or_updated = 0
 
-    def _add_section_content(self, parsed: Dict, section: str, content: List[str]):
-        """添加段落内容到解析结果"""
-        content_str = "\n".join(content)  # 修正：用 \n 连接
-        if section == "description":
-            parsed["description"] = content_str
-        elif section == "args":
-            parsed["args"] = self._parse_args_section(content)
-        elif section == "returns":
-            parsed["returns"] = content_str
-        elif section == "raises":
-            parsed["raises"] = self._parse_raises_section(content)
-        elif section == "usage":
-            parsed["usage"] = content_str
-        elif section == "example":
-            parsed["examples"] = self._parse_examples_section(content)
+        for api in sorted(self.apis, key=lambda item: item.name):
+            filename = f"{api.name}.md"
+            file_path = output_dir / filename
+            md_content = self._build_single_api_markdown(api)
+            changed = self._write_if_changed(file_path, md_content)
+            if changed:
+                created_or_updated += 1
+            generated_files.add(filename)
 
-    def _parse_args_section(self, content: List[str]) -> List[Dict]:
-        """解析Args段落"""
-        args = []
-        current_arg = None
-        for line in content:
-            # 检查是否是参数定义行 (更健壮的检查)
-            # 假设格式是 `param_name (type): description` 或 `param_name: description`
-            # 避免将缩进的描述行误认为是新参数
-            if ":" in line and not line.startswith((" ", "\t")):
-                # 保存之前的参数
-                if current_arg:
-                    args.append(current_arg)
-                # 解析新参数
-                # 找到第一个冒号的位置
-                colon_idx = line.find(":")
-                param_info = line[:colon_idx].strip()
-                description = line[colon_idx + 1 :].strip()
+        readme_path = output_dir / "README.md"
+        readme_content = self._build_api_index_markdown()
+        if self._write_if_changed(readme_path, readme_content):
+            created_or_updated += 1
 
-                # 解析参数名和类型
-                name = param_info
-                type_info = ""
-                if "(" in param_info and ")" in param_info and param_info.endswith(")"):
-                    # 查找最后一个 ( 和 )
-                    last_open = param_info.rfind("(")
-                    last_close = param_info.rfind(")")
-                    if last_open < last_close:  # 确保顺序正确
-                        name = param_info[:last_open].strip()
-                        type_info = param_info[last_open + 1 : last_close].strip()
+        removed_count = 0
+        if self.clean_stale:
+            removed_count = self._remove_stale_docs(output_dir, generated_files)
 
-                current_arg = {
-                    "name": name,
-                    "type": type_info,
-                    "description": description,
-                }
-            else:
-                # 添加到当前参数的描述 (处理换行)
-                if current_arg and line.strip():
-                    current_arg["description"] += " " + line.strip()
-        # 添加最后一个参数
-        if current_arg:
-            args.append(current_arg)
-        return args
-
-    def _parse_raises_section(self, content: List[str]) -> List[Dict]:
-        """解析Raises段落"""
-        raises = []
-        for line in content:
-            # 同样，避免将缩进行误认为是新异常
-            if ":" in line and not line.startswith((" ", "\t")):
-                parts = line.split(":", 1)
-                if len(parts) == 2:
-                    exception_type = parts[0].strip()
-                    description = parts[1].strip()
-                    raises.append({"type": exception_type, "description": description})
-                # 处理多行描述的情况（如果需要）
-                # 此处简单处理，假设每行都是独立的异常定义
-        return raises
-
-    def _parse_examples_section(self, content: List[str]) -> List[str]:
-        """解析Examples段落"""
-        # 原逻辑较复杂，简化为按空行分隔例子块
-        examples = []
-        current_block: List[str] = []
-        for line in content:
-            if line.strip() == "":
-                if current_block:
-                    examples.append("\n".join(current_block))
-                    current_block = []
-            else:
-                current_block.append(line)
-        if current_block:  # Add the last block
-            examples.append("\n".join(current_block))
-
-        return examples
-
-    def generate_markdown_docs(self):
-        """生成markdown文档"""
-        print("正在生成markdown文档...")
-        generated_count = 0
-        for api in self.apis:
-            try:
-                self._generate_single_api_doc(api)
-                generated_count += 1
-            except Exception as e:
-                print(f"生成文档 {api['name']}.md 时出错: {e}")
-        # 生成API索引文档
-        try:
-            self._generate_api_index()
-        except Exception as e:
-            print(f"生成索引文档 README.md 时出错: {e}")
-        print(
-            f"文档生成完成！输出目录: {self.output_dir} (成功生成 {generated_count} 个API文档)"
+        self.log(
+            f"文档生成完成: {output_dir} "
+            f"(更新 {created_or_updated} 个文件, 删除 {removed_count} 个过期文档)"
         )
 
-    def _generate_single_api_doc(self, api: Dict):
-        """生成单个API的markdown文档"""
-        name = api["name"]
-        signature = api["signature"]
-        parsed_doc = api["parsed_doc"]
-        source_file = api.get("source_file", "Unknown")
-        # 创建markdown内容
-        md_content = []
-        # 1. API定义
-        md_content.append(f"# {name}")
-        md_content.append("")
-        md_content.append("## API定义")
-        md_content.append("")
-        md_content.append("```python")
-        md_content.append(signature)
-        md_content.append("```")
-        md_content.append("")
-        md_content.append(f"*来源文件: {source_file}*")  # 添加来源信息
-        md_content.append("")
-        # 2. API作用 / Usage
-        if parsed_doc["usage"]:
-            md_content.append("## API作用")
-            md_content.append("")
-            md_content.append(parsed_doc["usage"])
-            md_content.append("")
-        # 3. API参数说明
-        if parsed_doc["args"]:
-            md_content.append("## API参数说明")
-            md_content.append("")
-            for arg in parsed_doc["args"]:
-                md_content.append(f"### {arg['name']}")
-                md_content.append("")
-                if arg["type"]:
-                    md_content.append(f"- **类型**: `{arg['type']}`")
-                md_content.append(f"- **说明**: {arg['description']}")
-                md_content.append("")
-        # 4. 返回值说明
-        if parsed_doc["returns"]:
-            md_content.append("## 返回值说明")
-            md_content.append("")
-            md_content.append(parsed_doc["returns"])
-            md_content.append("")
-        # 5. 异常说明
-        if parsed_doc["raises"]:
-            md_content.append("## 异常")
-            md_content.append("")
-            for exc in parsed_doc["raises"]:
-                md_content.append(f"- **{exc['type']}**: {exc['description']}")
-            md_content.append("")
-        # 6. API使用例子
-        if parsed_doc["examples"]:
-            md_content.append("## API使用例子")
-            md_content.append("")
-            for i, example_block in enumerate(parsed_doc["examples"]):
-                if len(parsed_doc["examples"]) > 1:
-                    md_content.append(f"### 例子 {i+1}")
-                md_content.append("```python")
-                md_content.append(example_block)
-                md_content.append("```")
-                md_content.append("")
+    def _build_single_api_markdown(self, api: ApiInfo) -> str:
+        parsed = api.parsed_doc
+        md_lines: List[str] = []
 
-        # 写入文件
-        filename = f"{name}.md"
-        filepath = os.path.join(self.output_dir, filename)
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write("\n".join(md_content))  # 用 \n 连接
-        # print(f"  生成文档: {filename}") # 可在 extract_apis 中打印
+        md_lines.append(f"# {api.name}")
+        md_lines.append("")
 
-    def _generate_api_index(self):
-        """生成API索引文档"""
-        md_content = []
-        md_content.append("# SimpleCAD API 文档索引")
-        md_content.append("")
-        md_content.append(
-            "本文档包含了 SimpleCAD API (来自 `operations.py` 和 `evolve.py`) 的所有函数说明。"
-        )
-        md_content.append("")
+        md_lines.append("## API定义")
+        md_lines.append("")
+        md_lines.append("```python")
+        md_lines.append(api.signature)
+        md_lines.append("```")
+        md_lines.append("")
+        md_lines.append(f"*来源文件: {api.source_file}*")
+        md_lines.append("")
 
-        # 按功能分类
-        categories = {
+        description = str(parsed.get("description", "")).strip()
+        usage = str(parsed.get("usage", "")).strip()
+        usage_parts = [part for part in [description, usage] if part]
+        if usage_parts:
+            merged_usage = "\n\n".join(dict.fromkeys(usage_parts))
+            md_lines.append("## API作用")
+            md_lines.append("")
+            md_lines.extend(merged_usage.splitlines())
+            md_lines.append("")
+
+        args = parsed.get("args", [])
+        if isinstance(args, list) and args:
+            md_lines.append("## API参数说明")
+            md_lines.append("")
+            for arg in args:
+                arg_name = str(arg.get("name", "")).strip()
+                arg_type = str(arg.get("type", "")).strip()
+                arg_desc = str(arg.get("description", "")).strip()
+
+                md_lines.append(f"### {arg_name}")
+                md_lines.append("")
+                if arg_type:
+                    md_lines.append(f"- **类型**: `{arg_type}`")
+                md_lines.append(f"- **说明**: {arg_desc}")
+                md_lines.append("")
+
+        returns_text = str(parsed.get("returns", "")).strip()
+        if returns_text:
+            md_lines.append("## 返回值说明")
+            md_lines.append("")
+            md_lines.extend(returns_text.splitlines())
+            md_lines.append("")
+
+        raises = parsed.get("raises", [])
+        if isinstance(raises, list) and raises:
+            md_lines.append("## 异常")
+            md_lines.append("")
+            for exc in raises:
+                exc_type = str(exc.get("type", "")).strip()
+                exc_desc = str(exc.get("description", "")).strip()
+                md_lines.append(f"- **{exc_type}**: {exc_desc}")
+            md_lines.append("")
+
+        examples = parsed.get("examples", [])
+        if isinstance(examples, list) and examples:
+            md_lines.append("## API使用例子")
+            md_lines.append("")
+            for index, block in enumerate(examples, start=1):
+                if len(examples) > 1:
+                    md_lines.append(f"### 例子 {index}")
+                md_lines.append("```python")
+                md_lines.extend(block.splitlines())
+                md_lines.append("```")
+                md_lines.append("")
+
+        return "\n".join(md_lines).rstrip() + "\n"
+
+    def _build_api_index_markdown(self) -> str:
+        categories: Dict[str, List[ApiInfo]] = {
             "基础图形创建": [],
             "变换操作": [],
             "3D操作": [],
@@ -370,109 +217,350 @@ class APIDocumentGenerator:
             "布尔运算": [],
             "导出功能": [],
             "高级特征": [],
-            "自进化": [],  # 新增的分类
+            "自进化": [],
             "其他": [],
         }
 
-        # 分类逻辑
         for api in self.apis:
-            name = api["name"]
-            source_file = api.get("source_file", "")
+            name = api.name
 
-            # 首先检查是否来自evolve.py，如果是则归入“自进化”
-            if source_file == "evolve.py":
+            if api.source_file == "evolve.py":
                 categories["自进化"].append(api)
-                continue  # 处理完后跳过后续分类
+                continue
 
-            # 否则，按原有规则对operations.py中的API进行分类
-            categorized = False
             if name.startswith("make_"):
                 categories["基础图形创建"].append(api)
-                categorized = True
             elif name.startswith(("translate_", "rotate_", "mirror_")):
                 categories["变换操作"].append(api)
-                categorized = True
             elif name.startswith(("extrude_", "revolve_", "loft_", "sweep_")):
                 categories["3D操作"].append(api)
-                categorized = True
             elif name.startswith(("set_tag", "select_")):
                 categories["标签和选择"].append(api)
-                categorized = True
             elif name.startswith(("union_", "cut_", "intersect_")):
                 categories["布尔运算"].append(api)
-                categorized = True
             elif name.startswith("export_"):
                 categories["导出功能"].append(api)
-                categorized = True
             elif name.startswith(
                 ("fillet_", "chamfer_", "shell_", "pattern_", "helical_")
             ):
                 categories["高级特征"].append(api)
-                categorized = True
+            else:
+                categories["其他"].append(api)
 
-            if not categorized:
-                categories["其他"].append(api)  # 添加到未分类列表
+        md_lines: List[str] = [
+            "# SimpleCAD API 文档索引",
+            "",
+            "本文档包含了 SimpleCAD API (来自 `operations.py` 和 `evolve.py`) 的所有函数说明。",
+            "",
+        ]
 
-        # 生成分类索引
         for category, api_list in categories.items():
-            if api_list:
-                md_content.append(f"## {category}")
-                md_content.append("")
-                # 按名称排序
-                sorted_apis = sorted(api_list, key=lambda x: x["name"])
-                for api in sorted_apis:
-                    # 在索引中也显示来源文件
-                    source_info = f" *(来自 {api['source_file']})*"
-                    md_content.append(
-                        f"- [{api['name']}]({api['name']}.md){source_info}"
+            if not api_list:
+                continue
+            md_lines.append(f"## {category}")
+            md_lines.append("")
+            for api in sorted(api_list, key=lambda item: item.name):
+                source_info = f" *(来自 {api.source_file})*"
+                md_lines.append(f"- [{api.name}]({api.name}.md){source_info}")
+            md_lines.append("")
+
+        return "\n".join(md_lines).rstrip() + "\n"
+
+    def _remove_stale_docs(self, output_dir: Path, generated_files: set[str]) -> int:
+        removed = 0
+        keep = set(generated_files)
+        keep.add("README.md")
+
+        for path in output_dir.glob("*.md"):
+            if path.name in keep:
+                continue
+            path.unlink()
+            removed += 1
+
+        return removed
+
+    @staticmethod
+    def _write_if_changed(file_path: Path, content: str) -> bool:
+        if file_path.exists() and file_path.read_text(encoding="utf-8") == content:
+            return False
+        file_path.write_text(content, encoding="utf-8")
+        return True
+
+    def _parse_docstring(self, docstring: str) -> Dict[str, object]:
+        sections = {
+            "description": [],
+            "args": [],
+            "returns": [],
+            "raises": [],
+            "usage": [],
+            "examples": [],
+        }
+
+        current_section = "description"
+        for raw_line in docstring.splitlines():
+            stripped = raw_line.strip()
+
+            next_section = self._map_section_header(stripped)
+            if next_section:
+                current_section = next_section
+                continue
+
+            sections[current_section].append(raw_line.rstrip())
+
+        parsed: Dict[str, object] = {
+            "description": self._collapse_paragraph_lines(sections["description"]),
+            "args": self._parse_args_section(sections["args"]),
+            "returns": self._collapse_paragraph_lines(sections["returns"]),
+            "raises": self._parse_raises_section(sections["raises"]),
+            "usage": self._collapse_paragraph_lines(sections["usage"]),
+            "examples": self._parse_examples_section(sections["examples"]),
+        }
+        return parsed
+
+    @staticmethod
+    def _map_section_header(stripped_line: str) -> str | None:
+        normalized = stripped_line.rstrip(":").strip().lower()
+        if normalized in {"args", "argument", "arguments", "parameters", "params"}:
+            return "args"
+        if normalized in {"returns", "return"}:
+            return "returns"
+        if normalized in {"raises", "raise", "exceptions", "exception"}:
+            return "raises"
+        if normalized in {"usage", "how to use"}:
+            return "usage"
+        if normalized in {"example", "examples"}:
+            return "examples"
+        return None
+
+    @staticmethod
+    def _collapse_paragraph_lines(lines: Iterable[str]) -> str:
+        filtered: List[str] = []
+        previous_blank = False
+        for line in lines:
+            text = line.strip()
+            if not text:
+                if not previous_blank:
+                    filtered.append("")
+                previous_blank = True
+                continue
+            filtered.append(text)
+            previous_blank = False
+        return "\n".join(filtered).strip()
+
+    def _parse_args_section(self, lines: Iterable[str]) -> List[Dict[str, str]]:
+        args: List[Dict[str, str]] = []
+        current: Dict[str, str] | None = None
+
+        for raw_line in lines:
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+
+            if ":" in stripped and not stripped.startswith(("-", "* ")):
+                if current:
+                    args.append(current)
+
+                left, right = stripped.split(":", 1)
+                left = left.strip()
+                description = right.strip()
+
+                if not left:
+                    if current:
+                        current["description"] = (
+                            f"{current['description']} {stripped}".strip()
+                        )
+                    continue
+
+                name = left
+                type_info = ""
+                if "(" in left and ")" in left and left.endswith(")"):
+                    open_index = left.rfind("(")
+                    close_index = left.rfind(")")
+                    if open_index < close_index:
+                        name = left[:open_index].strip()
+                        type_info = left[open_index + 1 : close_index].strip()
+
+                current = {"name": name, "type": type_info, "description": description}
+                continue
+
+            if current:
+                current["description"] = f"{current['description']} {stripped}".strip()
+
+        if current:
+            args.append(current)
+
+        return args
+
+    def _parse_raises_section(self, lines: Iterable[str]) -> List[Dict[str, str]]:
+        raises: List[Dict[str, str]] = []
+        current: Dict[str, str] | None = None
+
+        for raw_line in lines:
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+
+            if ":" in stripped and not stripped.startswith(("-", "* ")):
+                if current:
+                    raises.append(current)
+                exc_name, exc_desc = stripped.split(":", 1)
+                current = {"type": exc_name.strip(), "description": exc_desc.strip()}
+                continue
+
+            if current:
+                current["description"] = f"{current['description']} {stripped}".strip()
+
+        if current:
+            raises.append(current)
+
+        return raises
+
+    @staticmethod
+    def _parse_examples_section(lines: Iterable[str]) -> List[str]:
+        blocks: List[str] = []
+        current: List[str] = []
+
+        for raw_line in lines:
+            if raw_line.strip() == "":
+                if current:
+                    blocks.append(
+                        APIDocumentGenerator._normalize_example_block(current)
                     )
-                md_content.append("")
+                    current = []
+                continue
+            current.append(raw_line)
 
-        # 写入索引文件
-        index_path = os.path.join(self.output_dir, "README.md")
-        with open(index_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(md_content))  # 用 \n 连接
-        print("  生成索引文档: README.md")
+        if current:
+            blocks.append(APIDocumentGenerator._normalize_example_block(current))
+
+        return [block for block in blocks if block.strip()]
+
+    @staticmethod
+    def _normalize_example_block(lines: List[str]) -> str:
+        while lines and not lines[0].strip():
+            lines = lines[1:]
+        while lines and not lines[-1].strip():
+            lines = lines[:-1]
+        if not lines:
+            return ""
+        return textwrap.dedent("\n".join(lines)).strip("\n")
+
+    def _get_function_signature(self, node: ast.FunctionDef) -> str:
+        params: List[str] = []
+
+        positional = list(node.args.posonlyargs) + list(node.args.args)
+        padded_defaults = [MISSING] * (
+            len(positional) - len(node.args.defaults)
+        ) + list(node.args.defaults)
+
+        for arg, default in zip(positional, padded_defaults):
+            params.append(self._format_arg(arg, default))
+
+        if node.args.posonlyargs:
+            params.insert(len(node.args.posonlyargs), "/")
+
+        if node.args.vararg:
+            params.append(f"*{self._format_arg(node.args.vararg)}")
+        elif node.args.kwonlyargs:
+            params.append("*")
+
+        for kw_arg, kw_default in zip(node.args.kwonlyargs, node.args.kw_defaults):
+            default = kw_default if kw_default is not None else MISSING
+            params.append(self._format_arg(kw_arg, default))
+
+        if node.args.kwarg:
+            params.append(f"**{self._format_arg(node.args.kwarg)}")
+
+        returns = ""
+        if node.returns is not None:
+            returns = f" -> {self._safe_unparse(node.returns)}"
+
+        return f"def {node.name}({', '.join(params)}){returns}"
+
+    def _format_arg(self, arg: ast.arg, default: object = MISSING) -> str:
+        text = arg.arg
+        if arg.annotation is not None:
+            text += f": {self._safe_unparse(arg.annotation)}"
+        if default is not MISSING:
+            text += f" = {self._safe_unparse(default)}"
+        return text
+
+    @staticmethod
+    def _safe_unparse(node: ast.AST | object) -> str:
+        if not isinstance(node, ast.AST):
+            return "..."
+        try:
+            return ast.unparse(node)
+        except Exception:
+            return "..."
 
 
-def main():
-    """主函数"""
-    # 获取脚本目录
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+def _parse_cli_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="SimpleCAD API markdown docs generator"
+    )
+    parser.add_argument(
+        "--source",
+        dest="sources",
+        action="append",
+        help="Source file path. Can be provided multiple times.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        dest="output_dirs",
+        action="append",
+        help="Output directory path. Can be provided multiple times.",
+    )
+    parser.add_argument(
+        "--no-clean",
+        action="store_true",
+        help="Keep stale markdown API docs instead of deleting them.",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Reduce console output.",
+    )
+    return parser.parse_args()
 
-    # 定义要处理的源文件列表
-    source_files = [
-        os.path.join(script_dir, "..", "operations.py"),
-        os.path.join(script_dir, "..", "evolve.py"),
-    ]
 
-    # 检查文件是否存在
-    existing_files = [f for f in source_files if os.path.exists(f)]
-    if not existing_files:
-        print(f"错误：找不到任何指定的源文件: {source_files}")
-        return
+def _resolve_source_files(cli_sources: Sequence[str] | None) -> List[Path]:
+    if cli_sources:
+        return [Path(item).resolve() for item in cli_sources]
+    return [path.resolve() for path in DEFAULT_SOURCES]
 
-    # 创建输出目录
-    output_dir = os.path.join(script_dir, "..", "..", "docs", "api")
 
-    # 创建文档生成器
-    generator = APIDocumentGenerator(existing_files, output_dir)
+def _resolve_output_dirs(cli_output_dirs: Sequence[str] | None) -> List[Path]:
+    if cli_output_dirs:
+        return [Path(item).resolve() for item in cli_output_dirs]
+    return [path.resolve() for path in DEFAULT_OUTPUT_DIRS]
 
-    # 提取API信息
+
+def main() -> None:
+    args = _parse_cli_args()
+    source_files = _resolve_source_files(args.sources)
+    output_dirs = _resolve_output_dirs(args.output_dirs)
+
+    generator = APIDocumentGenerator(
+        source_files=source_files,
+        output_dirs=output_dirs,
+        clean_stale=not args.no_clean,
+        quiet=args.quiet,
+    )
+
     apis = generator.extract_apis()
     if not apis:
         print("没有找到任何带有docstring的API函数")
         return
 
-    # 生成文档
     generator.generate_markdown_docs()
 
-    print(f"\n✅ 文档生成完成！")
-    print(f"📁 输出目录: {output_dir}")
-    print(
-        f"📄 生成了 {len([a for a in apis if a.get('parsed_doc')])} 个API文档"
-    )  # 更准确地计算
-    print(f"📋 索引文件: {os.path.join(output_dir, 'README.md')}")
+    if not args.quiet:
+        print("\n✅ 文档生成完成！")
+        print(f"📄 共处理 {len(apis)} 个API")
+        print("📁 输出目录:")
+        for path in output_dirs:
+            print(f"  - {path}")
 
 
 if __name__ == "__main__":

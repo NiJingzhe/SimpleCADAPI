@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -129,15 +129,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/29/07/416f0b99f7f3997c69815365babbc2e8754181a4b1899d921b3c7d5b6f12/bcrypt-4.3.0-cp38-abi3-win_amd64.whl", hash = "sha256:584027857bc2843772114717a7490a37f68da563b3620f78a849bcb54dc11e62", size = 152794, upload-time = "2025-02-28T01:23:30.187Z" },
     { url = "https://files.pythonhosted.org/packages/11/99/12f6a58eca6dea4be992d6c681b7ec9410a1d9f5cf368c61437e31daa879/bcrypt-4.3.0-cp39-abi3-win32.whl", hash = "sha256:b4d4e57f0a63fd0b358eb765063ff661328f69a04494427265950c71b992a39a", size = 160598, upload-time = "2025-02-28T01:23:51.775Z" },
     { url = "https://files.pythonhosted.org/packages/a9/cf/45fb5261ece3e6b9817d3d82b2f343a505fd58674a92577923bc500bd1aa/bcrypt-4.3.0-cp39-abi3-win_amd64.whl", hash = "sha256:e53e074b120f2877a35cc6c736b8eb161377caae8925c17688bd46ba56daaa5b", size = 152799, upload-time = "2025-02-28T01:23:53.139Z" },
-]
-
-[[package]]
-name = "beartype"
-version = "0.18.5"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/96/15/4e623478a9628ad4cee2391f19aba0b16c1dd6fedcb2a399f0928097b597/beartype-0.18.5.tar.gz", hash = "sha256:264ddc2f1da9ec94ff639141fbe33d22e12a9f75aa863b83b7046ffff1381927", size = 1193506, upload-time = "2024-04-21T07:25:58.64Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/43/7a1259741bd989723272ac7d381a43be932422abcff09a1d9f7ba212cb74/beartype-0.18.5-py3-none-any.whl", hash = "sha256:5301a14f2a9a5540fe47ec6d34d758e9cd8331d36c4760fc7a5499ab86310089", size = 917762, upload-time = "2024-04-21T07:25:55.758Z" },
 ]
 
 [[package]]
@@ -2415,19 +2406,6 @@ wheels = [
 ]
 
 [[package]]
-name = "ragflow-sdk"
-version = "0.19.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "beartype" },
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/9b/73/cb710c38e90d9f3253bf39f6ce65f80fd94ebb37d17501aca5bd3534feeb/ragflow_sdk-0.19.1.tar.gz", hash = "sha256:6bf6dbf453a870552e08a9217c0fede310169a33877decd64a49ed5b21fd2913", size = 7982, upload-time = "2025-06-20T10:29:18.921Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ef/4a/3dc10a23462cbeddfd39b8eb75d974b085476682f47952659c73eed2bf11/ragflow_sdk-0.19.1-py3-none-any.whl", hash = "sha256:c71cdcfbcf4fe9dbe9e090cea521c3970cfffaa741cb5d3129f03d6749004d74", size = 14484, upload-time = "2025-06-20T10:29:17.85Z" },
-]
-
-[[package]]
 name = "readme-renderer"
 version = "44.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2693,7 +2671,7 @@ wheels = [
 
 [[package]]
 name = "simplecadapi"
-version = "1.1.0"
+version = "2.0"
 source = { editable = "." }
 dependencies = [
     { name = "cadquery" },
@@ -2716,9 +2694,9 @@ editor = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "cadquery" },
     { name = "cq-editor" },
     { name = "pytest" },
-    { name = "ragflow-sdk" },
     { name = "twine" },
 ]
 
@@ -2738,9 +2716,9 @@ provides-extras = ["dev", "editor"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "cadquery", specifier = ">=2.5.2" },
     { name = "cq-editor", specifier = ">=0.5.0" },
     { name = "pytest" },
-    { name = "ragflow-sdk", specifier = ">=0.19.1" },
     { name = "twine", specifier = ">=6.1.0" },
 ]
 
