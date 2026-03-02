@@ -10,6 +10,8 @@ def revolve_rsolid(profile: Union[Wire, Face], axis: Tuple[float, float, float] 
 
 ## API作用
 
+围绕轴旋转轮廓创建实体
+
 围绕指定轴旋转二维轮廓创建三维实体。常用于创建轴对称的几何体，
 如圆柱体、圆锥体、球体等。如果输入是线，必须是封闭的线。
 
@@ -45,14 +47,23 @@ Solid: 旋转后的实体对象
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 旋转矩形创建圆柱体
 rect = make_rectangle_rface(1.0, 3.0, (2, 0, 0))  # 远离旋转轴
 cylinder = revolve_rsolid(rect, (0, 0, 1), 360)
+```
+
+### 例子 2
+```python
 # 创建圆锥体
 triangle_points = [(1, 0, 0), (2, 0, 0), (1.5, 2, 0)]
 triangle = make_polyline_rwire(triangle_points, closed=True)
 cone = revolve_rsolid(triangle, (0, 0, 1), 360)
+```
+
+### 例子 3
+```python
 # 创建部分旋转体（90度扇形）
 rect = make_rectangle_rface(0.5, 2.0, (1.5, 0, 0))
 partial_solid = revolve_rsolid(rect, (0, 0, 1), 90)

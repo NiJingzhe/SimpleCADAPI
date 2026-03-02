@@ -10,6 +10,8 @@ def make_sphere_rsolid(radius: float, center: Tuple[float, float, float] = (0, 0
 
 ## API作用
 
+创建球体并返回实体对象
+
 创建球体实体，是基础的三维几何体之一。自动为球体的面添加标签（surface），
 便于后续的面选择操作。体积等于(4/3)πr³。
 
@@ -35,14 +37,27 @@ Solid: 创建的实体对象，表示一个球体
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建标准单位球体
 unit_sphere = make_sphere_rsolid(1.0)
 volume = unit_sphere.get_volume()  # 体积为(4/3)π≈4.19
+```
+
+### 例子 2
+```python
 # 创建大球体
 large_sphere = make_sphere_rsolid(3.0)
+```
+
+### 例子 3
+```python
 # 创建偏移的球体
 offset_sphere = make_sphere_rsolid(2.0, (1, 1, 1))
+```
+
+### 例子 4
+```python
 # 获取球体的面进行后续操作
 faces = unit_sphere.get_faces()
 surface_faces = [f for f in faces if f.has_tag("surface")]

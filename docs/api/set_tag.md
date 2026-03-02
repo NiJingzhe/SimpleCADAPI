@@ -8,6 +8,10 @@ def set_tag(shape: AnyShape, tag: str) -> AnyShape
 
 *来源文件: operations.py*
 
+## API作用
+
+为几何体设置标签
+
 ## API参数说明
 
 ### shape

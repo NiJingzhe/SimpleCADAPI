@@ -10,6 +10,8 @@ def make_point_rvertex(x: float, y: float, z: float) -> Vertex
 
 ## API作用
 
+创建三维空间中的点并返回顶点对象
+
 创建三维空间中的几何点，通常用作其他几何对象的构造参数，如作为线段的端点、
 圆弧的控制点等。支持当前坐标系变换。
 
@@ -40,12 +42,21 @@ Vertex: 创建的顶点对象，包含指定坐标的点
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建原点
 origin = make_point_rvertex(0, 0, 0)
+```
+
+### 例子 2
+```python
 # 创建指定坐标的点
 point = make_point_rvertex(1.5, 2.0, 3.0)
-# 在工作平面中创建点
-with SimpleWorkplane((1, 1, 1)):
+```
+
+### 例子 3
+```python
+ # 在工作平面中创建点
+ with SimpleWorkplane((1, 1, 1)):
 ...     local_point = make_point_rvertex(0, 0, 0)  # 实际位置为(1, 1, 1)
 ```

@@ -10,6 +10,8 @@ def make_circle_rface(center: Tuple[float, float, float], radius: float, normal:
 
 ## API作用
 
+创建圆形并返回面对象
+
 创建圆形面对象，用于构建实心圆形截面。可以用于拉伸、旋转等操作来创建
 圆柱体、圆锥体等三维几何体。面积等于πr²。
 
@@ -40,10 +42,15 @@ Face: 创建的面对象，表示一个实心的圆形面
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建标准圆形面
 circle_face = make_circle_rface((0, 0, 0), 2.0)
 area = circle_face.get_area()  # 面积为π×2²≈12.57
+```
+
+### 例子 2
+```python
 # 创建用于拉伸的圆形截面
 profile = make_circle_rface((0, 0, 0), 1.0)
 cylinder = extrude_rsolid(profile, (0, 0, 1), 5.0)

@@ -8,6 +8,10 @@ def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> N
 
 *来源文件: operations.py*
 
+## API作用
+
+导出为STEP格式
+
 ## API参数说明
 
 ### shapes

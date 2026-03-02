@@ -10,8 +10,11 @@ def helical_sweep_rsolid(profile: Wire, pitch: float, height: float, radius: flo
 
 ## API作用
 
+沿螺旋路径扫掠轮廓创建实体
+
 沿螺旋路径扫掠二维轮廓创建三维实体，常用于创建螺纹、弹簧、
 螺旋管道等具有螺旋特征的几何体。轮廓必须是封闭的。
+
 函数会自动矫正profile的朝向和位置：
 - 确保profile的法向量朝向X轴正方向或负方向
 - 将profile移动到距离旋转中心指定半径的位置
@@ -58,13 +61,22 @@ Solid: 螺旋扫掠后的实体对象
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建螺旋弹簧
 circle_profile = make_circle_rwire((0, 0, 0), 0.2)
 spring = helical_sweep_rsolid(circle_profile, 1.0, 10.0, 2.0)
+```
+
+### 例子 2
+```python
 # 创建方形截面的螺旋管
 square_profile = make_rectangle_rwire(0.5, 0.5)
 square_helix = helical_sweep_rsolid(square_profile, 2.0, 8.0, 1.5)
+```
+
+### 例子 3
+```python
 # 创建紧密螺旋结构
 small_circle = make_circle_rwire((0, 0, 0), 0.1)
 tight_helix = helical_sweep_rsolid(small_circle, 0.5, 5.0, 1.0)

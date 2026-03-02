@@ -10,6 +10,8 @@ def extrude_rsolid(profile: Union[Wire, Face], direction: Tuple[float, float, fl
 
 ## API作用
 
+拉伸轮廓创建实体
+
 沿指定方向拉伸二维轮廓创建三维实体。如果输入是线，必须是封闭的线；
 如果输入是面，直接进行拉伸。这是创建柱状、管状等规则几何体的基础操作。
 
@@ -40,13 +42,22 @@ Solid: 拉伸后的实体对象
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 拉伸圆形面创建圆柱体
 circle = make_circle_rface((0, 0, 0), 1.0)
 cylinder = extrude_rsolid(circle, (0, 0, 1), 5.0)
+```
+
+### 例子 2
+```python
 # 拉伸矩形面创建立方体
 rect = make_rectangle_rface(2.0, 2.0)
 box = extrude_rsolid(rect, (0, 0, 1), 3.0)
+```
+
+### 例子 3
+```python
 # 拉伸复杂轮廓
 points = [(0, 0, 0), (2, 0, 0), (2, 1, 0), (0, 1, 0)]
 profile_wire = make_polyline_rwire(points, closed=True)

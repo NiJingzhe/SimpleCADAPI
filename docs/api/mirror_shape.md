@@ -10,6 +10,8 @@ def mirror_shape(shape: AnyShape, plane_origin: Tuple[float, float, float], plan
 
 ## API作用
 
+镜像几何体
+
 将几何体沿指定平面进行镜像复制，创建对称的几何结构。
 镜像平面由一个点和法向量定义，几何体在平面另一侧生成对称副本。
 
@@ -40,13 +42,22 @@ AnyShape: 镜像后的几何体，类型与输入相同
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 沿YZ平面镜像立方体
 box = make_box_rsolid(2, 2, 2, (1, 0, 0))
 mirrored_box = mirror_shape(box, (0, 0, 0), (1, 0, 0))
+```
+
+### 例子 2
+```python
 # 沿XY平面镜像圆柱体
 cylinder = make_cylinder_rsolid(1.0, 3.0, (0, 0, 1))
 mirrored_cyl = mirror_shape(cylinder, (0, 0, 0), (0, 0, 1))
+```
+
+### 例子 3
+```python
 # 沿任意平面镜像
 sphere = make_sphere_rsolid(1.5, (2, 2, 0))
 mirrored_sphere = mirror_shape(sphere, (1, 1, 0), (1, 1, 0))

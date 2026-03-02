@@ -10,6 +10,8 @@ def make_three_point_arc_redge(start: Tuple[float, float, float], middle: Tuple[
 
 ## API作用
 
+通过三点创建圆弧并返回边对象
+
 通过三个点创建圆弧边，三个点不能共线。圆弧从起始点经过中间点到结束点。
 中间点的位置决定了圆弧的弯曲程度和方向。
 
@@ -40,11 +42,20 @@ Edge: 创建的边对象，表示通过三点的圆弧
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建90度圆弧
 arc = make_three_point_arc_redge((0, 0, 0), (1, 1, 0), (2, 0, 0))
+```
+
+### 例子 2
+```python
 # 创建大圆弧
 large_arc = make_three_point_arc_redge((0, 0, 0), (0, 3, 0), (0, 6, 0))
+```
+
+### 例子 3
+```python
 # 创建3D圆弧
 arc_3d = make_three_point_arc_redge((0, 0, 0), (1, 1, 1), (2, 0, 2))
 ```

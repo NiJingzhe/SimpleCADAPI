@@ -10,6 +10,8 @@ def make_helix_redge(pitch: float, height: float, radius: float, center: Tuple[f
 
 ## API作用
 
+创建螺旋线并返回边对象
+
 创建螺旋线边对象，用于构建螺旋形状的路径或进行螺旋扫掠。
 螺旋线绕指定轴旋转，同时沿轴向移动，形成螺旋形状。
 
@@ -50,11 +52,20 @@ Edge: 创建的边对象，表示一个螺旋线
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建标准螺旋线
 helix = make_helix_redge(2.0, 10.0, 1.0)  # 螺距2，高度10，半径1
+```
+
+### 例子 2
+```python
 # 创建紧密螺旋线
 tight_helix = make_helix_redge(0.5, 5.0, 0.5)
+```
+
+### 例子 3
+```python
 # 创建水平螺旋线
 horizontal_helix = make_helix_redge(1.0, 8.0, 2.0, (0, 0, 0), (1, 0, 0))
 ```

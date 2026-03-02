@@ -10,6 +10,8 @@ def shell_rsolid(solid: Solid, faces_to_remove: List[Face], thickness: float) ->
 
 ## API作用
 
+对实体进行抽壳操作，创建空心结构
+
 将实体转换为空心结构，常用于创建容器、外壳等。通过移除指定面
 创建开口，壁厚决定了外壳的厚度。如果不移除任何面则创建闭合空心体。
 
@@ -40,15 +42,24 @@ Solid: 抽壳后的实体对象，内部为空心结构
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建空心立方体容器
 box = make_box_rsolid(4, 4, 4)
 top_faces = [f for f in box.get_faces() if f.has_tag("top")]
 container = shell_rsolid(box, top_faces, 0.2)
+```
+
+### 例子 2
+```python
 # 创建空心球体
 sphere = make_sphere_rsolid(3.0)
 # 不移除任何面，创建闭合空心球
 hollow_sphere = shell_rsolid(sphere, [], 0.3)
+```
+
+### 例子 3
+```python
 # 创建有开口的圆柱体容器
 cylinder = make_cylinder_rsolid(2.0, 5.0)
 top_faces = [f for f in cylinder.get_faces() if f.has_tag("top")]

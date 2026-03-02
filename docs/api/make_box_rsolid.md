@@ -10,6 +10,8 @@ def make_box_rsolid(width: float, height: float, depth: float, bottom_face_cente
 
 ## API作用
 
+创建立方体并返回实体对象
+
 创建矩形立方体实体，是最基础的三维几何体之一。自动为立方体的面添加
 标签（top、bottom、front、back、left、right），便于后续的面选择操作。
 体积等于width×height×depth。
@@ -46,14 +48,27 @@ Solid: 创建的实体对象，表示一个立方体
 
 ## API使用例子
 
+### 例子 1
 ```python
 # 创建标准单位立方体
 unit_cube = make_box_rsolid(1.0, 1.0, 1.0)
 volume = unit_cube.get_volume()  # 体积为1
+```
+
+### 例子 2
+```python
 # 创建矩形立方体
 rect_box = make_box_rsolid(4.0, 2.0, 3.0)
+```
+
+### 例子 3
+```python
 # 创建偏移的立方体
 offset_box = make_box_rsolid(2.0, 2.0, 2.0, (1, 1, 1))
+```
+
+### 例子 4
+```python
 # 获取立方体的面进行后续操作
 faces = unit_cube.get_faces()
 top_faces = [f for f in faces if f.has_tag("top")]
