@@ -1,0 +1,97 @@
+# CAD建模形式化Python API设计与实现
+
+---
+
+## 简介
+
+本项目旨在使用CadQuery的occ impl.shapes中提供的方法，编写一套命令式的Python API，以简化通过代码进行CAD建模的过程。API设计遵循开放封闭原则，核心类型封闭，所有的操作和扩展都通过新建函数实现。
+同时兼容Numpy库，允许用户在几何体上进行高效的数学运算和变换。
+
+## 详细文档
+
+![Document](./docs/)
+
+## 基础类型
+
+### 图元类型
+
+图元类型和OCP的TopoDS_Shape类型一一对应，主要包括以下几种：
+
+- `Solid`: 实体类型，表示封闭的三维几何体。
+- `Face`: 面类型，表示单个表面。
+- `Edge`: 边类型，表示曲线边界。
+- `Vertex`: 顶点类型，表示几何体的点。
+- `Wire`: 线类型，表示边的集合。
+
+### 坐标系类型
+
+坐标系类型用于定义三维空间中的位置和方向，我们对于世界坐标系的定义是：一个右手坐标系，原点在(0, 0, 0)，默认X轴向前，Y轴向右，Z轴向上。坐标系类型包括：
+
+- `SimpleWorkplane`: 工作平面类型，表示一个二维平面，本质上统计一个原点和一个法向量和一个X轴方向向量。作为一个上下文变量，可以通过with语法包裹操作，那么这些操作就会在这个工作平面下进行。允许嵌套定义Workplane，那么嵌套定义的平面将在上一个平面的基础上进行变换。
+
+## API命名风格
+
+- 所有函数名使用小写字母和下划线分隔（snake_case），要求使用动词开头，表示操作或行为，同时需要包含API的返回类型(因为同名API可能会重载为返回不同类型的对象，但我们想要避免这一点)，例如：`make_circle_rwire`, `make_circle_redge`, `make_circle_rface`, `extrude_rsolid`等
+- 类名使用驼峰命名法（CamelCase）
+- 函数和类的文档字符串使用Google风格，包含参数、返回值和异常说明
+- 所有函数和类都应有类型注解，确保代码的可读性和可维护性
+- 所有函数和类都应有详细的文档字符串，描述其功能、参数、返回值和异常
+- 所有函数和类都应有示例代码，便于用户理解和使用
+- 所有的代码实现都要有严格且详细的try catch和异常抛出，异常抛出的内容中要求明确指出错误原因，以及用户应当如何在调用层做出怎样的改进可能可以避免这个问题。
+
+## 扩展原则
+
+开放封闭原则，核心类型封闭，所有的操作和扩展都通过新建函数实现。我们可以通过利用现有的函数和操作来组合出新的高级操作并封装为函数来实现功能的扩展。
+
+## 自动化工具 (Auto Tools)
+
+项目包含一套自动化工具，用于支持API的自进化开发流程：
+
+### 主要CLI工具
+
+#### 1. `auto_docs_gen.py` - 动态文档生成
+- **功能**: 自动从`operations.py`和`evolve.py`中提取所有API函数
+- **特点**:
+  - 解析函数签名、文档字符串、参数说明、返回值、异常信息
+  - 自动清理已删除API对应的过期文档
+  - 支持多源文件与多输出目录参数（`--source`、`--output-dir`）
+- **输出**: 生成格式统一的Markdown文档到`docs/api/`目录（默认）
+- **使用**: `auto-docs-gen [--source <path>] [--output-dir <dir>] [--no-clean]`
+
+#### 2. `make_export.py` - 动态修改__init__.py
+- **功能**: 自动更新`__init__.py`文件中的导入和导出
+- **特点**: 
+  - 自动检测新增的API函数
+  - 按功能分类组织导入语句
+  - 生成友好的别名映射
+  - 支持预览模式(`--dry-run`)和强制模式(`--force`)
+- **使用**: `python make_export.py [--dry-run] [--force]`
+
+#### 3. `evolution.py` - 代码自进化
+- **功能**: 从指定脚本中自动抽取新的建模函数并添加到`evolve.py`
+- **特点**: 
+  - 提取函数完整实现代码
+  - 自动处理导入语句
+  - 支持代码自进化开发流程
+- **使用**: `python evolution.py <script_path>`
+
+#### 4. `skill_pack.py` - Skills Spec打包
+- **功能**: 将项目代码与文档按 Agent Skills 规范打包为可移植的技能目录
+- **特点**:
+  - 生成标准技能结构：`SKILL.md`、`scripts/`、`references/`、`assets/project_snapshot/`
+  - 快照打包范围聚焦于`src/simplecadapi`、`docs`、`README.md`、`pyproject.toml`、`LICENSE`
+  - 自动生成单技能导入脚本（`with_skill.sh`）、Jupyter 启动脚本（`jupyter_with_skill.sh`）、新增案例脚本（`add_new_case.sh`）与辅助脚本（导出、文档、校验、重打包）
+  - 支持可选文档刷新（`--refresh-docs`）与压缩归档（`--archive`）
+- **使用**: `skill-pack [--project-root <path>] [--output-root <dir>] [--skill-name <name>] [--refresh-docs] [--archive]`
+
+### 自进化开发流程
+
+这套工具支持以下自进化开发流程：
+
+1. **开发新API**: 在`operations.py`或`evolve.py`中添加新函数
+2. **自动导出**: 运行`make_export.py`更新`__init__.py`
+3. **生成文档**: 运行`auto_docs_gen.py`生成API文档
+4. **技能打包**: 运行`skill-pack`生成可分发的skills目录
+5. **持续进化**: 重复上述流程实现API与skills的持续进化
+
+所有工具都支持错误处理和详细的日志输出，确保开发流程的稳定性和可追踪性。
