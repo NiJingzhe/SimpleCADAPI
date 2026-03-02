@@ -51,9 +51,12 @@
 
 #### 1. `auto_docs_gen.py` - 动态文档生成
 - **功能**: 自动从`operations.py`和`evolve.py`中提取所有API函数
-- **特点**: 解析函数签名、文档字符串、参数说明、返回值、异常信息
-- **输出**: 生成格式统一的Markdown文档到`docs/api/`目录
-- **使用**: `python auto_docs_gen.py`
+- **特点**:
+  - 解析函数签名、文档字符串、参数说明、返回值、异常信息
+  - 自动清理已删除API对应的过期文档
+  - 支持多源文件与多输出目录参数（`--source`、`--output-dir`）
+- **输出**: 生成格式统一的Markdown文档到`docs/api/`目录（默认）
+- **使用**: `auto-docs-gen [--source <path>] [--output-dir <dir>] [--no-clean]`
 
 #### 2. `make_export.py` - 动态修改__init__.py
 - **功能**: 自动更新`__init__.py`文件中的导入和导出
@@ -72,15 +75,6 @@
   - 支持代码自进化开发流程
 - **使用**: `python evolution.py <script_path>`
 
-#### 4. `ragflow_sync.py` - 文档同步到RAGFlow
-- **功能**: 自动同步API文档到RAGFlow数据库
-- **特点**:
-  - 智能检测文档变更
-  - 按二级标题分割文档
-  - 自动提取关键词和标签
-  - 支持增量同步
-- **使用**: `python ragflow_sync.py --api-key <key> --base-url <url>`
-
 ### 自进化开发流程
 
 这套工具支持以下自进化开发流程：
@@ -88,7 +82,6 @@
 1. **开发新API**: 在`operations.py`或`evolve.py`中添加新函数
 2. **自动导出**: 运行`make_export.py`更新`__init__.py`
 3. **生成文档**: 运行`auto_docs_gen.py`生成API文档
-4. **同步知识库**: 运行`ragflow_sync.py`更新RAGFlow数据库
-5. **持续进化**: 重复上述流程实现API的持续进化
+4. **持续进化**: 重复上述流程实现API的持续进化
 
 所有工具都支持错误处理和详细的日志输出，确保开发流程的稳定性和可追踪性。
