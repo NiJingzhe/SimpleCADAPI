@@ -1,197 +1,132 @@
 ---
 name: simplecad-self-evolve
-description: Package SimpleCAD API as a portable Agent Skill and provide a clear add-new-case workflow that keeps source, exports, docs, and skill bundle in sync. Use when you need a self-maintained CAD SDK skill.
+description: Thin SimpleCAD skill that installs runtime SDK from PyPI into current venv site-packages, then provides deterministic REPL/Jupyter usage and references.
 license: MIT
-compatibility: Requires bash and Python 3.10+. Optional: skills-ref CLI for full spec validation.
+compatibility: Requires Python 3.10+, active virtual environment, and network access for package installation.
 metadata:
   project: simplecadapi
   version: 2.0.0
-  snapshot: assets/project_snapshot
+  runtime-package: simplecadapi
+  runtime-spec: simplecadapi==2.0.0
+  cases-module: simplecad_self_evolve_cases
 ---
 
-# SimpleCAD Self Evolve Skill
+# SimpleCAD Runtime Skill
 
-## When to use this skill
-- You need a portable snapshot of SimpleCAD SDK code and docs.
-- You need one repeatable command flow to add a new SDK case/function.
-- You want source updates, exports, and docs to stay synchronized.
+## Philosophy
+- This is a thin skill package: docs + scripts only.
+- SDK source code is not bundled in this skill.
+- Runtime code is installed from PyPI into active virtual environment site-packages.
+- Skill-local evolved cases are stored under `cases/simplecad_self_evolve_cases/`.
 
-## SDK core philosophy
-- **Open/Closed design**: keep core wrapper types stable and extend capability by adding new top-level functions.
-- **Function-first API**: use explicit snake_case operation functions instead of hidden class mutation.
-- **Return-type explicit naming**: function names encode return type, for example `make_circle_rwire` or `extrude_rsolid`.
-- **Evolve by composition**: new advanced cases are added in `evolve.py` by combining existing primitives.
-- **Docs as contract**: every public function should keep signature, docstring, and generated docs aligned.
+## Install behavior
+- Preferred: run `scripts/install.sh` once when skill is installed/activated.
+- Runtime wrappers auto-install on demand if `simplecadapi` is missing.
+- Package installed by default: `simplecadapi==2.0.0`
+- Wrappers install only into a virtual environment interpreter (set `PYTHON_BIN` when needed).
 
-## Directory map
-The skill root layout:
+## Interpreter selection
+Use the interpreter from your active/current venv site-packages. Example:
 
-- `SKILL.md`: this instruction file.
-- `scripts/`: runnable automation scripts for add/update/validate workflows.
-- `references/`: readable navigation and workflow documents.
-- `assets/project_snapshot/`: portable SDK snapshot used by scripts.
+```bash
+PYTHON_BIN=.venv/bin/python scripts/install.sh
+PYTHON_BIN=.venv/bin/python scripts/with_skill.sh --check
+```
 
-Snapshot scope in `assets/project_snapshot/`:
+## Skill path activation
+To activate this skill path in current shell:
 
-- `src/simplecadapi/core.py`: core geometric wrapper types and coordinate system utilities.
-- `src/simplecadapi/operations.py`: stable public operation functions.
-- `src/simplecadapi/evolve.py`: advanced or newly extracted case functions.
-- `src/simplecadapi/__init__.py`: aggregated exports and aliases.
-- `src/simplecadapi/auto_tools/`: automation tools (`evolution.py`, `make_export.py`, `auto_docs_gen.py`, `skill_pack.py`).
-- `docs/api/`: generated per-function API docs.
-- `docs/core/`: core type documentation.
-- `README.md`: SDK design and workflow explanation.
-- `pyproject.toml`: package metadata and script entry points.
-- `LICENSE`: project license.
+```bash
+eval "$(scripts/with_skill.sh --print-env)"
+```
 
-## How to import SDK functions
-Import targets by module role:
+This exports `SIMPLECAD_SKILL_ROOT`, `SIMPLECAD_CASES_ROOT`, `SIMPLECAD_CASES_MODULE`, and updates `PYTHONPATH`.
 
-- Public SDK APIs: `simplecadapi` (recommended) or `simplecadapi.operations`.
-- Evolved case functions: `simplecadapi.evolve`.
-- Core wrapper types: `simplecadapi.core`.
-
-If you already installed the package, import directly:
+## How to import and use
+After runtime install, import normally (no custom `sys.path` needed):
 
 ```python
 import simplecadapi as scad
 from simplecadapi import make_box_rsolid, export_stl
-from simplecadapi.evolve import make_n_hole_flange_rsolid
 ```
 
-If you are running against this skill snapshot without installation, set `PYTHONPATH` first:
-
-```bash
-export PYTHONPATH="${PWD}/assets/project_snapshot/src:${PYTHONPATH:-}"
-python3 your_script.py
-```
-
-Example usage after import:
+Typical usage in a Python script:
 
 ```python
 import simplecadapi as scad
+from simplecadapi import make_box_rsolid, export_stl
 
-box = scad.make_box_rsolid(width=10, height=6, depth=4)
-scad.export_stl(box, "box.stl")
+shape = make_box_rsolid(10.0, 20.0, 30.0)
+export_stl(shape, "example_box.stl")
 ```
 
-## Single-skill simplified mode
-If your project uses only this one skill, you can skip registry and multi-skill lock management.
-Use `scripts/with_skill.sh` as the single activation entry.
-
-```bash
-scripts/with_skill.sh -- python3 your_script.py
-scripts/jupyter_with_skill.sh lab
-# or export into current shell
-eval "$(scripts/with_skill.sh --print-env)"
-```
-
-- `with_skill.sh` sets `SIMPLECAD_SKILL_ROOT` and `SIMPLECAD_SKILL_SRC`.
-- `with_skill.sh` prepends this skill's `assets/project_snapshot/src` to `PYTHONPATH`.
-- `jupyter_with_skill.sh` launches Jupyter with this skill path pre-activated.
-- This keeps imports deterministic while remaining lightweight.
-
-## Persistent REPL and notebook kernel mode
-If an LLM writes code directly in a persistent REPL (IPython/Jupyter kernel), use one-time bootstrap in the session.
+Import skill-local evolved cases:
 
 ```python
-# in a notebook cell or persistent Python REPL
-%run ./skills/simplecad-self-evolve/scripts/repl_bootstrap.py
+from simplecad_self_evolve_cases.evolve import my_new_case
+```
+
+Run script with wrapper (auto-installs runtime when missing):
+
+```bash
+PYTHON_BIN=.venv/bin/python scripts/with_skill.sh -- .venv/bin/python your_script.py
+```
+
+Quick import check in current venv:
+
+```bash
+PYTHON_BIN=.venv/bin/python scripts/with_skill.sh --check
+```
+
+## Self-evolve in skill directory
+Add a new case function from a local Python script:
+
+```bash
+scripts/add_new_case.sh path/to/new_case.py
+```
+
+By default, the first top-level function in that file is appended into:
+- `cases/simplecad_self_evolve_cases/evolve.py`
+
+Then import it with:
+
+```python
+from simplecad_self_evolve_cases.evolve import your_function_name
+```
+
+## Persistent REPL / notebook kernel
+In a long-running kernel session, bootstrap once in first cell:
+
+```python
+%run ./scripts/repl_bootstrap.py
 import simplecadapi as scad
+from simplecad_self_evolve_cases.evolve import my_new_case
 ```
 
-Notes:
-- `repl_bootstrap.py` injects this skill's source path into current process `sys.path`.
-- It also sets `SIMPLECAD_SKILL_ROOT` and `SIMPLECAD_SKILL_SRC` in `os.environ`.
-- Use `--check` when running from shell to verify imports: `python scripts/repl_bootstrap.py --check`.
+If your kernel also needs notebook tools installed in this environment:
 
-## Scripts and exact usage
-`scripts/with_skill.sh`
-
-```bash
-scripts/with_skill.sh -- python3 your_script.py
-scripts/with_skill.sh --print-env
-scripts/with_skill.sh --check
+```python
+%run ./scripts/repl_bootstrap.py --with-jupyter
 ```
 
-- Purpose: activate this single skill import path in a deterministic way.
-- `-- <command>` runs a command with skill-aware `PYTHONPATH`.
-- `--print-env` prints `export` commands that can be `eval` in current shell.
-- `--check` verifies runtime dependencies and `import simplecadapi` availability.
+## Jupyter launch
+- `scripts/jupyter_with_skill.sh lab`
+- `scripts/jupyter_with_skill.sh notebook`
+- This wrapper ensures runtime package and Jupyter deps (`jupyterlab>=4.5.5, ipykernel>=6.29.5`) are available.
 
-`scripts/jupyter_with_skill.sh`
+## Script quick reference
+- `scripts/install.sh`: install runtime package to active venv site-packages.
+- `scripts/with_skill.sh`: ensure runtime installed and run any command.
+- `scripts/jupyter_with_skill.sh`: launch Jupyter with automatic dependency bootstrapping.
+- `scripts/repl_bootstrap.py`: one-time activation helper for persistent Python sessions.
+- `scripts/add_new_case.sh`: append new function into skill-local evolve module.
+- `scripts/evolve_case.py`: Python extractor used by `add_new_case.sh`.
+- `scripts/validate_skill.sh`: validate skill structure.
 
-```bash
-scripts/jupyter_with_skill.sh lab
-scripts/jupyter_with_skill.sh notebook
-scripts/jupyter_with_skill.sh lab -- --no-browser
-```
-
-- Purpose: start Jupyter Lab/Notebook with skill import path already injected.
-- Uses `with_skill.sh` internally so notebook kernels inherit deterministic `PYTHONPATH`.
-
-`scripts/repl_bootstrap.py`
-
-```bash
-python scripts/repl_bootstrap.py
-python scripts/repl_bootstrap.py --check
-```
-
-- Purpose: activate skill import path in an already-running Python process.
-- Typical use: first cell in a notebook kernel managed by LLM.
-
-`scripts/add_new_case.sh`
-
-```bash
-scripts/add_new_case.sh <path-to-python-script>
-# optional: NO_REPACK=1 scripts/add_new_case.sh <path>
-```
-
-- Purpose: end-to-end add-new-case pipeline.
-- Input: a Python file that contains a function implementation to extract.
-- Actions: validate skill -> extract function into `evolve.py` -> rebuild `__init__.py` exports -> regenerate `docs/api` -> repack skill.
-- Output: updated snapshot files (and repacked skill unless `NO_REPACK=1`).
-
-`scripts/rebuild_exports.sh`
-
-```bash
-scripts/rebuild_exports.sh [extra make_export args]
-```
-
-- Purpose: regenerate `assets/project_snapshot/src/simplecadapi/__init__.py` from current APIs.
-
-`scripts/refresh_docs.sh`
-
-```bash
-scripts/refresh_docs.sh
-```
-
-- Purpose: regenerate `assets/project_snapshot/docs/api/*.md` and the API index from function docstrings.
-
-`scripts/repack_skill.sh`
-
-```bash
-scripts/repack_skill.sh [extra skill_pack args]
-```
-
-- Purpose: rebuild this skill folder from `assets/project_snapshot` using `skill_pack.py`.
-
-`scripts/validate_skill.sh`
-
-```bash
-scripts/validate_skill.sh
-```
-
-- Purpose: verify required files and run `skills-ref validate` when available.
-
-## Recommended add-new-case procedure
-1. Prepare a Python script with one well-documented new case function.
-2. Run `scripts/add_new_case.sh <script.py>`.
-3. Review changes under `assets/project_snapshot/src/simplecadapi/` and `assets/project_snapshot/docs/api/`.
-4. Run `scripts/validate_skill.sh` and then publish/share this skill.
-
-## Additional references
+## References
 - `references/PROJECT_OVERVIEW.md`
-- `references/API_INDEX.md`
-- `references/CORE_INDEX.md`
+- `references/RUNTIME_INSTALL.md`
 - `references/EVOLVE_WORKFLOW.md`
+- `references/docs/api/`
+- `references/docs/core/`
+- `references/PROJECT_README.md`

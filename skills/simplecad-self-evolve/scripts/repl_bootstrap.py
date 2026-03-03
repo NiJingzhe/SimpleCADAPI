@@ -1,60 +1,107 @@
 #!/usr/bin/env python3
-"""Bootstrap skill import path inside a persistent Python process."""
+"""Bootstrap runtime package in a persistent Python REPL/kernel."""
 
 from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 
-def activate(check: bool = False) -> int:
-    script_path = Path(__file__).resolve()
-    skill_root = script_path.parent.parent
-    skill_src = skill_root / "assets" / "project_snapshot" / "src"
+PACKAGE_SPEC = "simplecadapi==2.0.0"
+CASES_MODULE = "simplecad_self_evolve_cases"
 
-    if not skill_src.exists():
-        print(f"Error: missing skill source path: {skill_src}", file=sys.stderr)
+
+def _script_dir() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _cases_root() -> Path:
+    return _script_dir().parent / "cases"
+
+
+def _activate_cases_path() -> None:
+    cases_root = str(_cases_root())
+    os.environ["SIMPLECAD_CASES_ROOT"] = cases_root
+    os.environ["SIMPLECAD_CASES_MODULE"] = CASES_MODULE
+
+    current_pythonpath = os.environ.get("PYTHONPATH", "")
+    parts = [item for item in current_pythonpath.split(os.pathsep) if item]
+    if cases_root not in parts:
+        parts.insert(0, cases_root)
+        os.environ["PYTHONPATH"] = os.pathsep.join(parts)
+
+    if cases_root not in sys.path:
+        sys.path.insert(0, cases_root)
+
+
+def _install(with_jupyter: bool = False) -> None:
+    cmd = [str(_script_dir() / "install.sh")]
+    if with_jupyter:
+        cmd.append("--with-jupyter")
+    env = os.environ.copy()
+    env.setdefault("PYTHON_BIN", sys.executable)
+    subprocess.run(cmd, check=True, env=env)
+
+
+def _has_simplecadapi() -> bool:
+    try:
+        import simplecadapi  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def _has_jupyter_deps() -> bool:
+    try:
+        import jupyterlab  # noqa: F401
+        import ipykernel  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def activate(check: bool = False, with_jupyter: bool = False) -> int:
+    skill_root = _script_dir().parent
+    os.environ["SIMPLECAD_SKILL_ROOT"] = str(skill_root)
+    _activate_cases_path()
+
+    if not _has_simplecadapi():
+        print(f"Installing runtime package {PACKAGE_SPEC} ...")
+        _install(with_jupyter=with_jupyter)
+
+    if with_jupyter and not _has_jupyter_deps():
+        print("Installing Jupyter dependencies ...")
+        _install(with_jupyter=True)
+
+    if check and not _has_simplecadapi():
+        print("Runtime install failed: cannot import simplecadapi", file=sys.stderr)
         return 1
 
-    skill_src_str = str(skill_src)
-    if skill_src_str not in sys.path:
-        sys.path.insert(0, skill_src_str)
-
-    os.environ["SIMPLECAD_SKILL_ROOT"] = str(skill_root)
-    os.environ["SIMPLECAD_SKILL_SRC"] = skill_src_str
-
-    current = os.environ.get("PYTHONPATH", "")
-    paths = [item for item in current.split(os.pathsep) if item] if current else []
-    if skill_src_str not in paths:
-        os.environ["PYTHONPATH"] = (
-            os.pathsep.join([skill_src_str, *paths]) if paths else skill_src_str
-        )
-
-    if check:
-        try:
-            import simplecadapi  # noqa: F401
-        except Exception as exc:
-            print(f"Path injected but import check failed: {exc}", file=sys.stderr)
-            return 1
-
-    print(f"Activated skill source: {skill_src_str}")
+    print(f"Skill runtime activated from site-packages: {PACKAGE_SPEC}")
+    print(f"Skill cases module ready: {CASES_MODULE}.evolve")
     print("You can now run: import simplecadapi as scad")
     return 0
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Activate SimpleCAD skill import path in current Python process"
+        description="Bootstrap SimpleCAD runtime in persistent Python process"
     )
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Also check that `import simplecadapi` succeeds",
+        help="Validate that import simplecadapi succeeds after bootstrap",
+    )
+    parser.add_argument(
+        "--with-jupyter",
+        action="store_true",
+        help="Also ensure jupyterlab and ipykernel are installed",
     )
     args = parser.parse_args()
-    raise SystemExit(activate(check=args.check))
+    raise SystemExit(activate(check=args.check, with_jupyter=args.with_jupyter))
 
 
 if __name__ == "__main__":
