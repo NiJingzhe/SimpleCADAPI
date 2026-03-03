@@ -76,13 +76,15 @@
 - **使用**: `python evolution.py <script_path>`
 
 #### 4. `skill_pack.py` - Skills Spec打包
-- **功能**: 将项目代码与文档按 Agent Skills 规范打包为可移植的技能目录
+- **功能**: 按 Agent Skills 规范生成**轻量技能包**（不内置SDK源码）
 - **特点**:
-  - 生成标准技能结构：`SKILL.md`、`scripts/`、`references/`、`assets/project_snapshot/`
-  - 快照打包范围聚焦于`src/simplecadapi`、`docs`、`README.md`、`pyproject.toml`、`LICENSE`
-  - 自动生成单技能导入脚本（`with_skill.sh`）、Jupyter 启动脚本（`jupyter_with_skill.sh`）、新增案例脚本（`add_new_case.sh`）与辅助脚本（导出、文档、校验、重打包）
+  - 生成标准结构：`SKILL.md`、`scripts/`、`references/`、`cases/<skill_cases_module>/`
+  - 将 `docs/`、`README.md`、`LICENSE` 复制为参考资料
+  - 运行时通过 `scripts/install.sh` 从 PyPI 安装 `simplecadapi` 到当前虚拟环境 site-packages
+  - 自动生成运行包装脚本：`install.sh`、`with_skill.sh`、`jupyter_with_skill.sh`、`repl_bootstrap.py`、`add_new_case.sh`、`evolve_case.py`、`validate_skill.sh`
+  - `add_new_case.sh` 支持把新函数追加到 skill-local 的 `cases/.../evolve.py`，并通过 `with_skill.sh --print-env` 自动暴露 import path
   - 支持可选文档刷新（`--refresh-docs`）与压缩归档（`--archive`）
-- **使用**: `skill-pack [--project-root <path>] [--output-root <dir>] [--skill-name <name>] [--refresh-docs] [--archive]`
+- **使用**: `skill-pack [--project-root <path>] [--output-root <dir>] [--skill-name <name>] [--package-name <pkg>] [--package-version <ver>] [--refresh-docs] [--archive]`
 
 ### 自进化开发流程
 
