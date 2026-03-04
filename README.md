@@ -1,99 +1,184 @@
-# CAD建模形式化Python API设计与实现
+# SimpleCADAPI
 
----
+SimpleCADAPI 是一个基于 CADQuery 的命令式 CAD 建模 Python 包，目标是把常见建模动作封装成清晰、可组合、可测试的函数式 API，并支持通过 Skills 方式分发“文档 + 脚本 + 运行时安装”工作流。
 
-## 简介
+## README 定位
 
-本项目旨在使用CadQuery的occ impl.shapes中提供的方法，编写一套命令式的Python API，以简化通过代码进行CAD建模的过程。API设计遵循开放封闭原则，核心类型封闭，所有的操作和扩展都通过新建函数实现。
-同时兼容Numpy库，允许用户在几何体上进行高效的数学运算和变换。
+本 README 仅包含包级能力、安装方式、发布/打包流程与 Skills 使用说明。
+实验性脚本和临时建模样例不作为正式文档内容。
 
-## 详细文档
+## 包安装（Python 包管理器）
 
-![Document](./docs/)
+当前包名：`simplecadapi`，版本：`2.0.0`（见 `pyproject.toml`）。
 
-## 基础类型
+### 方式 A：用 pip 从包仓库安装
 
-### 图元类型
+```bash
+pip install simplecadapi
+```
 
-图元类型和OCP的TopoDS_Shape类型一一对应，主要包括以下几种：
+开发依赖可选安装：
 
-- `Solid`: 实体类型，表示封闭的三维几何体。
-- `Face`: 面类型，表示单个表面。
-- `Edge`: 边类型，表示曲线边界。
-- `Vertex`: 顶点类型，表示几何体的点。
-- `Wire`: 线类型，表示边的集合。
+```bash
+pip install "simplecadapi[dev]"
+```
 
-### 坐标系类型
+### 方式 B：用 uv 安装
 
-坐标系类型用于定义三维空间中的位置和方向，我们对于世界坐标系的定义是：一个右手坐标系，原点在(0, 0, 0)，默认X轴向前，Y轴向右，Z轴向上。坐标系类型包括：
+在当前虚拟环境安装：
 
-- `SimpleWorkplane`: 工作平面类型，表示一个二维平面，本质上统计一个原点和一个法向量和一个X轴方向向量。作为一个上下文变量，可以通过with语法包裹操作，那么这些操作就会在这个工作平面下进行。允许嵌套定义Workplane，那么嵌套定义的平面将在上一个平面的基础上进行变换。
+```bash
+uv pip install simplecadapi
+```
 
-## API命名风格
+作为项目依赖写入 `pyproject.toml`：
 
-- 所有函数名使用小写字母和下划线分隔（snake_case），要求使用动词开头，表示操作或行为，同时需要包含API的返回类型(因为同名API可能会重载为返回不同类型的对象，但我们想要避免这一点)，例如：`make_circle_rwire`, `make_circle_redge`, `make_circle_rface`, `extrude_rsolid`等
-- 类名使用驼峰命名法（CamelCase）
-- 函数和类的文档字符串使用Google风格，包含参数、返回值和异常说明
-- 所有函数和类都应有类型注解，确保代码的可读性和可维护性
-- 所有函数和类都应有详细的文档字符串，描述其功能、参数、返回值和异常
-- 所有函数和类都应有示例代码，便于用户理解和使用
-- 所有的代码实现都要有严格且详细的try catch和异常抛出，异常抛出的内容中要求明确指出错误原因，以及用户应当如何在调用层做出怎样的改进可能可以避免这个问题。
+```bash
+uv add simplecadapi
+```
 
-## 扩展原则
+### 方式 C：从本地构建产物安装
 
-开放封闭原则，核心类型封闭，所有的操作和扩展都通过新建函数实现。我们可以通过利用现有的函数和操作来组合出新的高级操作并封装为函数来实现功能的扩展。
+仓库内已有示例构建产物（`dist/`）：
 
-## 自动化工具 (Auto Tools)
+```bash
+pip install dist/simplecadapi-2.0.0-py3-none-any.whl
+```
 
-项目包含一套自动化工具，用于支持API的自进化开发流程：
+如果你需要重新构建：
 
-### 主要CLI工具
+```bash
+uv build
+```
 
-#### 1. `auto_docs_gen.py` - 动态文档生成
-- **功能**: 自动从`operations.py`和`evolve.py`中提取所有API函数
-- **特点**:
-  - 解析函数签名、文档字符串、参数说明、返回值、异常信息
-  - 自动清理已删除API对应的过期文档
-  - 支持多源文件与多输出目录参数（`--source`、`--output-dir`）
-- **输出**: 生成格式统一的Markdown文档到`docs/api/`目录（默认）
-- **使用**: `auto-docs-gen [--source <path>] [--output-dir <dir>] [--no-clean]`
+## 快速验证安装
 
-#### 2. `make_export.py` - 动态修改__init__.py
-- **功能**: 自动更新`__init__.py`文件中的导入和导出
-- **特点**: 
-  - 自动检测新增的API函数
-  - 按功能分类组织导入语句
-  - 生成友好的别名映射
-  - 支持预览模式(`--dry-run`)和强制模式(`--force`)
-- **使用**: `python make_export.py [--dry-run] [--force]`
+```python
+import simplecadapi as scad
 
-#### 3. `evolution.py` - 代码自进化
-- **功能**: 从指定脚本中自动抽取新的建模函数并添加到`evolve.py`
-- **特点**: 
-  - 提取函数完整实现代码
-  - 自动处理导入语句
-  - 支持代码自进化开发流程
-- **使用**: `python evolution.py <script_path>`
+box = scad.make_box_rsolid(10.0, 20.0, 30.0)
+scad.export_stl(box, "example_box.stl")
+scad.export_step(box, "example_box.step")
+```
 
-#### 4. `skill_pack.py` - Skills Spec打包
-- **功能**: 按 Agent Skills 规范生成**轻量技能包**（不内置SDK源码）
-- **特点**:
-  - 生成标准结构：`SKILL.md`、`scripts/`、`references/`、`cases/<skill_cases_module>/`
-  - 将 `docs/`、`README.md`、`LICENSE` 复制为参考资料
-  - 运行时通过 `scripts/install.sh` 从 PyPI 安装 `simplecadapi` 到当前虚拟环境 site-packages
-  - 自动生成运行包装脚本：`install.sh`、`with_skill.sh`、`jupyter_with_skill.sh`、`repl_bootstrap.py`、`add_new_case.sh`、`evolve_case.py`、`validate_skill.sh`
-  - `add_new_case.sh` 支持把新函数追加到 skill-local 的 `cases/.../evolve.py`，并通过 `with_skill.sh --print-env` 自动暴露 import path
-  - 支持可选文档刷新（`--refresh-docs`）与压缩归档（`--archive`）
-- **使用**: `skill-pack [--project-root <path>] [--output-root <dir>] [--skill-name <name>] [--package-name <pkg>] [--package-version <ver>] [--refresh-docs] [--archive]`
+## 如何打包并使用 Skills
 
-### 自进化开发流程
+本项目提供 `skill-pack` CLI，用于生成轻量技能包（thin mode）：**不内置 SDK 源码**，运行时从包仓库安装 `simplecadapi`。
 
-这套工具支持以下自进化开发流程：
+### 1) 打包命令
 
-1. **开发新API**: 在`operations.py`或`evolve.py`中添加新函数
-2. **自动导出**: 运行`make_export.py`更新`__init__.py`
-3. **生成文档**: 运行`auto_docs_gen.py`生成API文档
-4. **技能打包**: 运行`skill-pack`生成可分发的skills目录
-5. **持续进化**: 重复上述流程实现API与skills的持续进化
+在仓库根目录执行：
 
-所有工具都支持错误处理和详细的日志输出，确保开发流程的稳定性和可追踪性。
+```bash
+uv run skill-pack --refresh-docs --archive --skill-name simplecad-self-evolve
+```
+
+常用参数：
+
+- `--output-root <dir>`：输出目录（默认 `./skills`）
+- `--package-name <pkg>`：运行时安装包名（默认读取 `project.name`）
+- `--package-version <ver>`：运行时安装版本（默认读取 `project.version`）
+- `--no-clean`：不清理已有输出目录
+- `--archive`：额外生成 `<skill-name>.tar.gz`
+
+### 2) 打包结果结构
+
+打包后将得到类似目录：
+
+- `skills/simplecad-self-evolve/SKILL.md`
+- `skills/simplecad-self-evolve/scripts/`
+- `skills/simplecad-self-evolve/references/`
+- `skills/simplecad-self-evolve/cases/simplecad_self_evolve_cases/`
+
+### 3) 在 skill 目录中安装并检查运行时
+
+```bash
+cd skills/simplecad-self-evolve
+PYTHON_BIN=.venv/bin/python scripts/install.sh
+PYTHON_BIN=.venv/bin/python scripts/with_skill.sh --check
+```
+
+### 4) 用包装脚本运行你的程序
+
+```bash
+PYTHON_BIN=.venv/bin/python scripts/with_skill.sh -- .venv/bin/python your_script.py
+```
+
+### 5) 激活 skill-local 案例模块路径
+
+```bash
+eval "$(scripts/with_skill.sh --print-env)"
+```
+
+激活后可直接导入：
+
+```python
+from simplecad_self_evolve_cases.evolve import make_involute_spur_gear_rsolid
+```
+
+### 6) 向 skill 本地 evolve 模块追加新函数
+
+```bash
+scripts/add_new_case.sh path/to/new_case.py
+```
+
+### 7) Jupyter 与结构校验
+
+```bash
+scripts/jupyter_with_skill.sh lab
+scripts/validate_skill.sh
+```
+
+## 自动化工具（Auto Tools）
+
+项目内置 4 个主要 CLI：
+
+- `auto-docs-gen`：从 API 源码生成 `docs/api/` 文档
+- `make-export`：更新 `src/simplecadapi/__init__.py` 的导入导出
+- `evolve`：从脚本提取函数并追加到 evolve 模块
+- `skill-pack`：打包 thin skill（文档 + 脚本 + cases）
+
+示例：
+
+```bash
+uv run make-export --dry-run
+uv run auto-docs-gen
+uv run evolve path/to/your_case.py
+uv run skill-pack --refresh-docs --archive
+```
+
+## 开发与测试
+
+本地开发安装（可编辑）：
+
+```bash
+uv pip install -e ".[dev]"
+```
+
+运行单元测试：
+
+```bash
+uv run python -m unittest test/test_all_features.py
+```
+
+运行示例：
+
+```bash
+uv run python examples.py
+```
+
+## 核心设计约束（简要）
+
+- API 函数统一使用 `snake_case`，并通过函数名体现返回类型（如 `*_rsolid`、`*_rwire`）。
+- 核心类型尽量稳定，功能扩展通过新增函数完成（开放封闭原则）。
+- 支持 `SimpleWorkplane` 上下文进行局部坐标建模。
+- 导出接口支持单实体、多实体及嵌套列表输入。
+
+## 文档入口
+
+- API 文档：`docs/api/`
+- Core 文档：`docs/core/`
+
+## License
+
+MIT，见 `LICENSE`。
