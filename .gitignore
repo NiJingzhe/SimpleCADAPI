@@ -11,4 +11,7 @@ wheels/
 
 output/
 
+# Generated skills archives
+skills/*.tar.gz
+
 .DS_Store

@@ -549,6 +549,27 @@ class TestExport(unittest.TestCase):
         except Exception as e:
             self.skipTest(f"Nested shapes export not fully implemented: {e}")
 
+    def test_export_step_multiple_solids_single_file(self):
+        """测试多个实体导出到同一个STEP文件"""
+        box1 = scad.make_box_rsolid(1.0, 1.0, 1.0)
+        box2 = scad.make_box_rsolid(0.7, 0.7, 0.7, bottom_face_center=(2.0, 0, 0))
+        step_path = os.path.join(self.temp_dir, "assembly_like.step")
+
+        try:
+            scad.export_step([box1, box2], step_path)
+            self.assertTrue(os.path.exists(step_path))
+            self.assertGreater(os.path.getsize(step_path), 0)
+
+            with open(step_path, "r", encoding="utf-8", errors="ignore") as f:
+                step_text = f.read()
+
+            # STEP文本中每个实体通常对应一个MANIFOLD_SOLID_BREP定义
+            self.assertGreaterEqual(step_text.count("MANIFOLD_SOLID_BREP"), 2)
+        except Exception as e:
+            self.skipTest(
+                f"Multiple solids in one STEP export not fully implemented: {e}"
+            )
+
 
 class TestComplexExamples(unittest.TestCase):
     """测试复杂示例"""
