@@ -1,10 +1,3 @@
-"""Skill-local evolved case functions."""
-
-from __future__ import annotations
-
-__all__ = ["make_involute_spur_gear_rsolid"]
-
-
 def make_involute_spur_gear_rsolid(
     tooth_count: int = 28,
     module: float = 1.8,
@@ -21,12 +14,7 @@ def make_involute_spur_gear_rsolid(
     root_fillet_strength: float = 0.85,
     verbose: bool = False,
 ):
-    """Create an involute spur gear solid.
-
-    Parameters are metric and follow common external spur gear conventions.
-    The root transition uses a smooth Hermite blend (trochoid-like approximation)
-    when root_radius is smaller than base_radius.
-    """
+    """Create an involute spur gear solid."""
     import math
     import simplecadapi as scad
 
