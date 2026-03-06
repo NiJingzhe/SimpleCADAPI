@@ -19,6 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SOURCES: tuple[Path, ...] = (
     PROJECT_ROOT / "src/simplecadapi/operations.py",
     PROJECT_ROOT / "src/simplecadapi/evolve.py",
+    PROJECT_ROOT / "src/simplecadapi/constraints.py",
 )
 DEFAULT_OUTPUT_DIRS: tuple[Path, ...] = (PROJECT_ROOT / "docs/api",)
 
@@ -218,6 +219,7 @@ class APIDocumentGenerator:
             "导出功能": [],
             "高级特征": [],
             "自进化": [],
+            "声明式装配约束": [],
             "其他": [],
         }
 
@@ -226,6 +228,10 @@ class APIDocumentGenerator:
 
             if api.source_file == "evolve.py":
                 categories["自进化"].append(api)
+                continue
+
+            if api.source_file == "constraints.py":
+                categories["声明式装配约束"].append(api)
                 continue
 
             if name.startswith("make_"):
@@ -250,7 +256,7 @@ class APIDocumentGenerator:
         md_lines: List[str] = [
             "# SimpleCAD API 文档索引",
             "",
-            "本文档包含了 SimpleCAD API (来自 `operations.py` 和 `evolve.py`) 的所有函数说明。",
+            "本文档包含了 SimpleCAD API (来自 `operations.py`、`evolve.py`、`constraints.py`) 的所有函数说明。",
             "",
         ]
 

@@ -14,33 +14,33 @@ def make_involute_spur_gear_rsolid(
     root_fillet_strength: float = 0.85,
     verbose: bool = False,
 ):
-    """Create an involute spur gear solid."""
+    """创建一个渐开线直齿轮实体。"""
     import math
     import simplecadapi as scad
 
     if tooth_count < 8:
-        raise ValueError("tooth_count must be >= 8")
+        raise ValueError("tooth_count 必须 >= 8")
     if module <= 0:
-        raise ValueError("module must be > 0")
+        raise ValueError("module 必须 > 0")
     if thickness <= 0:
-        raise ValueError("thickness must be > 0")
+        raise ValueError("thickness 必须 > 0")
     if not 10.0 <= pressure_angle_deg <= 35.0:
-        raise ValueError("pressure_angle_deg must be within [10, 35]")
+        raise ValueError("pressure_angle_deg 必须位于 [10, 35]")
     if profile_points < 8:
-        raise ValueError("profile_points must be >= 8")
+        raise ValueError("profile_points 必须 >= 8")
     if root_arc_points < 4:
-        raise ValueError("root_arc_points must be >= 4")
+        raise ValueError("root_arc_points 必须 >= 4")
     if tip_arc_points < 4:
-        raise ValueError("tip_arc_points must be >= 4")
+        raise ValueError("tip_arc_points 必须 >= 4")
     if root_fillet_points < 3:
-        raise ValueError("root_fillet_points must be >= 3")
+        raise ValueError("root_fillet_points 必须 >= 3")
     if addendum_coeff <= 0 or dedendum_coeff <= 0:
-        raise ValueError("addendum_coeff and dedendum_coeff must be > 0")
+        raise ValueError("addendum_coeff 和 dedendum_coeff 必须 > 0")
     if root_fillet_strength <= 0:
-        raise ValueError("root_fillet_strength must be > 0")
+        raise ValueError("root_fillet_strength 必须 > 0")
 
     if verbose:
-        print("[gear] compute base geometry...")
+        print("[gear] 计算基础几何参数...")
 
     pressure_angle = math.radians(pressure_angle_deg)
     pitch_radius = 0.5 * module * tooth_count
@@ -52,15 +52,15 @@ def make_involute_spur_gear_rsolid(
     base_radius = pitch_radius * math.cos(pressure_angle)
 
     if root_radius <= 0:
-        raise ValueError("invalid geometry: root_radius <= 0")
+        raise ValueError("几何无效：root_radius <= 0")
     if bore_radius < 0 or bore_radius >= root_radius:
-        raise ValueError("bore_radius must be >= 0 and < root_radius")
+        raise ValueError("bore_radius 必须 >= 0 且 < root_radius")
 
     half_tooth_angle = (math.pi / (2.0 * tooth_count)) - (
         backlash / (2.0 * pitch_radius)
     )
     if half_tooth_angle <= 0:
-        raise ValueError("backlash is too large for current pitch radius")
+        raise ValueError("在当前节圆半径下，backlash 过大")
 
     inv_pitch = math.tan(pressure_angle) - pressure_angle
     r_start = max(root_radius, base_radius)
@@ -78,20 +78,20 @@ def make_involute_spur_gear_rsolid(
         tooth_thickness_pitch = 2.0 * pitch_radius * half_tooth_angle
         tooth_thickness_tip = 2.0 * tip_radius * beta_tip
         print(
-            "[gear] radii rp/rb/rf/ra = "
+            "[gear] 半径 rp/rb/rf/ra = "
             f"{pitch_radius:.4f}/{base_radius:.4f}/{root_radius:.4f}/{tip_radius:.4f}"
         )
         print(
-            "[gear] flank angle root->tip (deg) = "
+            "[gear] 齿廓角 root->tip (deg) = "
             f"{math.degrees(beta_root):.4f} -> {math.degrees(beta_tip):.4f}"
         )
         print(
-            "[gear] tooth thickness pitch->tip = "
+            "[gear] 齿厚 pitch->tip = "
             f"{tooth_thickness_pitch:.4f} -> {tooth_thickness_tip:.4f}"
         )
 
     if verbose:
-        print("[gear] sample involute flanks...")
+        print("[gear] 采样渐开线齿廓...")
 
     rs = [
         r_start + (tip_radius - r_start) * i / (profile_points - 1)
@@ -193,7 +193,7 @@ def make_involute_spur_gear_rsolid(
 
     if verbose and root_radius < r_start - 1e-8:
         print(
-            "[gear] root fillet blend enabled: "
+            "[gear] 启用齿根圆角过渡："
             f"clearance={r_start - root_radius:.4f}, "
             f"points={root_fillet_points}, strength={root_fillet_strength:.3f}"
         )
@@ -204,7 +204,7 @@ def make_involute_spur_gear_rsolid(
         return (point[0] * c - point[1] * s, point[0] * s + point[1] * c)
 
     if verbose:
-        print("[gear] build full 2D tooth profile...")
+        print("[gear] 构建完整 2D 齿形轮廓...")
 
     tooth_pitch_angle = 2.0 * math.pi / tooth_count
     full_profile: list[tuple[float, float]] = []
@@ -240,10 +240,10 @@ def make_involute_spur_gear_rsolid(
         cleaned.pop()
 
     if len(cleaned) < 3:
-        raise ValueError("generated profile has too few points")
+        raise ValueError("生成的轮廓点数量过少")
 
     if verbose:
-        print(f"[gear] extrude profile with {len(cleaned)} points...")
+        print(f"[gear] 使用 {len(cleaned)} 个点拉伸轮廓...")
 
     profile_pts = [(x, y, 0.0) for (x, y) in cleaned]
     profile_wire = scad.make_polyline_rwire(profile_pts, closed=True)
@@ -251,10 +251,10 @@ def make_involute_spur_gear_rsolid(
 
     if bore_radius > 0:
         if verbose:
-            print("[gear] cut center bore...")
+            print("[gear] 切出中心孔...")
         bore = scad.make_cylinder_rsolid(bore_radius, thickness)
         gear = scad.cut_rsolidlist(gear, bore)[0]
 
     if verbose:
-        print("[gear] done.")
+        print("[gear] 完成。")
     return gear

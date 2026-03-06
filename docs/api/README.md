@@ -1,6 +1,6 @@
 # SimpleCAD API 文档索引
 
-本文档包含了 SimpleCAD API (来自 `operations.py` 和 `evolve.py`) 的所有函数说明。
+本文档包含了 SimpleCAD API (来自 `operations.py`、`evolve.py`、`constraints.py`) 的所有函数说明。
 
 ## 基础图形创建
 
@@ -71,6 +71,22 @@
 - [make_n_hole_flange_rsolid](make_n_hole_flange_rsolid.md) *(来自 evolve.py)*
 - [make_naca_propeller_blade_rsolid](make_naca_propeller_blade_rsolid.md) *(来自 evolve.py)*
 - [make_threaded_rod_rsolid](make_threaded_rod_rsolid.md) *(来自 evolve.py)*
+
+## 声明式装配约束
+
+- [add_part_rassembly](add_part_rassembly.md) *(来自 constraints.py)*
+- [clear_constraints_rassembly](clear_constraints_rassembly.md) *(来自 constraints.py)*
+- [clone_assembly_rassembly](clone_assembly_rassembly.md) *(来自 constraints.py)*
+- [constrain_coincident_rassembly](constrain_coincident_rassembly.md) *(来自 constraints.py)*
+- [constrain_concentric_rassembly](constrain_concentric_rassembly.md) *(来自 constraints.py)*
+- [constrain_distance_rassembly](constrain_distance_rassembly.md) *(来自 constraints.py)*
+- [constrain_offset_rassembly](constrain_offset_rassembly.md) *(来自 constraints.py)*
+- [make_assembly_rassembly](make_assembly_rassembly.md) *(来自 constraints.py)*
+- [rotate_part_rassembly](rotate_part_rassembly.md) *(来自 constraints.py)*
+- [solve_assembly_rresult](solve_assembly_rresult.md) *(来自 constraints.py)*
+- [stack](stack.md) *(来自 constraints.py)*
+- [stack_rassembly](stack_rassembly.md) *(来自 constraints.py)*
+- [translate_part_rassembly](translate_part_rassembly.md) *(来自 constraints.py)*
 
 ## 其他
 

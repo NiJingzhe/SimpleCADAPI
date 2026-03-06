@@ -82,6 +82,29 @@ from .evolve import (
     make_threaded_rod_rsolid,
 )
 
+from .constraints import (
+    # 声明式装配约束
+    make_assembly_rassembly,
+    clone_assembly_rassembly,
+    add_part_rassembly,
+    clear_constraints_rassembly,
+    translate_part_rassembly,
+    rotate_part_rassembly,
+    constrain_coincident_rassembly,
+    constrain_concentric_rassembly,
+    constrain_offset_rassembly,
+    constrain_distance_rassembly,
+    stack_rassembly,
+    solve_assembly_rresult,
+    Assembly,
+    AssemblyResult,
+    SolveReport,
+    PartHandle,
+    PointAnchor,
+    AxisAnchor,
+    stack,
+)
+
 __author__ = "SimpleCAD API Team"
 __description__ = "Simplified CAD modeling Python API based on CADQuery"
 
@@ -202,6 +225,26 @@ __all__ = [
     "make_n_hole_flange_rsolid",
     "make_naca_propeller_blade_rsolid",
     "make_threaded_rod_rsolid",
+    # 声明式装配约束
+    "make_assembly_rassembly",
+    "clone_assembly_rassembly",
+    "add_part_rassembly",
+    "clear_constraints_rassembly",
+    "translate_part_rassembly",
+    "rotate_part_rassembly",
+    "constrain_coincident_rassembly",
+    "constrain_concentric_rassembly",
+    "constrain_offset_rassembly",
+    "constrain_distance_rassembly",
+    "stack_rassembly",
+    "solve_assembly_rresult",
+    "Assembly",
+    "AssemblyResult",
+    "SolveReport",
+    "PartHandle",
+    "PointAnchor",
+    "AxisAnchor",
+    "stack",
     # 别名
     "create_angle_arc",
     "create_angle_arc_wire",
