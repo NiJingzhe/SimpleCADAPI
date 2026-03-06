@@ -19,6 +19,94 @@ Web 布局（如 HTML/CSS 的 Flexbox）证明了一个有效方向：
 - 增加一个可选的声明式装配层；
 - 让用户描述装配关系，由 SDK 计算每个零件的最终位姿。
 
+## 当前实现状态（feat/declarative-constraints-layout）
+
+当前分支已提供一个可运行的 MVP，核心能力如下：
+
+- 新增模块：`simplecadapi.constraints`
+- 新增对象：`Assembly`、`PartHandle`、`PointAnchor`、`AxisAnchor`、`AssemblyResult`
+- 支持混合范式：
+  - 先命令式预定位（`translate_part` / `rotate_part`）
+  - 再声明式约束求解（`coincident` / `concentric` / `offset` / `distance`）
+- 支持一维容器语法糖：`stack(...)`
+- `stack(...)` 新增主轴分布参数：`justify=start|center|end|space-between`
+- 当需要 `justify=center/end/space-between` 时，可通过 `bounds=(start_anchor, end_anchor)`
+  指定容器主轴边界。
+
+当前布局实现采用 **BBox-first** 策略：
+
+- 对齐与分布主要基于 `bbox.*` 锚点（AABB）。
+- 这与 Flexbox 的盒模型思想一致，但在 3D 下是近似语义：
+  当零件发生旋转时，AABB 会变化，布局结果会随之变化。
+- 后续可在此基础上增加 OBB/特征面锚点，降低旋转带来的近似误差。
+- 支持装配树父子关系与局部/世界变换传播
+
+框架风格约束（函数式）已经被显式化为两类映射：
+
+1. **Type-1 提升映射**（参数空间 -> CAD对象空间）
+   - 例如：`make_*_rsolid`、`make_assembly_rassembly`
+2. **Type-2 代数变换映射**（CAD对象空间 -> CAD对象空间/结果空间）
+   - 例如：`translate_part_rassembly`、`constrain_offset_rassembly`、`stack_rassembly`
+   - 求解使用 `solve_assembly_rresult`，保证不修改输入装配对象
+
+对应的函数式 API（不修改输入）包括：
+
+- `make_assembly_rassembly`
+- `clone_assembly_rassembly`
+- `add_part_rassembly`
+- `translate_part_rassembly` / `rotate_part_rassembly`
+- `constrain_coincident_rassembly` / `constrain_concentric_rassembly`
+- `constrain_offset_rassembly` / `constrain_distance_rassembly`
+- `stack_rassembly`
+- `solve_assembly_rresult`
+
+函数式管线示例：
+
+```python
+import simplecadapi as scad
+
+asm0 = scad.make_assembly_rassembly([
+    ("sleeve", sleeve_solid),
+    ("rod", rod_solid),
+])
+
+asm1 = scad.translate_part_rassembly(asm0, "rod", (3.0, -2.0, 4.0))
+asm2 = scad.constrain_concentric_rassembly(
+    asm1,
+    asm1.part("sleeve").axis("z"),
+    asm1.part("rod").axis("z"),
+)
+asm3 = scad.constrain_offset_rassembly(
+    asm2,
+    asm2.part("sleeve").anchor("bbox.bottom"),
+    asm2.part("rod").anchor("bbox.bottom"),
+    3.0,
+    axis="z",
+)
+
+result = scad.solve_assembly_rresult(asm3)
+```
+
+示例（混合使用）：
+
+```python
+import simplecadapi as scad
+
+asm = scad.Assembly("demo")
+sleeve = asm.add_part("sleeve", sleeve_solid)
+rod = asm.add_part("rod", rod_solid)
+
+# 命令式预定位
+asm.translate_part("rod", (3.0, -2.0, 4.0), frame="world")
+
+# 声明式约束
+asm.concentric(sleeve.axis("z"), rod.axis("z"))
+asm.offset(sleeve.anchor("bbox.bottom"), rod.anchor("bbox.bottom"), 3.0, axis="z")
+
+result = asm.solve()
+scad.export_step(result.solids(), "assembly.step")
+```
+
 ## 范围（Scope）
 
 ### In Scope（第一阶段）
