@@ -602,9 +602,18 @@ def make_box_rsolid(
 
         # 自动标记面
         solid.auto_tag_faces("box")
+        solid.apply_tag("geom.primitive.box", propagate=False)
         solid.add_tag("box")
         solid.add_tag(f"bottom center: {bottom_face_center}")
-        solid.add_tag("size: {width}x{height}x{depth}")
+        solid.add_tag(f"size: {width}x{height}x{depth}")
+        solid.set_metadata(
+            "geo",
+            {
+                "type": "box",
+                "size": {"x": width, "y": height, "z": depth},
+                "bottom_face_center": bottom_face_center,
+            },
+        )
 
         return solid
     except Exception as e:
@@ -668,9 +677,20 @@ def make_cylinder_rsolid(
 
         # 自动标记面
         solid.auto_tag_faces("cylinder")
+        solid.apply_tag("geom.primitive.cylinder", propagate=False)
         solid.add_tag("cylinder")
         solid.add_tag(f"bottom center: {bottom_face_center}")
         solid.add_tag(f"size: {radius}x{height}")
+        solid.set_metadata(
+            "geo",
+            {
+                "type": "cylinder",
+                "radius": radius,
+                "height": height,
+                "bottom_face_center": bottom_face_center,
+                "axis": axis,
+            },
+        )
 
         return solid
     except Exception as e:
@@ -733,10 +753,22 @@ def make_cone_rsolid(
         solid = Solid(cq_solid)
 
         # 自动标记面
+        solid.apply_tag("geom.primitive.cone", propagate=False)
         solid.add_tag("cone")
         solid.add_tag(f"bottom center: {bottom_face_center}")
         solid.add_tag(
             f"size: bottom_radius: {bottom_radius}, top_radius: {top_radius}, height: {height}"
+        )
+        solid.set_metadata(
+            "geo",
+            {
+                "type": "cone",
+                "bottom_radius": bottom_radius,
+                "top_radius": top_radius,
+                "height": height,
+                "bottom_face_center": bottom_face_center,
+                "axis": axis,
+            },
         )
 
         return solid
@@ -804,9 +836,18 @@ def make_sphere_rsolid(
 
         # 自动标记面
         solid.auto_tag_faces("sphere")
+        solid.apply_tag("geom.primitive.sphere", propagate=False)
         solid.add_tag("sphere")
         solid.add_tag(f"center: {center}")
         solid.add_tag(f"radius: {radius}")
+        solid.set_metadata(
+            "geo",
+            {
+                "type": "sphere",
+                "radius": radius,
+                "center": center,
+            },
+        )
 
         return solid
     except Exception as e:

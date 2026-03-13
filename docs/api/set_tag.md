@@ -1,27 +1,27 @@
 # set_tag
 
-## API定义
+## API Definition
 
 ```python
 def set_tag(shape: AnyShape, tag: str) -> AnyShape
 ```
 
-*来源文件: operations.py*
+*Source: operations.py*
 
-## API作用
+## Description
 
 为几何体设置标签
 
-## API参数说明
+## Parameters
 
 ### shape
 
-- **说明**: 几何体
+- **Description**: 几何体
 
 ### tag
 
-- **说明**: 标签名称
+- **Description**: 标签名称
 
-## 返回值说明
+## Returns
 
 设置标签后的几何体

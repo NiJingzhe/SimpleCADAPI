@@ -1,14 +1,14 @@
 # stack
 
-## API定义
+## API Definition
 
 ```python
 def stack(assembly: Assembly, parts: Sequence[Union[str, PartHandle]], axis: str = 'z', gap: float = 0.0, align: Literal['center', 'start', 'end'] = 'center', justify: Literal['start', 'center', 'end', 'space-between'] = 'start', bounds: Optional[Tuple[PointAnchor, PointAnchor]] = None) -> Assembly
 ```
 
-*来源文件: constraints.py*
+*Source: constraints.py*
 
-## API作用
+## Description
 
 沿指定轴将多个零件做声明式堆叠。
 

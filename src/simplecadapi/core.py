@@ -18,6 +18,8 @@ from cadquery.occ_impl.shapes import (
     Compound as CQCompound,
 )
 
+from .tagging import DEFAULT_TAG_POLICY, normalize_tag
+
 
 class CoordinateSystem:
     """三维坐标系
@@ -264,6 +266,35 @@ class TaggedMixin:
         if not isinstance(tag, str):
             raise TypeError("标签必须是字符串类型")
         self._tags.add(tag)
+
+    def apply_tag(
+        self,
+        tag: str,
+        *,
+        normalize: bool = True,
+        propagate: Optional[bool] = None,
+    ) -> None:
+        if normalize:
+            tag = normalize_tag(tag, strict=True)
+        self._tags.add(tag)
+
+        if propagate is None:
+            propagate = DEFAULT_TAG_POLICY.should_propagate(tag)
+
+        if propagate:
+            self._propagate_tag_down(tag)
+
+    def _propagate_tag_down(self, tag: str) -> None:
+        if not isinstance(self, TopoMixein):
+            return
+        try:
+            children = self.get_children()
+        except Exception:
+            return
+        for child in children:
+            if isinstance(child, TaggedMixin):
+                child._tags.add(tag)
+                child._propagate_tag_down(tag)
 
     def remove_tag(self, tag: str) -> None:
         """移除标签
@@ -519,7 +550,6 @@ class Edge(TaggedMixin, TopoMixein):
             end_coord = self.get_end_vertex().get_coordinates()
             part1 = f"from: {start_coord}, to: {end_coord}"
         except Exception:
-
             part1 = "from: [unable to retrieve], to: [unable to retrieve], ususally this is a circle"
 
         return f"Edge({part1}, length={length:.3f}, tags={self.get_tags()})"
@@ -604,10 +634,11 @@ class Wire(TaggedMixin, TopoMixein):
 
     def _tag_edges(self) -> None:
         """给构成wire的edges打tag"""
-
+        policy = DEFAULT_TAG_POLICY
         for i, edge in enumerate(self.get_edges()):
-            for tags in self.get_tags():
-                edge.add_tag(tags)
+            for tag in self.get_tags():
+                if policy.should_propagate(tag):
+                    edge.add_tag(tag)
 
             edge.add_tag("edge")
             edge.add_tag(f"{i}")
@@ -675,11 +706,13 @@ class Face(TaggedMixin, TopoMixein):
 
             outer_wire = Wire(self.cq_face.outerWire())
             outer_wire.add_tag("outer_wire")
+            outer_wire.apply_tag("wire.outer", propagate=False)
             self.add_child(outer_wire)
 
             for w in self.cq_face.innerWires():
                 iw = Wire(w)
                 iw.add_tag("inner_wire")
+                iw.apply_tag("wire.inner", propagate=False)
                 self.add_child(iw)
 
         except Exception as e:
@@ -714,15 +747,21 @@ class Face(TaggedMixin, TopoMixein):
 
     def _tag_wires(self) -> None:
         """为面上的边线添加标签"""
-        for tags in self.get_tags():
-            self.get_outer_wire().add_tag(tags)
-        self.get_outer_wire().add_tag("outer_wire")
-        self.get_outer_wire()._tag_edges()
+        policy = DEFAULT_TAG_POLICY
+        outer_wire = self.get_outer_wire()
+        for tag in self.get_tags():
+            if policy.should_propagate(tag):
+                outer_wire.add_tag(tag)
+        outer_wire.add_tag("outer_wire")
+        outer_wire.apply_tag("wire.outer", propagate=False)
+        outer_wire._tag_edges()
         for i, iw in enumerate(self.get_inner_wires()):
             for tag in self.get_tags():
-                iw.add_tag(tag)
+                if policy.should_propagate(tag):
+                    iw.add_tag(tag)
 
             iw.add_tag("inner_wire")
+            iw.apply_tag("wire.inner", propagate=False)
             iw.add_tag(f"{i}")
             iw._tag_edges()
 
@@ -736,7 +775,8 @@ class Face(TaggedMixin, TopoMixein):
             return [
                 w
                 for w in cast(List[Wire], self.get_children())
-                if w.is_closed() and w.has_tag("outer_wire")
+                if w.is_closed()
+                and (w.has_tag("outer_wire") or w.has_tag("wire.outer"))
             ][0]
         except Exception as e:
             raise ValueError(f"获取外边界线失败: {e}")
@@ -751,7 +791,8 @@ class Face(TaggedMixin, TopoMixein):
             return [
                 w
                 for w in cast(List[Wire], self.get_children())
-                if w.is_closed() and w.has_tag("inner_wire")
+                if w.is_closed()
+                and (w.has_tag("inner_wire") or w.has_tag("wire.inner"))
             ]
         except Exception as e:
             raise ValueError(f"获取内边界线失败: {e}")
@@ -980,6 +1021,7 @@ class Solid(TaggedMixin, TopoMixein):
         """
         # 同时也添加到面对象本身
         face.add_tag(tag)
+        face.apply_tag(f"face.{tag}", propagate=False)
         face._tag_wires()
 
     def __str__(self) -> str:

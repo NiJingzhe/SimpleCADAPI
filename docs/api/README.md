@@ -1,8 +1,8 @@
-# SimpleCAD API 文档索引
+# SimpleCAD API Index
 
-本文档包含了 SimpleCAD API (来自 `operations.py`、`evolve.py`、`constraints.py`) 的所有函数说明。
+This index includes API docs generated from `operations.py`, `evolve.py`, `constraints.py`, and `ql.py`.
 
-## 基础图形创建
+## Basic Creation
 
 - [make_angle_arc_redge](make_angle_arc_redge.md) *(来自 operations.py)*
 - [make_angle_arc_rwire](make_angle_arc_rwire.md) *(来自 operations.py)*
@@ -29,50 +29,50 @@
 - [make_three_point_arc_rwire](make_three_point_arc_rwire.md) *(来自 operations.py)*
 - [make_wire_from_edges_rwire](make_wire_from_edges_rwire.md) *(来自 operations.py)*
 
-## 变换操作
+## Transforms
 
 - [mirror_shape](mirror_shape.md) *(来自 operations.py)*
 - [rotate_shape](rotate_shape.md) *(来自 operations.py)*
 - [translate_shape](translate_shape.md) *(来自 operations.py)*
 
-## 3D操作
+## 3D Operations
 
 - [extrude_rsolid](extrude_rsolid.md) *(来自 operations.py)*
 - [loft_rsolid](loft_rsolid.md) *(来自 operations.py)*
 - [revolve_rsolid](revolve_rsolid.md) *(来自 operations.py)*
 - [sweep_rsolid](sweep_rsolid.md) *(来自 operations.py)*
 
-## 标签和选择
+## Tagging and Selection
 
 - [select_edges_by_tag](select_edges_by_tag.md) *(来自 operations.py)*
 - [select_faces_by_tag](select_faces_by_tag.md) *(来自 operations.py)*
 - [set_tag](set_tag.md) *(来自 operations.py)*
 
-## 布尔运算
+## Boolean Operations
 
 - [cut_rsolidlist](cut_rsolidlist.md) *(来自 operations.py)*
 - [intersect_rsolidlist](intersect_rsolidlist.md) *(来自 operations.py)*
 - [union_rsolidlist](union_rsolidlist.md) *(来自 operations.py)*
 
-## 导出功能
+## Export
 
 - [export_step](export_step.md) *(来自 operations.py)*
 - [export_stl](export_stl.md) *(来自 operations.py)*
 
-## 高级特征
+## Advanced Features
 
 - [chamfer_rsolid](chamfer_rsolid.md) *(来自 operations.py)*
 - [fillet_rsolid](fillet_rsolid.md) *(来自 operations.py)*
 - [helical_sweep_rsolid](helical_sweep_rsolid.md) *(来自 operations.py)*
 - [shell_rsolid](shell_rsolid.md) *(来自 operations.py)*
 
-## 自进化
+## Evolve
 
 - [make_n_hole_flange_rsolid](make_n_hole_flange_rsolid.md) *(来自 evolve.py)*
 - [make_naca_propeller_blade_rsolid](make_naca_propeller_blade_rsolid.md) *(来自 evolve.py)*
 - [make_threaded_rod_rsolid](make_threaded_rod_rsolid.md) *(来自 evolve.py)*
 
-## 声明式装配约束
+## Assembly Constraints
 
 - [add_part_rassembly](add_part_rassembly.md) *(来自 constraints.py)*
 - [clear_constraints_rassembly](clear_constraints_rassembly.md) *(来自 constraints.py)*
@@ -88,7 +88,15 @@
 - [stack_rassembly](stack_rassembly.md) *(来自 constraints.py)*
 - [translate_part_rassembly](translate_part_rassembly.md) *(来自 constraints.py)*
 
-## 其他
+## Other
 
+- [and_](and_.md) *(来自 ql.py)*
+- [geo](geo.md) *(来自 ql.py)*
 - [linear_pattern_rsolidlist](linear_pattern_rsolidlist.md) *(来自 operations.py)*
+- [meta](meta.md) *(来自 ql.py)*
+- [not_](not_.md) *(来自 ql.py)*
+- [or_](or_.md) *(来自 ql.py)*
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(来自 operations.py)*
+- [select](select.md) *(来自 ql.py)*
+- [tag](tag.md) *(来自 ql.py)*
+- [value](value.md) *(来自 ql.py)*

@@ -1,13 +1,13 @@
 # constrain_offset_rassembly
 
-## API定义
+## API Definition
 
 ```python
 def constrain_offset_rassembly(assembly: Assembly, reference: PointAnchor, moving: PointAnchor, distance: float, axis: AxisLike = 'z') -> Assembly
 ```
 
-*来源文件: constraints.py*
+*Source: constraints.py*
 
-## API作用
+## Description
 
 Type-2映射：添加轴向偏移约束并返回新装配对象。
