@@ -1,13 +1,13 @@
 # constrain_concentric_rassembly
 
-## API定义
+## API Definition
 
 ```python
 def constrain_concentric_rassembly(assembly: Assembly, reference: AxisAnchor, moving: AxisAnchor, same_direction: bool = False) -> Assembly
 ```
 
-*来源文件: constraints.py*
+*Source: constraints.py*
 
-## API作用
+## Description
 
 Type-2映射：添加同轴约束并返回新装配对象。

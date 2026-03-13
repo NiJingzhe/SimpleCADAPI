@@ -374,6 +374,13 @@ class SkillPackager:
             - Runtime code is installed from PyPI into active virtual environment site-packages.
             - Skill-local evolved cases are stored under `cases/{cases_module}/`.
 
+            ## MUST Requirements
+            1. You MUST run `ls` on `references/docs` before coding. The document filenames enumerate all available APIs.
+            2. Geometry construction APIs MUST be used only to build integrated parts. Final assembly MUST use declarative constraints, and parameters MUST reflect design intent.
+            3. You MUST use the tagging mechanism fully and consistently.
+            4. You MUST NOT write the entire solution at once. Each step MUST include a grounding `print`, and grounding MUST use QL where possible.
+            5. After model construction, you MUST ask the user if they are satisfied and whether modifications are needed. Only when the user explicitly confirms satisfaction MAY you add the script to evolve cases.
+
             ## Install behavior
             - Preferred: run `scripts/install.sh` once when skill is installed/activated.
             - Runtime wrappers auto-install on demand if `simplecadapi` is missing.

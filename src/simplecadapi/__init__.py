@@ -105,6 +105,8 @@ from .constraints import (
     stack,
 )
 
+from . import ql
+
 __author__ = "SimpleCAD API Team"
 __description__ = "Simplified CAD modeling Python API based on CADQuery"
 
@@ -245,6 +247,7 @@ __all__ = [
     "PointAnchor",
     "AxisAnchor",
     "stack",
+    "ql",
     # 别名
     "create_angle_arc",
     "create_angle_arc_wire",

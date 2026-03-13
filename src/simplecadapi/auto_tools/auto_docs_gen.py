@@ -20,6 +20,7 @@ DEFAULT_SOURCES: tuple[Path, ...] = (
     PROJECT_ROOT / "src/simplecadapi/operations.py",
     PROJECT_ROOT / "src/simplecadapi/evolve.py",
     PROJECT_ROOT / "src/simplecadapi/constraints.py",
+    PROJECT_ROOT / "src/simplecadapi/ql.py",
 )
 DEFAULT_OUTPUT_DIRS: tuple[Path, ...] = (PROJECT_ROOT / "docs/api",)
 
@@ -143,13 +144,13 @@ class APIDocumentGenerator:
         md_lines.append(f"# {api.name}")
         md_lines.append("")
 
-        md_lines.append("## API定义")
+        md_lines.append("## API Definition")
         md_lines.append("")
         md_lines.append("```python")
         md_lines.append(api.signature)
         md_lines.append("```")
         md_lines.append("")
-        md_lines.append(f"*来源文件: {api.source_file}*")
+        md_lines.append(f"*Source: {api.source_file}*")
         md_lines.append("")
 
         description = str(parsed.get("description", "")).strip()
@@ -157,14 +158,14 @@ class APIDocumentGenerator:
         usage_parts = [part for part in [description, usage] if part]
         if usage_parts:
             merged_usage = "\n\n".join(dict.fromkeys(usage_parts))
-            md_lines.append("## API作用")
+            md_lines.append("## Description")
             md_lines.append("")
             md_lines.extend(merged_usage.splitlines())
             md_lines.append("")
 
         args = parsed.get("args", [])
         if isinstance(args, list) and args:
-            md_lines.append("## API参数说明")
+            md_lines.append("## Parameters")
             md_lines.append("")
             for arg in args:
                 arg_name = str(arg.get("name", "")).strip()
@@ -174,20 +175,20 @@ class APIDocumentGenerator:
                 md_lines.append(f"### {arg_name}")
                 md_lines.append("")
                 if arg_type:
-                    md_lines.append(f"- **类型**: `{arg_type}`")
-                md_lines.append(f"- **说明**: {arg_desc}")
+                    md_lines.append(f"- **Type**: `{arg_type}`")
+                md_lines.append(f"- **Description**: {arg_desc}")
                 md_lines.append("")
 
         returns_text = str(parsed.get("returns", "")).strip()
         if returns_text:
-            md_lines.append("## 返回值说明")
+            md_lines.append("## Returns")
             md_lines.append("")
             md_lines.extend(returns_text.splitlines())
             md_lines.append("")
 
         raises = parsed.get("raises", [])
         if isinstance(raises, list) and raises:
-            md_lines.append("## 异常")
+            md_lines.append("## Raises")
             md_lines.append("")
             for exc in raises:
                 exc_type = str(exc.get("type", "")).strip()
@@ -197,11 +198,11 @@ class APIDocumentGenerator:
 
         examples = parsed.get("examples", [])
         if isinstance(examples, list) and examples:
-            md_lines.append("## API使用例子")
+            md_lines.append("## Examples")
             md_lines.append("")
             for index, block in enumerate(examples, start=1):
                 if len(examples) > 1:
-                    md_lines.append(f"### 例子 {index}")
+                    md_lines.append(f"### Example {index}")
                 md_lines.append("```python")
                 md_lines.extend(block.splitlines())
                 md_lines.append("```")
@@ -211,52 +212,52 @@ class APIDocumentGenerator:
 
     def _build_api_index_markdown(self) -> str:
         categories: Dict[str, List[ApiInfo]] = {
-            "基础图形创建": [],
-            "变换操作": [],
-            "3D操作": [],
-            "标签和选择": [],
-            "布尔运算": [],
-            "导出功能": [],
-            "高级特征": [],
-            "自进化": [],
-            "声明式装配约束": [],
-            "其他": [],
+            "Basic Creation": [],
+            "Transforms": [],
+            "3D Operations": [],
+            "Tagging and Selection": [],
+            "Boolean Operations": [],
+            "Export": [],
+            "Advanced Features": [],
+            "Evolve": [],
+            "Assembly Constraints": [],
+            "Other": [],
         }
 
         for api in self.apis:
             name = api.name
 
             if api.source_file == "evolve.py":
-                categories["自进化"].append(api)
+                categories["Evolve"].append(api)
                 continue
 
             if api.source_file == "constraints.py":
-                categories["声明式装配约束"].append(api)
+                categories["Assembly Constraints"].append(api)
                 continue
 
             if name.startswith("make_"):
-                categories["基础图形创建"].append(api)
+                categories["Basic Creation"].append(api)
             elif name.startswith(("translate_", "rotate_", "mirror_")):
-                categories["变换操作"].append(api)
+                categories["Transforms"].append(api)
             elif name.startswith(("extrude_", "revolve_", "loft_", "sweep_")):
-                categories["3D操作"].append(api)
+                categories["3D Operations"].append(api)
             elif name.startswith(("set_tag", "select_")):
-                categories["标签和选择"].append(api)
+                categories["Tagging and Selection"].append(api)
             elif name.startswith(("union_", "cut_", "intersect_")):
-                categories["布尔运算"].append(api)
+                categories["Boolean Operations"].append(api)
             elif name.startswith("export_"):
-                categories["导出功能"].append(api)
+                categories["Export"].append(api)
             elif name.startswith(
                 ("fillet_", "chamfer_", "shell_", "pattern_", "helical_")
             ):
-                categories["高级特征"].append(api)
+                categories["Advanced Features"].append(api)
             else:
-                categories["其他"].append(api)
+                categories["Other"].append(api)
 
         md_lines: List[str] = [
-            "# SimpleCAD API 文档索引",
+            "# SimpleCAD API Index",
             "",
-            "本文档包含了 SimpleCAD API (来自 `operations.py`、`evolve.py`、`constraints.py`) 的所有函数说明。",
+            "This index includes API docs generated from `operations.py`, `evolve.py`, `constraints.py`, and `ql.py`.",
             "",
         ]
 

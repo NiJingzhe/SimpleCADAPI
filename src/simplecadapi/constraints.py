@@ -21,6 +21,7 @@ import numpy as np
 from OCP.gp import gp_Trsf
 
 from .core import Solid, Face
+from .tagging import resolve_anchor_tag_candidates
 
 
 Vec3Like = Union[Tuple[float, float, float], List[float], np.ndarray]
@@ -778,12 +779,14 @@ class Assembly:
 
     def _find_tagged_face(self, part_name: str, tag: str) -> Face:
         node = self._parts[part_name]
-        faces = [face for face in node.solid.get_faces() if face.has_tag(tag)]
-        if not faces:
-            raise ValueError(
-                f"零件 '{part_name}' 未找到标签为 '{tag}' 的面，请先执行 auto_tag_faces() 或手动打标签"
-            )
-        return faces[0]
+        candidates = resolve_anchor_tag_candidates(tag)
+        for candidate in candidates:
+            faces = [face for face in node.solid.get_faces() if face.has_tag(candidate)]
+            if faces:
+                return faces[0]
+        raise ValueError(
+            f"零件 '{part_name}' 未找到标签为 '{tag}' 的面，请先执行 auto_tag_faces() 或手动打标签"
+        )
 
     # ------------------------------------------------------------------
     # output helpers
