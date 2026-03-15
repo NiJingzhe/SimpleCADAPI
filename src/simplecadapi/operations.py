@@ -3,11 +3,14 @@ SimpleCAD API操作函数实现
 基于README中的API设计，实现各种几何操作
 """
 
-from typing import List, Tuple, Union, Optional, Sequence, cast
-import numpy as np
+from typing import List, Tuple, Union, Optional, Sequence, cast, Dict
 import math
+import numpy as np
 import cadquery as cq
 from cadquery import Vector
+from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing
+from OCP.TopAbs import TopAbs_SHELL
+from OCP.TopExp import TopExp_Explorer
 
 from .core import (
     Vertex,
@@ -17,6 +20,13 @@ from .core import (
     Solid,
     AnyShape,
     get_current_cs,
+)
+from .field import (
+    ScalarField,
+    bounds_rbbox,
+    eval_rarray,
+    make_box_rscalarfield,
+    intersect_rscalarfield,
 )
 
 from cadquery.occ_impl.shapes import fuse, cut, intersect, revolve
@@ -508,6 +518,277 @@ def make_face_from_wire_rface(
         return face
     except Exception as e:
         raise ValueError(f"创建面失败: {e}. 请检查输入的线是否有效且封闭。")
+
+
+_TETRAHEDRA = (
+    (0, 5, 1, 6),
+    (0, 1, 2, 6),
+    (0, 2, 3, 6),
+    (0, 3, 7, 6),
+    (0, 7, 4, 6),
+    (0, 4, 5, 6),
+)
+_TETRA_EDGES = ((0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3))
+_TETRA_TRI_TABLE = (
+    (),
+    (0, 3, 2),
+    (0, 1, 4),
+    (1, 4, 2, 2, 4, 3),
+    (1, 2, 5),
+    (0, 3, 5, 0, 5, 1),
+    (0, 2, 5, 0, 5, 4),
+    (5, 4, 3),
+    (3, 4, 5),
+    (4, 5, 0, 5, 2, 0),
+    (1, 5, 0, 5, 3, 0),
+    (5, 2, 1),
+    (3, 4, 2, 2, 4, 1),
+    (4, 1, 0),
+    (2, 3, 0),
+    (),
+)
+_CUBE_OFFSETS = np.array(
+    [
+        [0, 0, 0],
+        [1, 0, 0],
+        [1, 1, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+        [1, 0, 1],
+        [1, 1, 1],
+        [0, 1, 1],
+    ],
+    dtype=float,
+)
+
+
+def _evaluate_field_values(
+    field, xs: np.ndarray, ys: np.ndarray, zs: np.ndarray
+) -> np.ndarray:
+    if isinstance(field, ScalarField):
+        return eval_rarray(field, xs, ys, zs)
+
+    if callable(field):
+        try:
+            values = field(xs, ys, zs)
+            values = np.asarray(values, dtype=float)
+            if values.shape != xs.shape:
+                raise ValueError("field 输出形状不匹配")
+            return values
+        except Exception:
+            vectorized = np.vectorize(field)
+            return vectorized(xs, ys, zs).astype(float)
+
+    raise ValueError("field 必须是 ScalarField 或可调用对象")
+
+
+def _marching_tetrahedra(
+    xs: np.ndarray,
+    ys: np.ndarray,
+    zs: np.ndarray,
+    values: np.ndarray,
+    iso: float,
+) -> List[List[Tuple[float, float, float]]]:
+    triangles: List[List[Tuple[float, float, float]]] = []
+    nx, ny, nz = values.shape
+    for i in range(nx - 1):
+        for j in range(ny - 1):
+            for k in range(nz - 1):
+                cube_vals = np.array(
+                    [
+                        values[i + int(o[0]), j + int(o[1]), k + int(o[2])]
+                        for o in _CUBE_OFFSETS
+                    ],
+                    dtype=float,
+                )
+                cube_pos = np.array(
+                    [
+                        (xs[i + int(o[0])], ys[j + int(o[1])], zs[k + int(o[2])])
+                        for o in _CUBE_OFFSETS
+                    ],
+                    dtype=float,
+                )
+                grad = np.array(
+                    [
+                        cube_vals[1] - cube_vals[0],
+                        cube_vals[3] - cube_vals[0],
+                        cube_vals[4] - cube_vals[0],
+                    ],
+                    dtype=float,
+                )
+                eps = 1e-9 * max(1.0, float(np.max(np.abs(cube_vals))))
+                for tetra in _TETRAHEDRA:
+                    idx = list(tetra)
+                    tpos = cube_pos[idx]
+                    tval = cube_vals[idx] - iso
+                    tval = np.where(np.abs(tval) < eps, -eps, tval)
+                    case_index = 0
+                    for v_index, v_val in enumerate(tval):
+                        if v_val < 0:
+                            case_index |= 1 << v_index
+
+                    table = _TETRA_TRI_TABLE[case_index]
+                    if not table:
+                        continue
+
+                    edge_points: dict[int, np.ndarray] = {}
+                    for edge_index in set(table):
+                        a, b = _TETRA_EDGES[edge_index]
+                        v0 = tval[a]
+                        v1 = tval[b]
+                        t = v0 / (v0 - v1)
+                        edge_points[edge_index] = tpos[a] + t * (tpos[b] - tpos[a])
+
+                    for tri_idx in range(0, len(table), 3):
+                        p0 = edge_points[table[tri_idx]]
+                        p1 = edge_points[table[tri_idx + 1]]
+                        p2 = edge_points[table[tri_idx + 2]]
+                        tri = [p0, p1, p2]
+                        if np.linalg.norm(grad) > 1e-9:
+                            normal = np.cross(p1 - p0, p2 - p0)
+                            if float(np.dot(normal, grad)) < 0:
+                                tri = [p0, p2, p1]
+                        triangles.append([tuple(p.tolist()) for p in tri])
+    return triangles
+
+
+def make_field_surface_rsolid(
+    field,
+    bounds: Optional[
+        Tuple[Tuple[float, float, float], Tuple[float, float, float]]
+    ] = None,
+    resolution: Tuple[int, int, int] = (24, 24, 24),
+    iso: float = 0.0,
+    cap_bounds: bool = True,
+) -> Solid:
+    """通过场函数等势面构建闭合曲面实体。
+
+    Args:
+        field: 标量场对象（ScalarField）或可调用函数。
+        bounds: 采样边界 (min_xyz, max_xyz)，可为 None（自动推导）。
+        resolution: 采样分辨率 (nx, ny, nz)。
+        iso: 等势面值。
+        cap_bounds: 是否对边界裁切处进行封闭封口。
+
+    Returns:
+        Solid: 等势面闭合实体。
+
+    Raises:
+        ValueError: 当采样失败或无法构建实体时抛出异常。
+
+    Usage:
+        使用场函数定义隐式曲面，并抽取等势面生成闭合实体。
+
+    Example:
+         field = Field.make_sphere_rscalarfield((0, 0, 0), 1.0)
+         solid = make_field_surface_rsolid(field, ((-1.2, -1.2, -1.2), (1.2, 1.2, 1.2)))
+    """
+    try:
+        if bounds is None:
+            if isinstance(field, ScalarField):
+                bounds = bounds_rbbox(field)
+            else:
+                raise ValueError("bounds 不能为空")
+
+        (xmin, ymin, zmin), (xmax, ymax, zmax) = bounds
+        if cap_bounds:
+            center = ((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, (zmin + zmax) / 2.0)
+            size = (xmax - xmin, ymax - ymin, zmax - zmin)
+            if isinstance(field, ScalarField):
+                box_field = make_box_rscalarfield(center, size)
+                field = intersect_rscalarfield(field, box_field)
+            else:
+                field_fn = field
+                cx, cy, cz = center
+                sx, sy, sz = size
+
+                def box_eval(x, y, z):
+                    dx = np.abs(x - cx) - sx / 2.0
+                    dy = np.abs(y - cy) - sy / 2.0
+                    dz = np.abs(z - cz) - sz / 2.0
+                    return np.maximum.reduce([dx, dy, dz])
+
+                def capped(x, y, z):
+                    return np.maximum(field_fn(x, y, z), box_eval(x, y, z))
+
+                field = capped
+        nx, ny, nz = resolution
+        if nx < 2 or ny < 2 or nz < 2:
+            raise ValueError("resolution 每个维度必须 >= 2")
+
+        xs = np.linspace(xmin, xmax, nx)
+        ys = np.linspace(ymin, ymax, ny)
+        zs = np.linspace(zmin, zmax, nz)
+        grid_x, grid_y, grid_z = np.meshgrid(xs, ys, zs, indexing="ij")
+        values = _evaluate_field_values(field, grid_x, grid_y, grid_z)
+        triangles = _marching_tetrahedra(xs, ys, zs, values, iso)
+        if not triangles:
+            raise ValueError("未找到等势面，请调整 bounds 或 iso")
+
+        faces = []
+        edge_count: dict[
+            Tuple[Tuple[float, float, float], Tuple[float, float, float]], int
+        ] = {}
+        for tri in triangles:
+            if len({tri[0], tri[1], tri[2]}) < 3:
+                continue
+            try:
+                wire = cq.Wire.makePolygon(tri, close=True)
+                faces.append(cq.Face.makeFromWires(wire))
+            except Exception:
+                continue
+            pts = [tuple(np.round(p, 8)) for p in tri]
+            edges = [(pts[0], pts[1]), (pts[1], pts[2]), (pts[2], pts[0])]
+            for a, b in edges:
+                key = (a, b) if a <= b else (b, a)
+                edge_count[key] = edge_count.get(key, 0) + 1
+        sewing = BRepBuilderAPI_Sewing(1e-6)
+        for face in faces:
+            sewing.Add(face.wrapped)
+        sewing.Perform()
+        sewed = sewing.SewedShape()
+        shells = []
+        if sewed.ShapeType() == TopAbs_SHELL:
+            shells.append(sewed)
+        else:
+            explorer = TopExp_Explorer(sewed, TopAbs_SHELL)
+            while explorer.More():
+                shells.append(explorer.Current())
+                explorer.Next()
+
+        if not shells:
+            raise ValueError("未能从等势面构建闭合壳体")
+
+        def _shell_metric(shell_obj):
+            cq_shell = cq.Shell(shell_obj)
+            bb = cq_shell.BoundingBox()
+            volume = (bb.xmax - bb.xmin) * (bb.ymax - bb.ymin) * (bb.zmax - bb.zmin)
+            face_count = len(cq_shell.Faces())
+            return (face_count, volume)
+
+        shell = max(shells, key=_shell_metric)
+
+        solid = Solid(cq.Solid.makeSolid(cq.Shell(shell)))
+
+        shell_closed_value = bool(cq.Shell(shell).Closed())
+
+        mesh_closed = all(count == 2 for count in edge_count.values())
+        report = {
+            "bounds": {"min": (xmin, ymin, zmin), "max": (xmax, ymax, zmax)},
+            "resolution": resolution,
+            "iso": iso,
+            "field_min": float(np.min(values)),
+            "field_max": float(np.max(values)),
+            "triangles": len(triangles),
+            "shells": len(shells),
+            "mesh_closed": mesh_closed,
+            "shell_closed": shell_closed_value,
+            "cap_bounds": bool(cap_bounds),
+        }
+        solid.set_metadata("field_report", report)
+        return solid
+    except Exception as e:
+        raise ValueError(f"场函数等势面构建失败: {e}.")
 
 
 def make_wire_from_edges_rwire(edges: List[Edge]) -> Wire:
@@ -2227,6 +2508,536 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
         cq.exporters.export(wp, filename)
     except Exception as e:
         raise ValueError(f"导出STL文件失败: {e}. 请检查几何体和文件名是否有效。")
+
+
+def render_screenshot_rpath(
+    shapes: Union[Solid, Sequence[Solid]],
+    output_path: str,
+    highlight_tags: Optional[Sequence[str]] = None,
+    tag_labels: Optional[Dict[str, str]] = None,
+    image_size: Tuple[int, int] = (1400, 900),
+    view: Union[Tuple[float, float], str] = "auto",
+    show_axes: bool = True,
+    show_legend: bool = True,
+    zoom: float = 4.0,
+) -> str:
+    """渲染几何体截图并保存到文件。
+
+    Args:
+        shapes: 要渲染的实体或实体列表。
+        output_path: 输出图片路径（PNG）。
+        highlight_tags: 需要高亮的标签列表（对Solid或Face生效）。
+        tag_labels: 标签显示名映射。
+        image_size: 输出图片尺寸 (width, height)。
+        view: 视角 (elev, azim) 或预设名称（auto/iso/top/bottom/front/back/left/right）。
+        show_axes: 是否显示XYZ正方向。
+        show_legend: 是否在左上角显示标签图例。
+        zoom: 视图边距缩放倍率（>1 减少边距使模型更大，仍保持不裁剪）。
+
+    Returns:
+        str: 输出文件路径。
+
+    Raises:
+        ValueError: 当输入几何体无效或渲染失败时抛出异常。
+
+    Usage:
+        生成截图并高亮指定标签。
+
+    Example:
+         box = make_box_rsolid(4, 3, 2)
+         render_screenshot_rpath(box, "preview.png", highlight_tags=["top"])
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import to_rgb
+        from mpl_toolkits.mplot3d import proj3d
+        from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
+
+        shape_list = _normalize_shape_input(shapes)
+        solids = [shape for shape in shape_list if isinstance(shape, Solid)]
+        if not solids:
+            raise ValueError("render_screenshot_rpath 仅支持 Solid 类型")
+
+        background = "#111111"
+        base_color = (0.6, 0.62, 0.64)
+        highlight_colors: Dict[str, Tuple[float, float, float]] = {}
+        fit_mode = "model"
+        axis_scale = 1.6
+        axis_fit_weight = 0.0
+        wireframe_only = False
+        mesh_tolerance = 0.35
+        mesh_angular_tolerance = 0.22
+
+        highlight_list = [tag for tag in (highlight_tags or [])]
+        labels = tag_labels or {}
+        label_points: Dict[str, Tuple[float, float, float]] = {}
+
+        all_polys: List[List[Tuple[float, float, float]]] = []
+        all_colors: List[Tuple[float, float, float, float]] = []
+        triangles: List[np.ndarray] = []
+        tri_normals: List[np.ndarray] = []
+        bbox_min = np.array([np.inf, np.inf, np.inf])
+        bbox_max = np.array([-np.inf, -np.inf, -np.inf])
+
+        base_rgb = np.array(to_rgb(base_color))
+        palette = [
+            "#f39c12",
+            "#9b59b6",
+            "#f1c40f",
+            "#1abc9c",
+            "#e67e22",
+            "#e84393",
+            "#16a085",
+            "#d35400",
+        ]
+        highlight_colors = highlight_colors or {}
+        highlight_color_map: Dict[str, np.ndarray] = {}
+        for idx, tag in enumerate(highlight_list):
+            if tag in highlight_colors:
+                highlight_color_map[tag] = np.array(to_rgb(highlight_colors[tag]))
+            else:
+                highlight_color_map[tag] = np.array(to_rgb(palette[idx % len(palette)]))
+
+        light_dirs = [
+            np.array([0.7, -0.1, 0.7]),
+            np.array([-0.6, 0.25, 0.32]),
+            np.array([0.15, -0.9, 0.2]),
+            np.array([0.0, 0.0, 1.0]),
+            np.array([-0.15, -0.1, -0.98]),
+        ]
+        light_dirs = [vec / np.linalg.norm(vec) for vec in light_dirs]
+        light_weights = [1.35, 0.4, 0.3, 0.18, 0.08]
+
+        def _shade(normals: np.ndarray, color: np.ndarray) -> np.ndarray:
+            ambient = 0.12
+            intensity = np.full((normals.shape[0],), ambient, dtype=float)
+            for w, light in zip(light_weights, light_dirs):
+                intensity += w * np.maximum(0.0, normals @ light)
+            intensity = np.clip(intensity, 0.0, 1.0)
+            intensity = np.power(intensity, 1.35)
+            shaded = color[None, :] * intensity[:, None]
+            shaded = np.clip(shaded, 0.0, 1.0)
+            alpha = np.ones((shaded.shape[0], 1))
+            return np.hstack([shaded, alpha])
+
+        for solid in solids:
+            bb = solid.cq_solid.BoundingBox()
+            bbox_min = np.minimum(bbox_min, np.array([bb.xmin, bb.ymin, bb.zmin]))
+            bbox_max = np.maximum(bbox_max, np.array([bb.xmax, bb.ymax, bb.zmax]))
+
+        model_min = bbox_min.copy()
+        model_max = bbox_max.copy()
+
+        axis_solids: List[Solid] = []
+        axis_colors: Dict[str, np.ndarray] = {}
+        axis_len_x = 0.0
+        axis_len_y = 0.0
+        axis_len_z = 0.0
+        if show_axes:
+            span = float(np.max(model_max - model_min))
+            if span <= 0:
+                span = 1.0
+            axis_margin = span * 0.08
+            axis_len_x_base = max(span * 0.3, max(0.0, bbox_max[0]) + axis_margin)
+            axis_len_y_base = max(span * 0.3, max(0.0, bbox_max[1]) + axis_margin)
+            axis_len_z_base = max(span * 0.3, max(0.0, bbox_max[2]) + axis_margin)
+            axis_len_x = max(0.0, axis_len_x_base + axis_margin * (axis_scale - 1.0))
+            axis_len_y = max(0.0, axis_len_y_base + axis_margin * (axis_scale - 1.0))
+            axis_len_z = max(0.0, axis_len_z_base + axis_margin * (axis_scale - 1.0))
+            axis_radius = max(
+                span * 0.004, min(axis_len_x, axis_len_y, axis_len_z) * 0.02
+            )
+            head_len_factor = 0.2
+            head_radius = axis_radius * 2.0
+
+            def _axis_solid(axis: Tuple[float, float, float], length: float) -> Solid:
+                shaft_len = length * (1.0 - head_len_factor)
+                head_len = length * head_len_factor
+                shaft = make_cylinder_rsolid(
+                    axis_radius,
+                    shaft_len,
+                    bottom_face_center=(0.0, 0.0, 0.0),
+                    axis=axis,
+                )
+                cone = make_cone_rsolid(
+                    head_radius,
+                    head_len,
+                    0.0,
+                    bottom_face_center=tuple(np.array(axis) * shaft_len),
+                    axis=axis,
+                )
+                merged = union_rsolidlist(shaft, cone)[0]
+                return merged
+
+            axis_x = _axis_solid((1.0, 0.0, 0.0), axis_len_x)
+            axis_y = _axis_solid((0.0, 1.0, 0.0), axis_len_y)
+            axis_z = _axis_solid((0.0, 0.0, 1.0), axis_len_z)
+
+            axis_x.apply_tag("axis.x")
+            axis_y.apply_tag("axis.y")
+            axis_z.apply_tag("axis.z")
+            axis_solids = [axis_x, axis_y, axis_z]
+            axis_colors = {
+                "axis.x": np.array([1.0, 0.35, 0.35]),
+                "axis.y": np.array([0.35, 1.0, 0.55]),
+                "axis.z": np.array([0.45, 0.65, 1.0]),
+            }
+
+        render_solids = solids + axis_solids
+
+        for solid in render_solids:
+            bb = solid.cq_solid.BoundingBox()
+            if solid not in solids and fit_mode == "axes":
+                bbox_min = np.minimum(bbox_min, np.array([bb.xmin, bb.ymin, bb.zmin]))
+                bbox_max = np.maximum(bbox_max, np.array([bb.xmax, bb.ymax, bb.zmax]))
+
+            highlight_tag = next(
+                (tag for tag in highlight_list if solid.has_tag(tag)), None
+            )
+            axis_tag = next((tag for tag in axis_colors if solid.has_tag(tag)), None)
+            if highlight_tag and highlight_tag not in label_points:
+                label_points[highlight_tag] = (
+                    0.5 * (bb.xmin + bb.xmax),
+                    0.5 * (bb.ymin + bb.ymax),
+                    0.5 * (bb.zmin + bb.zmax),
+                )
+
+            for face in solid.get_faces():
+                face_tag = next(
+                    (tag for tag in highlight_list if face.has_tag(tag)), None
+                )
+                face_highlight_tag = face_tag or highlight_tag
+                if face_highlight_tag and face_tag and face_tag not in label_points:
+                    center = face.get_center()
+                    label_points[face_tag] = (center.x, center.y, center.z)
+
+                verts, tri_indices = face.cq_face.tessellate(
+                    mesh_tolerance, mesh_angular_tolerance
+                )
+                if not tri_indices:
+                    continue
+
+                vertices = np.array([[v.x, v.y, v.z] for v in verts], dtype=float)
+                tris = np.array(tri_indices, dtype=int)
+                tri_pts = vertices[tris]
+                normals = np.cross(
+                    tri_pts[:, 1] - tri_pts[:, 0], tri_pts[:, 2] - tri_pts[:, 0]
+                )
+                norms = np.linalg.norm(normals, axis=1)
+                normals = np.divide(
+                    normals,
+                    norms[:, None],
+                    out=np.zeros_like(normals),
+                    where=norms[:, None] != 0,
+                )
+
+                if axis_tag:
+                    color = axis_colors[axis_tag]
+                elif face_highlight_tag:
+                    color = highlight_color_map.get(face_highlight_tag, base_rgb)
+                else:
+                    color = base_rgb
+                colors = _shade(normals, color)
+                all_polys.extend(tri_pts.tolist())
+                all_colors.extend(colors.tolist())
+                triangles.extend(list(tri_pts))
+                tri_normals.extend(list(normals))
+
+        if not all_polys:
+            raise ValueError("未生成任何可渲染三角面")
+
+        fig = plt.figure(figsize=(image_size[0] / 100, image_size[1] / 100), dpi=100)
+        fig.patch.set_facecolor(background)
+        ax = fig.add_subplot(111, projection="3d")
+        ax.set_facecolor(background)
+        ax.set_axis_off()
+        fig.subplots_adjust(left=0.0, right=1.0, bottom=0.0, top=1.0)
+        ax.set_position((0.0, 0.0, 1.0, 1.0))
+
+        if wireframe_only:
+            face_colors = np.array(all_colors, dtype=float)
+            face_colors[:, 3] = 0.0
+            collection = Poly3DCollection(
+                all_polys, facecolors=face_colors, linewidths=0.0
+            )
+        else:
+            collection = Poly3DCollection(
+                all_polys, facecolors=all_colors, linewidths=0.0
+            )
+        collection.set_edgecolor((0, 0, 0, 0))
+        collection.set_zsort("average")
+        ax.add_collection3d(collection)
+
+        bbox_min = model_min
+        bbox_max = model_max
+        axis_origin = np.array([0.0, 0.0, 0.0])
+        if show_axes:
+            axis_points = np.array(
+                [
+                    axis_origin,
+                    axis_origin + np.array([axis_len_x, 0.0, 0.0]),
+                    axis_origin + np.array([0.0, axis_len_y, 0.0]),
+                    axis_origin + np.array([0.0, 0.0, axis_len_z]),
+                ]
+            )
+        else:
+            axis_points = np.array([axis_origin])
+
+        extent_min = model_min.copy()
+        extent_max = model_max.copy()
+        if fit_mode == "axes":
+            extent_min = np.minimum(extent_min, axis_points.min(axis=0))
+            extent_max = np.maximum(extent_max, axis_points.max(axis=0))
+        elif fit_mode == "model":
+            weight = float(axis_fit_weight)
+            if weight > 0 and show_axes:
+                weight = max(0.0, min(1.0, weight))
+                axis_min = axis_points.min(axis=0)
+                axis_max = axis_points.max(axis=0)
+                extent_min = np.where(
+                    axis_min < extent_min,
+                    extent_min + (axis_min - extent_min) * weight,
+                    extent_min,
+                )
+                extent_max = np.where(
+                    axis_max > extent_max,
+                    extent_max + (axis_max - extent_max) * weight,
+                    extent_max,
+                )
+        else:
+            raise ValueError("fit_mode 仅支持 'model' 或 'axes'")
+
+        span = float(np.max(extent_max - extent_min))
+        if span <= 0:
+            span = 1.0
+        if zoom <= 0:
+            raise ValueError("zoom 必须大于 0")
+        size = extent_max - extent_min
+        pad_ratio = 0.08
+        pad_min = span * 0.01
+        pad_vec = np.maximum(size * (pad_ratio / zoom), pad_min)
+        min_extent = extent_min - pad_vec
+        max_extent = extent_max + pad_vec
+        ax.set_xlim(min_extent[0], max_extent[0])
+        ax.set_ylim(min_extent[1], max_extent[1])
+        ax.set_zlim(min_extent[2], max_extent[2])
+        try:
+            ax.set_box_aspect(max_extent - min_extent)
+        except Exception:
+            pass
+
+        def _resolve_view(view_spec):
+            if isinstance(view_spec, str):
+                token = view_spec.strip().lower()
+                spans = bbox_max - bbox_min
+                if token == "auto":
+                    azim = 35.0 if spans[0] >= spans[1] else 125.0
+                    elev = 22.0 if spans[2] <= max(spans[0], spans[1]) else 35.0
+                    return elev, azim
+                if token in {"iso", "isometric"}:
+                    return 25.0, 35.0
+                if token == "top":
+                    return 90.0, 0.0
+                if token == "bottom":
+                    return -90.0, 0.0
+                if token == "front":
+                    return 0.0, -90.0
+                if token == "back":
+                    return 0.0, 90.0
+                if token == "left":
+                    return 0.0, 180.0
+                if token == "right":
+                    return 0.0, 0.0
+                if token == "front_right":
+                    return 20.0, -45.0
+                if token == "front_left":
+                    return 20.0, 135.0
+                if token == "rear_right":
+                    return 20.0, 45.0
+                if token == "rear_left":
+                    return 20.0, -135.0
+                raise ValueError(f"不支持的 view 预设: {view_spec}")
+
+            if isinstance(view_spec, (list, tuple)) and len(view_spec) == 2:
+                return float(view_spec[0]), float(view_spec[1])
+
+            raise ValueError("view 必须为 (elev, azim) 或预设名称")
+
+        elev, azim = _resolve_view(view)
+        ax.view_init(elev=elev, azim=azim)
+
+        if triangles:
+            elev_rad = math.radians(elev)
+            azim_rad = math.radians(azim)
+            view_dir = np.array(
+                [
+                    math.cos(elev_rad) * math.cos(azim_rad),
+                    math.cos(elev_rad) * math.sin(azim_rad),
+                    math.sin(elev_rad),
+                ],
+                dtype=float,
+            )
+            edge_quant = max(mesh_tolerance * 0.001, 1e-6)
+
+            def _quantize_point(point: np.ndarray) -> Tuple[float, float, float]:
+                snapped = np.round(point / edge_quant) * edge_quant
+                return (float(snapped[0]), float(snapped[1]), float(snapped[2]))
+
+            edge_to_tris: Dict[
+                Tuple[Tuple[float, float, float], Tuple[float, float, float]],
+                List[int],
+            ] = {}
+            edge_to_seg: Dict[
+                Tuple[Tuple[float, float, float], Tuple[float, float, float]],
+                Tuple[np.ndarray, np.ndarray],
+            ] = {}
+
+            for tri_idx, tri in enumerate(triangles):
+                for i0, i1 in ((0, 1), (1, 2), (2, 0)):
+                    p0 = tri[i0]
+                    p1 = tri[i1]
+                    q0 = _quantize_point(p0)
+                    q1 = _quantize_point(p1)
+                    key = (q0, q1) if q0 <= q1 else (q1, q0)
+                    edge_to_tris.setdefault(key, []).append(tri_idx)
+                    edge_to_seg.setdefault(key, (p0, p1))
+
+            hard_segments: List[np.ndarray] = []
+            silhouette_segments: List[np.ndarray] = []
+            angle_threshold = max(math.radians(40.0), mesh_angular_tolerance * 3.0)
+
+            for key, tri_indices in edge_to_tris.items():
+                seg = edge_to_seg[key]
+                if len(tri_indices) == 1:
+                    silhouette_segments.append(np.array(seg, dtype=float))
+                    continue
+
+                normals = [tri_normals[i] for i in tri_indices]
+                facing = [float(np.dot(n, view_dir)) for n in normals]
+                if min(facing) <= 0.0 <= max(facing):
+                    silhouette_segments.append(np.array(seg, dtype=float))
+
+                max_angle = 0.0
+                for i in range(len(normals)):
+                    for j in range(i + 1, len(normals)):
+                        dot = float(np.clip(np.dot(normals[i], normals[j]), -1.0, 1.0))
+                        angle = math.acos(dot)
+                        if angle > max_angle:
+                            max_angle = angle
+                if max_angle >= angle_threshold:
+                    hard_segments.append(np.array(seg, dtype=float))
+
+            if hard_segments:
+                hard_collection = Line3DCollection(
+                    hard_segments,
+                    colors=[(0.62, 0.64, 0.68, 0.75)],
+                    linewidths=0.6,
+                )
+                ax.add_collection3d(hard_collection)
+            if silhouette_segments:
+                sil_collection = Line3DCollection(
+                    silhouette_segments,
+                    colors=[(0.88, 0.89, 0.92, 0.9)],
+                    linewidths=1.1,
+                )
+                ax.add_collection3d(sil_collection)
+
+        def _project_to_fig(point: Tuple[float, float, float]) -> Tuple[float, float]:
+            x2, y2, _ = proj3d.proj_transform(
+                point[0], point[1], point[2], ax.get_proj()
+            )
+            display = ax.transData.transform((x2, y2))
+            return tuple(fig.transFigure.inverted().transform(display))
+
+        def _clamp(value: float, low: float, high: float) -> float:
+            return max(low, min(high, value))
+
+        if show_axes:
+            axis_label_offset = 0.008
+            axis_label_specs = (
+                ("X", axis_origin + np.array([axis_len_x, 0.0, 0.0]), "axis.x"),
+                ("Y", axis_origin + np.array([0.0, axis_len_y, 0.0]), "axis.y"),
+                ("Z", axis_origin + np.array([0.0, 0.0, axis_len_z]), "axis.z"),
+            )
+            for label, point, tag in axis_label_specs:
+                color = axis_colors.get(tag, np.array([1.0, 1.0, 1.0]))
+                xfig, yfig = _project_to_fig(
+                    (float(point[0]), float(point[1]), float(point[2]))
+                )
+                xfig = _clamp(xfig + axis_label_offset, 0.02, 0.98)
+                yfig = _clamp(yfig + axis_label_offset, 0.02, 0.98)
+                fig.text(
+                    xfig,
+                    yfig,
+                    label,
+                    color=color,
+                    fontsize=16,
+                    ha="left",
+                    va="center",
+                )
+
+        if show_legend and (highlight_list or show_axes):
+            y = 0.98
+            if highlight_list:
+                for tag in highlight_list:
+                    label = labels.get(tag, tag)
+                    color = highlight_color_map.get(tag, base_rgb)
+                    fig.text(
+                        0.02,
+                        y,
+                        f"■ {label}",
+                        color=color,
+                        fontsize=10,
+                        ha="left",
+                        va="top",
+                    )
+                    y -= 0.035
+
+            if show_axes:
+                for label, color in (
+                    ("+X", axis_colors.get("axis.x", np.array([1.0, 0.35, 0.35]))),
+                    ("+Y", axis_colors.get("axis.y", np.array([0.35, 1.0, 0.55]))),
+                    ("+Z", axis_colors.get("axis.z", np.array([0.45, 0.65, 1.0]))),
+                ):
+                    fig.text(
+                        0.02,
+                        y,
+                        f"■ {label}",
+                        color=color,
+                        fontsize=10,
+                        ha="left",
+                        va="top",
+                    )
+                    y -= 0.035
+
+        label_offset = 0.012
+        for idx, (tag, point) in enumerate(label_points.items()):
+            label = labels.get(tag, tag)
+            xfig, yfig = _project_to_fig(point)
+            xfig = _clamp(xfig + label_offset, 0.02, 0.98)
+            yfig = _clamp(yfig + label_offset, 0.02, 0.98)
+            yfig = _clamp(yfig - idx * 0.02, 0.02, 0.98)
+            fig.text(
+                xfig,
+                yfig,
+                label,
+                color="#ffd27a",
+                fontsize=10,
+                ha="left",
+                va="center",
+                bbox=dict(
+                    boxstyle="round,pad=0.2", fc="#111111", ec="#ffaa33", alpha=0.9
+                ),
+            )
+
+        plt.savefig(output_path, facecolor=background)
+        plt.close(fig)
+        return output_path
+    except Exception as e:
+        raise ValueError(f"渲染截图失败: {e}.")
 
 
 # =============================================================================
