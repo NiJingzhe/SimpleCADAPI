@@ -147,6 +147,40 @@ uv run evolve path/to/your_case.py
 uv run skill-pack --refresh-docs --archive
 ```
 
+## RAGFlow 文档同步
+
+`scripts/sync_ragflow_docs.py` 用于把 `docs/` 下的 Markdown 增量同步到指定
+RAGFlow 数据集，并按二级标题（H2）分块；文档的 `chunk_method` 会设置为
+`manual`。
+
+准备环境：
+
+```bash
+.venv/bin/python -m pip install ragflow-sdk
+```
+
+建议使用 `.env`（已加入 `.gitignore`）：
+
+```bash
+RAGFLOW_API_KEY=your_key_here
+RAGFLOW_BASE_URL=http://localhost
+RAGFLOW_DATASET_NAME=SimpleCADAPI
+```
+
+运行同步：
+
+```bash
+set -a && source .env && set +a
+.venv/bin/python scripts/sync_ragflow_docs.py --create-dataset
+```
+
+常用参数：
+
+- `--dataset-id` / `RAGFLOW_DATASET_ID`：直接指定数据集 ID（避免同名冲突）
+- `--delete-removed`：同步删除本地已移除的文档
+- `--dry-run`：只预览变更，不执行写入
+- `--progress-interval N`：每 N 篇打印一次进度
+
 ## 开发与测试
 
 本地开发安装（可编辑）：
