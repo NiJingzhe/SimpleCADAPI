@@ -13,6 +13,9 @@ wheels/
 
 output/
 
+# Sandbox artifacts
+sandbox/
+
 # Generated skills archives
 skills/*.tar.gz
 
