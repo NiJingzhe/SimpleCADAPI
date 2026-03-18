@@ -1,6 +1,6 @@
 [project]
 name = "simplecadapi"
-version = "2.0.0"
+version = "2.0.1"
 description = "A simplified CAD modeling Python API based on CADQuery"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -21,7 +21,11 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Operating System :: OS Independent",
 ]
-dependencies = ["cadquery>=2.5.2", "numpy>=1.21.0", "rich>=14.0.0"]
+dependencies = [
+    "cadquery>=2.5.2",
+    "numpy>=1.21.0",
+    "rich>=14.0.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -55,6 +59,9 @@ dev = [
     "cadquery>=2.5.2",
     "jupyterlab>=4.5.5",
     "ipykernel>=6.29.5",
+    "matplotlib>=3.10.8",
+    "numpy-stl>=3.2.0",
+    "trimesh>=4.11.3",
 ]
 
 [project.scripts]
