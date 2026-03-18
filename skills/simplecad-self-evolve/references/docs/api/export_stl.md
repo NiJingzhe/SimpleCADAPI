@@ -1,27 +1,27 @@
 # export_stl
 
-## API定义
+## API Definition
 
 ```python
 def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> None
 ```
 
-*来源文件: operations.py*
+*Source: operations.py*
 
-## API作用
+## Description
 
 导出为STL格式
 
-## API参数说明
+## Parameters
 
 ### shapes
 
-- **说明**: 要导出的几何体或几何体列表
+- **Description**: 要导出的几何体或几何体列表
 
 ### filename
 
-- **说明**: 输出文件名
+- **Description**: 输出文件名
 
-## 异常
+## Raises
 
 - **ValueError**: 当导出失败时

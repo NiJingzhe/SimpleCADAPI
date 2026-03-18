@@ -1,27 +1,27 @@
 # select_edges_by_tag
 
-## API定义
+## API Definition
 
 ```python
 def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]
 ```
 
-*来源文件: operations.py*
+*Source: operations.py*
 
-## API作用
+## Description
 
 根据标签选择边
 
-## API参数说明
+## Parameters
 
 ### shape
 
-- **说明**: 面或实体
+- **Description**: 面或实体
 
 ### tag
 
-- **说明**: 标签名称
+- **Description**: 标签名称
 
-## 返回值说明
+## Returns
 
 匹配标签的边列表

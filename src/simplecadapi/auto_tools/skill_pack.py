@@ -16,16 +16,16 @@ import sys
 import tarfile
 import textwrap
 from dataclasses import dataclass
+from email import message_from_string
 from pathlib import Path
+from typing import Sequence, cast
 
 try:
-    import tomllib  # Python 3.11+
+    import tomllib  # Python 3.11+  # type: ignore[import-not-found]
 except ModuleNotFoundError:  # pragma: no cover
     tomllib = None  # type: ignore[assignment]
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "skills"
+DEFAULT_PACKAGE_NAME = "simplecadapi"
 DEFAULT_SKILL_NAME = "simplecad-self-evolve"
 DEFAULT_LICENSE = "MIT"
 DEFAULT_JUPYTER_DEPS: tuple[str, ...] = (
@@ -40,6 +40,111 @@ LICENSE_PATH = Path("LICENSE")
 SKILL_NAME_PATTERN = re.compile(r"^(?!-)(?!.*--)[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
+def _package_root_from(module_file: Path | str | None = None) -> Path:
+    target = Path(module_file) if module_file is not None else Path(__file__)
+    return target.resolve().parents[1]
+
+
+def _is_source_checkout_root(project_root: Path) -> bool:
+    return (project_root / "pyproject.toml").exists() and (
+        project_root / "src" / DEFAULT_PACKAGE_NAME
+    ).exists()
+
+
+def _source_checkout_root(package_root: Path) -> Path | None:
+    src_dir = package_root.parent
+    project_root = src_dir.parent
+
+    if src_dir.name != "src":
+        return None
+    if not _is_source_checkout_root(project_root):
+        return None
+    return project_root
+
+
+def _default_project_root(module_file: Path | str | None = None) -> Path:
+    package_root = _package_root_from(module_file)
+    return _source_checkout_root(package_root) or package_root.parent
+
+
+def _default_output_root(project_root: Path, cwd: Path | None = None) -> Path:
+    if _is_source_checkout_root(project_root):
+        return (project_root / "skills").resolve()
+    return ((cwd if cwd is not None else Path.cwd()) / "skills").resolve()
+
+
+def _first_existing_path(candidates: Sequence[Path]) -> Path | None:
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def _docs_root_for(project_root: Path) -> Path:
+    docs_root = _first_existing_path(
+        (
+            project_root / DOCS_PATH,
+            project_root / "src" / DOCS_PATH,
+        )
+    )
+    return docs_root or (project_root / DOCS_PATH)
+
+
+def _readme_path_for(project_root: Path) -> Path | None:
+    return _first_existing_path(
+        (
+            project_root / README_PATH,
+            project_root / "src" / README_PATH,
+        )
+    )
+
+
+def _normalize_dist_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "_", name).lower()
+
+
+def _dist_info_dir(project_root: Path, package_name: str) -> Path | None:
+    candidates: list[Path] = []
+    patterns = (
+        f"{package_name}-*.dist-info",
+        f"{package_name.replace('-', '_')}-*.dist-info",
+        f"{_normalize_dist_name(package_name)}-*.dist-info",
+    )
+
+    for pattern in patterns:
+        for path in sorted(project_root.glob(pattern)):
+            if path not in candidates:
+                candidates.append(path)
+
+    return candidates[0] if candidates else None
+
+
+def _license_path_for(project_root: Path, package_name: str) -> Path | None:
+    dist_info_dir = _dist_info_dir(project_root, package_name)
+    candidates = [project_root / LICENSE_PATH]
+    if dist_info_dir is not None:
+        candidates.extend(
+            [
+                dist_info_dir / "licenses" / LICENSE_PATH.name,
+                dist_info_dir / LICENSE_PATH.name,
+            ]
+        )
+    return _first_existing_path(tuple(candidates))
+
+
+def _auto_docs_script_path_for(project_root: Path) -> Path | None:
+    return _first_existing_path(
+        (
+            project_root
+            / "src"
+            / DEFAULT_PACKAGE_NAME
+            / "auto_tools"
+            / "auto_docs_gen.py",
+            project_root / DEFAULT_PACKAGE_NAME / "auto_tools" / "auto_docs_gen.py",
+        )
+    )
+
+
 @dataclass(frozen=True)
 class ProjectMetadata:
     """Project metadata used for skill rendering."""
@@ -47,6 +152,7 @@ class ProjectMetadata:
     name: str
     version: str
     description: str
+    readme_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -57,10 +163,12 @@ class BuildResult:
     archive_path: Path | None
 
 
-def _load_project_metadata(project_root: Path) -> ProjectMetadata:
+def _load_project_metadata(
+    project_root: Path,
+    default_name: str = DEFAULT_PACKAGE_NAME,
+) -> ProjectMetadata:
     pyproject_path = project_root / "pyproject.toml"
 
-    default_name = project_root.name.lower()
     default_version = "0.0.0"
     default_desc = "SimpleCAD skill runtime installer and docs"
 
@@ -75,6 +183,7 @@ def _load_project_metadata(project_root: Path) -> ProjectMetadata:
                 name=str(project.get("name") or default_name),
                 version=str(project.get("version") or default_version),
                 description=str(project.get("description") or default_desc),
+                readme_text=None,
             )
         except Exception:
             pass
@@ -104,6 +213,32 @@ def _load_project_metadata(project_root: Path) -> ProjectMetadata:
             if description_match
             else default_desc
         ),
+        readme_text=None,
+    )
+
+
+def _load_installed_metadata(
+    project_root: Path,
+    package_name: str = DEFAULT_PACKAGE_NAME,
+) -> ProjectMetadata | None:
+    dist_info_dir = _dist_info_dir(project_root, package_name)
+    if dist_info_dir is None:
+        return None
+
+    metadata_path = dist_info_dir / "METADATA"
+    if not metadata_path.exists():
+        return None
+
+    message = message_from_string(metadata_path.read_text(encoding="utf-8"))
+    payload = cast(str, message.get_payload())
+    readme_text = payload.strip() or None
+    return ProjectMetadata(
+        name=message.get("Name", package_name),
+        version=message.get("Version", "0.0.0"),
+        description=message.get(
+            "Summary", "SimpleCAD skill runtime installer and docs"
+        ),
+        readme_text=readme_text,
     )
 
 
@@ -152,10 +287,26 @@ class SkillPackager:
         self.cases_module = self._cases_module_name()
         self.cases_module_dir = self.cases_root / self.cases_module
 
-        self.metadata = _load_project_metadata(self.project_root)
+        self.source_checkout = _is_source_checkout_root(self.project_root)
+        default_package_name = package_name or DEFAULT_PACKAGE_NAME
+        self.metadata = _load_project_metadata(
+            self.project_root,
+            default_name=default_package_name,
+        )
+        if self.metadata.version == "0.0.0":
+            installed_metadata = _load_installed_metadata(
+                self.project_root,
+                package_name=default_package_name,
+            )
+            if installed_metadata is not None:
+                self.metadata = installed_metadata
+
         self.package_name = package_name or self.metadata.name
         self.package_version = package_version or self.metadata.version
         self.jupyter_deps = jupyter_deps
+        self.source_docs = _docs_root_for(self.project_root)
+        self.source_readme = _readme_path_for(self.project_root)
+        self.source_license = _license_path_for(self.project_root, self.package_name)
 
     def log(self, message: str) -> None:
         if not self.quiet:
@@ -187,19 +338,33 @@ class SkillPackager:
             )
 
         required = (
-            self.project_root / DOCS_PATH,
-            self.project_root / DOCS_PATH / "api",
-            self.project_root / DOCS_PATH / "core",
-            self.project_root / README_PATH,
-            self.project_root / LICENSE_PATH,
+            self.source_docs,
+            self.source_docs / "api",
+            self.source_docs / "core",
         )
         for path in required:
             if not path.exists():
                 raise FileNotFoundError(f"Missing required path: {path}")
 
+        if self.source_readme is None and not self.metadata.readme_text:
+            raise FileNotFoundError(
+                "Missing required project README content in both project files and dist-info metadata"
+            )
+
+        if self.source_license is None:
+            raise FileNotFoundError(
+                "Missing required license file in both project files and dist-info metadata"
+            )
+
     def _refresh_api_docs(self) -> None:
-        script_path = self.project_root / "src/simplecadapi/auto_tools/auto_docs_gen.py"
-        if not script_path.exists():
+        if not self.source_checkout:
+            self.log(
+                "Using packaged docs from installed simplecadapi; skipped --refresh-docs outside source checkout."
+            )
+            return
+
+        script_path = _auto_docs_script_path_for(self.project_root)
+        if script_path is None:
             raise FileNotFoundError(f"Cannot refresh docs, missing: {script_path}")
 
         self.log("Refreshing API docs before packaging...")
@@ -225,21 +390,27 @@ class SkillPackager:
 
     def _copy_reference_docs(self) -> None:
         self.log("Copying reference docs...")
-        source_docs = self.project_root / DOCS_PATH
         target_docs = self.docs_dir
         shutil.copytree(
-            source_docs,
+            self.source_docs,
             target_docs,
             dirs_exist_ok=True,
             ignore=_ignore_common_noise,
         )
 
-        shutil.copy2(
-            self.project_root / README_PATH, self.references_dir / "PROJECT_README.md"
-        )
-        shutil.copy2(
-            self.project_root / LICENSE_PATH, self.references_dir / "LICENSE.txt"
-        )
+        if self.source_readme is not None:
+            shutil.copy2(self.source_readme, self.references_dir / "PROJECT_README.md")
+        else:
+            (self.references_dir / "PROJECT_README.md").write_text(
+                self.metadata.readme_text or "",
+                encoding="utf-8",
+            )
+
+        if self.source_license is None:
+            raise FileNotFoundError(
+                "Missing required license file in both project files and dist-info metadata"
+            )
+        shutil.copy2(self.source_license, self.references_dir / "LICENSE.txt")
 
     def _write_skill_markdown(self) -> None:
         self.log("Generating SKILL.md...")
@@ -1371,14 +1542,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--project-root",
         type=Path,
-        default=PROJECT_ROOT,
-        help="Project root (default: repository root)",
+        default=None,
+        help="Project root (default: source checkout root, or installed environment root)",
     )
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=DEFAULT_OUTPUT_ROOT,
-        help="Output directory for generated skill bundle (default: ./skills)",
+        default=None,
+        help="Output directory for generated skill bundle (default: repo skills/ in source checkout, otherwise ./skills)",
     )
     parser.add_argument(
         "--skill-name",
@@ -1425,10 +1596,20 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
+    project_root = (
+        args.project_root.resolve()
+        if args.project_root is not None
+        else _default_project_root()
+    )
+    output_root = (
+        args.output_root.resolve()
+        if args.output_root is not None
+        else _default_output_root(project_root)
+    )
 
     packager = SkillPackager(
-        project_root=args.project_root,
-        output_root=args.output_root,
+        project_root=project_root,
+        output_root=output_root,
         skill_name=args.skill_name,
         license_name=args.license_name,
         package_name=args.package_name,

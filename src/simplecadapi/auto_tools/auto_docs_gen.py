@@ -15,17 +15,44 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_SOURCES: tuple[Path, ...] = (
-    PROJECT_ROOT / "src/simplecadapi/operations.py",
-    PROJECT_ROOT / "src/simplecadapi/field.py",
-    PROJECT_ROOT / "src/simplecadapi/evolve.py",
-    PROJECT_ROOT / "src/simplecadapi/constraints.py",
-    PROJECT_ROOT / "src/simplecadapi/ql.py",
+DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
+    "operations.py",
+    "field.py",
+    "evolve.py",
+    "constraints.py",
+    "ql.py",
 )
-DEFAULT_OUTPUT_DIRS: tuple[Path, ...] = (PROJECT_ROOT / "docs/api",)
 
 MISSING = object()
+
+
+def _package_root_from(module_file: Path | str | None = None) -> Path:
+    target = Path(module_file) if module_file is not None else Path(__file__)
+    return target.resolve().parents[1]
+
+
+def _source_checkout_root(package_root: Path) -> Path | None:
+    src_dir = package_root.parent
+    project_root = src_dir.parent
+
+    if src_dir.name != "src":
+        return None
+    if not (project_root / "pyproject.toml").exists():
+        return None
+    return project_root
+
+
+def _default_source_files(package_root: Path) -> List[Path]:
+    return [package_root / name for name in DEFAULT_SOURCE_FILENAMES]
+
+
+def _default_output_dirs(package_root: Path, cwd: Path | None = None) -> List[Path]:
+    project_root = _source_checkout_root(package_root)
+    if project_root is not None:
+        return [project_root / "docs/api"]
+
+    base_dir = cwd if cwd is not None else Path.cwd()
+    return [base_dir / "docs/api"]
 
 
 @dataclass
@@ -532,16 +559,25 @@ def _parse_cli_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _resolve_source_files(cli_sources: Sequence[str] | None) -> List[Path]:
+def _resolve_source_files(
+    cli_sources: Sequence[str] | None,
+    module_file: Path | str | None = None,
+) -> List[Path]:
     if cli_sources:
         return [Path(item).resolve() for item in cli_sources]
-    return [path.resolve() for path in DEFAULT_SOURCES]
+    package_root = _package_root_from(module_file)
+    return [path.resolve() for path in _default_source_files(package_root)]
 
 
-def _resolve_output_dirs(cli_output_dirs: Sequence[str] | None) -> List[Path]:
+def _resolve_output_dirs(
+    cli_output_dirs: Sequence[str] | None,
+    module_file: Path | str | None = None,
+    cwd: Path | None = None,
+) -> List[Path]:
     if cli_output_dirs:
         return [Path(item).resolve() for item in cli_output_dirs]
-    return [path.resolve() for path in DEFAULT_OUTPUT_DIRS]
+    package_root = _package_root_from(module_file)
+    return [path.resolve() for path in _default_output_dirs(package_root, cwd)]
 
 
 def main() -> None:
