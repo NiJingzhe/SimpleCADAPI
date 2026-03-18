@@ -1,14 +1,14 @@
 # union_rsolidlist
 
-## API定义
+## API Definition
 
 ```python
 def union_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]
 ```
 
-*来源文件: operations.py*
+*Source: operations.py*
 
-## API作用
+## Description
 
 实体列表并集运算
 
@@ -16,24 +16,24 @@ def union_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]
 都会被融合成一个新的实体；无法连接的实体保持独立。该过程会一直
 进行，直到没有新的实体可以被成功融合为止。
 
-## API参数说明
+## Parameters
 
 ### *solids
 
-- **说明**: 需要尝试并集的实体对象，可以传入： - 单个序列：union_rsolidlist([solid1, solid2, ...]) - 多个参数：union_rsolidlist(solid1, solid2, ...) - 混合输入：union_rsolidlist(solid1, [solid2, solid3], ...)，会自动展开所有序列
+- **Description**: 需要尝试并集的实体对象，可以传入： - 单个序列：union_rsolidlist([solid1, solid2, ...]) - 多个参数：union_rsolidlist(solid1, solid2, ...) - 混合输入：union_rsolidlist(solid1, [solid2, solid3], ...)，会自动展开所有序列
 
-## 返回值说明
+## Returns
 
 List[Solid]: 并集运算后的实体列表。可以合并为整体的实体会被融合，
 无法融合的实体会原样保留。
 
-## 异常
+## Raises
 
 - **ValueError**: 当输入列表无效或内部包含非Solid对象时抛出异常
 
-## API使用例子
+## Examples
 
-### 例子 1
+### Example 1
 ```python
 # 创建三个实体，其中前两个接触可以融合，第三个独立
 box1 = make_box_rsolid(2, 2, 2, (0, 0, 0))
@@ -41,7 +41,7 @@ box2 = make_box_rsolid(2, 2, 2, (1, 0, 0))
 sphere = make_sphere_rsolid(1.0, (10, 0, 0))
 ```
 
-### 例子 2
+### Example 2
 ```python
 # 多种调用方式都支持且等价
 union_results1 = union_rsolidlist([box1, box2, sphere])
