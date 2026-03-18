@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-__all__ = ["make_involute_spur_gear_rsolid"]
+__all__ = [
+    "make_involute_spur_gear_rsolid",
+    "make_funnel_shell_rsolid",
+]
 
 
 def make_involute_spur_gear_rsolid(
@@ -270,3 +273,50 @@ def make_involute_spur_gear_rsolid(
     if verbose:
         print("[gear] done.")
     return gear
+
+
+def make_funnel_shell_rsolid(
+    mouth_radius: float = 60.0,
+    neck_outer_radius: float = 14.0,
+    cone_height: float = 55.0,
+    neck_height: float = 24.0,
+    wall_thickness: float = 1.5,
+    mouth_center: tuple[float, float, float] = (0.0, 0.0, 0.0),
+):
+    """Create a hollow funnel (conical shell + cylindrical neck)."""
+    import simplecadapi as scad
+
+    if mouth_radius <= 0:
+        raise ValueError("mouth_radius must be > 0")
+    if neck_outer_radius <= 0:
+        raise ValueError("neck_outer_radius must be > 0")
+    if cone_height <= 0:
+        raise ValueError("cone_height must be > 0")
+    if neck_height <= 0:
+        raise ValueError("neck_height must be > 0")
+    if wall_thickness <= 0:
+        raise ValueError("wall_thickness must be > 0")
+    if neck_outer_radius >= mouth_radius:
+        raise ValueError("neck_outer_radius must be < mouth_radius")
+
+    inner_mouth_radius = mouth_radius - wall_thickness
+    inner_neck_radius = neck_outer_radius - wall_thickness
+    if inner_mouth_radius <= 0 or inner_neck_radius <= 0:
+        raise ValueError("wall_thickness is too large for current radii")
+
+    z0 = mouth_center[2]
+    profile_points = [
+        (mouth_radius, 0.0, z0),
+        (neck_outer_radius, 0.0, z0 + cone_height),
+        (neck_outer_radius, 0.0, z0 + cone_height + neck_height),
+        (inner_neck_radius, 0.0, z0 + cone_height + neck_height),
+        (inner_neck_radius, 0.0, z0 + cone_height),
+        (inner_mouth_radius, 0.0, z0),
+    ]
+    profile_wire = scad.make_polyline_rwire(profile_points, closed=True)
+    return scad.revolve_rsolid(
+        profile_wire,
+        axis=(0.0, 0.0, 1.0),
+        angle=360.0,
+        origin=(mouth_center[0], mouth_center[1], z0),
+    )
