@@ -6,7 +6,7 @@
 PYTHON_BIN=.venv/bin/python scripts/install.sh
 ```
 
-This installs `simplecadapi==2.0.3` to the active Python environment.
+This installs `simplecadapi==2.0.4` to the active Python environment.
 If `PYTHON_BIN` is not set, wrappers default to `python3` (fallback `python`).
 Installation is intentionally blocked for non-venv/system interpreters.
 

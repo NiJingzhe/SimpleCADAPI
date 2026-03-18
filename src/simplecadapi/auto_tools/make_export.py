@@ -1,29 +1,50 @@
 #!/usr/bin/env python3
-"""
-自动化导出脚本 - 更新 __init__.py 文件
-每次 operations.py 有新的 API 函数时，自动更新 __init__.py 中的导入和导出
+"""Update `simplecadapi/__init__.py` exports from source modules.
 
-使用方法:
-    python make_export.py              # 标准模式
-    python make_export.py --dry-run    # 预览模式，不实际修改文件
-    python make_export.py --force      # 强制模式，跳过确认
-    python make_export.py --help       # 显示帮助
+This tool supports two common workflows:
+- `--show-api-only`: inspect the public API grouped by module and category.
+- default mode: regenerate `__init__.py` from the current module set.
+
+It reads module files directly from the installed package location, so it works both
+from a source checkout and from an installed virtual environment.
 """
 
-import re
-import ast
+from __future__ import annotations
+
 import argparse
+import ast
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import Dict, List, Mapping, Sequence, Tuple
 
-# 项目根目录
-PROJECT_ROOT = Path(__file__).parent.parent.parent
-SRC_DIR = PROJECT_ROOT / "simplecadapi"
-OPERATIONS_FILE = SRC_DIR / "operations.py"
-EVOLVE_FILE = SRC_DIR / "evolve.py"
-INIT_FILE = SRC_DIR / "__init__.py"
 
-# 函数分类规则
+PACKAGE_NAME = "simplecadapi"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+INIT_FILE = PACKAGE_ROOT / "__init__.py"
+
+CORE_EXPORTS = [
+    "CoordinateSystem",
+    "SimpleWorkplane",
+    "Vertex",
+    "Edge",
+    "Wire",
+    "Face",
+    "Solid",
+    "AnyShape",
+    "TaggedMixin",
+    "get_current_cs",
+    "WORLD_CS",
+]
+
+MODULE_ORDER = ("operations", "evolve", "constraints", "field", "ql")
+MODULE_LABELS = {
+    "operations": "Operations",
+    "evolve": "Evolve",
+    "constraints": "Constraints",
+    "field": "Field",
+    "ql": "QL",
+}
+
 FUNCTION_CATEGORIES = {
     "基础几何创建": [
         "make_point_",
@@ -42,16 +63,50 @@ FUNCTION_CATEGORIES = {
         "make_face_from_wire_",
         "make_wire_from_edges_",
         "make_cone_",
+        "make_field_surface_",
     ],
     "变换操作": ["translate_", "rotate_", "scale_", "mirror_"],
     "3D操作": ["extrude_", "revolve_", "loft_", "sweep_", "helical_sweep_"],
     "标签和选择": ["set_tag", "select_faces_", "select_edges_", "get_tag"],
     "布尔运算": ["union_", "cut_", "intersect_", "difference_"],
-    "导出": ["export_"],
+    "导出": ["export_", "render_"],
     "高级特征操作": ["fillet_", "chamfer_", "shell_", "pattern_", "array_"],
 }
 
-# 别名映射规则
+FIELD_CATEGORIES = {
+    "基础场函数": [
+        "make_sphere_",
+        "make_ellipsoid_",
+        "make_box_",
+        "make_capsule_",
+    ],
+    "布尔运算": [
+        "union_",
+        "intersect_",
+        "subtract_",
+        "smooth_union_",
+        "smooth_subtract_",
+    ],
+    "变换操作": ["translate_", "scale_", "rotate_"],
+    "评估和分析": ["eval_", "bounds_"],
+}
+
+QL_CATEGORIES = {
+    "标签与元数据谓词": ["tag", "meta", "geo"],
+    "逻辑组合": ["and_", "or_", "not_"],
+    "查询与取值": ["select", "value"],
+}
+
+TAIL_CONSTRAINT_FUNCTIONS = ("stack",)
+CONSTRAINTS_CLASS_ORDER = (
+    "Assembly",
+    "AssemblyResult",
+    "SolveReport",
+    "PartHandle",
+    "PointAnchor",
+    "AxisAnchor",
+)
+
 ALIAS_RULES = {
     "make_point_rvertex": "create_point",
     "make_line_redge": "create_line",
@@ -71,12 +126,12 @@ ALIAS_RULES = {
     "make_three_point_arc_rwire": "create_arc_wire",
     "make_spline_redge": "create_spline",
     "make_spline_rwire": "create_spline_wire",
-    "make_polyline_redge": "create_polyline",
     "make_polyline_rwire": "create_polyline_wire",
     "make_helix_redge": "create_helix",
     "make_helix_rwire": "create_helix_wire",
     "make_face_from_wire_rface": "create_face_from_wire",
     "make_wire_from_edges_rwire": "create_wire_from_edges",
+    "make_field_surface_rsolid": "create_field_surface",
     "translate_shape": "translate",
     "rotate_shape": "rotate",
     "extrude_rsolid": "extrude",
@@ -89,244 +144,213 @@ ALIAS_RULES = {
 }
 
 
-def extract_functions_from_operations() -> List[str]:
-    """从 operations.py 文件中提取所有函数名"""
+@dataclass(frozen=True)
+class ModuleInventory:
+    name: str
+    display_name: str
+    functions: List[str] = field(default_factory=list)
+    classes: List[str] = field(default_factory=list)
+
+
+def _module_file(module_name: str, package_root: Path | None = None) -> Path:
+    root = package_root.resolve() if package_root is not None else PACKAGE_ROOT
+    return root / f"{module_name}.py"
+
+
+def _parse_module(file_path: Path) -> ast.Module | None:
+    if not file_path.exists():
+        print(f"警告: {file_path} 文件不存在")
+        return None
+
+    try:
+        source = file_path.read_text(encoding="utf-8")
+        return ast.parse(source, filename=str(file_path))
+    except Exception as exc:
+        print(f"警告: 解析 {file_path} 失败: {exc}")
+        return None
+
+
+def extract_public_functions(file_path: Path) -> List[str]:
+    tree = _parse_module(file_path)
+    if tree is None:
+        return []
+
     functions: List[str] = []
-
-    if not OPERATIONS_FILE.exists():
-        print(f"错误: {OPERATIONS_FILE} 文件不存在")
-        return functions
-
-    with open(OPERATIONS_FILE, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    # 使用正则表达式提取函数定义
-    pattern = r"^def\s+(\w+)\s*\("
-    matches = re.findall(pattern, content, re.MULTILINE)
-
-    # 过滤掉私有函数和内部函数
-    for func_name in matches:
-        if not func_name.startswith("_"):
-            functions.append(func_name)
-
-    return sorted(functions)
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and not node.name.startswith("_"):
+            functions.append(node.name)
+    return functions
 
 
-def extract_functions_from_evolve() -> List[str]:
-    """从 operations.py 文件中提取所有函数名"""
-    functions: List[str] = []
+def extract_public_classes(file_path: Path) -> List[str]:
+    tree = _parse_module(file_path)
+    if tree is None:
+        return []
 
-    if not EVOLVE_FILE.exists():
-        print(f"错误: {EVOLVE_FILE} 文件不存在")
-        return functions
-
-    with open(EVOLVE_FILE, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    # 使用正则表达式提取函数定义
-    pattern = r"^def\s+(\w+)\s*\("
-    matches = re.findall(pattern, content, re.MULTILINE)
-
-    # 过滤掉私有函数和内部函数
-    for func_name in matches:
-        if not func_name.startswith("_"):
-            functions.append(func_name)
-
-    return sorted(functions)
+    classes: List[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
+            classes.append(node.name)
+    return classes
 
 
-def extract_functions_from_core() -> List[str]:
-    """从 core.py 文件中提取需要导出的函数和类"""
-    core_file = SRC_DIR / "core.py"
-    functions: List[str] = []
+def collect_api_inventory(
+    package_root: Path | None = None,
+) -> Dict[str, ModuleInventory]:
+    root = package_root.resolve() if package_root is not None else PACKAGE_ROOT
+    inventory: Dict[str, ModuleInventory] = {}
 
-    if not core_file.exists():
-        print(f"警告: {core_file} 文件不存在")
-        return functions
+    for module_name in MODULE_ORDER:
+        file_path = _module_file(module_name, root)
+        inventory[module_name] = ModuleInventory(
+            name=module_name,
+            display_name=MODULE_LABELS[module_name],
+            functions=extract_public_functions(file_path),
+            classes=(
+                extract_public_classes(file_path)
+                if module_name == "constraints"
+                else []
+            ),
+        )
 
-    with open(core_file, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    # 提取类定义
-    class_pattern = r"^class\s+(\w+)(?:\([^)]*\))?:"
-    class_matches = re.findall(class_pattern, content, re.MULTILINE)
-
-    # 提取函数定义
-    func_pattern = r"^def\s+(\w+)\s*\("
-    func_matches = re.findall(func_pattern, content, re.MULTILINE)
-
-    # 过滤掉私有函数和类
-    for name in class_matches + func_matches:
-        if not name.startswith("_"):
-            functions.append(name)
-
-    return sorted(functions)
+    return inventory
 
 
-def categorize_functions(functions: List[str]) -> Dict[str, List[str]]:
-    """将函数按类别分组"""
-    categorized: Dict[str, List[str]] = {}
+def categorize_functions(
+    functions: Sequence[str],
+    category_rules: Mapping[str, Sequence[str]],
+    fallback_label: str = "其他",
+) -> Dict[str, List[str]]:
+    categorized: Dict[str, List[str]] = {name: [] for name in category_rules}
 
-    for category, prefixes in FUNCTION_CATEGORIES.items():
-        categorized[category] = []
-        for func in functions:
-            for prefix in prefixes:
-                if func.startswith(prefix):
-                    categorized[category].append(func)
-                    break
+    for func in functions:
+        matched = False
+        for category, prefixes in category_rules.items():
+            if any(func.startswith(prefix) for prefix in prefixes):
+                categorized[category].append(func)
+                matched = True
+                break
+        if not matched:
+            categorized.setdefault(fallback_label, []).append(func)
 
-    # 处理未分类的函数
-    categorized_flat = []
-    for funcs in categorized.values():
-        categorized_flat.extend(funcs)
+    return {name: sorted(funcs) for name, funcs in categorized.items() if funcs}
 
-    uncategorized = [f for f in functions if f not in categorized_flat]
-    if uncategorized:
-        categorized["其他"] = uncategorized
 
-    return categorized
+def categorize_constraints(functions: Sequence[str]) -> Dict[str, List[str]]:
+    if not functions:
+        return {}
+    return {"声明式装配约束": sorted(functions)}
+
+
+def ordered_constraint_classes(classes: Sequence[str]) -> List[str]:
+    priority = {name: index for index, name in enumerate(CONSTRAINTS_CLASS_ORDER)}
+    return sorted(classes, key=lambda name: (priority.get(name, len(priority)), name))
+
+
+def categorize_module(
+    module_name: str, functions: Sequence[str]
+) -> Dict[str, List[str]]:
+    if module_name in {"operations", "evolve"}:
+        return categorize_functions(functions, FUNCTION_CATEGORIES)
+    if module_name == "constraints":
+        return categorize_constraints(functions)
+    if module_name == "field":
+        return categorize_functions(functions, FIELD_CATEGORIES)
+    if module_name == "ql":
+        return categorize_functions(functions, QL_CATEGORIES)
+    return {"其他": list(functions)} if functions else {}
 
 
 def generate_core_imports() -> str:
-    """生成 core 模块的导入语句"""
-    core_exports = [
-        "CoordinateSystem",
-        "SimpleWorkplane",
-        "Vertex",
-        "Edge",
-        "Wire",
-        "Face",
-        "Solid",
-        "AnyShape",
-        "TaggedMixin",
-        "get_current_cs",
-        "WORLD_CS",
-    ]
+    lines = ["from .core import (", "    # 核心类"]
 
-    import_lines = ["from .core import ("]
-    import_lines.append("    # 核心类")
+    for name in CORE_EXPORTS[:-2]:
+        lines.append(f"    {name},")
 
-    classes = [
-        "CoordinateSystem",
-        "SimpleWorkplane",
-        "Vertex",
-        "Edge",
-        "Wire",
-        "Face",
-        "Solid",
-        "AnyShape",
-        "TaggedMixin",
-    ]
-
-    for cls in classes:
-        import_lines.append(f"    {cls},")
-
-    import_lines.append("")
-    import_lines.append("    # 坐标系函数")
-    import_lines.append("    get_current_cs,")
-    import_lines.append("    WORLD_CS,")
-    import_lines.append(")")
-
-    return "\n".join(import_lines)
+    lines.append("    # 坐标系函数")
+    for name in CORE_EXPORTS[-2:]:
+        lines.append(f"    {name},")
+    lines.append(")")
+    return "\n".join(lines)
 
 
-def generate_operations_imports(categorized_functions: Dict[str, List[str]]) -> str:
-    """生成 operations 模块的导入语句"""
-    import_lines = ["from .operations import ("]
-
-    for category, functions in categorized_functions.items():
-        if not functions:
-            continue
-
-        import_lines.append(f"    # {category}")
+def _render_import_block(module_name: str, categorized: Dict[str, List[str]]) -> str:
+    lines = [f"from .{module_name} import ("]
+    for category, functions in categorized.items():
+        lines.append(f"    # {category}")
         for func in functions:
-            import_lines.append(f"    {func},")
-        import_lines.append("")
+            lines.append(f"    {func},")
+        lines.append("")
 
-    # 移除最后一个空行
-    if import_lines[-1] == "":
-        import_lines.pop()
-
-    import_lines.append(")")
-
-    return "\n".join(import_lines)
+    if lines[-1] == "":
+        lines.pop()
+    lines.append(")")
+    return "\n".join(lines)
 
 
-def generate_evolve_imports(categorized_functions: Dict[str, List[str]]) -> str:
-    """生成 evolve 模块的导入语句"""
-    import_lines = ["from .evolve import ("]
+def generate_constraints_imports(
+    functions: Sequence[str], classes: Sequence[str]
+) -> str:
+    lines = ["from .constraints import (", "    # 声明式装配约束"]
 
-    for category, functions in categorized_functions.items():
-        if not functions:
-            continue
+    tail = sorted(name for name in functions if name in TAIL_CONSTRAINT_FUNCTIONS)
+    head = sorted(name for name in functions if name not in TAIL_CONSTRAINT_FUNCTIONS)
 
-        import_lines.append(f"    # {category}")
-        for func in functions:
-            import_lines.append(f"    {func},")
-        import_lines.append("")
+    for name in head:
+        lines.append(f"    {name},")
+    for name in ordered_constraint_classes(classes):
+        lines.append(f"    {name},")
+    for name in tail:
+        lines.append(f"    {name},")
 
-    # 移除最后一个空行
-    if import_lines[-1] == "":
-        import_lines.pop()
-
-    import_lines.append(")")
-
-    return "\n".join(import_lines)
+    lines.append(")")
+    return "\n".join(lines)
 
 
-def generate_aliases(functions: List[str]) -> str:
-    """生成别名定义"""
-    alias_lines = []
+def generate_aliases(functions: Sequence[str]) -> str:
+    alias_lines = ["# 便于使用的别名", "Workplane = SimpleWorkplane", ""]
 
-    # 首先添加固定的别名
-    alias_lines.append("# 便于使用的别名")
-    alias_lines.append("Workplane = SimpleWorkplane")
-    alias_lines.append("")
-
-    # 按类别组织别名
     alias_categories: Dict[str, List[Tuple[str, str]]] = {}
     for func in functions:
-        if func in ALIAS_RULES:
-            alias = ALIAS_RULES[func]
-            # 根据函数类型分类
-            if func.startswith("make_"):
-                category = "创建函数别名"
-            elif func.startswith("translate_") or func.startswith("rotate_"):
-                category = "变换操作别名"
-            elif func.startswith("extrude_") or func.startswith("revolve_"):
-                category = "3D操作别名"
-            elif (
-                func.startswith("union_")
-                or func.startswith("cut_")
-                or func.startswith("intersect_")
-            ):
-                category = "布尔运算别名"
-            elif func.startswith("export_"):
-                category = "导出别名"
-            else:
-                category = "其他别名"
+        alias = ALIAS_RULES.get(func)
+        if alias is None:
+            continue
 
-            if category not in alias_categories:
-                alias_categories[category] = []
-            alias_categories[category].append((func, alias))
+        if func.startswith("make_"):
+            category = "创建函数别名"
+        elif func.startswith(("translate_", "rotate_")):
+            category = "变换操作别名"
+        elif func.startswith(("extrude_", "revolve_")):
+            category = "3D操作别名"
+        elif func.startswith(("union_", "cut_", "intersect_")):
+            category = "布尔运算别名"
+        elif func.startswith("export_"):
+            category = "导出别名"
+        else:
+            category = "其他别名"
 
-    # 生成别名代码
+        alias_categories.setdefault(category, []).append((func, alias))
+
     for category, aliases in alias_categories.items():
         alias_lines.append(f"# {category}")
-        for func, alias in aliases:
+        for func, alias in sorted(aliases, key=lambda item: item[1]):
             alias_lines.append(f"{alias} = {func}")
         alias_lines.append("")
 
+    if alias_lines[-1] == "":
+        alias_lines.pop()
     return "\n".join(alias_lines)
 
 
-def generate_all_list(functions: List[str]) -> str:
-    """生成 __all__ 列表"""
-    all_lines = ["__all__ = ["]
+def generate_all_list(
+    operations_functions: Sequence[str],
+    evolve_functions: Sequence[str],
+    constraints_functions: Sequence[str],
+    constraints_classes: Sequence[str],
+) -> str:
+    all_lines = ["__all__ = [", "    # 核心类"]
 
-    # 核心导出
-    all_lines.append("    # 核心类")
-    core_exports = [
+    core_public = [
         "CoordinateSystem",
         "SimpleWorkplane",
         "Workplane",
@@ -338,174 +362,168 @@ def generate_all_list(functions: List[str]) -> str:
         "AnyShape",
         "TaggedMixin",
     ]
-    for item in core_exports:
-        all_lines.append(f'    "{item}",')
+    for name in core_public:
+        all_lines.append(f'    "{name}",')
 
-    all_lines.append("")
-    all_lines.append("    # 坐标系")
-    all_lines.append('    "get_current_cs",')
-    all_lines.append('    "WORLD_CS",')
-    all_lines.append("")
+    all_lines.extend(
+        ["", "    # 坐标系", '    "get_current_cs",', '    "WORLD_CS",', ""]
+    )
 
-    # 按类别添加函数
-    categorized = categorize_functions(functions)
+    public_functions = list(operations_functions) + list(evolve_functions)
+    categorized = categorize_functions(public_functions, FUNCTION_CATEGORIES)
     for category, funcs in categorized.items():
-        if not funcs:
-            continue
         all_lines.append(f"    # {category}")
         for func in funcs:
             all_lines.append(f'    "{func}",')
         all_lines.append("")
 
-    # 添加别名
-    all_lines.append("    # 别名")
-    aliases = []
-    for func in functions:
-        if func in ALIAS_RULES:
-            aliases.append(ALIAS_RULES[func])
+    all_lines.append("    # 声明式装配约束")
+    tail = sorted(
+        name for name in constraints_functions if name in TAIL_CONSTRAINT_FUNCTIONS
+    )
+    head = sorted(
+        name for name in constraints_functions if name not in TAIL_CONSTRAINT_FUNCTIONS
+    )
+    for name in (
+        list(head) + ordered_constraint_classes(constraints_classes) + list(tail)
+    ):
+        all_lines.append(f'    "{name}",')
 
-    for alias in sorted(aliases):
+    all_lines.extend(['    "field",', '    "ql",', "", "    # 别名"])
+
+    aliases = sorted(
+        ALIAS_RULES[func] for func in public_functions if func in ALIAS_RULES
+    )
+    for alias in aliases:
         all_lines.append(f'    "{alias}",')
 
     all_lines.append("]")
-
     return "\n".join(all_lines)
 
 
-def generate_init_file(
-    operations_functions: List[str], evolve_functions: List[str]
-) -> str:
-    """生成完整的 __init__.py 文件内容"""
-    lines = []
+def generate_init_file(inventory: Dict[str, ModuleInventory]) -> str:
+    operations = inventory["operations"].functions
+    evolve = inventory["evolve"].functions
+    constraints = inventory["constraints"].functions
+    constraint_classes = inventory["constraints"].classes
 
-    # 文件头注释
-    lines.append('"""')
-    lines.append("SimpleCAD API - 简化的CAD建模Python API")
-    lines.append("基于CADQuery实现，提供直观的几何建模接口")
-    lines.append('"""')
-    lines.append("")
+    lines = [
+        '"""',
+        "SimpleCAD API - 简化的CAD建模Python API",
+        "基于CADQuery实现，提供直观的几何建模接口",
+        '"""',
+        "",
+        generate_core_imports(),
+        "",
+    ]
 
-    # 核心模块导入
-    lines.append(generate_core_imports())
-    lines.append("")
-
-    # operations 模块导入
-    if operations_functions:
-        categorized_operations = categorize_functions(operations_functions)
-        lines.append(generate_operations_imports(categorized_operations))
+    if operations:
+        lines.append(
+            _render_import_block(
+                "operations", categorize_module("operations", operations)
+            )
+        )
         lines.append("")
 
-    # evolve 模块导入
-    if evolve_functions:
-        categorized_evolve = categorize_functions(evolve_functions)
-        lines.append(generate_evolve_imports(categorized_evolve))
+    if evolve:
+        lines.append(
+            _render_import_block("evolve", categorize_module("evolve", evolve))
+        )
         lines.append("")
 
-    # 版本信息
-    lines.append('__author__ = "SimpleCAD API Team"')
-    lines.append(
-        '__description__ = "Simplified CAD modeling Python API based on CADQuery"'
+    if constraints or constraint_classes:
+        lines.append(generate_constraints_imports(constraints, constraint_classes))
+        lines.append("")
+
+    lines.extend(
+        [
+            "from . import field",
+            "from . import ql",
+            "",
+            '__author__ = "SimpleCAD API Team"',
+            '__description__ = "Simplified CAD modeling Python API based on CADQuery"',
+            "",
+            generate_aliases(list(operations) + list(evolve)),
+            "",
+            generate_all_list(operations, evolve, constraints, constraint_classes),
+            "",
+        ]
     )
-    lines.append("")
-
-    # 合并所有函数用于别名和 __all__ 列表
-    all_functions = operations_functions + evolve_functions
-
-    # 别名定义
-    lines.append(generate_aliases(all_functions))
-    lines.append("")
-
-    # __all__ 列表
-    lines.append(generate_all_list(all_functions))
-    lines.append("")
 
     return "\n".join(lines)
 
 
-def backup_init_file():
-    """备份当前的 __init__.py 文件"""
-    if INIT_FILE.exists():
-        backup_file = INIT_FILE.with_suffix(".py.bak")
-        with open(INIT_FILE, "r", encoding="utf-8") as src:
-            with open(backup_file, "w", encoding="utf-8") as dst:
-                dst.write(src.read())
-        print(f"已备份原文件到: {backup_file}")
+def backup_init_file(file_path: Path = INIT_FILE) -> None:
+    if not file_path.exists():
+        return
+
+    backup_file = file_path.with_suffix(".py.bak")
+    backup_file.write_text(file_path.read_text(encoding="utf-8"), encoding="utf-8")
+    print(f"已备份原文件到: {backup_file}")
 
 
 def check_syntax(file_path: Path) -> bool:
-    """检查生成的Python文件语法是否正确"""
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        ast.parse(content)
+        ast.parse(file_path.read_text(encoding="utf-8"), filename=str(file_path))
         return True
-    except SyntaxError as e:
-        print(f"语法错误: {e}")
+    except SyntaxError as exc:
+        print(f"语法错误: {exc}")
         return False
-    except Exception as e:
-        print(f"文件检查失败: {e}")
+    except Exception as exc:
+        print(f"文件检查失败: {exc}")
         return False
 
 
-def compare_with_existing(new_functions: List[str]) -> Tuple[List[str], List[str]]:
-    """比较新函数列表与现有的函数列表"""
-    if not INIT_FILE.exists():
-        return new_functions, []
+def extract_existing_auto_exports(file_path: Path = INIT_FILE) -> List[str]:
+    if not file_path.exists():
+        return []
 
     try:
-        with open(INIT_FILE, "r", encoding="utf-8") as f:
-            content = f.read()
+        tree = ast.parse(file_path.read_text(encoding="utf-8"), filename=str(file_path))
+    except Exception as exc:
+        print(f"比较文件时出错: {exc}")
+        return []
 
-        # 从现有文件中提取函数名（从 from .operations import 和 from .evolve import 部分）
-        existing_functions = []
+    symbols: List[str] = []
+    managed_modules = {"operations", "evolve", "constraints"}
 
-        # 提取 operations 模块的函数
-        operations_match = re.search(
-            r"from \.operations import \((.*?)\)", content, re.DOTALL
-        )
-        if operations_match:
-            operations_content = operations_match.group(1)
-            operations_functions = re.findall(
-                r"^\s*(\w+),?\s*$", operations_content, re.MULTILINE
-            )
-            operations_functions = [
-                f.rstrip(",") for f in operations_functions if not f.startswith("#")
-            ]
-            existing_functions.extend(operations_functions)
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom) or node.level != 1:
+            continue
 
-        # 提取 evolve 模块的函数
-        evolve_match = re.search(r"from \.evolve import \((.*?)\)", content, re.DOTALL)
-        if evolve_match:
-            evolve_content = evolve_match.group(1)
-            evolve_functions = re.findall(
-                r"^\s*(\w+),?\s*$", evolve_content, re.MULTILINE
-            )
-            evolve_functions = [
-                f.rstrip(",") for f in evolve_functions if not f.startswith("#")
-            ]
-            existing_functions.extend(evolve_functions)
+        if node.module in managed_modules:
+            for alias in node.names:
+                if alias.name != "*":
+                    symbols.append(alias.name)
+            continue
 
-        new_additions = [f for f in new_functions if f not in existing_functions]
-        removed_functions = [f for f in existing_functions if f not in new_functions]
+        if node.module is None:
+            for alias in node.names:
+                if alias.name in {"field", "ql"}:
+                    symbols.append(alias.name)
 
-        return new_additions, removed_functions
-    except Exception as e:
-        print(f"比较文件时出错: {e}")
-
-    return new_functions, []
+    return sorted(dict.fromkeys(symbols))
 
 
-def parse_arguments():
-    """解析命令行参数"""
+def compare_with_existing(target_symbols: Sequence[str]) -> Tuple[List[str], List[str]]:
+    existing = extract_existing_auto_exports()
+    target = sorted(dict.fromkeys(target_symbols))
+    new_additions = [name for name in target if name not in existing]
+    removed = [name for name in existing if name not in target]
+    return new_additions, removed
+
+
+def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="自动更新 SimpleCAD API 的 __init__.py 文件",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
-  python make_export.py              # 标准模式
-  python make_export.py --dry-run    # 预览模式，不实际修改文件
-  python make_export.py --force      # 强制模式，跳过确认
-  python make_export.py --verbose    # 详细输出模式
+  python make_export.py                   # 标准模式
+  python make_export.py --dry-run         # 预览模式，不实际修改文件
+  python make_export.py --show-api-only   # 只显示 API 列表
+  python make_export.py --force           # 强制模式，跳过确认
+  python make_export.py --verbose         # 详细输出模式
         """,
     )
 
@@ -514,181 +532,178 @@ def parse_arguments():
         action="store_true",
         help="预览模式，显示将要进行的更改但不实际修改文件",
     )
-
     parser.add_argument(
         "--show-api-only",
         action="store_true",
         help="仅显示 API 函数，不生成 __init__.py 文件",
     )
-
     parser.add_argument(
-        "--force", action="store_true", help="强制模式，跳过所有确认提示"
+        "--force",
+        action="store_true",
+        help="强制模式，跳过所有确认提示",
     )
-
-    parser.add_argument("--verbose", "-v", action="store_true", help="详细输出模式")
-
     parser.add_argument(
-        "--backup", default=True, help="是否创建备份文件 (默认: 创建备份)"
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="详细输出模式",
     )
-
+    parser.add_argument(
+        "--backup",
+        dest="backup",
+        action="store_true",
+        default=True,
+        help="创建备份文件 (默认: 创建备份)",
+    )
+    parser.add_argument(
+        "--no-backup",
+        dest="backup",
+        action="store_false",
+        help="不创建备份文件",
+    )
     return parser.parse_args()
 
 
-def main():
-    """主函数"""
+def _print_module_summary(module_name: str, inventory: ModuleInventory) -> int:
+    categorized = categorize_module(module_name, inventory.functions)
+    total = 0
+
+    print(f"\n🔹 {inventory.display_name} 模块:")
+    for category, funcs in categorized.items():
+        print(f"\n  {category} ({len(funcs)} 个函数):")
+        for func in sorted(funcs):
+            print(f"    - {func}")
+        total += len(funcs)
+
+    if inventory.classes:
+        print(f"\n  导出类 ({len(inventory.classes)} 个类):")
+        for cls in inventory.classes:
+            print(f"    - {cls}")
+
+    return total
+
+
+def _verbose_module_summary(module_name: str, inventory: ModuleInventory) -> None:
+    categorized = categorize_module(module_name, inventory.functions)
+    print(f"  {inventory.display_name} 模块:")
+    for category, funcs in categorized.items():
+        print(f"    {category}: {len(funcs)} 个函数")
+        for func in funcs[:3]:
+            print(f"      - {func}")
+        if len(funcs) > 3:
+            print(f"      ... 和其他 {len(funcs) - 3} 个函数")
+    if inventory.classes:
+        print(f"    导出类: {len(inventory.classes)} 个")
+
+
+def _target_symbols(inventory: Dict[str, ModuleInventory]) -> List[str]:
+    symbols: List[str] = []
+    for module_name in ("operations", "evolve", "constraints"):
+        symbols.extend(inventory[module_name].functions)
+        symbols.extend(inventory[module_name].classes)
+    symbols.extend(["field", "ql"])
+    return symbols
+
+
+def main() -> None:
     args = parse_arguments()
 
     if args.verbose:
         print("🚀 开始更新 __init__.py 文件...")
+        print(f"📦 包目录: {PACKAGE_ROOT}")
 
-    # 检查必要文件是否存在
-    if not OPERATIONS_FILE.exists():
-        print(f"❌ 错误: {OPERATIONS_FILE} 文件不存在")
+    inventory = collect_api_inventory()
+    operations_functions = inventory["operations"].functions
+    evolve_functions = inventory["evolve"].functions
+
+    if not any(item.functions or item.classes for item in inventory.values()):
+        print("❌ 未找到任何公共 API，退出")
         return
 
-    # 提取 operations.py 中的函数
-    operations_functions = extract_functions_from_operations()
-    if args.verbose:
-        print(f"✅ 从 operations.py 找到 {len(operations_functions)} 个函数")
+    target_symbols = _target_symbols(inventory)
+    new_additions, removed_functions = compare_with_existing(target_symbols)
 
-    # 提取 evolve.py 中的函数
-    if args.verbose:
-        print("📋 提取 evolve.py 中的函数...")
-    evolve_functions = extract_functions_from_evolve()
-    if args.verbose:
-        print(f"✅ 从 evolve.py 找到 {len(evolve_functions)} 个函数")
-
-    if not operations_functions and not evolve_functions:
-        print("❌ 未找到任何函数，退出")
-        return
-
-    # 合并所有函数用于比较
-    all_functions = operations_functions + evolve_functions
-
-    # 比较变更
-    new_additions, removed_functions = compare_with_existing(all_functions)
-
-    if new_additions:
-        if args.verbose:
-            print(f"\n🆕 新增函数 ({len(new_additions)} 个):")
-            for func in new_additions:
-                print(f"  + {func}")
-
-    if removed_functions:
-        if args.verbose:
-            print(f"\n🗑️  删除函数 ({len(removed_functions)} 个):")
-            for func in removed_functions:
-                print(f"  - {func}")
-
-    # 显示函数分类（详细模式）
     if args.verbose:
         print("\n📊 函数分类统计:")
-        print("  Operations 模块:")
-        categorized_operations = categorize_functions(operations_functions)
-        for category, funcs in categorized_operations.items():
-            if funcs:
-                print(f"    {category}: {len(funcs)} 个函数")
-                for func in funcs[:3]:  # 只显示前3个
-                    print(f"      - {func}")
-                if len(funcs) > 3:
-                    print(f"      ... 和其他 {len(funcs) - 3} 个函数")
+        for module_name in MODULE_ORDER:
+            _verbose_module_summary(module_name, inventory[module_name])
 
-        print("  Evolve 模块:")
-        categorized_evolve = categorize_functions(evolve_functions)
-        for category, funcs in categorized_evolve.items():
-            if funcs:
-                print(f"    {category}: {len(funcs)} 个函数")
-                for func in funcs[:3]:  # 只显示前3个
-                    print(f"      - {func}")
-                if len(funcs) > 3:
-                    print(f"      ... 和其他 {len(funcs) - 3} 个函数")
+    if new_additions and args.verbose:
+        print(f"\n🆕 新增导出 ({len(new_additions)} 个):")
+        for name in new_additions:
+            print(f"  + {name}")
 
-    # 预览模式
+    if removed_functions and args.verbose:
+        print(f"\n🗑️  删除导出 ({len(removed_functions)} 个):")
+        for name in removed_functions:
+            print(f"  - {name}")
+
+    if args.show_api_only:
+        print("\n📜 API 函数列表 (按模块和类别分组):")
+        totals: Dict[str, int] = {}
+        for module_name in MODULE_ORDER:
+            totals[module_name] = _print_module_summary(
+                module_name, inventory[module_name]
+            )
+
+        print(
+            "\n📊 总计: "
+            f"Operations {totals['operations']} 个函数, "
+            f"Evolve {totals['evolve']} 个函数, "
+            f"Constraints {totals['constraints']} 个函数, "
+            f"Field {totals['field']} 个函数, "
+            f"QL {totals['ql']} 个函数, "
+            f"总计 {sum(totals.values())} 个函数"
+        )
+        return
+
+    new_content = generate_init_file(inventory)
+
     if args.dry_run:
         print("\n👁️  预览模式 - 将要进行的更改:")
-        new_content = generate_init_file(operations_functions, evolve_functions)
         print(f"  生成的文件大小: {len(new_content)} 字符")
         print(f"  Operations 函数数: {len(operations_functions)}")
         print(f"  Evolve 函数数: {len(evolve_functions)}")
-        print(f"  总函数数: {len(all_functions)}")
-        print(f"  别名数: {len([f for f in all_functions if f in ALIAS_RULES])}")
+        print(f"  Constraints 函数数: {len(inventory['constraints'].functions)}")
+        print(f"  Field 函数数: {len(inventory['field'].functions)}")
+        print(f"  QL 函数数: {len(inventory['ql'].functions)}")
+        print(f"  总导出符号数: {len(target_symbols)}")
+        print(
+            f"  别名数: {len([name for name in operations_functions + evolve_functions if name in ALIAS_RULES])}"
+        )
         print("  (使用 --verbose 查看详细信息)")
         print("\n💡 要实际执行更改，请移除 --dry-run 参数")
         return
 
-    if args.show_api_only:
-        print("\n📜 API 函数列表 (按模块和类别分组):")
-
-        # Operations 模块函数
-        print("\n🔹 Operations 模块:")
-        categorized_operations = categorize_functions(operations_functions)
-        total_operations = 0
-
-        for category, funcs in categorized_operations.items():
-            if funcs:
-                print(f"\n  {category} ({len(funcs)} 个函数):")
-                for func in sorted(funcs):
-                    print(f"    - {func}")
-                total_operations += len(funcs)
-
-        # Evolve 模块函数
-        print("\n🔹 Evolve 模块:")
-        categorized_evolve = categorize_functions(evolve_functions)
-        total_evolve = 0
-
-        for category, funcs in categorized_evolve.items():
-            if funcs:
-                print(f"\n  {category} ({len(funcs)} 个函数):")
-                for func in sorted(funcs):
-                    print(f"    - {func}")
-                total_evolve += len(funcs)
-
-        print(
-            f"\n📊 总计: Operations {total_operations} 个函数, Evolve {total_evolve} 个函数, 总计 {total_operations + total_evolve} 个函数"
-        )
-
-        return
-
-    # 备份原文件
     if args.backup:
         backup_init_file()
 
-    # 生成新的 __init__.py 文件
     print("\n🔄 生成新的 __init__.py 文件...")
-    new_content = generate_init_file(operations_functions, evolve_functions)
+    INIT_FILE.write_text(new_content, encoding="utf-8")
 
-    # 写入文件
-    with open(INIT_FILE, "w", encoding="utf-8") as f:
-        f.write(new_content)
-
-    # 语法检查
     print("🔍 检查生成文件的语法...")
-    if check_syntax(INIT_FILE):
-        print("✅ 语法检查通过")
-    else:
+    if not check_syntax(INIT_FILE):
         print("❌ 语法检查失败，请检查生成的文件")
         return
 
+    print("✅ 语法检查通过")
     print(f"✅ 已更新 {INIT_FILE}")
     print("🎉 更新完成！")
 
-    # 显示统计信息
-    print(f"\n📈 统计信息:")
-    print(f"  Operations 函数数: {len(operations_functions)}")
-    print(f"  Evolve 函数数: {len(evolve_functions)}")
-    print(f"  总函数数: {len(all_functions)}")
-    print(f"  别名数: {len([f for f in all_functions if f in ALIAS_RULES])}")
-    categorized_operations = categorize_functions(operations_functions)
-    categorized_evolve = categorize_functions(evolve_functions)
+    print("\n📈 统计信息:")
+    for module_name in MODULE_ORDER:
+        print(
+            f"  {MODULE_LABELS[module_name]} 函数数: {len(inventory[module_name].functions)}"
+        )
+    print(f"  Constraints 类数: {len(inventory['constraints'].classes)}")
+    print(f"  总导出符号数: {len(target_symbols)}")
     print(
-        f"  Operations 类别数: {len([c for c, f in categorized_operations.items() if f])}"
+        f"  别名数: {len([name for name in operations_functions + evolve_functions if name in ALIAS_RULES])}"
     )
-    print(f"  Evolve 类别数: {len([c for c, f in categorized_evolve.items() if f])}")
 
-    # 建议下一步操作
-    print(f"\n💡 建议:")
+    print("\n💡 建议:")
     print(f"  1. 检查生成的 {INIT_FILE} 文件")
-    print(f"  2. 运行测试确保所有导入正常工作")
+    print("  2. 运行测试确保所有导入正常工作")
     if args.backup:
         print(f"  3. 如有问题，可以从备份文件 {INIT_FILE}.bak 恢复")
 
