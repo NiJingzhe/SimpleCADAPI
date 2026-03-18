@@ -28,6 +28,7 @@ from .operations import (
     make_circle_rface,
     make_circle_rwire,
     make_cylinder_rsolid,
+    make_field_surface_rsolid,
     make_face_from_wire_rface,
     make_helix_redge,
     make_helix_rwire,
@@ -65,6 +66,7 @@ from .operations import (
     # 导出
     export_step,
     export_stl,
+    render_screenshot_rpath,
     # 高级特征操作
     chamfer_rsolid,
     fillet_rsolid,
@@ -105,6 +107,7 @@ from .constraints import (
     stack,
 )
 
+from . import field
 from . import ql
 
 __author__ = "SimpleCAD API Team"
@@ -134,6 +137,7 @@ create_circle_edge = make_circle_redge
 create_circle_face = make_circle_rface
 create_circle_wire = make_circle_rwire
 create_cylinder = make_cylinder_rsolid
+create_field_surface = make_field_surface_rsolid
 create_face_from_wire = make_face_from_wire_rface
 create_helix = make_helix_redge
 create_helix_wire = make_helix_rwire
@@ -179,6 +183,7 @@ __all__ = [
     "make_circle_rface",
     "make_circle_rwire",
     "make_cylinder_rsolid",
+    "make_field_surface_rsolid",
     "make_face_from_wire_rface",
     "make_helix_redge",
     "make_helix_rwire",
@@ -216,6 +221,7 @@ __all__ = [
     # 导出
     "export_step",
     "export_stl",
+    "render_screenshot_rpath",
     # 高级特征操作
     "chamfer_rsolid",
     "fillet_rsolid",
@@ -247,6 +253,7 @@ __all__ = [
     "PointAnchor",
     "AxisAnchor",
     "stack",
+    "field",
     "ql",
     # 别名
     "create_angle_arc",
@@ -258,6 +265,7 @@ __all__ = [
     "create_circle_face",
     "create_circle_wire",
     "create_cylinder",
+    "create_field_surface",
     "create_face_from_wire",
     "create_helix",
     "create_helix_wire",

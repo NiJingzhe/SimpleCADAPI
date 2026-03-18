@@ -18,6 +18,7 @@ from typing import Dict, Iterable, List, Sequence
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SOURCES: tuple[Path, ...] = (
     PROJECT_ROOT / "src/simplecadapi/operations.py",
+    PROJECT_ROOT / "src/simplecadapi/field.py",
     PROJECT_ROOT / "src/simplecadapi/evolve.py",
     PROJECT_ROOT / "src/simplecadapi/constraints.py",
     PROJECT_ROOT / "src/simplecadapi/ql.py",
