@@ -10,18 +10,18 @@ def make_box_rscalarfield(center: Tuple[float, float, float], size: Tuple[float,
 
 ## Description
 
-创建轴对齐盒体标量场。
+Create an axis-aligned box scalar field.
 
 ## Parameters
 
 ### center
 
-- **Description**: 盒体中心坐标 (x, y, z)。
+- **Description**: Box center coordinates `(x, y, z)`.
 
 ### size
 
-- **Description**: 尺寸 (sx, sy, sz)。
+- **Description**: Box size `(sx, sy, sz)`.
 
 ## Returns
 
-ScalarField: 盒体标量场。
+ScalarField: Box scalar field.

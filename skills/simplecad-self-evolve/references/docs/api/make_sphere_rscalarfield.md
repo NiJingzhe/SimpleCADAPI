@@ -10,18 +10,18 @@ def make_sphere_rscalarfield(center: Tuple[float, float, float], radius: float) 
 
 ## Description
 
-创建球体标量场。
+Create a spherical scalar field.
 
 ## Parameters
 
 ### center
 
-- **Description**: 球心坐标 (x, y, z)。
+- **Description**: Sphere center coordinates `(x, y, z)`.
 
 ### radius
 
-- **Description**: 球半径。
+- **Description**: Sphere radius.
 
 ## Returns
 
-ScalarField: 球体标量场。
+ScalarField: Sphere scalar field.

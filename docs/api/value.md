@@ -10,7 +10,7 @@ def value(path: str, default: Any = None) -> KeyFn
 
 ## Description
 
-构造取值函数，用于排序或投影。
+Build a value getter for sorting or projection.
 
 Q.select(items).order_by(Q.value("geo.height"))
 
@@ -18,15 +18,15 @@ Q.select(items).order_by(Q.value("geo.height"))
 
 ### path
 
-- **Description**: 元数据路径，例如 "geo.height"。
+- **Description**: Metadata path, for example `geo.height`.
 
 ### default
 
-- **Description**: 取值失败时的默认值。
+- **Description**: Default value when lookup fails.
 
 ## Returns
 
-Callable[[Any], Any]: 取值函数。
+Callable[[Any], Any]: Getter function.
 
 ## Examples
 

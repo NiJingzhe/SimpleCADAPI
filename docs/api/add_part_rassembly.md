@@ -10,4 +10,4 @@ def add_part_rassembly(assembly: Assembly, name: str, solid: Solid, parent: Opti
 
 ## Description
 
-Type-2映射：在装配空间中新增零件并返回新装配对象。
+Type-2 mapping: add a part in assembly space and return a new assembly.

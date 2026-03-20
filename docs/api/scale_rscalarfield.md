@@ -10,18 +10,18 @@ def scale_rscalarfield(field: ScalarField, factors: Tuple[float, float, float]) 
 
 ## Description
 
-缩放标量场（以原点为中心）。
+Scale a scalar field around the origin.
 
 ## Parameters
 
 ### field
 
-- **Description**: 输入标量场。
+- **Description**: Input scalar field.
 
 ### factors
 
-- **Description**: 缩放系数 (sx, sy, sz)。
+- **Description**: Scale factors `(sx, sy, sz)`.
 
 ## Returns
 
-ScalarField: 缩放后的标量场。
+ScalarField: Scaled scalar field.

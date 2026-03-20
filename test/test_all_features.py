@@ -1,7 +1,4 @@
-"""
-SimpleCAD API 全面单元测试
-测试所有API功能，包括基础操作和复杂特征
-"""
+"""Comprehensive unit tests for the SimpleCAD API, covering basic operations and advanced features."""
 
 import sys
 import os
@@ -17,68 +14,68 @@ import simplecadapi as scad
 
 
 class TestBasicShapes(unittest.TestCase):
-    """测试基础几何体创建"""
+    """Tests for basic shape creation."""
 
     def test_create_point(self):
-        """测试点创建"""
+        """Test create point."""
         point = scad.make_point_rvertex(1, 2, 3)
         # 暂时跳过坐标检查，因为点类型可能不同
         self.assertIsInstance(point, scad.Vertex)
 
     def test_create_line(self):
-        """测试线段创建"""
+        """Test create line."""
         line = scad.make_line_redge((0, 0, 0), (1, 0, 0))
         self.assertIsInstance(line, scad.Edge)
 
     def test_create_circle_edge(self):
-        """测试圆边创建"""
+        """Test create circle edge."""
         circle_edge = scad.make_circle_redge((0, 0, 0), 1.0)
         self.assertIsInstance(circle_edge, scad.Edge)
 
     def test_create_circle_wire(self):
-        """测试圆线创建"""
+        """Test create circle wire."""
         circle_wire = scad.make_circle_rwire((0, 0, 0), 1.0)
         self.assertIsInstance(circle_wire, scad.Wire)
 
     def test_create_circle_face(self):
-        """测试圆面创建"""
+        """Test create circle face."""
         circle_face = scad.make_circle_rface((0, 0, 0), 1.0)
         area = circle_face.get_area()
         self.assertAlmostEqual(area, np.pi, places=6)
 
     def test_create_rectangle_wire(self):
-        """测试矩形线创建"""
+        """Test create rectangle wire."""
         rect_wire = scad.make_rectangle_rwire(2.0, 1.0)
         self.assertIsInstance(rect_wire, scad.Wire)
 
     def test_create_rectangle_face(self):
-        """测试矩形面创建"""
+        """Test create rectangle face."""
         rect_face = scad.make_rectangle_rface(2.0, 1.0)
         area = rect_face.get_area()
         self.assertAlmostEqual(area, 2.0, places=6)
 
     def test_create_box(self):
-        """测试立方体创建"""
+        """Test create box."""
         box = scad.make_box_rsolid(1.0, 1.0, 1.0)
         volume = box.get_volume()
         self.assertAlmostEqual(volume, 1.0, places=6)
 
     def test_create_cylinder(self):
-        """测试圆柱体创建"""
+        """Test create cylinder."""
         cylinder = scad.make_cylinder_rsolid(1.0, 2.0)
         volume = cylinder.get_volume()
         expected_volume = np.pi * 1.0**2 * 2.0
         self.assertAlmostEqual(volume, expected_volume, places=6)
 
     def test_create_sphere(self):
-        """测试球体创建"""
+        """Test create sphere."""
         sphere = scad.make_sphere_rsolid(1.0)
         volume = sphere.get_volume()
         expected_volume = (4 / 3) * np.pi * 1.0**3
         self.assertAlmostEqual(volume, expected_volume, places=5)
 
     def test_create_cone(self):
-        """测试圆锥体创建"""
+        """Test create cone."""
         # 测试标准圆锥体（尖锥）
         cone = scad.make_cone_rsolid(2.0, 3.0)
         volume = cone.get_volume()
@@ -87,7 +84,7 @@ class TestBasicShapes(unittest.TestCase):
         self.assertTrue(cone.has_tag("cone"))
 
     def test_create_truncated_cone(self):
-        """测试截锥体创建"""
+        """Test create truncated cone."""
         # 测试截锥体（顶面半径不为0）
         truncated_cone = scad.make_cone_rsolid(3.0, 4.0, 1.0)
         volume = truncated_cone.get_volume()
@@ -98,63 +95,63 @@ class TestBasicShapes(unittest.TestCase):
         self.assertTrue(truncated_cone.has_tag("cone"))
 
     def test_create_cone_with_offset(self):
-        """测试偏移圆锥体创建"""
+        """Test create cone with offset."""
         # 测试底面中心偏移的圆锥体
         offset_cone = scad.make_cone_rsolid(1.5, 2.0, bottom_face_center=(2, 2, 0))
         self.assertIsInstance(offset_cone, scad.Solid)
         self.assertTrue(offset_cone.has_tag("cone"))
 
     def test_create_cone_with_axis(self):
-        """测试不同轴向的圆锥体创建"""
+        """Test create cone with axis."""
         # 测试水平方向的圆锥体
         horizontal_cone = scad.make_cone_rsolid(1.0, 3.0, axis=(1, 0, 0))
         self.assertIsInstance(horizontal_cone, scad.Solid)
         self.assertTrue(horizontal_cone.has_tag("cone"))
 
     def test_create_arc(self):
-        """测试三点圆弧创建"""
+        """Test create arc."""
         arc = scad.make_three_point_arc_redge((0, 0, 0), (1, 1, 0), (2, 0, 0))
         self.assertIsInstance(arc, scad.Edge)
 
     def test_create_spline(self):
-        """测试样条曲线创建"""
+        """Test create spline."""
         points = [(0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 0.0, 0.0)]
         spline = scad.make_spline_redge(points)
         self.assertIsInstance(spline, scad.Edge)
 
     def test_create_segment_edge(self):
-        """测试线段边创建"""
+        """Test create segment edge."""
         segment = scad.make_segment_redge((0, 0, 0), (1, 0, 0))
         self.assertIsInstance(segment, scad.Edge)
 
     def test_create_segment_wire(self):
-        """测试线段线创建"""
+        """Test create segment wire."""
         segment_wire = scad.make_segment_rwire((0, 0, 0), (1, 0, 0))
         self.assertIsInstance(segment_wire, scad.Wire)
 
     def test_create_angle_arc_edge(self):
-        """测试角度圆弧边创建"""
+        """Test create angle arc edge."""
         arc = scad.make_angle_arc_redge((0, 0, 0), 1.0, 0, np.pi / 2)
         self.assertIsInstance(arc, scad.Edge)
 
     def test_create_angle_arc_wire(self):
-        """测试角度圆弧线创建"""
+        """Test create angle arc wire."""
         arc_wire = scad.make_angle_arc_rwire((0, 0, 0), 1.0, 0, np.pi / 2)
         self.assertIsInstance(arc_wire, scad.Wire)
 
     def test_create_three_point_arc_wire(self):
-        """测试三点圆弧线创建"""
+        """Test create three point arc wire."""
         arc_wire = scad.make_three_point_arc_rwire((0, 0, 0), (1, 1, 0), (2, 0, 0))
         self.assertIsInstance(arc_wire, scad.Wire)
 
     def test_create_spline_wire(self):
-        """测试样条曲线线创建"""
+        """Test create spline wire."""
         points = [(0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 0.0, 0.0)]
         spline_wire = scad.make_spline_rwire(points)
         self.assertIsInstance(spline_wire, scad.Wire)
 
     def test_create_polyline_wire(self):
-        """测试多段线线创建"""
+        """Test create polyline wire."""
         points = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
         polyline_wire = scad.make_polyline_rwire(points)
         self.assertIsInstance(polyline_wire, scad.Wire)
@@ -165,17 +162,17 @@ class TestBasicShapes(unittest.TestCase):
         self.assertTrue(closed_polyline.is_closed())
 
     def test_create_helix_edge(self):
-        """测试螺旋线边创建"""
+        """Test create helix edge."""
         helix = scad.make_helix_redge(pitch=1.0, height=3.0, radius=0.5)
         self.assertIsInstance(helix, scad.Edge)
 
     def test_create_helix_wire(self):
-        """测试螺旋线线创建"""
+        """Test create helix wire."""
         helix_wire = scad.make_helix_rwire(pitch=1.0, height=3.0, radius=0.5)
         self.assertIsInstance(helix_wire, scad.Wire)
 
     def test_new_function_error_handling(self):
-        """测试新函数的错误处理"""
+        """Test new function error handling."""
         # 测试无效参数
         with self.assertRaises(ValueError):
             scad.make_angle_arc_redge((0, 0, 0), -1.0, 0, np.pi / 2)  # 负半径
@@ -200,13 +197,13 @@ class TestBasicShapes(unittest.TestCase):
 
 
 class TestTransformations(unittest.TestCase):
-    """测试变换操作"""
+    """Tests for transformation operations."""
 
     def setUp(self):
         self.box = scad.make_box_rsolid(1.0, 1.0, 1.0)
 
     def test_translate(self):
-        """测试平移操作"""
+        """Test translate."""
         translated = scad.translate_shape(self.box, (1, 0, 0))
         self.assertIsInstance(translated, scad.Solid)
         # 体积应保持不变
@@ -216,7 +213,7 @@ class TestTransformations(unittest.TestCase):
             )
 
     def test_rotate(self):
-        """测试旋转操作"""
+        """Test rotate."""
         rotated = scad.rotate_shape(self.box, np.pi / 4, (0, 0, 1))
         self.assertIsInstance(rotated, scad.Solid)
         # 体积应保持不变
@@ -227,10 +224,10 @@ class TestTransformations(unittest.TestCase):
 
 
 class Test3DOperations(unittest.TestCase):
-    """测试3D操作"""
+    """Tests for 3D operations."""
 
     def test_extrude(self):
-        """测试拉伸操作"""
+        """Test extrude."""
         rect = scad.make_rectangle_rface(2.0, 1.0)
         extruded = scad.extrude_rsolid(rect, (0, 0, 1), 2.0)
         self.assertIsInstance(extruded, scad.Solid)
@@ -239,7 +236,7 @@ class Test3DOperations(unittest.TestCase):
         self.assertAlmostEqual(extruded.get_volume(), expected_volume, places=6)
 
     def test_revolve(self):
-        """测试旋转成型操作"""
+        """Test revolve."""
         rect = scad.make_rectangle_rface(1.0, 2.0, center=(2, 0, 0))
         revolved = scad.revolve_rsolid(rect, (0, 1, 0), 180, (0, 0, 0))
         self.assertIsInstance(revolved, scad.Solid)
@@ -247,7 +244,7 @@ class Test3DOperations(unittest.TestCase):
 
 
 class TestBooleanOperations(unittest.TestCase):
-    """测试布尔运算"""
+    """Tests for boolean operations."""
 
     def setUp(self):
         self.box1 = scad.make_box_rsolid(2.0, 2.0, 2.0)
@@ -256,7 +253,7 @@ class TestBooleanOperations(unittest.TestCase):
         )
 
     def test_union(self):
-        """测试并集运算"""
+        """Test union."""
         results = scad.union_rsolidlist([self.box1, self.box2])
         self.assertIsInstance(results, list)
         self.assertEqual(len(results), 1)
@@ -267,7 +264,7 @@ class TestBooleanOperations(unittest.TestCase):
         self.assertGreater(result.get_volume(), self.box2.get_volume())
 
     def test_union_disconnected_solids(self):
-        """测试并集运算在实体不接触时返回原始数量"""
+        """Test union disconnected solids."""
 
         box_far_1 = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 0, 0))
         box_far_2 = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(5, 0, 0))
@@ -282,7 +279,7 @@ class TestBooleanOperations(unittest.TestCase):
             self.assertIsInstance(solid, scad.Solid)
 
     def test_cut(self):
-        """测试差集运算"""
+        """Test cut."""
         result_list = scad.cut_rsolidlist(self.box1, self.box2)
         self.assertIsInstance(result_list, list)
         self.assertEqual(len(result_list), 1)
@@ -292,7 +289,7 @@ class TestBooleanOperations(unittest.TestCase):
         self.assertLess(result.get_volume(), self.box1.get_volume())
 
     def test_intersect(self):
-        """测试交集运算"""
+        """Test intersect."""
         result_list = scad.intersect_rsolidlist(self.box1, self.box2)
         self.assertIsInstance(result_list, list)
         self.assertEqual(len(result_list), 1)
@@ -303,21 +300,21 @@ class TestBooleanOperations(unittest.TestCase):
         self.assertLess(result.get_volume(), self.box2.get_volume())
 
     def test_legacy_boolean_api_removed(self):
-        """测试旧布尔运算API已移除"""
+        """Test legacy boolean API removed."""
         self.assertFalse(hasattr(scad, "union_rsolid"))
         self.assertFalse(hasattr(scad, "cut_rsolid"))
         self.assertFalse(hasattr(scad, "intersect_rsolid"))
 
 
 class TestAdvancedFeatures(unittest.TestCase):
-    """测试高级特征操作"""
+    """Tests for advanced feature operations."""
 
     def setUp(self):
         self.box = scad.make_box_rsolid(2.0, 2.0, 2.0)
         self.box.auto_tag_faces("box")
 
     def test_fillet(self):
-        """测试圆角操作"""
+        """Test fillet."""
         # 获取所有边
         edges = self.box.get_edges()
         # 选择前4条边进行圆角
@@ -332,7 +329,7 @@ class TestAdvancedFeatures(unittest.TestCase):
             self.skipTest(f"Fillet operation not fully implemented: {e}")
 
     def test_chamfer(self):
-        """测试倒角操作"""
+        """Test chamfer."""
         # 获取所有边
         edges = self.box.get_edges()
         # 选择前4条边进行倒角
@@ -347,7 +344,7 @@ class TestAdvancedFeatures(unittest.TestCase):
             self.skipTest(f"Chamfer operation not fully implemented: {e}")
 
     def test_shell(self):
-        """测试抽壳操作"""
+        """Test shell."""
         # 获取顶面
         faces = self.box.get_faces()
         top_faces = [face for face in faces if face.has_tag("top")]
@@ -361,7 +358,7 @@ class TestAdvancedFeatures(unittest.TestCase):
             self.skipTest(f"Shell operation not fully implemented: {e}")
 
     def test_loft(self):
-        """测试放样操作"""
+        """Test loft."""
         # 创建两个不同大小的矩形轮廓
         rect1 = scad.create_rectangle_wire(2.0, 2.0, center=(0, 0, 0))
         rect2 = scad.create_rectangle_wire(1.0, 1.0, center=(0, 0, 2))
@@ -374,7 +371,7 @@ class TestAdvancedFeatures(unittest.TestCase):
             self.skipTest(f"Loft operation not fully implemented: {e}")
 
     def test_linear_pattern(self):
-        """测试线性阵列"""
+        """Test linear pattern."""
         small_box = scad.create_box(0.5, 0.5, 0.5)
 
         pattern = scad.linear_pattern_rsolidlist(small_box, (1, 0, 0), 5, 1.0)
@@ -386,7 +383,7 @@ class TestAdvancedFeatures(unittest.TestCase):
         self.assertIsInstance(solids[0], scad.Solid)
 
     def test_radial_pattern(self):
-        """测试径向阵列"""
+        """Test radial pattern."""
         small_box = scad.create_box(0.2, 0.2, 1.0, bottom_face_center=(2, 0, 0))
 
         pattern = scad.radial_pattern_rsolidlist(
@@ -400,7 +397,7 @@ class TestAdvancedFeatures(unittest.TestCase):
         self.assertIsInstance(solids[0], scad.Solid)
 
     def test_mirror(self):
-        """测试镜像操作"""
+        """Test mirror."""
         mirrored = scad.mirror_shape(self.box, (0, 0, 0), (1, 0, 0))
         self.assertIsInstance(mirrored, scad.Solid)
         # 镜像后体积应该保持不变
@@ -411,18 +408,18 @@ class TestAdvancedFeatures(unittest.TestCase):
 
 
 class TestTagging(unittest.TestCase):
-    """测试标签系统"""
+    """Tests for the tagging system."""
 
     def setUp(self):
         self.box = scad.create_box(1.0, 1.0, 1.0)
 
     def test_set_tag(self):
-        """测试设置标签"""
+        """Test set tag."""
         scad.set_tag(self.box, "test_box")
         self.assertTrue(self.box.has_tag("test_box"))
 
     def test_multiple_tags(self):
-        """测试多个标签"""
+        """Test multiple tags."""
         scad.set_tag(self.box, "tag1")
         scad.set_tag(self.box, "tag2")
         tags = self.box.get_tags()
@@ -430,7 +427,7 @@ class TestTagging(unittest.TestCase):
         self.assertIn("tag2", tags)
 
     def test_auto_tag_faces_box(self):
-        """测试立方体自动标记面"""
+        """Test auto tag faces box."""
         self.box.auto_tag_faces("box")
         faces = self.box.get_faces()
 
@@ -439,7 +436,7 @@ class TestTagging(unittest.TestCase):
         self.assertGreater(len(tagged_faces), 0)
 
     def test_auto_tag_faces_cylinder(self):
-        """测试圆柱体自动标记面"""
+        """Test auto tag faces cylinder."""
         cylinder = scad.create_cylinder(1.0, 2.0)
         cylinder.auto_tag_faces("cylinder")
         faces = cylinder.get_faces()
@@ -449,7 +446,7 @@ class TestTagging(unittest.TestCase):
         self.assertGreater(len(tagged_faces), 0)
 
     def test_auto_tag_faces_sphere(self):
-        """测试球体自动标记面"""
+        """Test auto tag faces sphere."""
         sphere = scad.create_sphere(1.0)
         sphere.auto_tag_faces("sphere")
         faces = sphere.get_faces()
@@ -460,23 +457,23 @@ class TestTagging(unittest.TestCase):
 
 
 class TestCoordinateSystem(unittest.TestCase):
-    """测试坐标系功能"""
+    """Tests for coordinate system features."""
 
     def test_world_coordinate_system(self):
-        """测试世界坐标系"""
+        """Test world coordinate system."""
         point = scad.make_point_rvertex(1, 0, 0)
         # 暂时跳过坐标检查
         self.assertIsInstance(point, scad.Vertex)
 
     def test_workplane_translation(self):
-        """测试工作平面平移"""
+        """Test workplane translation."""
         with scad.SimpleWorkplane(origin=(1, 1, 1)):
             point = scad.make_point_rvertex(1, 0, 0)
             # 暂时跳过坐标检查
             self.assertIsInstance(point, scad.Vertex)
 
     def test_nested_workplane(self):
-        """测试嵌套工作平面"""
+        """Test nested workplane."""
         with scad.SimpleWorkplane(origin=(1, 0, 0)):
             with scad.SimpleWorkplane(origin=(0, 1, 0)):
                 point = scad.make_point_rvertex(1, 0, 0)
@@ -485,7 +482,7 @@ class TestCoordinateSystem(unittest.TestCase):
 
 
 class TestExport(unittest.TestCase):
-    """测试导出功能"""
+    """Tests for export functionality."""
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
@@ -495,7 +492,7 @@ class TestExport(unittest.TestCase):
         shutil.rmtree(self.temp_dir)
 
     def test_export_stl(self):
-        """测试STL导出"""
+        """Test export STL."""
         stl_path = os.path.join(self.temp_dir, "test.stl")
         try:
             scad.export_stl(self.box, stl_path)
@@ -507,7 +504,7 @@ class TestExport(unittest.TestCase):
             self.skipTest(f"STL export not fully implemented: {e}")
 
     def test_export_step(self):
-        """测试STEP导出"""
+        """Test export STEP."""
         step_path = os.path.join(self.temp_dir, "test.step")
         try:
             scad.export_step(self.box, step_path)
@@ -519,7 +516,7 @@ class TestExport(unittest.TestCase):
             self.skipTest(f"STEP export not fully implemented: {e}")
 
     def test_export_multiple_shapes(self):
-        """测试导出多个几何体"""
+        """Test export multiple shapes."""
         box1 = scad.make_box_rsolid(1.0, 1.0, 1.0)
         box2 = scad.make_box_rsolid(0.5, 0.5, 0.5, bottom_face_center=(2, 0, 0))
         stl_path = os.path.join(self.temp_dir, "multiple.stl")
@@ -534,7 +531,7 @@ class TestExport(unittest.TestCase):
             self.skipTest(f"Multiple shapes export not fully implemented: {e}")
 
     def test_export_nested_shape_list(self):
-        """测试导出嵌套几何体列表"""
+        """Test export nested shape list."""
         box = scad.make_box_rsolid(0.8, 0.8, 0.8)
         cylinder = scad.make_cylinder_rsolid(0.4, 1.0)
         sphere = scad.make_sphere_rsolid(0.5)
@@ -550,7 +547,7 @@ class TestExport(unittest.TestCase):
             self.skipTest(f"Nested shapes export not fully implemented: {e}")
 
     def test_export_step_multiple_solids_single_file(self):
-        """测试多个实体导出到同一个STEP文件"""
+        """Test export STEP multiple solids single file."""
         box1 = scad.make_box_rsolid(1.0, 1.0, 1.0)
         box2 = scad.make_box_rsolid(0.7, 0.7, 0.7, bottom_face_center=(2.0, 0, 0))
         step_path = os.path.join(self.temp_dir, "assembly_like.step")
@@ -572,10 +569,10 @@ class TestExport(unittest.TestCase):
 
 
 class TestComplexExamples(unittest.TestCase):
-    """测试复杂示例"""
+    """Tests for complex example workflows."""
 
     def test_create_bracket(self):
-        """测试创建支架示例"""
+        """Test create bracket."""
         # 创建主体
         base = scad.make_box_rsolid(10, 5, 2)
 
@@ -600,7 +597,7 @@ class TestComplexExamples(unittest.TestCase):
         self.assertLess(bracket.get_volume(), base.get_volume())
 
     def test_create_gear_like_shape(self):
-        """测试创建类似齿轮的形状"""
+        """Test create gear like shape."""
         # 创建基础圆盘
         base_circle = scad.make_circle_rface((0, 0, 0), 5)
         gear_base = scad.extrude_rsolid(base_circle, (0, 0, 1), 1)
@@ -626,7 +623,7 @@ class TestComplexExamples(unittest.TestCase):
         self.assertGreater(gear.get_volume(), gear_base.get_volume())
 
     def test_create_cone_complex_shape(self):
-        """测试创建包含圆锥体的复杂形状"""
+        """Test create cone complex shape."""
         # 创建基础圆柱体
         base_cylinder = scad.make_cylinder_rsolid(2.0, 3.0)
 
@@ -655,7 +652,7 @@ class TestComplexExamples(unittest.TestCase):
         self.assertLess(result.get_volume(), combined_shape.get_volume())
 
     def test_complex_boolean_operations(self):
-        """测试复杂布尔运算"""
+        """Test complex boolean operations."""
         # 创建三个重叠的立方体
         box1 = scad.make_box_rsolid(2, 2, 2, bottom_face_center=(0, 0, 0))
         box2 = scad.make_box_rsolid(2, 2, 2, bottom_face_center=(1, 0, 0))
@@ -676,10 +673,10 @@ class TestComplexExamples(unittest.TestCase):
 
 
 class TestErrorHandling(unittest.TestCase):
-    """测试错误处理"""
+    """Tests for error handling."""
 
     def test_invalid_dimensions(self):
-        """测试无效尺寸"""
+        """Test invalid dimensions."""
         with self.assertRaises(ValueError):
             scad.make_box_rsolid(-1, 1, 1)
 
@@ -699,7 +696,7 @@ class TestErrorHandling(unittest.TestCase):
             scad.make_cone_rsolid(0, 1)
 
     def test_invalid_coordinates(self):
-        """测试无效坐标"""
+        """Test invalid coordinates."""
         # 这些不应该抛出异常，但结果应该是有效的
         try:
             _ = scad.make_point_rvertex(float("inf"), 0, 0)
@@ -708,7 +705,7 @@ class TestErrorHandling(unittest.TestCase):
             pass
 
     def test_empty_profile_loft(self):
-        """测试空轮廓放样"""
+        """Test empty profile loft."""
         try:
             with self.assertRaises(ValueError):
                 scad.loft_rsolid([])
@@ -717,10 +714,10 @@ class TestErrorHandling(unittest.TestCase):
 
 
 class TestNewFunctionIntegration(unittest.TestCase):
-    """测试新函数的集成应用"""
+    """Tests for integration of newly added functions."""
 
     def test_spline_with_tangents(self):
-        """测试带切线的样条曲线"""
+        """Test spline with tangents."""
         points = [(0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 0.0, 0.0)]
         tangents = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (1.0, 0.0, 0.0)]
 
@@ -729,7 +726,7 @@ class TestNewFunctionIntegration(unittest.TestCase):
         self.assertIsInstance(spline, scad.Edge)
 
     def test_complex_polyline_shapes(self):
-        """测试复杂多段线形状"""
+        """Test complex polyline shapes."""
         # 创建一个复杂的星形多段线
         import math
 
@@ -749,7 +746,7 @@ class TestNewFunctionIntegration(unittest.TestCase):
         self.assertTrue(star_wire.is_closed())
 
     def test_helix_with_different_parameters(self):
-        """测试不同参数的螺旋线"""
+        """Test helix with different parameters."""
         # 测试不同的螺旋参数
         helix1 = scad.make_helix_rwire(0.5, 2.0, 0.3)  # 密螺旋
         helix2 = scad.make_helix_rwire(2.0, 4.0, 1.0)  # 疏螺旋
@@ -760,7 +757,7 @@ class TestNewFunctionIntegration(unittest.TestCase):
         self.assertIsInstance(helix3, scad.Wire)
 
     def test_angle_arc_various_angles(self):
-        """测试不同角度的圆弧"""
+        """Test angle arc various angles."""
         # 90度圆弧
         arc90 = scad.make_angle_arc_rwire((0, 0, 0), 1.0, 0, np.pi / 2)
         self.assertIsInstance(arc90, scad.Wire)
@@ -774,7 +771,7 @@ class TestNewFunctionIntegration(unittest.TestCase):
         self.assertIsInstance(arc270, scad.Wire)
 
     def test_new_functions_with_extrusion(self):
-        """测试新函数与拉伸的结合"""
+        """Test new functions with extrusion."""
         # 创建一个复杂轮廓并拉伸
         points = [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (2.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
         rect_wire = scad.make_polyline_rwire(points, closed=True)
@@ -791,7 +788,7 @@ class TestNewFunctionIntegration(unittest.TestCase):
             self.skipTest(f"Extrusion integration not fully working: {e}")
 
     def test_alias_functions(self):
-        """测试别名函数"""
+        """Test alias functions."""
         # 测试一些主要的别名函数
         segment = scad.create_segment((0, 0, 0), (1, 0, 0))
         self.assertIsInstance(segment, scad.Edge)
@@ -811,7 +808,7 @@ class TestNewFunctionIntegration(unittest.TestCase):
 
 
 class TestDeclarativeConstraints(unittest.TestCase):
-    """测试声明式约束与命令式混合装配。"""
+    """Tests for declarative constraints mixed with imperative assembly."""
 
     def test_concentric_and_offset_mix_with_imperative(self):
         sleeve = scad.make_cylinder_rsolid(5.0, 20.0, bottom_face_center=(0, 0, 0))
@@ -1049,7 +1046,7 @@ class TestDeclarativeConstraints(unittest.TestCase):
 
 
 def run_comprehensive_tests():
-    """运行全面测试"""
+    """Run the comprehensive test suite."""
     print("SimpleCAD API 全面单元测试")
     print("=" * 60)
 

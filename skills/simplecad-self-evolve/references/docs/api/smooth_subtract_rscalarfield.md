@@ -10,22 +10,22 @@ def smooth_subtract_rscalarfield(a: ScalarField, b: ScalarField, k: float) -> Sc
 
 ## Description
 
-平滑差集组合标量场。
+Create a smooth subtraction scalar field.
 
 ## Parameters
 
 ### a
 
-- **Description**: 被减标量场。
+- **Description**: Minuend scalar field.
 
 ### b
 
-- **Description**: 减去标量场。
+- **Description**: Subtrahend scalar field.
 
 ### k
 
-- **Description**: 平滑系数，必须为正。
+- **Description**: Smoothing factor, which must be positive.
 
 ## Returns
 
-ScalarField: 平滑差集标量场。
+ScalarField: Smooth subtraction scalar field.

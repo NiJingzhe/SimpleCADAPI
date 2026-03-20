@@ -10,4 +10,4 @@ def solve_assembly_rresult(assembly: Assembly, max_iterations: int = 30, toleran
 
 ## Description
 
-Type-2映射：从装配对象映射到求解结果，不修改原对象。
+Type-2 mapping: map an assembly to a solve result without mutating it.

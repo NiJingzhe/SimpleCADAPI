@@ -8,13 +8,13 @@ KeyFn = Callable[[Any], Any]
 
 
 def _get_tags(obj: Any) -> List[str]:
-    """读取对象上的标签列表。
+    """Read the tag list from an object.
 
     Args:
-        obj: 任意对象，优先读取 get_tags()，其次读取 _tags。
+        obj: Any object. Reads `get_tags()` first, then `_tags`.
 
     Returns:
-        List[str]: 标签列表，未找到则返回空列表。
+        List[str]: Tag list, or an empty list if not found.
     """
     if hasattr(obj, "get_tags"):
         try:
@@ -28,13 +28,13 @@ def _get_tags(obj: Any) -> List[str]:
 
 
 def _get_metadata_root(obj: Any) -> dict:
-    """读取对象的元数据字典。
+    """Read the metadata dictionary from an object.
 
     Args:
-        obj: 任意对象，优先读取 _metadata。
+        obj: Any object. Reads `_metadata` when available.
 
     Returns:
-        dict: 元数据根字典，未找到则返回空字典。
+        dict: Root metadata dictionary, or an empty dict if not found.
     """
     root = getattr(obj, "_metadata", None)
     if isinstance(root, dict):
@@ -43,14 +43,14 @@ def _get_metadata_root(obj: Any) -> dict:
 
 
 def _lookup_metadata(obj: Any, path: str) -> Any:
-    """按点路径读取对象元数据。
+    """Read object metadata by dotted path.
 
     Args:
-        obj: 任意对象。
-        path: 点分隔路径，例如 "geo.type"。
+        obj: Any object.
+        path: Dot-separated path, for example `geo.type`.
 
     Returns:
-        Any: 命中值，未命中返回 None。
+        Any: Matched value, or None if not found.
     """
     if not isinstance(path, str) or not path:
         return None
@@ -65,20 +65,20 @@ def _lookup_metadata(obj: Any, path: str) -> Any:
 
 
 def tag(pattern: str) -> Predicate:
-    """构造基于标签的谓词。
+    """Build a tag-based predicate.
 
     Args:
-        pattern: 标签匹配模式，支持后缀通配符 "*"。
+        pattern: Tag matching pattern. Supports a trailing `*` wildcard.
 
     Returns:
-        Callable[[Any], bool]: 谓词函数。
+        Callable[[Any], bool]: Predicate function.
 
     Raises:
-        TypeError: pattern 不是字符串。
-        ValueError: 通配符位置不合法。
+        TypeError: If pattern is not a string.
+        ValueError: If the wildcard position is invalid.
 
     Usage:
-        Q.tag("face.top") 或 Q.tag("role.*")。
+        `Q.tag("face.top")` or `Q.tag("role.*")`.
 
     Examples:
         pred = Q.tag("role.*")
@@ -106,19 +106,19 @@ def tag(pattern: str) -> Predicate:
 
 
 def meta(path: str, op: str, value: Any) -> Predicate:
-    """构造基于元数据的谓词。
+    """Build a metadata-based predicate.
 
     Args:
-        path: 元数据路径，例如 "geo.type"。
-        op: 比较操作符，支持 == != > >= < <= 。
-        value: 比较目标值。
+        path: Metadata path, for example `geo.type`.
+        op: Comparison operator. Supports `==`, `!=`, `>`, `>=`, `<`, and `<=`.
+        value: Comparison target value.
 
     Returns:
-        Callable[[Any], bool]: 谓词函数。
+        Callable[[Any], bool]: Predicate function.
 
     Raises:
-        TypeError: op 不是字符串。
-        ValueError: 操作符不支持。
+        TypeError: If op is not a string.
+        ValueError: If the operator is unsupported.
 
     Usage:
         Q.meta("geo.type", "==", "box")
@@ -157,14 +157,14 @@ def meta(path: str, op: str, value: Any) -> Predicate:
 
 
 def value(path: str, default: Any = None) -> KeyFn:
-    """构造取值函数，用于排序或投影。
+    """Build a value getter for sorting or projection.
 
     Args:
-        path: 元数据路径，例如 "geo.height"。
-        default: 取值失败时的默认值。
+        path: Metadata path, for example `geo.height`.
+        default: Default value when lookup fails.
 
     Returns:
-        Callable[[Any], Any]: 取值函数。
+        Callable[[Any], Any]: Getter function.
 
     Usage:
         Q.select(items).order_by(Q.value("geo.height"))
@@ -203,14 +203,14 @@ def value(path: str, default: Any = None) -> KeyFn:
 
 
 def geo(field: str, default: Any = None) -> KeyFn:
-    """快捷构造 geo 元数据取值函数。
+    """Convenience builder for a `geo` metadata getter.
 
     Args:
-        field: geo 字段名，如 "type"、"height"。
-        default: 取值失败时的默认值。
+        field: `geo` field name, such as `type` or `height`.
+        default: Default value when lookup fails.
 
     Returns:
-        Callable[[Any], Any]: 取值函数。
+        Callable[[Any], Any]: Getter function.
 
     Usage:
         Q.select(items).order_by(Q.geo("height"))
@@ -219,13 +219,13 @@ def geo(field: str, default: Any = None) -> KeyFn:
 
 
 def and_(*predicates: Predicate) -> Predicate:
-    """构造 AND 组合谓词。
+    """Build an AND-composed predicate.
 
     Args:
-        *predicates: 任意数量谓词。
+        *predicates: Any number of predicates.
 
     Returns:
-        Callable[[Any], bool]: 组合谓词。
+        Callable[[Any], bool]: Combined predicate.
 
     Usage:
         Q.and_(Q.tag("face.top"), Q.tag("role.mounting_surface"))
@@ -241,13 +241,13 @@ def and_(*predicates: Predicate) -> Predicate:
 
 
 def or_(*predicates: Predicate) -> Predicate:
-    """构造 OR 组合谓词。
+    """Build an OR-composed predicate.
 
     Args:
-        *predicates: 任意数量谓词。
+        *predicates: Any number of predicates.
 
     Returns:
-        Callable[[Any], bool]: 组合谓词。
+        Callable[[Any], bool]: Combined predicate.
 
     Usage:
         Q.or_(Q.tag("face.top"), Q.tag("face.bottom"))
@@ -263,13 +263,13 @@ def or_(*predicates: Predicate) -> Predicate:
 
 
 def not_(predicate: Predicate) -> Predicate:
-    """构造 NOT 谓词。
+    """Build a NOT predicate.
 
     Args:
-        predicate: 单个谓词。
+        predicate: A single predicate.
 
     Returns:
-        Callable[[Any], bool]: 取反谓词。
+        Callable[[Any], bool]: Negated predicate.
 
     Usage:
         Q.not_(Q.tag("state.*"))
@@ -283,33 +283,33 @@ def not_(predicate: Predicate) -> Predicate:
 
 class Query:
     def __init__(self, items: Iterable[Any]):
-        """创建查询对象。
+        """Create a query object.
 
         Args:
-            items: 任意可迭代对象。
+            items: Any iterable.
         """
         self._items = list(items)
 
     def where(self, predicate: Predicate) -> "Query":
-        """根据谓词过滤对象。
+        """Filter objects with a predicate.
 
         Args:
-            predicate: 过滤谓词。
+            predicate: Filter predicate.
 
         Returns:
-            Query: 新查询对象。
+            Query: New query object.
         """
         return Query([item for item in self._items if predicate(item)])
 
     def order_by(self, key: KeyFn, desc: bool = False) -> "Query":
-        """按 key 排序。
+        """Sort by key.
 
         Args:
-            key: 取值函数。
-            desc: 是否降序。
+            key: Getter function.
+            desc: Whether to sort in descending order.
 
         Returns:
-            Query: 新查询对象。
+            Query: New query object.
         """
 
         def _safe_key(obj: Any):
@@ -319,43 +319,43 @@ class Query:
         return Query(sorted(self._items, key=_safe_key, reverse=desc))
 
     def limit(self, count: int) -> "Query":
-        """限制返回数量。
+        """Limit the number of returned items.
 
         Args:
-            count: 最大数量。
+            count: Maximum number of items.
 
         Returns:
-            Query: 新查询对象。
+            Query: New query object.
         """
         if count <= 0:
             return Query([])
         return Query(self._items[:count])
 
     def first(self) -> Optional[Any]:
-        """返回首个元素。
+        """Return the first item.
 
         Returns:
-            Optional[Any]: 首元素或 None。
+            Optional[Any]: First item or None.
         """
         return self._items[0] if self._items else None
 
     def all(self) -> List[Any]:
-        """返回全部结果。
+        """Return all results.
 
         Returns:
-            List[Any]: 结果列表。
+            List[Any]: Result list.
         """
         return list(self._items)
 
 
 def select(items: Iterable[Any]) -> Query:
-    """创建查询对象。
+    """Create a query object.
 
     Args:
-        items: 任意可迭代对象。
+        items: Any iterable.
 
     Returns:
-        Query: 查询对象。
+        Query: Query object.
 
     Usage:
         Q.select(items).where(Q.tag("face.top")).first()

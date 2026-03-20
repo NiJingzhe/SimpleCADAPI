@@ -10,18 +10,20 @@ def stack(assembly: Assembly, parts: Sequence[Union[str, PartHandle]], axis: str
 
 ## Description
 
-沿指定轴将多个零件做声明式堆叠。
+Declaratively stack multiple parts along the specified axis.
 
-语义：
-- 顺序堆叠：第i个零件贴在第i-1个零件之后，并留出 gap
-- 横向对齐：在其余两个轴上按 align 对齐
-- 主轴分布：通过 justify 控制整体在边界中的分布方式
+Semantics:
+- sequential stacking: part i is placed after part i-1 with the given gap
+- cross-axis alignment: the other two axes are aligned according to `align`
+- main-axis distribution: `justify` controls how the whole stack is placed
+within the bounds
 
-BBox-first 说明：
-- 本函数使用轴对齐包围盒（AABB）锚点（如 `bbox.top` / `bbox.bottom`）
-来近似 Flexbox 的盒模型语义。
-- 对发生大角度旋转的零件，AABB 会随姿态变化，布局结果也会随之变化。
-这是当前 MVP 阶段的预期行为。
+BBox-first note:
+- This function uses axis-aligned bounding-box (AABB) anchors such as
+`bbox.top` and `bbox.bottom` to approximate Flexbox-like box semantics.
+- For parts with large rotations, the AABB changes with pose, so the layout
+result changes as well. This is expected in the current MVP stage.
 
-注意：
-- 这是容器语法糖，内部会编译成若干 `offset(...)` 约束。
+Note:
+- This is container-level sugar that compiles into a set of `offset(...)`
+constraints internally.

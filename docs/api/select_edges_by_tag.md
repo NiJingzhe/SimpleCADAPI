@@ -10,18 +10,4 @@ def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]
 
 ## Description
 
-根据标签选择边
-
-## Parameters
-
-### shape
-
-- **Description**: 面或实体
-
-### tag
-
-- **Description**: 标签名称
-
-## Returns
-
-匹配标签的边列表
+Select edges by tag.

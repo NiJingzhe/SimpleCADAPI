@@ -10,4 +10,4 @@ def constrain_offset_rassembly(assembly: Assembly, reference: PointAnchor, movin
 
 ## Description
 
-Type-2映射：添加轴向偏移约束并返回新装配对象。
+Type-2 mapping: add an axial offset constraint and return a new assembly.

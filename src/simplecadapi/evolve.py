@@ -13,50 +13,7 @@ def make_n_hole_flange_rsolid(
     hole_count=8,
     chamfer_size=1.0,
 ) -> Solid:
-    """
-    创建n孔法兰，包含中心凸起圆环和倒角，最终法兰的底面中心在原点(0,0,0)
-
-    Args:
-        flange_outer_diameter (float): 法兰外径
-        flange_inner_diameter (float): 法兰内径
-        flange_thickness (float): 法兰厚度
-        boss_outer_diameter (float): 凸起圆环外径
-        boss_height (float): 凸起圆环高度
-        hole_diameter (float): 连接孔直径
-        hole_circle_diameter (float): 连接孔分布圆直径
-        hole_count (int): 连接孔数量
-        chamfer_size (float): 倒角尺寸
-
-    Returns:
-        Solid: 创建的n孔法兰
-
-    Raises:
-        ValueError: 如果在创建法兰主体、切割内孔、或后续几何操作过程中发生错误（如几何体重叠、尺寸不合理等），会抛出该异常。
-        TypeError: 如果传入的参数类型不正确（如应为float却传入了str等），会抛出该异常。
-        ValueError: 如果参数值不在合理范围（如直径为负数、孔数量小于1、内径大于外径等），会抛出该异常。
-
-    Usage:
-        创建n孔法兰，包含中心凸起圆环和倒角，最终法兰的底面中心在原点(0,0,0)
-        体积等于法兰外径×法兰厚度+凸起圆环体积-连接孔体积-倒角体积
-        法兰外径×法兰厚度：法兰主体体积
-        凸起圆环体积：凸起圆环体积
-        连接孔体积：连接孔体积
-        倒角体积：倒角体积
-
-    Example:
-        flange = make_n_hole_flange_rsolid(
-            flange_outer_diameter=120.0,
-            flange_inner_diameter=60.0,
-            flange_thickness=15.0,
-            boss_outer_diameter=80.0,
-            boss_height=5.0,
-            hole_diameter=8.0,
-            hole_circle_diameter=100.0,
-            hole_count=8,
-            chamfer_size=1.0
-        )
-        export_stl(flange, "flange.stl")
-    """
+    """Create an n-hole flange with a raised boss ring and optional chamfers. The center of the bottom face is placed at the origin."""
 
     print(f"开始创建{hole_count}孔法兰...")
 
@@ -237,42 +194,7 @@ def make_naca_propeller_blade_rsolid(
     num_sections=7,
     t_c=0.16,
 ) -> Solid:
-    """
-    创建单个螺旋桨叶片模型, 默认使用NACA0016翼型，扭转45度，7个截面，厚度比16%
-    最终桨叶的根部在原点，桨叶沿着Z轴方向延伸
-
-    Args:
-        blade_length (float): 桨叶径向长度
-        root_chord (float): 桨叶根部弦长
-        tip_chord (float): 桨叶叶尖弦长
-        total_twist_angle (float): 桨叶从根部到叶尖的总扭转角度（度）
-        num_sections (int): 沿径向生成的截面数量
-        t_c (float): 翼型厚度比（0.0到1.0）, NACA0016为0.16
-
-    Returns:
-        Solid: 螺旋桨叶片实体
-
-    Raises:
-        ValueError: 如果翼型截面生成失败，可能是NACA翼型计算或几何变换失败
-        ValueError: 如果截面数量不足，需要至少2个截面
-        ValueError: 如果放样结果不是有效的Solid对象
-        ValueError: 如果翼型厚度比超出有效范围（0.0到1.0）
-
-    Usage:
-        创建单个螺旋桨叶片模型, 默认使用NACA0016翼型，扭转45度，7个截面，厚度比16%
-        厚度比：翼型厚度比（0.0到1.0）, NACA0016为0.16
-
-    Example:
-        # 创建一个扭转45度，7个截面，厚度比16%的螺旋桨叶片
-        blade = make_naca_propeller_blade_rsolid(
-            blade_length=5.0,
-            root_chord=1.5,
-            tip_chord=0.3,
-            total_twist_angle=45.0,
-            num_sections=7,
-            t_c=0.16,
-        )
-    """
+    """Create a single propeller blade solid from a twisted NACA 0016 profile. The blade root starts at the origin and extends along +Z."""
 
     import math
 
@@ -280,22 +202,13 @@ def make_naca_propeller_blade_rsolid(
     print(f"  扭转角度={total_twist_angle}°, 截面数={num_sections}")
 
     def generate_naca_0016_points(chord_length=1.0, num_points=50):
-        """
-        生成NACA 0016翼型的坐标点
-
-        Args:
-            chord_length: 弦长
-            num_points: 每侧生成的点数
-
-        Returns:
-            List[Tuple[float, float, float]]: 翼型坐标点列表
-        """
+        """Generate sample points for a NACA 0016 airfoil profile."""
         print(f"    生成NACA 0016翼型点，弦长={chord_length:.3f}")
 
         # NACA 0016翼型厚度分布函数
         # y/c = 0.16 * (0.2969*sqrt(x/c) - 0.1260*(x/c) - 0.3516*(x/c)^2 + 0.2843*(x/c)^3 - 0.1015*(x/c)^4)
         def naca_0016_thickness(x_c):
-            """计算NACA 0016在x/c位置的半厚度"""
+            """Return the NACA 0016 half-thickness at a given x/c position."""
             if x_c < 0 or x_c > 1:
                 return 0.0
             return t_c * (
@@ -418,47 +331,7 @@ def make_threaded_rod_rsolid(
     thread_start_position=0.0,
     chamfer_size=0.5,
 ) -> Solid:
-    """
-    创建带螺纹的螺杆，支持可调节的杆子长度、螺纹范围和螺距。
-    注意，创建的螺杆顶部中心在原点，向Z轴负方向延伸。
-
-    Args:
-        thread_diameter (float): 螺纹杆直径（螺纹大径）
-        thread_length (float): 螺纹部分长度
-        total_length (float): 螺杆总长度
-        thread_pitch (float): 螺纹螺距
-        thread_start_position (float): 螺纹起始位置（从螺杆底部算起）
-        chamfer_size (float): 螺杆末端倒角尺寸
-
-    Returns:
-        Solid: 创建的带螺纹螺杆
-
-    Raises:
-        ValueError: 如果螺杆参数无效（如直径小于等于0、长度不合理等）
-        ValueError: 如果螺纹参数无效（如螺距小于等于0、螺纹长度大于总长度等）
-        ValueError: 如果螺纹起始位置超出螺杆范围
-
-    Usage:
-        创建带螺纹的螺杆，支持可调节的杆子长度、螺纹范围和螺距
-        螺纹杆直径：螺纹杆直径（螺纹大径）
-        螺纹杆长度：螺纹部分长度
-        螺杆总长度：螺杆总长度
-        螺纹螺距：螺纹螺距
-        螺纹起始位置：螺纹起始位置（从螺杆底部算起）
-        螺杆末端倒角：螺杆末端倒角尺寸
-
-    Example:
-        # 创建标准M8螺杆
-        rod = make_threaded_rod_rsolid(
-            thread_diameter=8.0,
-            thread_length=20.0,
-            total_length=30.0,
-            thread_pitch=1.25,
-            thread_start_position=0.0,
-            chamfer_size=0.5
-        )
-        export_stl(rod, "threaded_rod.stl")
-    """
+    """Create a threaded rod with configurable rod length, thread span, and pitch. The top center is placed at the origin and the rod extends in -Z."""
     print(f"开始创建螺杆...")
     print(f"  参数: 直径={thread_diameter}mm, 总长度={total_length}mm")
     print(

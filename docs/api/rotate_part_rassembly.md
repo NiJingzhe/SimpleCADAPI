@@ -10,4 +10,4 @@ def rotate_part_rassembly(assembly: Assembly, part: Union[str, PartHandle], angl
 
 ## Description
 
-Type-2映射：旋转零件并返回新装配对象。
+Type-2 mapping: rotate a part and return a new assembly.

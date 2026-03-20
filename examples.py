@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-SimpleCAD API 复杂操作示例
-展示高级CAD建模技术，包括连续放样、复杂扫掠、螺旋扫掠、局部坐标系、样条曲线等
-"""
+"""Advanced SimpleCAD API examples covering lofts, sweeps, helices, workplanes, and splines."""
 
 import sys
 import os
@@ -35,7 +32,7 @@ def _expect_single_cut(base: scad.Solid, tool: scad.Solid, context: str) -> scad
 
 
 def create_output_dir():
-    """创建输出目录"""
+    """Create the output directory if it does not exist."""
     output_dir = "output"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -43,19 +40,11 @@ def create_output_dir():
 
 
 def example_naca_blade():
-    """示例1: NACA 0016桨叶 - 使用NACA翼型创建螺旋桨叶"""
+    """Example 1: build a propeller blade from NACA airfoil sections."""
     print("=== 示例1: NACA 0016桨叶 ===")
 
     def naca_0016_profile(chord_length, num_points=50):
-        """生成NACA 0016翼型的坐标点
-
-        Args:
-            chord_length: 弦长
-            num_points: 点的数量
-
-        Returns:
-            翼型坐标点列表 [(x, y), ...]
-        """
+        """Generate NACA 0016 airfoil profile points."""
         # NACA 0016: 对称翼型，最大厚度16%
         thickness = 0.16  # 16%厚度
 
@@ -253,7 +242,7 @@ def example_naca_blade():
 
 
 def example_swept_shape():
-    """示例2: 扫掠操作 - 创建沿路径的扫掠体"""
+    """Example 2: create a swept solid along a path."""
     print("\n=== 示例2: 扫掠操作 ===")
 
     # 创建扫掠轮廓（圆形）
@@ -288,7 +277,7 @@ def example_swept_shape():
 
 
 def example_helical_sweep():
-    """示例2b: 螺旋扫掠操作 - 创建螺旋形状"""
+    """Example 2b: create shapes with helical sweeps."""
     print("\n=== 示例2b: 螺旋扫掠操作 ===")
 
     # 示例1: 创建螺旋弹簧
@@ -404,7 +393,7 @@ def example_helical_sweep():
 
 
 def example_nested_workplanes():
-    """示例3: 嵌套工作平面 - 创建复杂的多级结构"""
+    """Example 3: build a multi-level structure with nested workplanes."""
     print("\n=== 示例3: 嵌套工作平面 ===")
 
     parts = []
@@ -449,7 +438,7 @@ def example_nested_workplanes():
 
 
 def example_spline_curves():
-    """示例4: 样条曲线 - 创建复杂的3D曲线"""
+    """Example 4: create a complex 3D spline-based shape."""
     print("\n=== 示例4: 样条曲线 ===")
 
     # 创建复杂的3D样条曲线点
@@ -492,7 +481,7 @@ def example_spline_curves():
 
 
 def example_boolean_operations():
-    """示例5: 复杂布尔运算 - 创建复杂的机械零件"""
+    """Example 5: build a mechanical part with boolean operations."""
     print("\n=== 示例5: 复杂布尔运算 ===")
 
     # 创建基础块
@@ -543,7 +532,7 @@ def example_boolean_operations():
 
 
 def example_pattern_operations():
-    """示例6: 阵列操作 - 创建复杂的阵列结构"""
+    """Example 6: create patterned array structures."""
     print("\n=== 示例6: 阵列操作 ===")
 
     # 创建基础单元
@@ -571,7 +560,7 @@ def example_pattern_operations():
 
 
 def example_mirror_operations():
-    """示例7: 镜像操作 - 创建对称结构"""
+    """Example 7: create a symmetric part with mirroring."""
     print("\n=== 示例7: 镜像操作 ===")
 
     # 创建非对称的基础形状
@@ -604,7 +593,7 @@ def example_mirror_operations():
 
 
 def example_advanced_features():
-    """示例8: 高级特征 - 抽壳、倒角、圆角的综合应用"""
+    """Example 8: combine shelling, chamfers, and fillets."""
     print("\n=== 示例8: 高级特征 ===")
 
     # 创建基础容器
@@ -645,7 +634,7 @@ def example_advanced_features():
 
 
 def example_gear_like_shape():
-    """示例9: 类似齿轮的形状 - 展示旋转成型和布尔运算"""
+    """Example 9: build a gear-like part with boolean operations."""
     print("\n=== 示例9: 类似齿轮的形状 ===")
 
     # 创建基础圆盘
@@ -736,7 +725,7 @@ def example_gear_like_shape():
 
 
 def example_tagged_array_operations():
-    """示例10: 标签化阵列操作 - 线性阵列后对每个实体进行标签化操作"""
+    """Example 10: apply tagged operations to solids in an array."""
     print("\n=== 示例10: 标签化阵列操作 ===")
 
     # 创建基础单元 - 一个带有圆柱孔的立方体
@@ -917,7 +906,7 @@ def example_tagged_array_operations():
 
 
 def main():
-    """主函数 - 运行所有示例"""
+    """Run all examples."""
     print("SimpleCAD API 复杂操作示例")
     print("=" * 50)
 

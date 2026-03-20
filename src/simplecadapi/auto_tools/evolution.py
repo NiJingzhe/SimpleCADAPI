@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-给定一个脚本路径然后自动抽取新的建模函数添加到evolve.py中。
-"""
+"""Automatically extract modeling functions from a script and append them to `evolve.py`."""
 
 from pathlib import Path
 
@@ -9,19 +7,14 @@ EVOLVE_FILE = Path(__file__).parent.parent / "evolve.py"
 
 
 def extract_source_code_from_file(file_path: Path):
-    """
-    从指定文件中提取所有函数定义。
-    """
+    """Read the source text from a file."""
     with open(file_path, "r", encoding="utf-8") as f:
         source_code = f.read()
     return source_code
 
 
 def extract_functions_from_source(source_code: str):
-    """
-    提取所有函数的完整实现（从定义行到结束行的所有源代码字符串）。
-    返回一个字典，key为函数名，value为函数源码字符串。
-    """
+    """Extract full function implementations from source code."""
     import ast
 
     class FunctionBodyExtractor(ast.NodeVisitor):
@@ -43,16 +36,7 @@ def extract_functions_from_source(source_code: str):
 
 
 def extract_import_from_source(source_code: str) -> list[str]:
-    """
-    提取源代码开头部分的所有导入语句字符串内容。
-    只提取模块级头部的导入，忽略函数体或类体内的导入。
-
-    Args:
-        source_code (str): Python 源代码字符串。
-
-    Returns:
-        List[str]: 包含导入语句字符串的列表。
-    """
+    """Extract module-level import statements from source code."""
     import ast
 
     try:
@@ -82,9 +66,7 @@ def extract_import_from_source(source_code: str) -> list[str]:
 
 
 def combine_import_into_function(imports: list, function: str):
-    """
-    将导入语句组合成一个函数体字符串
-    """
+    """Insert import statements into a function body string."""
     if not imports:
         return function
 
@@ -100,11 +82,7 @@ def combine_import_into_function(imports: list, function: str):
 
 
 def _find_import_insert_index(lines: list[str]) -> int:
-    """
-    查找函数内导入语句应插入的位置。
-
-    优先插入到docstring后；如果没有docstring，则插入到函数定义行之后。
-    """
+    """Find where imports should be inserted inside a function."""
     if len(lines) <= 1:
         return len(lines)
 

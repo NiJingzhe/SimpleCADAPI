@@ -14,7 +14,7 @@ def make_involute_spur_gear_rsolid(
     root_fillet_strength: float = 0.85,
     verbose: bool = False,
 ):
-    """创建一个渐开线直齿轮实体。"""
+    """Create an involute spur gear solid."""
     import math
     import simplecadapi as scad
 

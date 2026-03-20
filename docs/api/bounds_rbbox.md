@@ -10,14 +10,14 @@ def bounds_rbbox(field: ScalarField) -> Tuple[Tuple[float, float, float], Tuple[
 
 ## Description
 
-计算标量场的轴对齐包围盒。
+Compute the axis-aligned bounding box of a scalar field.
 
 ## Parameters
 
 ### field
 
-- **Description**: 标量场。
+- **Description**: Scalar field.
 
 ## Returns
 
-Tuple[min_xyz, max_xyz]: 包围盒。
+Tuple[min_xyz, max_xyz]: Bounding box.

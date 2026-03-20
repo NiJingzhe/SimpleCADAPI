@@ -1,12 +1,14 @@
-"""声明式装配约束模块。
+"""Declarative assembly constraints module.
 
-该模块在现有命令式建模 API 之上，提供一个可选的装配树与约束求解层，
-支持“命令式 + 声明式”混合使用。
+This module adds an optional assembly tree and constraint-solving layer on top of
+the existing imperative modeling API, allowing imperative and declarative usage
+to be mixed.
 
-当前版本聚焦刚体位姿求解（不修改零件拓扑），支持：
-- 装配树（父子层级与局部/世界变换）
-- 点重合、同轴、轴向偏移、点距约束
-- 一维堆叠布局（stack）
+The current version focuses on rigid-body pose solving without modifying part
+topology, and supports:
+- assembly trees (parent/child hierarchy and local/world transforms)
+- coincident, concentric, axial offset, and point-distance constraints
+- one-dimensional stack layout
 """
 
 from __future__ import annotations
@@ -161,7 +163,7 @@ def _rotation_about_point_matrix(rotation: np.ndarray, point: Vec3Like) -> np.nd
 
 @dataclass(frozen=True)
 class PointAnchor:
-    """点锚点（在零件局部坐标系下定义）。"""
+    """Point anchor defined in a part's local coordinate system."""
 
     part: str
     local_point: Tuple[float, float, float]
@@ -170,7 +172,7 @@ class PointAnchor:
 
 @dataclass(frozen=True)
 class AxisAnchor:
-    """轴锚点（在零件局部坐标系下定义：点 + 方向）。"""
+    """Axis anchor defined in a part's local coordinate system: point + direction."""
 
     part: str
     local_point: Tuple[float, float, float]
@@ -180,7 +182,7 @@ class AxisAnchor:
 
 @dataclass(frozen=True)
 class SolveReport:
-    """求解报告。"""
+    """Solve report."""
 
     converged: bool
     iterations: int
@@ -200,7 +202,7 @@ class _PartNode:
 
 
 class PartHandle:
-    """装配中的零件句柄，用于创建锚点。"""
+    """Handle for a part in an assembly, used to create anchors."""
 
     def __init__(self, assembly: "Assembly", name: str):
         self._assembly = assembly
@@ -396,7 +398,7 @@ class _PointDistanceConstraint(_Constraint):
 
 
 class AssemblyResult:
-    """一次求解后的不可变结果快照。"""
+    """Immutable snapshot of a solved assembly."""
 
     def __init__(
         self,
@@ -426,11 +428,12 @@ class AssemblyResult:
 
 
 class Assembly:
-    """声明式装配树。
+    """Declarative assembly tree.
 
-    设计目标：
-    - 与命令式 API 共存
-    - 可通过 imperative 变换预定位，再由 declarative 约束精定位
+    Design goals:
+    - coexist with the imperative API
+    - allow coarse positioning with imperative transforms, then refine it with
+      declarative constraints
     """
 
     def __init__(self, name: str = "assembly"):
@@ -440,7 +443,7 @@ class Assembly:
         self._constraints: List[_Constraint] = []
 
     def copy(self) -> "Assembly":
-        """深拷贝当前装配对象。"""
+        """Deep-copy the current assembly object."""
 
         copied = Assembly(self.name)
         copied._order = list(self._order)
@@ -829,7 +832,7 @@ def make_assembly_rassembly(
         Dict[str, Union[np.ndarray, Sequence[Sequence[float]]]]
     ] = None,
 ) -> Assembly:
-    """Type-1映射：从参数描述提升到装配对象。"""
+    """Type-1 mapping: lift a parameter description into an assembly object."""
 
     asm = Assembly(name=name)
     parent_map = dict(parents or {})
@@ -867,7 +870,7 @@ def make_assembly_rassembly(
 
 
 def clone_assembly_rassembly(assembly: Assembly) -> Assembly:
-    """Type-2映射：装配对象到装配对象（克隆）。"""
+    """Type-2 mapping: clone one assembly object into another."""
 
     if not isinstance(assembly, Assembly):
         raise ValueError("clone_assembly_rassembly 仅接受 Assembly")
@@ -881,7 +884,7 @@ def add_part_rassembly(
     parent: Optional[Union[str, PartHandle]] = None,
     local_transform: Optional[Union[np.ndarray, Sequence[Sequence[float]]]] = None,
 ) -> Assembly:
-    """Type-2映射：在装配空间中新增零件并返回新装配对象。"""
+    """Type-2 mapping: add a part in assembly space and return a new assembly."""
 
     copied = assembly.copy()
     copied.add_part(name, solid, parent=parent, local_transform=local_transform)
@@ -889,7 +892,7 @@ def add_part_rassembly(
 
 
 def clear_constraints_rassembly(assembly: Assembly) -> Assembly:
-    """Type-2映射：清空约束并返回新装配对象。"""
+    """Type-2 mapping: clear constraints and return a new assembly."""
 
     copied = assembly.copy()
     copied.clear_constraints()
@@ -902,7 +905,7 @@ def translate_part_rassembly(
     vector: Vec3Like,
     frame: Literal["world", "local"] = "world",
 ) -> Assembly:
-    """Type-2映射：平移零件并返回新装配对象。"""
+    """Type-2 mapping: translate a part and return a new assembly."""
 
     copied = assembly.copy()
     copied.translate_part(part, vector, frame=frame)
@@ -917,7 +920,7 @@ def rotate_part_rassembly(
     origin: Vec3Like = (0.0, 0.0, 0.0),
     frame: Literal["world", "local"] = "world",
 ) -> Assembly:
-    """Type-2映射：旋转零件并返回新装配对象。"""
+    """Type-2 mapping: rotate a part and return a new assembly."""
 
     copied = assembly.copy()
     copied.rotate_part(part, angle_deg, axis=axis, origin=origin, frame=frame)
@@ -929,7 +932,7 @@ def constrain_coincident_rassembly(
     reference: PointAnchor,
     moving: PointAnchor,
 ) -> Assembly:
-    """Type-2映射：添加点重合约束并返回新装配对象。"""
+    """Type-2 mapping: add a coincident constraint and return a new assembly."""
 
     copied = assembly.copy()
     copied.coincident(reference, moving)
@@ -942,7 +945,7 @@ def constrain_concentric_rassembly(
     moving: AxisAnchor,
     same_direction: bool = False,
 ) -> Assembly:
-    """Type-2映射：添加同轴约束并返回新装配对象。"""
+    """Type-2 mapping: add a concentric constraint and return a new assembly."""
 
     copied = assembly.copy()
     copied.concentric(reference, moving, same_direction=same_direction)
@@ -956,7 +959,7 @@ def constrain_offset_rassembly(
     distance: float,
     axis: AxisLike = "z",
 ) -> Assembly:
-    """Type-2映射：添加轴向偏移约束并返回新装配对象。"""
+    """Type-2 mapping: add an axial offset constraint and return a new assembly."""
 
     copied = assembly.copy()
     copied.offset(reference, moving, distance, axis=axis)
@@ -970,7 +973,7 @@ def constrain_distance_rassembly(
     distance: float,
     fallback_axis: AxisLike = "x",
 ) -> Assembly:
-    """Type-2映射：添加点距约束并返回新装配对象。"""
+    """Type-2 mapping: add a point-distance constraint and return a new assembly."""
 
     copied = assembly.copy()
     copied.distance(reference, moving, distance, fallback_axis=fallback_axis)
@@ -986,7 +989,7 @@ def stack_rassembly(
     justify: Literal["start", "center", "end", "space-between"] = "start",
     bounds: Optional[Tuple[PointAnchor, PointAnchor]] = None,
 ) -> Assembly:
-    """Type-2映射：应用 stack 布局并返回新装配对象。"""
+    """Type-2 mapping: apply a stack layout and return a new assembly."""
 
     copied = assembly.copy()
     stack(
@@ -1006,7 +1009,7 @@ def solve_assembly_rresult(
     max_iterations: int = 30,
     tolerance: float = 1e-6,
 ) -> AssemblyResult:
-    """Type-2映射：从装配对象映射到求解结果，不修改原对象。"""
+    """Type-2 mapping: map an assembly to a solve result without mutating it."""
 
     copied = assembly.copy()
     return copied.solve(max_iterations=max_iterations, tolerance=tolerance)
@@ -1021,21 +1024,23 @@ def stack(
     justify: Literal["start", "center", "end", "space-between"] = "start",
     bounds: Optional[Tuple[PointAnchor, PointAnchor]] = None,
 ) -> Assembly:
-    """沿指定轴将多个零件做声明式堆叠。
+    """Declaratively stack multiple parts along the specified axis.
 
-    语义：
-    - 顺序堆叠：第i个零件贴在第i-1个零件之后，并留出 gap
-    - 横向对齐：在其余两个轴上按 align 对齐
-    - 主轴分布：通过 justify 控制整体在边界中的分布方式
+    Semantics:
+    - sequential stacking: part i is placed after part i-1 with the given gap
+    - cross-axis alignment: the other two axes are aligned according to `align`
+    - main-axis distribution: `justify` controls how the whole stack is placed
+      within the bounds
 
-    BBox-first 说明：
-    - 本函数使用轴对齐包围盒（AABB）锚点（如 `bbox.top` / `bbox.bottom`）
-      来近似 Flexbox 的盒模型语义。
-    - 对发生大角度旋转的零件，AABB 会随姿态变化，布局结果也会随之变化。
-      这是当前 MVP 阶段的预期行为。
+    BBox-first note:
+    - This function uses axis-aligned bounding-box (AABB) anchors such as
+      `bbox.top` and `bbox.bottom` to approximate Flexbox-like box semantics.
+    - For parts with large rotations, the AABB changes with pose, so the layout
+      result changes as well. This is expected in the current MVP stage.
 
-    注意：
-    - 这是容器语法糖，内部会编译成若干 `offset(...)` 约束。
+    Note:
+    - This is container-level sugar that compiles into a set of `offset(...)`
+      constraints internally.
     """
 
     names: List[str] = [assembly._resolve_part_name(part) for part in parts]

@@ -10,13 +10,13 @@ _TAG_RE = re.compile(rf"^{_TAG_SEGMENT}(?:\.{_TAG_SEGMENT})*$")
 
 
 def is_normalized_tag(tag: str) -> bool:
-    """检查标签是否符合规范格式。
+    """Check whether a tag matches the normalized format.
 
     Args:
-        tag: 标签字符串。
+        tag: Tag string.
 
     Returns:
-        bool: 是否符合规范。
+        bool: Whether the tag is valid.
     """
     if not isinstance(tag, str):
         return False
@@ -24,18 +24,19 @@ def is_normalized_tag(tag: str) -> bool:
 
 
 def normalize_tag(tag: str, *, strict: bool = True) -> str:
-    """规范化标签。
+    """Normalize a tag.
 
     Args:
-        tag: 原始标签。
-        strict: 是否严格校验，True 时只接受已规范化格式。
+        tag: Raw tag.
+        strict: Whether to validate strictly. When True, only already-normalized
+            tags are accepted.
 
     Returns:
-        str: 规范化后的标签。
+        str: Normalized tag.
 
     Raises:
-        TypeError: tag 不是字符串。
-        ValueError: 规范化失败。
+        TypeError: If tag is not a string.
+        ValueError: If normalization fails.
     """
     if not isinstance(tag, str):
         raise TypeError("tag must be a string")
@@ -56,7 +57,7 @@ def normalize_tag(tag: str, *, strict: bool = True) -> str:
 
 @dataclass(frozen=True)
 class TagPolicy:
-    """标签传播策略。"""
+    """Tag propagation policy."""
 
     propagate_prefixes: tuple[str, ...] = (
         "role.",
@@ -86,13 +87,13 @@ class TagPolicy:
     block_exact: tuple[str, ...] = ()
 
     def should_propagate(self, tag: str) -> bool:
-        """判断标签是否应该向下传播。
+        """Check whether a tag should propagate downward.
 
         Args:
-            tag: 标签字符串。
+            tag: Tag string.
 
         Returns:
-            bool: 是否传播。
+            bool: Whether the tag should propagate.
         """
         if tag in self.block_exact:
             return False
@@ -109,13 +110,13 @@ DEFAULT_TAG_POLICY = TagPolicy()
 
 
 def resolve_anchor_tag_candidates(tag: str) -> List[str]:
-    """生成锚点标签的候选列表。
+    """Generate candidate tags for anchor lookup.
 
     Args:
-        tag: 用户输入标签。
+        tag: User-provided tag.
 
     Returns:
-        List[str]: 候选标签列表，按优先级排序。
+        List[str]: Candidate tags ordered by priority.
     """
     token = tag.strip().lower()
     if not token:

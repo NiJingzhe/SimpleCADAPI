@@ -10,22 +10,22 @@ def rotate_rscalarfield(field: ScalarField, axis: Tuple[float, float, float], an
 
 ## Description
 
-绕原点旋转标量场。
+Rotate a scalar field around the origin.
 
 ## Parameters
 
 ### field
 
-- **Description**: 输入标量场。
+- **Description**: Input scalar field.
 
 ### axis
 
-- **Description**: 旋转轴向量 (x, y, z)。
+- **Description**: Rotation axis vector `(x, y, z)`.
 
 ### angle_degrees
 
-- **Description**: 旋转角度（度）。
+- **Description**: Rotation angle in degrees.
 
 ## Returns
 
-ScalarField: 旋转后的标量场。
+ScalarField: Rotated scalar field.

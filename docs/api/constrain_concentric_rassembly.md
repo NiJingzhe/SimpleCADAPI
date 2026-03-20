@@ -10,4 +10,4 @@ def constrain_concentric_rassembly(assembly: Assembly, reference: AxisAnchor, mo
 
 ## Description
 
-Type-2映射：添加同轴约束并返回新装配对象。
+Type-2 mapping: add a concentric constraint and return a new assembly.

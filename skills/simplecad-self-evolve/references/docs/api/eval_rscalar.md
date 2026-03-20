@@ -10,26 +10,26 @@ def eval_rscalar(field: ScalarField, x: float, y: float, z: float) -> float
 
 ## Description
 
-标量场单点求值。
+Evaluate a scalar field at a single point.
 
 ## Parameters
 
 ### field
 
-- **Description**: 标量场。
+- **Description**: Scalar field.
 
 ### x
 
-- **Description**: X 坐标。
+- **Description**: X coordinate.
 
 ### y
 
-- **Description**: Y 坐标。
+- **Description**: Y coordinate.
 
 ### z
 
-- **Description**: Z 坐标。
+- **Description**: Z coordinate.
 
 ## Returns
 
-float: 场函数值。
+float: Field value.

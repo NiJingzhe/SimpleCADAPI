@@ -10,7 +10,7 @@ def geo(field: str, default: Any = None) -> KeyFn
 
 ## Description
 
-快捷构造 geo 元数据取值函数。
+Convenience builder for a `geo` metadata getter.
 
 Q.select(items).order_by(Q.geo("height"))
 
@@ -18,12 +18,12 @@ Q.select(items).order_by(Q.geo("height"))
 
 ### field
 
-- **Description**: geo 字段名，如 "type"、"height"。
+- **Description**: `geo` field name, such as `type` or `height`.
 
 ### default
 
-- **Description**: 取值失败时的默认值。
+- **Description**: Default value when lookup fails.
 
 ## Returns
 
-Callable[[Any], Any]: 取值函数。
+Callable[[Any], Any]: Getter function.

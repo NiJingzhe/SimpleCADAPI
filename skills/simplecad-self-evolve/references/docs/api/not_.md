@@ -10,7 +10,7 @@ def not_(predicate: Predicate) -> Predicate
 
 ## Description
 
-构造 NOT 谓词。
+Build a NOT predicate.
 
 Q.not_(Q.tag("state.*"))
 
@@ -18,8 +18,8 @@ Q.not_(Q.tag("state.*"))
 
 ### predicate
 
-- **Description**: 单个谓词。
+- **Description**: A single predicate.
 
 ## Returns
 
-Callable[[Any], bool]: 取反谓词。
+Callable[[Any], bool]: Negated predicate.

@@ -10,4 +10,4 @@ def stack_rassembly(assembly: Assembly, parts: Sequence[Union[str, PartHandle]],
 
 ## Description
 
-Type-2映射：应用 stack 布局并返回新装配对象。
+Type-2 mapping: apply a stack layout and return a new assembly.
