@@ -10,4 +10,4 @@ def constrain_distance_rassembly(assembly: Assembly, reference: PointAnchor, mov
 
 ## Description
 
-Type-2映射：添加点距约束并返回新装配对象。
+Type-2 mapping: add a point-distance constraint and return a new assembly.

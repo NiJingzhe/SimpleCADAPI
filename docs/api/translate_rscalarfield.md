@@ -10,18 +10,18 @@ def translate_rscalarfield(field: ScalarField, offset: Tuple[float, float, float
 
 ## Description
 
-平移标量场。
+Translate a scalar field.
 
 ## Parameters
 
 ### field
 
-- **Description**: 输入标量场。
+- **Description**: Input scalar field.
 
 ### offset
 
-- **Description**: 平移向量 (dx, dy, dz)。
+- **Description**: Translation vector `(dx, dy, dz)`.
 
 ## Returns
 
-ScalarField: 平移后的标量场。
+ScalarField: Translated scalar field.

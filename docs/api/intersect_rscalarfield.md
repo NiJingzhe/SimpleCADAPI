@@ -10,14 +10,14 @@ def intersect_rscalarfield(*fields: ScalarField) -> ScalarField
 
 ## Description
 
-交集组合标量场。
+Create an intersection scalar field.
 
 ## Parameters
 
 ### *fields
 
-- **Description**: 输入标量场。
+- **Description**: Input scalar fields.
 
 ## Returns
 
-ScalarField: 交集标量场。
+ScalarField: Intersection scalar field.

@@ -1,7 +1,4 @@
-"""
-SimpleCAD API - 简化的CAD建模Python API
-基于CADQuery实现，提供直观的几何建模接口
-"""
+"""SimpleCAD API: a simplified Python CAD modeling API built on CADQuery."""
 
 from .core import (
     # 核心类

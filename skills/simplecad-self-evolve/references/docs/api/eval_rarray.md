@@ -10,26 +10,26 @@ def eval_rarray(field: ScalarField, xs: np.ndarray, ys: np.ndarray, zs: np.ndarr
 
 ## Description
 
-标量场批量求值。
+Evaluate a scalar field on arrays of points.
 
 ## Parameters
 
 ### field
 
-- **Description**: 标量场。
+- **Description**: Scalar field.
 
 ### xs
 
-- **Description**: X 坐标数组。
+- **Description**: Array of X coordinates.
 
 ### ys
 
-- **Description**: Y 坐标数组。
+- **Description**: Array of Y coordinates.
 
 ### zs
 
-- **Description**: Z 坐标数组。
+- **Description**: Array of Z coordinates.
 
 ## Returns
 
-np.ndarray: 场函数值数组。
+np.ndarray: Array of field values.

@@ -10,18 +10,18 @@ def make_ellipsoid_rscalarfield(center: Tuple[float, float, float], radii: Tuple
 
 ## Description
 
-创建椭球体标量场。
+Create an ellipsoid scalar field.
 
 ## Parameters
 
 ### center
 
-- **Description**: 椭球中心坐标 (x, y, z)。
+- **Description**: Ellipsoid center coordinates `(x, y, z)`.
 
 ### radii
 
-- **Description**: 半径 (rx, ry, rz)。
+- **Description**: Radii `(rx, ry, rz)`.
 
 ## Returns
 
-ScalarField: 椭球体标量场。
+ScalarField: Ellipsoid scalar field.

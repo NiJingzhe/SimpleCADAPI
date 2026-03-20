@@ -10,14 +10,14 @@ def union_rscalarfield(*fields: ScalarField) -> ScalarField
 
 ## Description
 
-并集组合标量场。
+Create a union scalar field.
 
 ## Parameters
 
 ### *fields
 
-- **Description**: 输入标量场。
+- **Description**: Input scalar fields.
 
 ## Returns
 
-ScalarField: 并集标量场。
+ScalarField: Union scalar field.

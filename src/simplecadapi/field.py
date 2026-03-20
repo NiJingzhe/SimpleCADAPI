@@ -21,14 +21,14 @@ class ScalarField:
 def make_sphere_rscalarfield(
     center: Tuple[float, float, float], radius: float
 ) -> ScalarField:
-    """创建球体标量场。
+    """Create a spherical scalar field.
 
     Args:
-        center: 球心坐标 (x, y, z)。
-        radius: 球半径。
+        center: Sphere center coordinates `(x, y, z)`.
+        radius: Sphere radius.
 
     Returns:
-        ScalarField: 球体标量场。
+        ScalarField: Sphere scalar field.
     """
     if radius <= 0:
         raise ValueError("radius 必须大于 0")
@@ -38,14 +38,14 @@ def make_sphere_rscalarfield(
 def make_ellipsoid_rscalarfield(
     center: Tuple[float, float, float], radii: Tuple[float, float, float]
 ) -> ScalarField:
-    """创建椭球体标量场。
+    """Create an ellipsoid scalar field.
 
     Args:
-        center: 椭球中心坐标 (x, y, z)。
-        radii: 半径 (rx, ry, rz)。
+        center: Ellipsoid center coordinates `(x, y, z)`.
+        radii: Radii `(rx, ry, rz)`.
 
     Returns:
-        ScalarField: 椭球体标量场。
+        ScalarField: Ellipsoid scalar field.
     """
     rx, ry, rz = radii
     if rx <= 0 or ry <= 0 or rz <= 0:
@@ -56,14 +56,14 @@ def make_ellipsoid_rscalarfield(
 def make_box_rscalarfield(
     center: Tuple[float, float, float], size: Tuple[float, float, float]
 ) -> ScalarField:
-    """创建轴对齐盒体标量场。
+    """Create an axis-aligned box scalar field.
 
     Args:
-        center: 盒体中心坐标 (x, y, z)。
-        size: 尺寸 (sx, sy, sz)。
+        center: Box center coordinates `(x, y, z)`.
+        size: Box size `(sx, sy, sz)`.
 
     Returns:
-        ScalarField: 盒体标量场。
+        ScalarField: Box scalar field.
     """
     sx, sy, sz = size
     if sx <= 0 or sy <= 0 or sz <= 0:
@@ -76,15 +76,15 @@ def make_capsule_rscalarfield(
     p1: Tuple[float, float, float],
     radius: float,
 ) -> ScalarField:
-    """创建胶囊体标量场。
+    """Create a capsule scalar field.
 
     Args:
-        p0: 端点1坐标。
-        p1: 端点2坐标。
-        radius: 胶囊半径。
+        p0: First endpoint coordinates.
+        p1: Second endpoint coordinates.
+        radius: Capsule radius.
 
     Returns:
-        ScalarField: 胶囊体标量场。
+        ScalarField: Capsule scalar field.
     """
     if radius <= 0:
         raise ValueError("radius 必须大于 0")
@@ -92,13 +92,13 @@ def make_capsule_rscalarfield(
 
 
 def union_rscalarfield(*fields: ScalarField) -> ScalarField:
-    """并集组合标量场。
+    """Create a union scalar field.
 
     Args:
-        *fields: 输入标量场。
+        *fields: Input scalar fields.
 
     Returns:
-        ScalarField: 并集标量场。
+        ScalarField: Union scalar field.
     """
     if not fields:
         raise ValueError("union_rscalarfield 至少需要一个输入")
@@ -106,13 +106,13 @@ def union_rscalarfield(*fields: ScalarField) -> ScalarField:
 
 
 def intersect_rscalarfield(*fields: ScalarField) -> ScalarField:
-    """交集组合标量场。
+    """Create an intersection scalar field.
 
     Args:
-        *fields: 输入标量场。
+        *fields: Input scalar fields.
 
     Returns:
-        ScalarField: 交集标量场。
+        ScalarField: Intersection scalar field.
     """
     if not fields:
         raise ValueError("intersect_rscalarfield 至少需要一个输入")
@@ -120,28 +120,28 @@ def intersect_rscalarfield(*fields: ScalarField) -> ScalarField:
 
 
 def subtract_rscalarfield(a: ScalarField, b: ScalarField) -> ScalarField:
-    """差集组合标量场。
+    """Create a subtraction scalar field.
 
     Args:
-        a: 被减标量场。
-        b: 减去标量场。
+        a: Minuend scalar field.
+        b: Subtrahend scalar field.
 
     Returns:
-        ScalarField: 差集标量场。
+        ScalarField: Subtraction scalar field.
     """
     return ScalarField("subtract", {}, (a, b))
 
 
 def smooth_union_rscalarfield(a: ScalarField, b: ScalarField, k: float) -> ScalarField:
-    """平滑并集组合标量场。
+    """Create a smooth union scalar field.
 
     Args:
-        a: 标量场A。
-        b: 标量场B。
-        k: 平滑系数，必须为正。
+        a: Scalar field A.
+        b: Scalar field B.
+        k: Smoothing factor, which must be positive.
 
     Returns:
-        ScalarField: 平滑并集标量场。
+        ScalarField: Smooth union scalar field.
     """
     if k <= 0:
         raise ValueError("k 必须为正")
@@ -151,15 +151,15 @@ def smooth_union_rscalarfield(a: ScalarField, b: ScalarField, k: float) -> Scala
 def smooth_subtract_rscalarfield(
     a: ScalarField, b: ScalarField, k: float
 ) -> ScalarField:
-    """平滑差集组合标量场。
+    """Create a smooth subtraction scalar field.
 
     Args:
-        a: 被减标量场。
-        b: 减去标量场。
-        k: 平滑系数，必须为正。
+        a: Minuend scalar field.
+        b: Subtrahend scalar field.
+        k: Smoothing factor, which must be positive.
 
     Returns:
-        ScalarField: 平滑差集标量场。
+        ScalarField: Smooth subtraction scalar field.
     """
     if k <= 0:
         raise ValueError("k 必须为正")
@@ -169,14 +169,14 @@ def smooth_subtract_rscalarfield(
 def translate_rscalarfield(
     field: ScalarField, offset: Tuple[float, float, float]
 ) -> ScalarField:
-    """平移标量场。
+    """Translate a scalar field.
 
     Args:
-        field: 输入标量场。
-        offset: 平移向量 (dx, dy, dz)。
+        field: Input scalar field.
+        offset: Translation vector `(dx, dy, dz)`.
 
     Returns:
-        ScalarField: 平移后的标量场。
+        ScalarField: Translated scalar field.
     """
     return ScalarField("translate", {"offset": offset}, (field,))
 
@@ -184,14 +184,14 @@ def translate_rscalarfield(
 def scale_rscalarfield(
     field: ScalarField, factors: Tuple[float, float, float]
 ) -> ScalarField:
-    """缩放标量场（以原点为中心）。
+    """Scale a scalar field around the origin.
 
     Args:
-        field: 输入标量场。
-        factors: 缩放系数 (sx, sy, sz)。
+        field: Input scalar field.
+        factors: Scale factors `(sx, sy, sz)`.
 
     Returns:
-        ScalarField: 缩放后的标量场。
+        ScalarField: Scaled scalar field.
     """
     sx, sy, sz = factors
     if sx == 0 or sy == 0 or sz == 0:
@@ -204,15 +204,15 @@ def rotate_rscalarfield(
     axis: Tuple[float, float, float],
     angle_degrees: float,
 ) -> ScalarField:
-    """绕原点旋转标量场。
+    """Rotate a scalar field around the origin.
 
     Args:
-        field: 输入标量场。
-        axis: 旋转轴向量 (x, y, z)。
-        angle_degrees: 旋转角度（度）。
+        field: Input scalar field.
+        axis: Rotation axis vector `(x, y, z)`.
+        angle_degrees: Rotation angle in degrees.
 
     Returns:
-        ScalarField: 旋转后的标量场。
+        ScalarField: Rotated scalar field.
     """
     return ScalarField(
         "rotate", {"axis": axis, "angle": float(angle_degrees)}, (field,)
@@ -220,16 +220,16 @@ def rotate_rscalarfield(
 
 
 def eval_rscalar(field: ScalarField, x: float, y: float, z: float) -> float:
-    """标量场单点求值。
+    """Evaluate a scalar field at a single point.
 
     Args:
-        field: 标量场。
-        x: X 坐标。
-        y: Y 坐标。
-        z: Z 坐标。
+        field: Scalar field.
+        x: X coordinate.
+        y: Y coordinate.
+        z: Z coordinate.
 
     Returns:
-        float: 场函数值。
+        float: Field value.
     """
     value = eval_rarray(field, np.array([[x]]), np.array([[y]]), np.array([[z]]))
     return float(value.reshape(-1)[0])
@@ -238,16 +238,16 @@ def eval_rscalar(field: ScalarField, x: float, y: float, z: float) -> float:
 def eval_rarray(
     field: ScalarField, xs: np.ndarray, ys: np.ndarray, zs: np.ndarray
 ) -> np.ndarray:
-    """标量场批量求值。
+    """Evaluate a scalar field on arrays of points.
 
     Args:
-        field: 标量场。
-        xs: X 坐标数组。
-        ys: Y 坐标数组。
-        zs: Z 坐标数组。
+        field: Scalar field.
+        xs: Array of X coordinates.
+        ys: Array of Y coordinates.
+        zs: Array of Z coordinates.
 
     Returns:
-        np.ndarray: 场函数值数组。
+        np.ndarray: Array of field values.
     """
     return _eval_node(field, np.asarray(xs), np.asarray(ys), np.asarray(zs))
 
@@ -255,13 +255,13 @@ def eval_rarray(
 def bounds_rbbox(
     field: ScalarField,
 ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
-    """计算标量场的轴对齐包围盒。
+    """Compute the axis-aligned bounding box of a scalar field.
 
     Args:
-        field: 标量场。
+        field: Scalar field.
 
     Returns:
-        Tuple[min_xyz, max_xyz]: 包围盒。
+        Tuple[min_xyz, max_xyz]: Bounding box.
     """
     return _bounds_node(field)
 

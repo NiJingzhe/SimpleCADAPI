@@ -10,7 +10,7 @@ def and_(*predicates: Predicate) -> Predicate
 
 ## Description
 
-构造 AND 组合谓词。
+Build an AND-composed predicate.
 
 Q.and_(Q.tag("face.top"), Q.tag("role.mounting_surface"))
 
@@ -18,8 +18,8 @@ Q.and_(Q.tag("face.top"), Q.tag("role.mounting_surface"))
 
 ### *predicates
 
-- **Description**: 任意数量谓词。
+- **Description**: Any number of predicates.
 
 ## Returns
 
-Callable[[Any], bool]: 组合谓词。
+Callable[[Any], bool]: Combined predicate.

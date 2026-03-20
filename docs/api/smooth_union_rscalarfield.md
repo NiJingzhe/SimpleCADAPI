@@ -10,22 +10,22 @@ def smooth_union_rscalarfield(a: ScalarField, b: ScalarField, k: float) -> Scala
 
 ## Description
 
-平滑并集组合标量场。
+Create a smooth union scalar field.
 
 ## Parameters
 
 ### a
 
-- **Description**: 标量场A。
+- **Description**: Scalar field A.
 
 ### b
 
-- **Description**: 标量场B。
+- **Description**: Scalar field B.
 
 ### k
 
-- **Description**: 平滑系数，必须为正。
+- **Description**: Smoothing factor, which must be positive.
 
 ## Returns
 
-ScalarField: 平滑并集标量场。
+ScalarField: Smooth union scalar field.

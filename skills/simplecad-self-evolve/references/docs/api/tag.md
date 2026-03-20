@@ -10,24 +10,24 @@ def tag(pattern: str) -> Predicate
 
 ## Description
 
-构造基于标签的谓词。
+Build a tag-based predicate.
 
-Q.tag("face.top") 或 Q.tag("role.*")。
+`Q.tag("face.top")` or `Q.tag("role.*")`.
 
 ## Parameters
 
 ### pattern
 
-- **Description**: 标签匹配模式，支持后缀通配符 "*"。
+- **Description**: Tag matching pattern. Supports a trailing `*` wildcard.
 
 ## Returns
 
-Callable[[Any], bool]: 谓词函数。
+Callable[[Any], bool]: Predicate function.
 
 ## Raises
 
-- **TypeError**: pattern 不是字符串。
-- **ValueError**: 通配符位置不合法。
+- **TypeError**: If pattern is not a string.
+- **ValueError**: If the wildcard position is invalid.
 
 ## Examples
 

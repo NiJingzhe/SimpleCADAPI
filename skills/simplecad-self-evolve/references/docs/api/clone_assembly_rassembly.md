@@ -10,4 +10,4 @@ def clone_assembly_rassembly(assembly: Assembly) -> Assembly
 
 ## Description
 
-Type-2映射：装配对象到装配对象（克隆）。
+Type-2 mapping: clone one assembly object into another.

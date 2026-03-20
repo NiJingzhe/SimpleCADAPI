@@ -10,22 +10,22 @@ def make_capsule_rscalarfield(p0: Tuple[float, float, float], p1: Tuple[float, f
 
 ## Description
 
-创建胶囊体标量场。
+Create a capsule scalar field.
 
 ## Parameters
 
 ### p0
 
-- **Description**: 端点1坐标。
+- **Description**: First endpoint coordinates.
 
 ### p1
 
-- **Description**: 端点2坐标。
+- **Description**: Second endpoint coordinates.
 
 ### radius
 
-- **Description**: 胶囊半径。
+- **Description**: Capsule radius.
 
 ## Returns
 
-ScalarField: 胶囊体标量场。
+ScalarField: Capsule scalar field.

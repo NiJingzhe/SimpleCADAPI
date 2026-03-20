@@ -10,7 +10,7 @@ def or_(*predicates: Predicate) -> Predicate
 
 ## Description
 
-构造 OR 组合谓词。
+Build an OR-composed predicate.
 
 Q.or_(Q.tag("face.top"), Q.tag("face.bottom"))
 
@@ -18,8 +18,8 @@ Q.or_(Q.tag("face.top"), Q.tag("face.bottom"))
 
 ### *predicates
 
-- **Description**: 任意数量谓词。
+- **Description**: Any number of predicates.
 
 ## Returns
 
-Callable[[Any], bool]: 组合谓词。
+Callable[[Any], bool]: Combined predicate.

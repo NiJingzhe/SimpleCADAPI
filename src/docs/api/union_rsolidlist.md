@@ -12,7 +12,8 @@ def union_rsolidlist() -> List[Solid]
 
 将一组实体尝试进行并集运算。任何可以通过并集连接成整体的实体
 都会被融合成一个新的实体；无法连接的实体保持独立。该过程会一直
-进行，直到没有新的实体可以被成功融合为止。
+进行，直到没有新的实体可以被成功融合为止。只有当设计意图明确
+要求得到单个整体时，才应检查 `len(result) == 1`。
 
 ## API参数说明
 
@@ -23,7 +24,9 @@ def union_rsolidlist() -> List[Solid]
 ## 返回值说明
 
 List[Solid]: 并集运算后的实体列表。可以合并为整体的实体会被融合，
-无法融合的实体会原样保留。
+无法融合的实体会原样保留。不要默认返回列表长度一定为1；
+如果输入实体彼此独立，或者只是点/边切触、切线接触、以及其他
+没有形成可合并体积的接触关系，返回多个 Solid 也是合法结果。
 
 ## 异常
 
@@ -41,4 +44,9 @@ union_results1 = union_rsolidlist([box1, box2, sphere])
 union_results2 = union_rsolidlist(box1, box2, sphere)
 union_results3 = union_rsolidlist(box1, [box2, sphere])
 # union_results长度为2：一个融合后的立方体组合和一个独立的球体
+
+tangent_sphere = make_sphere_rsolid(1.0, (3, 0, 1))
+tangent_results = union_rsolidlist(box1, tangent_sphere)
+# tangent_results也可能返回多个Solid；
+# 只有当你明确需要单个整体时才断言 len(...) == 1
 ```

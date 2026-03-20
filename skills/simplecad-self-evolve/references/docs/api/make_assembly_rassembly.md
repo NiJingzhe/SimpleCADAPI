@@ -10,4 +10,4 @@ def make_assembly_rassembly(parts: Sequence[Tuple[str, Solid]], name: str = 'ass
 
 ## Description
 
-Type-1映射：从参数描述提升到装配对象。
+Type-1 mapping: lift a parameter description into an assembly object.

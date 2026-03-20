@@ -10,4 +10,4 @@ def clear_constraints_rassembly(assembly: Assembly) -> Assembly
 
 ## Description
 
-Type-2映射：清空约束并返回新装配对象。
+Type-2 mapping: clear constraints and return a new assembly.

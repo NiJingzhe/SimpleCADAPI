@@ -10,4 +10,4 @@ def constrain_coincident_rassembly(assembly: Assembly, reference: PointAnchor, m
 
 ## Description
 
-Type-2映射：添加点重合约束并返回新装配对象。
+Type-2 mapping: add a coincident constraint and return a new assembly.

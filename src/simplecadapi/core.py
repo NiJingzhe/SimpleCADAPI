@@ -1,6 +1,6 @@
 """
-SimpleCAD API核心类定义
-基于README中的API设计，使用CADQuery作为底层实现
+Core class definitions for the SimpleCAD API.
+Based on the API design in the README and implemented on top of CADQuery.
 """
 
 from __future__ import annotations
@@ -22,9 +22,10 @@ from .tagging import DEFAULT_TAG_POLICY, normalize_tag
 
 
 class CoordinateSystem:
-    """三维坐标系
+    """Three-dimensional coordinate system.
 
-    SimpleCAD使用Z向上的右手坐标系，原点在(0, 0, 0)，X轴向前，Y轴向右，Z轴向上
+    SimpleCAD uses a right-handed Z-up coordinate system with the origin at
+    (0, 0, 0): X forward, Y right, Z up.
     """
 
     def __init__(
@@ -33,12 +34,12 @@ class CoordinateSystem:
         x_axis: Tuple[float, float, float] = (1, 0, 0),
         y_axis: Tuple[float, float, float] = (0, 1, 0),
     ):
-        """初始化坐标系
+        """Initialize the coordinate system.
 
         Args:
-            origin: 坐标系原点
-            x_axis: X轴方向向量
-            y_axis: Y轴方向向量
+            origin: Coordinate system origin.
+            x_axis: X-axis direction vector.
+            y_axis: Y-axis direction vector.
         """
         try:
             self.origin = np.array(origin, dtype=float)
@@ -51,7 +52,7 @@ class CoordinateSystem:
             )
 
     def _normalize(self, vector) -> np.ndarray:
-        """归一化向量"""
+        """Normalize a vector."""
         v = np.array(vector, dtype=float)
         norm = np.linalg.norm(v)
         if norm == 0:
@@ -59,7 +60,7 @@ class CoordinateSystem:
         return v / norm
 
     def transform_point(self, point: np.ndarray) -> np.ndarray:
-        """将局部坐标转换为全局坐标"""
+        """Transform a local point into global coordinates."""
         try:
             return (
                 self.origin
@@ -71,7 +72,7 @@ class CoordinateSystem:
             raise ValueError(f"坐标转换失败: {e}. 请检查输入点的格式是否正确。")
 
     def transform_vector(self, vector: np.ndarray) -> np.ndarray:
-        """将局部方向向量转换为全局方向向量（不包含平移）"""
+        """Transform a local direction vector into a global direction vector without translation."""
         try:
             v = np.array(vector, dtype=float)
             return v[0] * self.x_axis + v[1] * self.y_axis + v[2] * self.z_axis
@@ -79,7 +80,7 @@ class CoordinateSystem:
             raise ValueError(f"向量转换失败: {e}. 请检查输入向量的格式是否正确。")
 
     def to_cq_plane(self) -> Plane:
-        """转换为CADQuery的Plane对象"""
+        """Convert to a CADQuery Plane object."""
         try:
             # 坐标系转换
             cq_origin = Vector(self.origin[0], self.origin[1], self.origin[2])
@@ -91,18 +92,18 @@ class CoordinateSystem:
             raise ValueError(f"转换为CADQuery平面失败: {e}")
 
     def __str__(self) -> str:
-        """字符串表示"""
+        """String representation."""
         return self._format_string(indent=0)
 
     def __repr__(self) -> str:
-        """调试表示"""
+        """Debug representation."""
         return f"CoordinateSystem(origin={tuple(self.origin)}, x_axis={tuple(self.x_axis)}, y_axis={tuple(self.y_axis)})"
 
     def _format_string(self, indent: int = 0) -> str:
-        """格式化字符串表示
+        """Format as a string.
 
         Args:
-            indent: 缩进级别
+            indent: Indentation level.
         """
         spaces = "  " * indent
         result = []
@@ -127,9 +128,9 @@ WORLD_CS = CoordinateSystem()
 
 
 class SimpleWorkplane:
-    """工作平面上下文管理器
+    """Workplane context manager.
 
-    用于定义局部坐标系，支持嵌套使用
+    Defines a local coordinate system and supports nesting.
     """
 
     def __init__(
@@ -138,12 +139,12 @@ class SimpleWorkplane:
         normal: Tuple[float, float, float] = (0, 0, 1),
         x_dir: Tuple[float, float, float] = (1, 0, 0),
     ):
-        """初始化工作平面
+        """Initialize the workplane.
 
         Args:
-            origin: 工作平面原点
-            normal: 工作平面法向量
-            x_dir: 工作平面X轴方向
+            origin: Workplane origin.
+            normal: Workplane normal vector.
+            x_dir: Workplane X-axis direction.
         """
         # 获取当前坐标系
         current_cs = get_current_cs()
@@ -193,7 +194,7 @@ class SimpleWorkplane:
         self.cq_workplane = None
 
     def to_cq_workplane(self) -> cq.Workplane:
-        """转换为CADQuery的Workplane对象"""
+        """Convert to a CADQuery Workplane object."""
         if self.cq_workplane is None:
             try:
                 self.cq_workplane = cq.Workplane(self.cs.to_cq_plane())
@@ -211,21 +212,21 @@ class SimpleWorkplane:
         _current_cs.pop()
 
     def __str__(self) -> str:
-        """字符串表示"""
+        """String representation."""
         return self._format_string(indent=0)
 
     def __repr__(self) -> str:
-        """调试表示"""
+        """Debug representation."""
         return f"SimpleWorkplane(origin={tuple(self.cs.origin)}, normal={tuple(self.cs.z_axis)})"
 
     def _format_string(
         self, indent: int = 0, show_coordinate_system: bool = True
     ) -> str:
-        """格式化字符串表示
+        """Format as a string.
 
         Args:
-            indent: 缩进级别
-            show_coordinate_system: 是否显示坐标系信息
+            indent: Indentation level.
+            show_coordinate_system: Whether to show coordinate system information.
         """
         spaces = "  " * indent
         result = []
@@ -245,23 +246,23 @@ _current_cs = [WORLD_CS]
 
 
 def get_current_cs() -> CoordinateSystem:
-    """获取当前坐标系"""
+    """Get the current coordinate system."""
     global _current_cs
     return _current_cs[-1]
 
 
 class TaggedMixin:
-    """标签混入类，为几何体提供标签功能"""
+    """Tag mixin that provides tagging support for geometry objects."""
 
     def __init__(self):
         self._tags: Set[str] = set()
         self._metadata: Dict[str, Any] = {}
 
     def add_tag(self, tag: str) -> None:
-        """添加标签
+        """Add a tag.
 
         Args:
-            tag: 标签名称
+            tag: Tag name.
         """
         if not isinstance(tag, str):
             raise TypeError("标签必须是字符串类型")
@@ -297,54 +298,54 @@ class TaggedMixin:
                 child._propagate_tag_down(tag)
 
     def remove_tag(self, tag: str) -> None:
-        """移除标签
+        """Remove a tag.
 
         Args:
-            tag: 标签名称
+            tag: Tag name.
         """
         self._tags.discard(tag)
 
     def has_tag(self, tag: str) -> bool:
-        """检查是否有指定标签
+        """Check whether a given tag exists.
 
         Args:
-            tag: 标签名称
+            tag: Tag name.
 
         Returns:
-            是否有该标签
+            Whether the tag is present.
         """
         return tag in self._tags
 
     def get_tags(self) -> list[str]:
-        """获取所有标签"""
+        """Get all tags."""
         return list(set(self._tags.copy()))
 
     def set_metadata(self, key: str, value: Any) -> None:
-        """设置元数据
+        """Set metadata.
 
         Args:
-            key: 键
-            value: 值
+            key: Key.
+            value: Value.
         """
         self._metadata[key] = value
 
     def get_metadata(self, key: str, default: Any = None) -> Any:
-        """获取元数据
+        """Get metadata.
 
         Args:
-            key: 键
-            default: 默认值
+            key: Key.
+            default: Default value.
 
         Returns:
-            元数据值
+            Metadata value.
         """
         return self._metadata.get(key, default)
 
     def _format_tags_and_metadata(self, indent: int = 0) -> str:
-        """格式化标签和元数据
+        """Format tags and metadata.
 
         Args:
-            indent: 缩进级别
+            indent: Indentation level.
         """
         spaces = "  " * indent
         result = []
@@ -361,7 +362,7 @@ class TaggedMixin:
 
 
 class TopoMixein:
-    """拓扑管理混入类"""
+    """Topology management mixin."""
 
     def __init__(self, level: int, self_shape_ref: AnyShape) -> None:
 
@@ -371,48 +372,48 @@ class TopoMixein:
         self.parent: Optional[AnyShape] = None
 
     def set_parent(self, parent: AnyShape) -> None:
-        """设置父级几何体
+        """Set the parent geometry.
 
         Args:
-            parent: 父级几何体
+            parent: Parent geometry.
         """
         self.parent = parent
 
     def add_child(self, child: AnyShape) -> None:
-        """添加子级几何体
+        """Add a child geometry.
 
         Args:
-            child: 子级几何体
+            child: Child geometry.
         """
         if child not in self.children:
             self.children.append(child)
             child.set_parent(self.self_shape_ref)
 
     def get_children(self) -> List[AnyShape]:
-        """获取所有子级几何体
+        """Get all child geometry.
 
         Returns:
-            子级几何体列表
+            List of child geometry.
         """
         return self.children
 
     def get_parent(self) -> Optional[AnyShape]:
-        """获取父级几何体
+        """Get the parent geometry.
 
         Returns:
-            父级几何体或None
+            Parent geometry or None.
         """
         return self.parent
 
 
 class Vertex(TaggedMixin, TopoMixein):
-    """顶点类，包装CADQuery的Vertex，添加标签功能"""
+    """Vertex wrapper around CADQuery Vertex with tag support."""
 
     def __init__(self, cq_vertex: CQVertex):
-        """初始化顶点
+        """Initialize a vertex.
 
         Args:
-            cq_vertex: CADQuery的顶点对象
+            cq_vertex: CADQuery vertex object.
         """
         try:
             self.cq_vertex = cq_vertex
@@ -422,10 +423,10 @@ class Vertex(TaggedMixin, TopoMixein):
             raise ValueError(f"初始化顶点失败: {e}. 请检查输入的顶点对象是否有效。")
 
     def get_coordinates(self) -> Tuple[float, float, float]:
-        """获取顶点坐标
+        """Get vertex coordinates.
 
         Returns:
-            顶点坐标 (x, y, z)
+            Vertex coordinates `(x, y, z)`.
         """
         try:
             center = self.cq_vertex.Center()
@@ -434,22 +435,22 @@ class Vertex(TaggedMixin, TopoMixein):
             raise ValueError(f"获取顶点坐标失败: {e}")
 
     def __str__(self) -> str:
-        """字符串表示"""
+        """String representation."""
         return self._format_string(indent=0)
 
     def __repr__(self) -> str:
-        """调试表示"""
+        """Debug representation."""
         coords = self.get_coordinates()
         return f"Vertex(coordinates={coords})"
 
     def _format_string(
         self, indent: int = 0, show_coordinate_system: bool = False
     ) -> str:
-        """格式化字符串表示
+        """Format as a string.
 
         Args:
-            indent: 缩进级别
-            show_coordinate_system: 是否显示坐标系信息
+            indent: Indentation level.
+            show_coordinate_system: Whether to show coordinate system information.
         """
         spaces = "  " * indent
         result = []
@@ -477,13 +478,13 @@ class Vertex(TaggedMixin, TopoMixein):
 
 
 class Edge(TaggedMixin, TopoMixein):
-    """边类，包装CADQuery的Edge，添加标签功能"""
+    """Edge wrapper around CADQuery Edge with tag support."""
 
     def __init__(self, cq_edge: CQEdge):
-        """初始化边
+        """Initialize an edge.
 
         Args:
-            cq_edge: CADQuery的边对象
+            cq_edge: CADQuery edge object.
         """
         try:
             self.cq_edge = cq_edge
@@ -498,10 +499,10 @@ class Edge(TaggedMixin, TopoMixein):
             raise ValueError(f"初始化边失败: {e}. 请检查输入的边对象是否有效。")
 
     def get_length(self) -> float:
-        """获取边长度
+        """Get edge length.
 
         Returns:
-            边长度
+            Edge length.
         """
         try:
             # 使用CADQuery的方法获取边长度
@@ -510,10 +511,10 @@ class Edge(TaggedMixin, TopoMixein):
             raise ValueError(f"获取边长度失败: {e}")
 
     def get_start_vertex(self) -> Vertex:
-        """获取起始顶点
+        """Get the start vertex.
 
         Returns:
-            起始顶点
+            Start vertex.
         """
         try:
             if len(self.get_children()) < 1:
@@ -524,10 +525,10 @@ class Edge(TaggedMixin, TopoMixein):
             raise ValueError(f"获取起始顶点失败: {e}")
 
     def get_end_vertex(self) -> Vertex:
-        """获取结束顶点
+        """Get the end vertex.
 
         Returns:
-            结束顶点
+            End vertex.
         """
         try:
             if len(self.get_children()) < 2:
@@ -538,11 +539,11 @@ class Edge(TaggedMixin, TopoMixein):
             raise ValueError(f"获取结束顶点失败: {e}")
 
     def __str__(self) -> str:
-        """字符串表示"""
+        """String representation."""
         return self._format_string(indent=0)
 
     def __repr__(self) -> str:
-        """调试表示"""
+        """Debug representation."""
         length = self.get_length()
 
         try:
@@ -557,11 +558,11 @@ class Edge(TaggedMixin, TopoMixein):
     def _format_string(
         self, indent: int = 0, show_coordinate_system: bool = False
     ) -> str:
-        """格式化字符串表示
+        """Format as a string.
 
         Args:
-            indent: 缩进级别
-            show_coordinate_system: 是否显示坐标系信息
+            indent: Indentation level.
+            show_coordinate_system: Whether to show coordinate system information.
         """
         spaces = "  " * indent
         result = []
@@ -590,13 +591,13 @@ class Edge(TaggedMixin, TopoMixein):
 
 
 class Wire(TaggedMixin, TopoMixein):
-    """线类，包装CADQuery的Wire，添加标签功能"""
+    """Wire wrapper around CADQuery Wire with tag support."""
 
     def __init__(self, cq_wire: CQWire):
-        """初始化线
+        """Initialize a wire.
 
         Args:
-            cq_wire: CADQuery的线对象
+            cq_wire: CADQuery wire object.
         """
         try:
             self.cq_wire = cq_wire
@@ -610,10 +611,10 @@ class Wire(TaggedMixin, TopoMixein):
             raise ValueError(f"初始化线失败: {e}. 请检查输入的线对象是否有效。")
 
     def get_edges(self) -> List[Edge]:
-        """获取组成线的边
+        """Get the edges that make up this wire.
 
         Returns:
-            边列表
+            Edge list.
         """
         try:
             return cast(List[Edge], self.get_children())
@@ -621,10 +622,10 @@ class Wire(TaggedMixin, TopoMixein):
             raise ValueError(f"获取边列表失败: {e}")
 
     def is_closed(self) -> bool:
-        """检查线是否闭合
+        """Check whether the wire is closed.
 
         Returns:
-            是否闭合
+            Whether it is closed.
         """
         try:
             # 使用CADQuery的方法检查线是否闭合
@@ -633,7 +634,7 @@ class Wire(TaggedMixin, TopoMixein):
             raise ValueError(f"检查线闭合性失败: {e}")
 
     def _tag_edges(self) -> None:
-        """给构成wire的edges打tag"""
+        """Tag the edges that make up this wire."""
         policy = DEFAULT_TAG_POLICY
         for i, edge in enumerate(self.get_edges()):
             for tag in self.get_tags():
@@ -644,11 +645,11 @@ class Wire(TaggedMixin, TopoMixein):
             edge.add_tag(f"{i}")
 
     def __str__(self) -> str:
-        """字符串表示"""
+        """String representation."""
         return self._format_string(indent=0)
 
     def __repr__(self) -> str:
-        """调试表示"""
+        """Debug representation."""
         is_closed = self.is_closed()
         edge_count = len(self.get_edges())
 
@@ -659,11 +660,11 @@ class Wire(TaggedMixin, TopoMixein):
     def _format_string(
         self, indent: int = 0, show_coordinate_system: bool = False
     ) -> str:
-        """格式化字符串表示
+        """Format as a string.
 
         Args:
-            indent: 缩进级别
-            show_coordinate_system: 是否显示坐标系信息
+            indent: Indentation level.
+            show_coordinate_system: Whether to show coordinate system information.
         """
         spaces = "  " * indent
         result = []
@@ -691,13 +692,13 @@ class Wire(TaggedMixin, TopoMixein):
 
 
 class Face(TaggedMixin, TopoMixein):
-    """面类，包装CADQuery的Face，添加标签功能"""
+    """Face wrapper around CADQuery Face with tag support."""
 
     def __init__(self, cq_face: CQFace):
-        """初始化面
+        """Initialize a face.
 
         Args:
-            cq_face: CADQuery的面对象
+            cq_face: CADQuery face object.
         """
         try:
             self.cq_face = cq_face
@@ -719,10 +720,10 @@ class Face(TaggedMixin, TopoMixein):
             raise ValueError(f"初始化面失败: {e}. 请检查输入的面对象是否有效。")
 
     def get_area(self) -> float:
-        """获取面积
+        """Get area.
 
         Returns:
-            面积
+            Area.
         """
         try:
             return self.cq_face.Area()
@@ -730,14 +731,14 @@ class Face(TaggedMixin, TopoMixein):
             raise ValueError(f"获取面积失败: {e}")
 
     def get_normal_at(self, u: float = 0.5, v: float = 0.5) -> Vector:
-        """获取面在指定参数处的法向量
+        """Get the face normal at the given parameters.
 
         Args:
-            u: U参数
-            v: V参数
+            u: U parameter.
+            v: V parameter.
 
         Returns:
-            法向量
+            Normal vector.
         """
         try:
             normal, _ = self.cq_face.normalAt(u, v)
@@ -746,7 +747,7 @@ class Face(TaggedMixin, TopoMixein):
             raise ValueError(f"获取法向量失败: {e}")
 
     def _tag_wires(self) -> None:
-        """为面上的边线添加标签"""
+        """Add tags to the wires on the face."""
         policy = DEFAULT_TAG_POLICY
         outer_wire = self.get_outer_wire()
         for tag in self.get_tags():
@@ -766,10 +767,10 @@ class Face(TaggedMixin, TopoMixein):
             iw._tag_edges()
 
     def get_outer_wire(self) -> Wire:
-        """获取外边界线
+        """Get the outer boundary wire.
 
         Returns:
-            外边界线
+            Outer boundary wire.
         """
         try:
             return [
@@ -782,10 +783,10 @@ class Face(TaggedMixin, TopoMixein):
             raise ValueError(f"获取外边界线失败: {e}")
 
     def get_inner_wires(self) -> List[Wire]:
-        """获取内边界线
+        """Get the inner boundary wires.
 
         Returns:
-            内边界线列表
+            List of inner boundary wires.
         """
         try:
             return [
@@ -801,22 +802,22 @@ class Face(TaggedMixin, TopoMixein):
         return self.cq_face.Center()
 
     def __str__(self) -> str:
-        """字符串表示"""
+        """String representation."""
         return self._format_string(indent=0)
 
     def __repr__(self) -> str:
-        """调试表示"""
+        """Debug representation."""
         area = self.get_area()
         return f"Face(area={area:.3f}, normal={self.get_normal_at()}, center={self.get_center()}, tags={self.get_tags()})"
 
     def _format_string(
         self, indent: int = 0, show_coordinate_system: bool = False
     ) -> str:
-        """格式化字符串表示
+        """Format as a string.
 
         Args:
-            indent: 缩进级别
-            show_coordinate_system: 是否显示坐标系信息
+            indent: Indentation level.
+            show_coordinate_system: Whether to show coordinate system information.
         """
         spaces = "  " * indent
         result = []
@@ -860,13 +861,13 @@ class Face(TaggedMixin, TopoMixein):
 
 
 class Solid(TaggedMixin, TopoMixein):
-    """实体类，包装CADQuery的Solid，添加标签功能"""
+    """Solid wrapper around CADQuery Solid with tag support."""
 
     def __init__(self, cq_solid: Union[CQSolid, Any]):
-        """初始化实体
+        """Initialize a solid.
 
         Args:
-            cq_solid: CADQuery的实体对象
+            cq_solid: CADQuery solid object.
         """
         try:
             # 如果是CADQuery的Shape，检查是否为Solid
@@ -887,10 +888,10 @@ class Solid(TaggedMixin, TopoMixein):
             raise ValueError(f"初始化实体失败: {e}. 请检查输入的实体对象是否有效。")
 
     def get_volume(self) -> float:
-        """获取体积
+        """Get volume.
 
         Returns:
-            体积
+            Volume.
         """
         try:
             return self.cq_solid.Volume()
@@ -898,10 +899,10 @@ class Solid(TaggedMixin, TopoMixein):
             raise ValueError(f"获取体积失败: {e}")
 
     def get_faces(self) -> List[Face]:
-        """获取组成实体的面
+        """Get the faces that make up this solid.
 
         Returns:
-            面列表
+            Face list.
         """
         try:
             return [
@@ -911,10 +912,10 @@ class Solid(TaggedMixin, TopoMixein):
             raise ValueError(f"获取面列表失败: {e}")
 
     def get_edges(self) -> List[Edge]:
-        """获取组成实体的边
+        """Get the edges that make up this solid.
 
         Returns:
-            边列表
+            Edge list.
         """
         try:
             edges = []
@@ -928,10 +929,10 @@ class Solid(TaggedMixin, TopoMixein):
             raise ValueError(f"获取边列表失败: {e}")
 
     def auto_tag_faces(self, geometry_type: str = "unknown") -> None:
-        """自动为面添加标签
+        """Automatically add tags to faces.
 
         Args:
-            geometry_type: 几何体类型 ('box', 'cylinder', 'sphere', 'unknown')
+            geometry_type: Geometry type (`box`, `cylinder`, `sphere`, or `unknown`).
         """
         try:
             # 确保有面标签字典
@@ -954,7 +955,7 @@ class Solid(TaggedMixin, TopoMixein):
             raise ValueError(f"自动标记面失败: {e}")
 
     def _auto_tag_box_faces(self, faces: List[Face]) -> None:
-        """为立方体面自动添加标签"""
+        """Automatically tag box faces."""
         try:
             for i, face in enumerate(faces):
                 normal = face.get_normal_at()
@@ -984,7 +985,7 @@ class Solid(TaggedMixin, TopoMixein):
             print(f"警告: 自动标记立方体面失败: {e}")
 
     def _auto_tag_cylinder_faces(self, faces: List[Face]) -> None:
-        """为圆柱体面自动添加标签，使用边的数量来区分侧面和平面"""
+        """Automatically tag cylinder faces using edge count to distinguish side and planar faces."""
         try:
             plane_faces = []
             side_faces = []
@@ -1013,11 +1014,11 @@ class Solid(TaggedMixin, TopoMixein):
             print(f"警告: 自动标记圆柱体面失败: {e}")
 
     def _tag_face(self, face: Face, tag: str) -> None:
-        """为面添加标签并保存到实体
+        """Add a tag to a face and store it on the solid.
 
         Args:
-            face: 面对象
-            tag: 标签名称
+            face: Face object.
+            tag: Tag name.
         """
         # 同时也添加到面对象本身
         face.add_tag(tag)
@@ -1025,11 +1026,11 @@ class Solid(TaggedMixin, TopoMixein):
         face._tag_wires()
 
     def __str__(self) -> str:
-        """字符串表示"""
+        """String representation."""
         return self._format_string(indent=0)
 
     def __repr__(self) -> str:
-        """调试表示"""
+        """Debug representation."""
         volume = self.get_volume()
         face_count = len(self.get_faces())
         return f"Solid(volume={volume:.3f}, faces={face_count}, tags={self.get_tags()})"
@@ -1037,11 +1038,11 @@ class Solid(TaggedMixin, TopoMixein):
     def _format_string(
         self, indent: int = 0, show_coordinate_system: bool = True
     ) -> str:
-        """格式化字符串表示
+        """Format as a string.
 
         Args:
-            indent: 缩进级别
-            show_coordinate_system: 是否显示坐标系信息
+            indent: Indentation level.
+            show_coordinate_system: Whether to show coordinate system information.
         """
         spaces = "  " * indent
         result = []

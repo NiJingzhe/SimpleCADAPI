@@ -10,7 +10,7 @@ def select(items: Iterable[Any]) -> Query
 
 ## Description
 
-创建查询对象。
+Create a query object.
 
 Q.select(items).where(Q.tag("face.top")).first()
 
@@ -18,8 +18,8 @@ Q.select(items).where(Q.tag("face.top")).first()
 
 ### items
 
-- **Description**: 任意可迭代对象。
+- **Description**: Any iterable.
 
 ## Returns
 
-Query: 查询对象。
+Query: Query object.

@@ -10,18 +10,4 @@ def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> N
 
 ## Description
 
-导出为STEP格式
-
-## Parameters
-
-### shapes
-
-- **Description**: 要导出的几何体或几何体列表
-
-### filename
-
-- **Description**: 输出文件名
-
-## Raises
-
-- **ValueError**: 当导出失败时
+Export shapes to STEP.
