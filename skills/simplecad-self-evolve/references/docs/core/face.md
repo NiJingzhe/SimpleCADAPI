@@ -1,40 +1,40 @@
-# Face 面
+# Face
 
-## 概述
+## Overview
 
-`Face` 是 SimpleCAD API 中的面类，表示二维表面几何。面由一个或多个线（Wire）围成，包括外边界和可能的内边界（孔）。它包装了 CADQuery 的 Face 对象，并添加了标签功能。
+`Face` is the face class in the SimpleCAD API, representing 2D surface geometry. A face is bounded by one or more wires, including an outer boundary and possibly inner boundaries (holes). It wraps the CADQuery Face object and adds tagging functionality.
 
-## 类定义
+## Class Definition
 
 ```python
 class Face(TaggedMixin):
     """面类，包装CADQuery的Face，添加标签功能"""
 ```
 
-## 继承关系
+## Inheritance
 
-- 继承自 `TaggedMixin`，具有标签和元数据功能
+- Inherits from `TaggedMixin`, providing tag and metadata functionality
 
-## 用途
+## Usage
 
-- 表示二维表面区域
-- 构成实体 (Solid) 的边界
-- 定义扫描、拉伸等操作的截面
-- 计算面积、法向量等几何属性
+- Represent 2D surface areas
+- Form the boundary of solids (Solid)
+- Define cross-sections for sweep, extrude, and other operations
+- Calculate geometric properties such as area and normal vectors
 
-## 构造函数
+## Constructor
 
 ### `__init__(cq_face)`
 
-初始化面对象。
+Initializes a face object.
 
-**参数:**
-- `cq_face` (cadquery.Face): CADQuery 的面对象
+**Parameters:**
+- `cq_face` (cadquery.Face): A CADQuery face object
 
-**异常:**
-- `ValueError`: 当输入的面对象无效时抛出
+**Raises:**
+- `ValueError`: When the input face object is invalid
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import (
     make_rectangle_rface,
@@ -52,25 +52,25 @@ wire = make_rectangle_rwire(width=4, height=4)
 face_from_wire = make_face_from_wire_rface(wire)
 ```
 
-## 主要属性
+## Main Properties
 
-- `cq_face`: 底层的 CADQuery 面对象
-- `_tags`: 标签集合（继承自 TaggedMixin）
-- `_metadata`: 元数据字典（继承自 TaggedMixin）
+- `cq_face`: The underlying CADQuery face object
+- `_tags`: Tag set (inherited from TaggedMixin)
+- `_metadata`: Metadata dictionary (inherited from TaggedMixin)
 
-## 常用方法
+## Common Methods
 
 ### `get_area()`
 
-获取面的面积。
+Get the area of the face.
 
-**返回:**
-- `float`: 面的面积
+**Returns:**
+- `float`: The area of the face
 
-**异常:**
-- `ValueError`: 获取面积失败时抛出
+**Raises:**
+- `ValueError`: When area retrieval fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_rectangle_rface, make_circle_rface
 import math
@@ -89,19 +89,19 @@ print(f"圆形面积: {circle_area:.3f}, 期望: {expected_area:.3f}")
 
 ### `get_normal_at(u, v)`
 
-获取面在指定参数位置的法向量。
+Get the normal vector of the face at the specified parameter position.
 
-**参数:**
-- `u` (float, 可选): U 参数，默认 0.5
-- `v` (float, 可选): V 参数，默认 0.5
+**Parameters:**
+- `u` (float, optional): U parameter, default 0.5
+- `v` (float, optional): V parameter, default 0.5
 
-**返回:**
-- `cadquery.Vector`: 法向量
+**Returns:**
+- `cadquery.Vector`: Normal vector
 
-**异常:**
-- `ValueError`: 获取法向量失败时抛出
+**Raises:**
+- `ValueError`: When normal vector retrieval fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_rectangle_rface
 
@@ -112,15 +112,15 @@ print(f"法向量: ({normal.x:.3f}, {normal.y:.3f}, {normal.z:.3f})")
 
 ### `get_outer_wire()`
 
-获取面的外边界线。
+Get the outer boundary wire of the face.
 
-**返回:**
-- `Wire`: 外边界线对象
+**Returns:**
+- `Wire`: Outer boundary wire object
 
-**异常:**
-- `ValueError`: 获取外边界线失败时抛出
+**Raises:**
+- `ValueError`: When outer boundary wire retrieval fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_rectangle_rface
 
@@ -130,18 +130,18 @@ edges = outer_wire.get_edges()
 print(f"外边界由 {len(edges)} 条边组成")
 ```
 
-### 标签管理方法
+### Tag Management Methods
 
-继承自 `TaggedMixin` 的方法：
+Methods inherited from `TaggedMixin`:
 
-#### `add_tag(tag)`、`has_tag(tag)`、`get_tags()`、`remove_tag(tag)`
-#### `set_metadata(key, value)`、`get_metadata(key, default=None)`
+#### `add_tag(tag)`, `has_tag(tag)`, `get_tags()`, `remove_tag(tag)`
+#### `set_metadata(key, value)`, `get_metadata(key, default=None)`
 
-使用方法与 Vertex 类似，详见 [Vertex 文档](vertex.md)。
+Usage is similar to Vertex; see [Vertex documentation](vertex.md) for details.
 
-## 使用示例
+## Usage Examples
 
-### 创建不同类型的面
+### Creating Different Types of Faces
 
 ```python
 from simplecadapi import (
@@ -186,7 +186,7 @@ for face in faces:
     print()
 ```
 
-### 面的几何分析
+### Geometric Analysis of Faces
 
 ```python
 from simplecadapi import make_rectangle_rface, make_circle_rface
@@ -268,7 +268,7 @@ def analyze_face_geometry():
 analyze_face_geometry()
 ```
 
-### 带孔的面
+### Faces with Holes
 
 ```python
 from simplecadapi import (
@@ -331,7 +331,7 @@ def create_face_with_holes():
 main_face, holes = create_face_with_holes()
 ```
 
-### 面的变换和操作
+### Face Transformation and Operations
 
 ```python
 from simplecadapi import (
@@ -399,7 +399,7 @@ def transform_faces():
 transform_faces()
 ```
 
-### 面的分类和筛选
+### Face Classification and Filtering
 
 ```python
 from simplecadapi import make_rectangle_rface, make_circle_rface
@@ -485,7 +485,7 @@ def classify_faces():
 classified_faces = classify_faces()
 ```
 
-## 字符串表示
+## String Representation
 
 ```python
 from simplecadapi import make_rectangle_rface
@@ -497,7 +497,7 @@ face.set_metadata("material", "steel")
 print(face)
 ```
 
-输出：
+Output:
 ```
 Face:
   area: 15.000
@@ -532,19 +532,19 @@ Face:
     material: steel
 ```
 
-## 与其他几何体的关系
+## Relationships with Other Geometry
 
-- **线 (Wire)**: 面的边界
-- **边 (Edge)**: 通过线间接关联
-- **实体 (Solid)**: 面构成实体的表面
-- **壳 (Shell)**: 多个面组成的表面集合
+- **Wire (Wire)**: Boundary of the face
+- **Edge (Edge)**: Indirectly associated through wires
+- **Solid (Solid)**: Faces form the surfaces of a solid
+- **Shell (Shell)**: A collection of surfaces composed of multiple faces
 
-## 注意事项
+## Notes
 
-- 面必须是封闭的，由闭合的线围成
-- 面的法向量方向遵循右手定则
-- 面积计算包括所有边界围成的区域
-- 带孔的面需要特殊处理（外边界 + 内边界）
-- 面的方向性影响后续的实体操作
-- 复杂面可能存在自相交或退化情况
-- 参数 u, v 的取值范围通常是 [0, 1]
+- Faces must be closed, bounded by closed wires
+- The face normal direction follows the right-hand rule
+- Area calculation includes all regions bounded by the boundary
+- Faces with holes require special treatment (outer boundary + inner boundary)
+- Face orientation affects subsequent solid operations
+- Complex faces may have self-intersection or degenerate cases
+- The u, v parameter range is typically [0, 1]

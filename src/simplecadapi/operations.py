@@ -1240,7 +1240,57 @@ def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]:
 
 
 def union_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
-    """Compute the boolean union of one or more solids."""
+    """Compute the boolean union of one or more solids.
+
+    Args:
+        solids: One or more Solid objects or sequences of Solid. Nested sequences are
+            flattened before processing.
+
+    Returns:
+        List[Solid]: Resulting solids after union attempts. Solids that can be fused
+            are merged; disjoint or tangent-only contacts remain separate, so the
+            list may contain multiple solids.
+
+    Usage:
+        All boolean operations (union/cut/intersect) accept a mix of Solid and
+        sequences; results are always returned as a list of Solid.
+        Keep the list result unless you have explicitly verified `len(result) == 1`.
+        Touching-but-not-intersecting inputs can legitimately return multiple solids.
+        If that happens, keep using the list: pass it directly into later union calls,
+        or iterate over the solids for later cut/intersect steps.
+        If you truly need exactly one merged solid, you must check the list length
+        before using `result[0]`. When the length is not 1, do not pick an element
+        arbitrarily; instead, adjust part placement so the solids overlap slightly,
+        then run the union again.
+
+    Examples:
+        # Rounded-bar style input: end caps only touch the center body.
+        main_body = make_box_rsolid(10, 4, 4, bottom_face_center=(0, 0, 0))
+        left_cap = make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0))
+        right_cap = make_sphere_rsolid(2.0, center=(12.0, 2.0, 2.0))
+
+        body_parts = union_rsolidlist(main_body, [left_cap, right_cap])
+        print(f"Union result count: {len(body_parts)}")
+        # This is acceptable: tangent-only contact can stay as multiple solids.
+        for solid in body_parts:
+            print(f"- volume: {solid.get_volume():.6f}")
+
+        # Keep using the returned list in later boolean steps.
+        rib = make_box_rsolid(2, 4, 4, bottom_face_center=(4, 0, 0))
+        combined_parts = union_rsolidlist(body_parts, rib)
+        print(f"Combined result count: {len(combined_parts)}")
+
+        # Only unwrap to one solid after an explicit length check.
+        left_cap_embedded = make_sphere_rsolid(2.0, center=(-1.8, 2.0, 2.0))
+        right_cap_embedded = make_sphere_rsolid(2.0, center=(11.8, 2.0, 2.0))
+        merged = union_rsolidlist(main_body, [left_cap_embedded, right_cap_embedded])
+        if len(merged) != 1:
+            raise ValueError(
+                "Adjust part placement so each cap overlaps the body slightly before "
+                "using merged[0]."
+            )
+        final_body = merged[0]
+    """
 
     def _attempt_fuse(base: Solid, candidate: Solid) -> Optional[Solid]:
         s1 = base.cq_solid
@@ -1321,7 +1371,49 @@ def union_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
 
 
 def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
-    """Compute the boolean difference of solids."""
+    """Compute the boolean difference of solids.
+
+    Args:
+        solids: One or more Solid objects or sequences of Solid. Nested sequences are
+            flattened before processing; the first solid is the base, the rest are
+            subtracted in order.
+
+    Returns:
+        List[Solid]: A list containing the cut result solid, or an empty list when
+            there is no valid input. The result is returned as a list for consistency
+            with other boolean operations.
+
+    Usage:
+        All boolean operations (union/cut/intersect) accept a mix of Solid and
+        sequences; results are always returned as a list of Solid.
+        `cut_rsolidlist(base, [tool_a, tool_b])` is valid input.
+        If an earlier union returned multiple solids, keep that list and process each
+        solid intentionally instead of collapsing it to `result[0]` without proof.
+        If a later step truly requires one solid, first verify `len(results) == 1`.
+        When a preceding union produced multiple tangent-only solids, adjust the part
+        placement so the intended bodies overlap slightly, re-run the union, and only
+        then unwrap the single result.
+
+    Examples:
+        body = make_box_rsolid(12, 4, 4, bottom_face_center=(0, 0, 0))
+        slot = make_box_rsolid(2, 2, 6, bottom_face_center=(2, 1, -1))
+        relief = make_cylinder_rsolid(radius=0.8, height=6, center=(8, 2, 2))
+
+        results = cut_rsolidlist(body, [slot, relief])
+        print(f"Cut result count: {len(results)}")
+
+        # If a previous union returned multiple solids, keep the list and cut each part.
+        tangent_parts = union_rsolidlist(
+            body,
+            [
+                make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0)),
+                make_sphere_rsolid(2.0, center=(14.0, 2.0, 2.0)),
+            ],
+        )
+        trimmed_parts = []
+        for part in tangent_parts:
+            trimmed_parts.extend(cut_rsolidlist(part, [slot, relief]))
+    """
     try:
         # 递归展开所有参数：将Solid直接添加，将序列展开
         def _flatten_solids(args):
@@ -1393,7 +1485,48 @@ def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
 
 
 def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
-    """Compute the boolean intersection of solids."""
+    """Compute the boolean intersection of solids.
+
+    Args:
+        solids: One or more Solid objects or sequences of Solid. Nested sequences are
+            flattened before processing.
+
+    Returns:
+        List[Solid]: A list containing the intersection result, or an empty list if
+            the solids do not overlap. The result is returned as a list for
+            consistency with other boolean operations.
+
+    Usage:
+        All boolean operations (union/cut/intersect) accept a mix of Solid and
+        sequences; results are always returned as a list of Solid.
+        `intersect_rsolidlist(body, [clip_a, clip_b])` is valid input.
+        If an earlier union returned multiple solids, keep that list and intersect
+        each solid intentionally instead of collapsing it to `result[0]`.
+        If a later step truly requires one solid, first verify `len(results) == 1`.
+        When a preceding union produced multiple tangent-only solids, adjust the part
+        placement so the intended bodies overlap slightly, re-run the union, and only
+        then unwrap the single result.
+
+    Examples:
+        body = make_box_rsolid(12, 4, 4, bottom_face_center=(0, 0, 0))
+        clip_a = make_box_rsolid(8, 4, 4, bottom_face_center=(2, 0, 0))
+        clip_b = make_box_rsolid(6, 6, 6, bottom_face_center=(3, -1, -1))
+
+        results = intersect_rsolidlist(body, [clip_a, clip_b])
+        print(f"Intersect result count: {len(results)}")
+
+        # A previous union may return multiple solids; keep the list and intersect each part.
+        tangent_parts = union_rsolidlist(
+            body,
+            [
+                make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0)),
+                make_sphere_rsolid(2.0, center=(14.0, 2.0, 2.0)),
+            ],
+        )
+        clipped_parts = []
+        for part in tangent_parts:
+            clipped_parts.extend(intersect_rsolidlist(part, clip_a))
+    """
     try:
         # 递归展开所有参数：将Solid直接添加，将序列展开
         def _flatten_solids(args):

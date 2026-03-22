@@ -1,41 +1,41 @@
-# Solid 实体
+# Solid
 
-## 概述
+## Overview
 
-`Solid` 是 SimpleCAD API 中的实体类，表示三维封闭的几何体。实体具有体积，是 CAD 建模中最重要的几何类型之一。它包装了 CADQuery 的 Solid 对象，并添加了标签功能和面的自动标记能力。
+`Solid` is the solid class in the SimpleCAD API, representing a 3D closed geometry. Solids have volume and are one of the most important geometry types in CAD modeling. It wraps the CADQuery Solid object and adds tagging functionality and automatic face tagging capability.
 
-## 类定义
+## Class Definition
 
 ```python
 class Solid(TaggedMixin):
     """实体类，包装CADQuery的Solid，添加标签功能"""
 ```
 
-## 继承关系
+## Inheritance
 
-- 继承自 `TaggedMixin`，具有标签和元数据功能
+- Inherits from `TaggedMixin`, providing tag and metadata functionality
 
-## 用途
+## Usage
 
-- 表示三维实体对象
-- 进行布尔运算（并集、交集、差集）
-- 应用特征操作（倒角、圆角等）
-- 计算体积、表面积等物理属性
-- 生成制造数据
+- Represent 3D solid objects
+- Perform boolean operations (union, intersection, difference)
+- Apply feature operations (fillets, chamfers, etc.)
+- Calculate physical properties such as volume and surface area
+- Generate manufacturing data
 
-## 构造函数
+## Constructor
 
 ### `__init__(cq_solid)`
 
-初始化实体对象。
+Initializes a solid object.
 
-**参数:**
-- `cq_solid` (Union[cadquery.Solid, Any]): CADQuery 的实体对象或其他 Shape 对象
+**Parameters:**
+- `cq_solid` (Union[cadquery.Solid, Any]): A CADQuery solid object or other Shape object
 
-**异常:**
-- `ValueError`: 当输入的实体对象无效时抛出
+**Raises:**
+- `ValueError`: When the input solid object is invalid
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import (
     make_box_rsolid,
@@ -49,26 +49,26 @@ cylinder = make_cylinder_rsolid(center=(0, 0, 0), radius=2, height=4)
 sphere = make_sphere_rsolid(center=(0, 0, 0), radius=1.5)
 ```
 
-## 主要属性
+## Main Properties
 
-- `cq_solid`: 底层的 CADQuery 实体对象
-- `_tags`: 标签集合（继承自 TaggedMixin）
-- `_metadata`: 元数据字典（继承自 TaggedMixin）
-- `_face_tags`: 面标签字典（内部使用）
+- `cq_solid`: The underlying CADQuery solid object
+- `_tags`: Tag set (inherited from TaggedMixin)
+- `_metadata`: Metadata dictionary (inherited from TaggedMixin)
+- `_face_tags`: Face tag dictionary (internal use)
 
-## 常用方法
+## Common Methods
 
 ### `get_volume()`
 
-获取实体的体积。
+Get the volume of the solid.
 
-**返回:**
-- `float`: 实体的体积
+**Returns:**
+- `float`: The volume of the solid
 
-**异常:**
-- `ValueError`: 获取体积失败时抛出
+**Raises:**
+- `ValueError`: When volume retrieval fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid, make_sphere_rsolid
 import math
@@ -93,15 +93,15 @@ print(f"球体体积: {sphere_volume:.3f}, 期望: {expected_volume:.3f}")
 
 ### `get_faces()`
 
-获取组成实体的所有面。
+Get all faces that make up the solid.
 
-**返回:**
-- `List[Face]`: 面对象列表
+**Returns:**
+- `List[Face]`: List of face objects
 
-**异常:**
-- `ValueError`: 获取面列表失败时抛出
+**Raises:**
+- `ValueError`: When face list retrieval fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_box_rsolid
 
@@ -116,15 +116,15 @@ for i, face in enumerate(faces):
 
 ### `get_edges()`
 
-获取组成实体的所有边。
+Get all edges that make up the solid.
 
-**返回:**
-- `List[Edge]`: 边对象列表
+**Returns:**
+- `List[Edge]`: List of edge objects
 
-**异常:**
-- `ValueError`: 获取边列表失败时抛出
+**Raises:**
+- `ValueError`: When edge list retrieval fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_box_rsolid
 
@@ -139,12 +139,12 @@ for i, edge in enumerate(edges):
 
 ### `auto_tag_faces(geometry_type)`
 
-自动为面添加标签。
+Automatically add tags to faces.
 
-**参数:**
-- `geometry_type` (str): 几何体类型（"box"、"cylinder"、"sphere"、"unknown"）
+**Parameters:**
+- `geometry_type` (str): Geometry type ("box", "cylinder", "sphere", "unknown")
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid
 
@@ -165,18 +165,18 @@ for face in faces:
     print(f"面标签: {face.get_tags()}")
 ```
 
-### 标签管理方法
+### Tag Management Methods
 
-继承自 `TaggedMixin` 的方法：
+Methods inherited from `TaggedMixin`:
 
-#### `add_tag(tag)`、`has_tag(tag)`、`get_tags()`、`remove_tag(tag)`
-#### `set_metadata(key, value)`、`get_metadata(key, default=None)`
+#### `add_tag(tag)`, `has_tag(tag)`, `get_tags()`, `remove_tag(tag)`
+#### `set_metadata(key, value)`, `get_metadata(key, default=None)`
 
-使用方法与 Vertex 类似，详见 [Vertex 文档](vertex.md)。
+Usage is similar to Vertex; see [Vertex documentation](vertex.md) for details.
 
-## 使用示例
+## Usage Examples
 
-### 创建和分析基础实体
+### Creating and Analyzing Basic Solids
 
 ```python
 from simplecadapi import (
@@ -242,7 +242,7 @@ def create_basic_solids():
 create_basic_solids()
 ```
 
-### 布尔运算示例
+### Boolean Operations Example
 
 ```python
 from simplecadapi import (
@@ -306,7 +306,7 @@ def boolean_operations_example():
 boolean_operations_example()
 ```
 
-### 特征操作示例
+### Feature Operations Example
 
 ```python
 from simplecadapi import (
@@ -402,7 +402,7 @@ def feature_operations_example():
 feature_operations_example()
 ```
 
-### 复杂几何体创建
+### Creating Complex Geometry
 
 ```python
 from simplecadapi import (
@@ -507,7 +507,7 @@ def create_complex_geometry():
 complex_geometry = create_complex_geometry()
 ```
 
-### 实体质量分析
+### Solid Quality Analysis
 
 ```python
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid, make_sphere_rsolid
@@ -623,7 +623,7 @@ def analyze_solid_quality():
 analyze_solid_quality()
 ```
 
-## 字符串表示
+## String Representation
 
 ```python
 from simplecadapi import make_box_rsolid
@@ -636,7 +636,7 @@ box.set_metadata("material", "aluminum")
 print(box)
 ```
 
-输出：
+Output:
 ```
 Solid:
   volume: 30.000
@@ -672,26 +672,26 @@ Solid:
     material: aluminum
 ```
 
-## 与其他几何体的关系
+## Relationships with Other Geometry
 
-- **面 (Face)**: 实体的边界表面
-- **边 (Edge)**: 面的边界
-- **壳 (Shell)**: 实体可以分解为壳
-- **复合体 (Compound)**: 多个实体可以组成复合体
+- **Face (Face)**: Boundary surfaces of a solid
+- **Edge (Edge)**: Boundaries of faces
+- **Shell (Shell)**: Solids can be decomposed into shells
+- **Compound (Compound)**: Multiple solids can form a compound
 
-## 应用场景
+## Application Scenarios
 
-- **机械设计**: 零件建模
-- **建筑设计**: 建筑构件
-- **产品设计**: 工业产品
-- **3D 打印**: 制造原型
-- **仿真分析**: 有限元分析
+- **Mechanical design**: Part modeling
+- **Architectural design**: Building components
+- **Product design**: Industrial products
+- **3D printing**: Prototype manufacturing
+- **Simulation analysis**: Finite element analysis
 
-## 注意事项
+## Notes
 
-- 实体必须是封闭的、有效的几何体
-- 布尔运算可能改变实体的拓扑结构
-- 复杂实体可能包含大量面和边
-- 特征操作可能失败，需要适当的错误处理
-- 自动面标记功能依赖于几何体的规则性
-- 实体的质量直接影响后续操作的成功率和性能
+- Solids must be closed, valid geometry
+- Boolean operations may change the solid's topology
+- Complex solids may contain many faces and edges
+- Feature operations may fail and require appropriate error handling
+- Automatic face tagging depends on geometry regularity
+- Solid quality directly affects the success rate and performance of subsequent operations

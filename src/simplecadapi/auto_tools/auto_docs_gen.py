@@ -295,7 +295,7 @@ class APIDocumentGenerator:
             md_lines.append(f"## {category}")
             md_lines.append("")
             for api in sorted(api_list, key=lambda item: item.name):
-                source_info = f" *(来自 {api.source_file})*"
+                source_info = f" *(from {api.source_file})*"
                 md_lines.append(f"- [{api.name}]({api.name}.md){source_info}")
             md_lines.append("")
 

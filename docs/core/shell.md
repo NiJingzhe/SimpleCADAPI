@@ -1,40 +1,40 @@
-# Shell 壳
+# Shell
 
-## 概述
+## Overview
 
-`Shell` 是 SimpleCAD API 中的壳类，表示由多个面组成的开放或闭合的表面集合。壳是介于面和实体之间的几何体，可以用于创建复杂的表面结构。它包装了 CADQuery 的 Shell 对象，并添加了标签功能。
+`Shell` is the shell class in the SimpleCAD API, representing an open or closed surface collection composed of multiple faces. A shell is a geometry type between faces and solids, useful for creating complex surface structures. It wraps the CADQuery Shell object and adds tagging functionality.
 
-## 类定义
+## Class Definition
 
 ```python
 class Shell(TaggedMixin):
     """壳类，包装CADQuery的Shell，添加标签功能"""
 ```
 
-## 继承关系
+## Inheritance
 
-- 继承自 `TaggedMixin`，具有标签和元数据功能
+- Inherits from `TaggedMixin`, providing tag and metadata functionality
 
-## 用途
+## Usage
 
-- 表示复杂的表面结构
-- 作为实体的中间状态
-- 创建开放的表面几何体
-- 表示薄壁结构
+- Represent complex surface structures
+- Serve as an intermediate state of solids
+- Create open surface geometry
+- Represent thin-walled structures
 
-## 构造函数
+## Constructor
 
 ### `__init__(cq_shell)`
 
-初始化壳对象。
+Initializes a shell object.
 
-**参数:**
-- `cq_shell` (Union[cadquery.Shell, Any]): CADQuery 的壳对象或其他 Shape 对象
+**Parameters:**
+- `cq_shell` (Union[cadquery.Shell, Any]): A CADQuery shell object or other Shape object
 
-**异常:**
-- `ValueError`: 当输入的壳对象无效时抛出
+**Raises:**
+- `ValueError`: When the input shell object is invalid
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_box_rsolid, shell_rsolid
 
@@ -44,25 +44,25 @@ box = make_box_rsolid(width=5, height=3, depth=2)
 shell = shell_rsolid(box, thickness=0.2)  # 创建薄壁壳
 ```
 
-## 主要属性
+## Main Properties
 
-- `cq_shell`: 底层的 CADQuery 壳对象
-- `_tags`: 标签集合（继承自 TaggedMixin）
-- `_metadata`: 元数据字典（继承自 TaggedMixin）
+- `cq_shell`: The underlying CADQuery shell object
+- `_tags`: Tag set (inherited from TaggedMixin)
+- `_metadata`: Metadata dictionary (inherited from TaggedMixin)
 
-## 常用方法
+## Common Methods
 
 ### `get_faces()`
 
-获取组成壳的所有面。
+Get all faces that make up the shell.
 
-**返回:**
-- `List[Face]`: 面对象列表
+**Returns:**
+- `List[Face]`: List of face objects
 
-**异常:**
-- `ValueError`: 获取面列表失败时抛出
+**Raises:**
+- `ValueError`: When face list retrieval fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_box_rsolid, shell_rsolid
 
@@ -79,18 +79,18 @@ for i, face in enumerate(faces):
     print(f"面 {i}: 面积 {area:.3f}")
 ```
 
-### 标签管理方法
+### Tag Management Methods
 
-继承自 `TaggedMixin` 的方法：
+Methods inherited from `TaggedMixin`:
 
-#### `add_tag(tag)`、`has_tag(tag)`、`get_tags()`、`remove_tag(tag)`
-#### `set_metadata(key, value)`、`get_metadata(key, default=None)`
+#### `add_tag(tag)`, `has_tag(tag)`, `get_tags()`, `remove_tag(tag)`
+#### `set_metadata(key, value)`, `get_metadata(key, default=None)`
 
-使用方法与 Vertex 类似，详见 [Vertex 文档](vertex.md)。
+Usage is similar to Vertex; see [Vertex documentation](vertex.md) for details.
 
-## 使用示例
+## Usage Examples
 
-### 创建和分析壳
+### Creating and Analyzing Shells
 
 ```python
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid, shell_rsolid
@@ -151,7 +151,7 @@ def create_and_analyze_shells():
 create_and_analyze_shells()
 ```
 
-### 复杂壳的创建
+### Creating Complex Shells
 
 ```python
 from simplecadapi import (
@@ -229,7 +229,7 @@ def create_complex_shell():
 complex_shell = create_complex_shell()
 ```
 
-### 壳的质量检查
+### Shell Quality Check
 
 ```python
 from simplecadapi import make_box_rsolid, shell_rsolid
@@ -316,7 +316,7 @@ def check_shell_quality():
 check_shell_quality()
 ```
 
-### 壳的修复和优化
+### Shell Repair and Optimization
 
 ```python
 from simplecadapi import make_box_rsolid, shell_rsolid
@@ -384,7 +384,7 @@ def optimize_shell():
 shell, optimized_faces, removed_faces = optimize_shell()
 ```
 
-### 壳的比较和分析
+### Shell Comparison and Analysis
 
 ```python
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid, shell_rsolid
@@ -457,7 +457,7 @@ def compare_shells():
 shell_comparison = compare_shells()
 ```
 
-## 字符串表示
+## String Representation
 
 ```python
 from simplecadapi import make_box_rsolid, shell_rsolid
@@ -470,7 +470,7 @@ shell.set_metadata("thickness", 0.2)
 print(shell)
 ```
 
-输出：
+Output:
 ```
 Shell:
   face_count: 10
@@ -495,24 +495,24 @@ Shell:
     thickness: 0.2
 ```
 
-## 与其他几何体的关系
+## Relationships with Other Geometry
 
-- **面 (Face)**: 壳的组成元素
-- **实体 (Solid)**: 壳可以封闭形成实体
-- **复合体 (Compound)**: 多个壳可以组成复合体
+- **Face (Face)**: Components of a shell
+- **Solid (Solid)**: Closed shells can form solids
+- **Compound (Compound)**: Multiple shells can form a compound
 
-## 应用场景
+## Application Scenarios
 
-- **薄壁结构**: 容器、外壳等
-- **建筑表面**: 建筑物的外立面
-- **工业设计**: 产品外观设计
-- **有限元分析**: 薄壁结构的网格生成
+- **Thin-walled structures**: Containers, housings, etc.
+- **Architectural surfaces**: Building facades
+- **Industrial design**: Product exterior design
+- **Finite element analysis**: Mesh generation for thin-walled structures
 
-## 注意事项
+## Notes
 
-- 壳可能是开放的或闭合的
-- 闭合的壳可以形成实体
-- 壳的厚度影响最终的几何形状
-- 复杂壳可能包含大量小面，影响性能
-- 壳的质量直接影响后续操作的成功率
-- 某些操作可能导致壳的拓扑结构发生变化
+- Shells can be open or closed
+- Closed shells can form solids
+- Shell thickness affects the final geometry
+- Complex shells may contain many small faces, affecting performance
+- Shell quality directly affects the success rate of subsequent operations
+- Certain operations may cause changes in shell topology

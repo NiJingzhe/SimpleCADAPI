@@ -1,10 +1,10 @@
-# CoordinateSystem 坐标系
+# CoordinateSystem
 
-## 概述
+## Overview
 
-`CoordinateSystem` 是 SimpleCAD API 中的三维坐标系类，用于定义和管理三维空间中的坐标系。SimpleCAD 使用 Z 向上的右手坐标系，原点在 (0, 0, 0)，X 轴向前，Y 轴向右，Z 轴向上。
+`CoordinateSystem` is the 3D coordinate system class in SimpleCAD API, used for defining and managing coordinate systems in 3D space. SimpleCAD uses a Z-up right-handed coordinate system with origin at (0, 0, 0), X-axis forward, Y-axis right, and Z-axis up.
 
-## 类定义
+## Class Definition
 
 ```python
 class CoordinateSystem:
@@ -14,28 +14,28 @@ class CoordinateSystem:
     """
 ```
 
-## 用途
+## Usage
 
-- 定义局部坐标系
-- 坐标转换（局部坐标到全局坐标）
-- 与 CADQuery 坐标系的转换
-- 几何变换的基础
+- Define local coordinate systems
+- Coordinate transformation (local to global coordinates)
+- Conversion with CADQuery coordinate systems
+- Foundation for geometric transformations
 
-## 构造函数
+## Constructor
 
 ### `__init__(origin, x_axis, y_axis)`
 
-初始化坐标系。
+Initialize a coordinate system.
 
-**参数:**
-- `origin` (Tuple[float, float, float], 可选): 坐标系原点，默认 (0, 0, 0)
-- `x_axis` (Tuple[float, float, float], 可选): X轴方向向量，默认 (1, 0, 0)
-- `y_axis` (Tuple[float, float, float], 可选): Y轴方向向量，默认 (0, 1, 0)
+**Parameters:**
+- `origin` (Tuple[float, float, float], optional): Coordinate system origin, default (0, 0, 0)
+- `x_axis` (Tuple[float, float, float], optional): X-axis direction vector, default (1, 0, 0)
+- `y_axis` (Tuple[float, float, float], optional): Y-axis direction vector, default (0, 1, 0)
 
-**异常:**
-- `ValueError`: 当输入的坐标或方向向量无效时抛出
+**Exceptions:**
+- `ValueError`: Raised when input coordinates or direction vectors are invalid
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import CoordinateSystem
 
@@ -57,26 +57,26 @@ rotated_cs = CoordinateSystem(
 )
 ```
 
-## 主要属性
+## Main Properties
 
-- `origin`: 坐标系原点 (numpy.ndarray)
-- `x_axis`: X轴方向向量 (numpy.ndarray)
-- `y_axis`: Y轴方向向量 (numpy.ndarray)
-- `z_axis`: Z轴方向向量 (numpy.ndarray，自动计算)
+- `origin`: Coordinate system origin (numpy.ndarray)
+- `x_axis`: X-axis direction vector (numpy.ndarray)
+- `y_axis`: Y-axis direction vector (numpy.ndarray)
+- `z_axis`: Z-axis direction vector (numpy.ndarray, automatically calculated)
 
-## 常用方法
+## Common Methods
 
 ### `transform_point(point)`
 
-将局部坐标转换为全局坐标。
+Transform local coordinates to global coordinates.
 
-**参数:**
-- `point` (numpy.ndarray): 局部坐标点
+**Parameters:**
+- `point` (numpy.ndarray): Local coordinate point
 
-**返回:**
-- `numpy.ndarray`: 全局坐标点
+**Returns:**
+- `numpy.ndarray`: Global coordinate point
 
-**示例:**
+**Example:**
 ```python
 import numpy as np
 from simplecadapi import CoordinateSystem
@@ -89,15 +89,15 @@ print(global_point)  # [2. 0. 0.]
 
 ### `transform_vector(vector)`
 
-将局部方向向量转换为全局方向向量（不包含平移）。
+Transform local direction vectors to global direction vectors (excluding translation).
 
-**参数:**
-- `vector` (numpy.ndarray): 局部方向向量
+**Parameters:**
+- `vector` (numpy.ndarray): Local direction vector
 
-**返回:**
-- `numpy.ndarray`: 全局方向向量
+**Returns:**
+- `numpy.ndarray`: Global direction vector
 
-**示例:**
+**Example:**
 ```python
 import numpy as np
 from simplecadapi import CoordinateSystem
@@ -115,12 +115,12 @@ print(global_vector)  # [0. 1. 0.] (全局Y方向)
 
 ### `to_cq_plane()`
 
-转换为 CADQuery 的 Plane 对象。
+Convert to CADQuery's Plane object.
 
-**返回:**
-- `cadquery.Plane`: CADQuery 平面对象
+**Returns:**
+- `cadquery.Plane`: CADQuery plane object
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import CoordinateSystem
 
@@ -128,17 +128,17 @@ cs = CoordinateSystem(origin=(0, 0, 1))
 cq_plane = cs.to_cq_plane()
 ```
 
-## 坐标系转换
+## Coordinate System Transformation
 
-SimpleCAD 使用 Z 向上坐标系，而 CADQuery 使用 Y 向上坐标系。转换规则为：
+SimpleCAD uses Z-up coordinate system, while CADQuery uses Y-up coordinate system. The conversion rules are:
 
-- SimpleCAD 的 X 轴（前）→ CADQuery 的 Z 轴（前）
-- SimpleCAD 的 Y 轴（右）→ CADQuery 的 X 轴（右）
-- SimpleCAD 的 Z 轴（上）→ CADQuery 的 Y 轴（上）
+- SimpleCAD's X-axis (forward) → CADQuery's Z-axis (forward)
+- SimpleCAD's Y-axis (right) → CADQuery's X-axis (right)
+- SimpleCAD's Z-axis (up) → CADQuery's Y-axis (up)
 
-## 全局坐标系
+## Global Coordinate System
 
-SimpleCAD 提供了一个全局世界坐标系：
+SimpleCAD provides a global world coordinate system:
 
 ```python
 from simplecadapi import WORLD_CS
@@ -149,7 +149,7 @@ print(WORLD_CS.y_axis)  # [0. 1. 0.]
 print(WORLD_CS.z_axis)  # [0. 0. 1.]
 ```
 
-## 字符串表示
+## String Representation
 
 ```python
 from simplecadapi import CoordinateSystem
@@ -158,7 +158,7 @@ cs = CoordinateSystem(origin=(1, 2, 3))
 print(cs)
 ```
 
-输出：
+Output:
 ```
 CoordinateSystem:
   origin: [1.000, 2.000, 3.000]
@@ -167,9 +167,9 @@ CoordinateSystem:
   z_axis: [0.000, 0.000, 1.000]
 ```
 
-## 注意事项
+## Notes
 
-- 输入的方向向量会自动归一化
-- Z 轴通过 X 轴和 Y 轴的叉积自动计算
-- 如果输入零向量，会抛出 ValueError
-- 坐标系应保持右手系的特性
+- Input direction vectors are automatically normalized
+- Z-axis is automatically calculated via the cross product of X-axis and Y-axis
+- If a zero vector is input, a ValueError will be raised
+- Coordinate systems should maintain right-handed characteristics
