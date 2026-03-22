@@ -1,55 +1,54 @@
-# 声明式约束布局（Declarative Constraints）设计草案
+# Declarative Constraints Layout Design Draft
 
-## 背景与目标
+## Background and Goals
 
-当前 SimpleCADAPI 主要是命令式建模：开发者需要手动给出具体坐标、旋转角度和偏移量。对于装配体来说，这种方式在以下场景下成本较高：
+The current SimpleCADAPI is primarily imperative modeling: developers need to manually provide specific coordinates, rotation angles, and offsets. For assemblies, this approach is costly in the following scenarios:
 
-1. 几何关系稳定但尺寸会频繁变化（改参数后需要反复重算位置）。
-2. 多零件之间依赖复杂（一个零件变化会连锁影响多个零件）。
-3. 需要表达“关系”而不是“数值”（例如同轴、贴合、等间距分布）。
+1. Geometric relationships are stable but dimensions change frequently (repeated position recalculation after parameter changes).
+2. Dependencies between multiple parts are complex (one part change cascades to affect multiple parts).
+3. Need to express "relationships" rather than "values" (e.g., coaxial, fit, equidistant distribution).
 
-Web 布局（如 HTML/CSS 的 Flexbox）证明了一个有效方向：
+Web layout (such as HTML/CSS Flexbox) has proven an effective direction:
 
-- 用户声明约束（对齐、分布、间距）。
-- 求解器在布局树中传播约束并计算最终几何值。
+- Users declare constraints (alignment, distribution, spacing).
+- Solvers propagate constraints in the layout tree and compute final geometric values.
 
-本提案希望把这一思路迁移到 CAD SDK：
+This proposal aims to migrate this approach to the CAD SDK:
 
-- 保留现有命令式 API；
-- 增加一个可选的声明式装配层；
-- 让用户描述装配关系，由 SDK 计算每个零件的最终位姿。
+- Retain existing imperative APIs;
+- Add an optional declarative assembly layer;
+- Let users describe assembly relationships, with the SDK computing each part's final pose.
 
-## 当前实现状态（feat/declarative-constraints-layout）
+## Current Implementation Status (feat/declarative-constraints-layout)
 
-当前分支已提供一个可运行的 MVP，核心能力如下：
+The current branch provides a runnable MVP with the following core capabilities:
 
-- 新增模块：`simplecadapi.constraints`
-- 新增对象：`Assembly`、`PartHandle`、`PointAnchor`、`AxisAnchor`、`AssemblyResult`
-- 支持混合范式：
-  - 先命令式预定位（`translate_part` / `rotate_part`）
-  - 再声明式约束求解（`coincident` / `concentric` / `offset` / `distance`）
-- 支持一维容器语法糖：`stack(...)`
-- `stack(...)` 新增主轴分布参数：`justify=start|center|end|space-between`
-- 当需要 `justify=center/end/space-between` 时，可通过 `bounds=(start_anchor, end_anchor)`
-  指定容器主轴边界。
+- New module: `simplecadapi.constraints`
+- New objects: `Assembly`, `PartHandle`, `PointAnchor`, `AxisAnchor`, `AssemblyResult`
+- Supports mixed paradigm:
+  - First imperative pre-positioning (`translate_part` / `rotate_part`)
+  - Then declarative constraint solving (`coincident` / `concentric` / `offset` / `distance`)
+- Supports 1D container syntax sugar: `stack(...)`
+- `stack(...)` adds main axis distribution parameter: `justify=start|center|end|space-between`
+- When `justify=center/end/space-between` is needed, use `bounds=(start_anchor, end_anchor)` to specify the container's main axis boundary.
 
-当前布局实现采用 **BBox-first** 策略：
+Current layout implementation uses a **BBox-first** strategy:
 
-- 对齐与分布主要基于 `bbox.*` 锚点（AABB）。
-- 这与 Flexbox 的盒模型思想一致，但在 3D 下是近似语义：
-  当零件发生旋转时，AABB 会变化，布局结果会随之变化。
-- 后续可在此基础上增加 OBB/特征面锚点，降低旋转带来的近似误差。
-- 支持装配树父子关系与局部/世界变换传播
+- Alignment and distribution are primarily based on `bbox.*` anchors (AABB).
+- This is consistent with Flexbox's box model thinking, but is approximate in 3D:
+  When parts rotate, AABB changes and layout results change accordingly.
+- OBB/feature face anchors can be added later to reduce approximation errors from rotation.
+- Supports assembly tree parent-child relationships and local/world transform propagation.
 
-框架风格约束（函数式）已经被显式化为两类映射：
+Framework-style constraints (functional) have been explicitly categorized into two types of mappings:
 
-1. **Type-1 提升映射**（参数空间 -> CAD对象空间）
-   - 例如：`make_*_rsolid`、`make_assembly_rassembly`
-2. **Type-2 代数变换映射**（CAD对象空间 -> CAD对象空间/结果空间）
-   - 例如：`translate_part_rassembly`、`constrain_offset_rassembly`、`stack_rassembly`
-   - 求解使用 `solve_assembly_rresult`，保证不修改输入装配对象
+1. **Type-1 lifting mappings** (parameter space -> CAD object space)
+   - E.g.: `make_*_rsolid`, `make_assembly_rassembly`
+2. **Type-2 algebraic transform mappings** (CAD object space -> CAD object space/result space)
+   - E.g.: `translate_part_rassembly`, `constrain_offset_rassembly`, `stack_rassembly`
+   - Solving uses `solve_assembly_rresult`, ensuring input assembly objects are not modified
 
-对应的函数式 API（不修改输入）包括：
+Corresponding functional APIs (do not modify input) include:
 
 - `make_assembly_rassembly`
 - `clone_assembly_rassembly`
@@ -60,7 +59,7 @@ Web 布局（如 HTML/CSS 的 Flexbox）证明了一个有效方向：
 - `stack_rassembly`
 - `solve_assembly_rresult`
 
-函数式管线示例：
+Functional pipeline example:
 
 ```python
 import simplecadapi as scad
@@ -87,7 +86,7 @@ asm3 = scad.constrain_offset_rassembly(
 result = scad.solve_assembly_rresult(asm3)
 ```
 
-示例（混合使用）：
+Example (mixed usage):
 
 ```python
 import simplecadapi as scad
@@ -107,78 +106,78 @@ result = asm.solve()
 scad.export_step(result.solids(), "assembly.step")
 ```
 
-## 范围（Scope）
+## Scope
 
-### In Scope（第一阶段）
+### In Scope (Phase 1)
 
-- 面向装配体的位姿求解（刚体 6DOF，不改零件拓扑）。
-- 基础约束类型：
-  - `coincident`（点/面/轴重合）
-  - `concentric`（同轴）
-  - `parallel` / `perpendicular`（方向关系）
-  - `distance`（间距）
-  - `offset`（沿法向或轴向偏移）
-- “Flex-like” 一维布局容器：
+- Assembly pose solving (rigid body 6DOF, no part topology modification).
+- Basic constraint types:
+  - `coincident` (point/plane/axis coincidence)
+  - `concentric` (coaxial)
+  - `parallel` / `perpendicular` (directional relationships)
+  - `distance` (spacing)
+  - `offset` (offset along normal or axis direction)
+- "Flex-like" 1D layout containers:
   - `stack(axis="x|y|z")`
   - `gap`
-  - `justify`（start/center/end/space-between）
-  - `align`（start/center/end/stretch*）
+  - `justify` (start/center/end/space-between)
+  - `align` (start/center/end/stretch*)
 
-`stretch` 在 CAD 中不做几何拉伸，仅表示按对齐基准贴齐。
+`stretch` in CAD does not perform geometric stretching; it only means aligning to the alignment baseline.
 
-### Out of Scope（第一阶段）
+### Out of Scope (Phase 1)
 
-- 参数驱动的拓扑重建（例如自动改孔径、重生成倒角）。
-- 通用非线性符号求解器（CAS 级别）。
-- 完整草图约束系统（2D sketch solver）。
+- Parameter-driven topology rebuilding (e.g., automatic hole diameter changes, chamfer regeneration).
+- General nonlinear symbolic solvers (CAS level).
+- Complete sketch constraint system (2D sketch solver).
 
-## 核心抽象
+## Core Abstractions
 
-### 1) 装配节点（Assembly Node）
+### 1) Assembly Node
 
-每个节点包含：
+Each node contains:
 
 - `name`
 - `solid`
-- `local frame`（节点本地坐标系）
-- `current transform`（待求解变量）
-- `anchors`（可被约束引用的锚点）
+- `local frame` (node local coordinate system)
+- `current transform` (variables to be solved)
+- `anchors` (anchor points that can be referenced by constraints)
 
-### 2) 锚点（Anchor）
+### 2) Anchor
 
-锚点用于从几何体提取可约束对象：
+Anchors are used to extract constrainable objects from geometry:
 
-- `point`: 3D 点
-- `axis`: 有向直线（点 + 方向）
-- `plane`: 平面（点 + 法向）
-- `frame`: 局部坐标系
+- `point`: 3D point
+- `axis`: Directed line (point + direction)
+- `plane`: Plane (point + normal)
+- `frame`: Local coordinate system
 
-建议内置锚点来源：
+Suggested built-in anchor sources:
 
-- 包围盒：`bbox.min/max/center`
-- 主轴：`axis.x/y/z`
-- 命名面：`face("top")`、`face("bottom")`（复用现有标签机制）
+- Bounding box: `bbox.min/max/center`
+- Principal axes: `axis.x/y/z`
+- Named faces: `face("top")`, `face("bottom")` (reuse existing tag mechanism)
 
-### 3) 约束（Constraint）
+### 3) Constraint
 
-约束由下列信息组成：
+Constraints consist of:
 
 - `type`
 - `lhs anchor` / `rhs anchor`
-- `value`（可选，例如距离）
-- `priority`（hard/soft）
-- `weight`（软约束权重）
+- `value` (optional, e.g., distance)
+- `priority` (hard/soft)
+- `weight` (soft constraint weight)
 
-### 4) 布局容器（Layout Container）
+### 4) Layout Container
 
-容器是约束语法糖，编译为一组基础约束：
+Containers are constraint syntax sugar, compiled into a set of basic constraints:
 
-- 例如 `stack([A,B,C], axis="z", gap=8)`
+- E.g., `stack([A,B,C], axis="z", gap=8)`
   - `B.min_z = A.max_z + 8`
   - `C.min_z = B.max_z + 8`
-  - 再附加对齐约束（如 XY 居中）
+  - Plus alignment constraints (e.g., XY centering)
 
-## API 草案
+## API Draft
 
 ```python
 import simplecadapi as scad
@@ -209,99 +208,99 @@ solids = result.solids()
 scad.export_step(solids, "shock_absorber_assembly.step")
 ```
 
-## 求解策略（分层）
+## Solving Strategy (Layered)
 
-### Layer A: 解析与规范化
+### Layer A: Parsing and Normalization
 
-- 把约束和容器规则统一转换为残差方程（residuals）。
-- 把锚点引用映射为实时几何查询函数。
+- Convert constraints and container rules into residual equations.
+- Map anchor references to real-time geometric query functions.
 
-### Layer B: 图约束传播（快速路径）
+### Layer B: Graph Constraint Propagation (Fast Path)
 
-- 对可直接传播的刚性约束先做拓扑求解：
-  - 同轴 + 偏移 + 对齐可直接推导部分位姿。
-- 构建依赖图并做增量更新（dirty propagation）。
+- First perform topological solving for directly propagatable rigid constraints:
+  - Coaxial + offset + alignment can directly derive partial poses.
+- Build dependency graph and perform incremental updates (dirty propagation).
 
-### Layer C: 数值求解（兜底）
+### Layer C: Numerical Solving (Fallback)
 
-- 对剩余自由度采用最小二乘求解（hard 约束优先级最高）。
-- 对过约束、矛盾约束输出诊断报告：
-  - 冲突约束对
-  - 残差最高的约束
-  - 推荐放松项（从 hard 降 soft）
+- Use least squares solving for remaining degrees of freedom (hard constraints have highest priority).
+- For over-constrained or contradictory constraints, output diagnostic reports:
+  - Conflicting constraint pairs
+  - Constraints with highest residuals
+  - Recommended relaxation items (downgrade from hard to soft)
 
-## 结果模型
+## Result Model
 
-`solve()` 返回对象建议包含：
+`solve()` returns an object that should contain:
 
-- `transforms`: 每个零件最终位姿
-- `solids()`: 应用位姿后的实体列表
-- `report`: 求解信息
-  - 是否收敛
-  - 迭代次数
-  - 最大残差
-  - 冲突/过约束说明
+- `transforms`: Final pose for each part
+- `solids()`: List of solids with poses applied
+- `report`: Solving information
+  - Whether converged
+  - Number of iterations
+  - Maximum residual
+  - Conflict/over-constraint description
 
-## 与现有 API 的兼容策略
+## Compatibility Strategy with Existing API
 
-1. 不改动现有 `operations.py` 的命令式接口。
-2. 新增独立模块（建议 `simplecadapi.constraints`）。
-3. 导出仍复用 `export_step` / `export_stl`，可直接导出 `result.solids()`。
+1. No changes to existing `operations.py` imperative interfaces.
+2. New independent module (suggested `simplecadapi.constraints`).
+3. Export still reuses `export_step` / `export_stl`, can directly export `result.solids()`.
 
-## 里程碑计划
+## Milestone Plan
 
-### M0 - 设计与可行性验证（当前阶段）
+### M0 - Design and Feasibility Verification (Current Phase)
 
-- 输出本设计文档。
-- 定义最小 API 面。
-- 选定第一批约束类型与诊断格式。
+- Output this design document.
+- Define minimum API surface.
+- Select first batch of constraint types and diagnostic formats.
 
-### M1 - 最小可用原型（MVP）
+### M1 - Minimum Viable Prototype (MVP)
 
 - `Assembly.add_part()`
-- 锚点：`bbox` + `axis` + `face tag`
-- 约束：`concentric` + `offset` + `distance`
-- 求解：支持单链装配（无回环）
+- Anchors: `bbox` + `axis` + `face tag`
+- Constraints: `concentric` + `offset` + `distance`
+- Solving: Support single-chain assemblies (no loops)
 
-### M2 - Flex-like 布局容器
+### M2 - Flex-like Layout Containers
 
 - `stack(axis, gap, align, justify)`
-- 把容器规则编译为约束
-- 支持简单增量更新
+- Compile container rules into constraints
+- Support simple incremental updates
 
-### M3 - 诊断与工程化
+### M3 - Diagnostics and Engineering
 
-- 冲突定位与可解释报错
-- 求解日志与可视化输出（文本报告）
-- 单元测试覆盖典型装配场景
+- Conflict localization and interpretable error messages
+- Solving logs and visual output (text reports)
+- Unit test coverage for typical assembly scenarios
 
-### M4 - 进阶能力
+### M4 - Advanced Capabilities
 
-- 软约束权重系统
-- 复杂约束回环
-- 性能优化（缓存、分区求解）
+- Soft constraint weight system
+- Complex constraint loops
+- Performance optimization (caching, partitioned solving)
 
-## 测试建议
+## Testing Recommendations
 
-至少覆盖以下场景：
+At least cover the following scenarios:
 
-1. **基础收敛**：同轴 + 偏移 + 对齐，结果唯一。
-2. **欠约束**：自由度未锁定时返回明确告警。
-3. **过约束**：矛盾约束时给出冲突诊断。
-4. **增量更新**：修改单参数仅触发局部重算。
-5. **导出一致性**：`result.solids()` 可直接导出 STEP/STL。
+1. **Basic convergence**: Coaxial + offset + alignment, unique result.
+2. **Under-constrained**: Clear warning when degrees of freedom are not locked.
+3. **Over-constrained**: Conflict diagnostics when constraints are contradictory.
+4. **Incremental updates**: Modifying a single parameter triggers only local recalculation.
+5. **Export consistency**: `result.solids()` can directly export STEP/STL.
 
-## 风险与应对
+## Risks and Mitigations
 
-- **风险：** 约束语义过于抽象导致 API 难用。  
-  **应对：** 先从装配高频场景切入，只提供少量强语义约束。
+- **Risk:** Constraint semantics too abstract, making the API hard to use.
+  **Mitigation:** Start with high-frequency assembly scenarios, providing only a few strongly semantic constraints.
 
-- **风险：** 数值求解不稳定。  
-  **应对：** 先做图传播快速路径，数值求解仅处理剩余自由度。
+- **Risk:** Numerical solving is unstable.
+  **Mitigation:** First do graph propagation fast path; numerical solving only handles remaining degrees of freedom.
 
-- **风险：** 与现有用户代码冲突。  
-  **应对：** 新模块隔离、默认不启用、严格保持向后兼容。
+- **Risk:** Conflict with existing user code.
+  **Mitigation:** New module isolation, disabled by default, strictly maintain backward compatibility.
 
-## 结论
+## Conclusion
 
-把 Flexbox 式“声明关系 -> 求解几何”的范式迁移到 CAD SDK 是可行的，且能明显提升装配建模效率与可维护性。建议以“装配位姿约束 + 一维容器布局”作为第一阶段切入点，先交付 MVP，再逐步增强求解能力和诊断体验。
+Migrating the Flexbox-style "declare relationships -> solve geometry" paradigm to the CAD SDK is feasible and can significantly improve assembly modeling efficiency and maintainability. It is recommended to use "assembly pose constraints + 1D container layout" as the Phase 1 entry point, deliver an MVP first, and then gradually enhance solving capabilities and diagnostic experience.

@@ -1,41 +1,41 @@
-# Compound 复合体
+# Compound
 
-## 概述
+## Overview
 
-`Compound` 是 SimpleCAD API 中的复合体类，表示由多个几何体组成的集合。复合体可以包含多个实体、面、边等不同类型的几何对象，是处理复杂装配体和多体几何的重要工具。它包装了 CADQuery 的 Compound 对象，并添加了标签功能。
+`Compound` is the compound class in the SimpleCAD API, representing a collection of multiple geometry objects. A compound can contain multiple solids, faces, edges, and other types of geometric objects, making it an important tool for handling complex assemblies and multi-body geometry. It wraps the CADQuery Compound object and adds tagging functionality.
 
-## 类定义
+## Class Definition
 
 ```python
 class Compound(TaggedMixin):
     """复合体类，包装CADQuery的Compound，添加标签功能"""
 ```
 
-## 继承关系
+## Inheritance
 
-- 继承自 `TaggedMixin`，具有标签和元数据功能
+- Inherits from `TaggedMixin`, providing tag and metadata functionality
 
-## 用途
+## Usage
 
-- 管理多个几何对象的集合
-- 创建复杂的装配体结构
-- 批量处理多个几何体
-- 组织和分类几何对象
-- 实现分层的几何结构
+- Manage collections of multiple geometry objects
+- Create complex assembly structures
+- Batch process multiple geometry objects
+- Organize and classify geometry objects
+- Implement hierarchical geometry structures
 
-## 构造函数
+## Constructor
 
 ### `__init__(cq_compound)`
 
-初始化复合体对象。
+Initializes a compound object.
 
-**参数:**
-- `cq_compound` (cadquery.Compound): CADQuery 的复合体对象
+**Parameters:**
+- `cq_compound` (cadquery.Compound): A CADQuery compound object
 
-**异常:**
-- `ValueError`: 当输入的复合体对象无效时抛出
+**Raises:**
+- `ValueError`: When the input compound object is invalid
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import (
     make_box_rsolid,
@@ -53,25 +53,25 @@ sphere = make_sphere_rsolid(center=(0, 3, 0), radius=1)
 # 注意：实际的复合体创建方式可能因 API 实现而异
 ```
 
-## 主要属性
+## Main Properties
 
-- `cq_compound`: 底层的 CADQuery 复合体对象
-- `_tags`: 标签集合（继承自 TaggedMixin）
-- `_metadata`: 元数据字典（继承自 TaggedMixin）
+- `cq_compound`: The underlying CADQuery compound object
+- `_tags`: Tag set (inherited from TaggedMixin)
+- `_metadata`: Metadata dictionary (inherited from TaggedMixin)
 
-## 常用方法
+## Common Methods
 
 ### `get_solids()`
 
-获取组成复合体的所有实体。
+Get all solids that make up the compound.
 
-**返回:**
-- `List[Solid]`: 实体对象列表
+**Returns:**
+- `List[Solid]`: List of solid objects
 
-**异常:**
-- `ValueError`: 获取实体列表失败时抛出
+**Raises:**
+- `ValueError`: When solid list retrieval fails
 
-**示例:**
+**Example:**
 ```python
 # 假设有一个复合体对象
 # compound = ... 某个复合体
@@ -84,18 +84,18 @@ for i, solid in enumerate(solids):
     print(f"实体 {i}: 体积 {volume:.3f}")
 ```
 
-### 标签管理方法
+### Tag Management Methods
 
-继承自 `TaggedMixin` 的方法：
+Methods inherited from `TaggedMixin`:
 
-#### `add_tag(tag)`、`has_tag(tag)`、`get_tags()`、`remove_tag(tag)`
-#### `set_metadata(key, value)`、`get_metadata(key, default=None)`
+#### `add_tag(tag)`, `has_tag(tag)`, `get_tags()`, `remove_tag(tag)`
+#### `set_metadata(key, value)`, `get_metadata(key, default=None)`
 
-使用方法与 Vertex 类似，详见 [Vertex 文档](vertex.md)。
+Usage is similar to Vertex; see [Vertex documentation](vertex.md) for details.
 
-## 使用示例
+## Usage Examples
 
-### 创建和管理复合体
+### Creating and Managing Compounds
 
 ```python
 from simplecadapi import (
@@ -171,7 +171,7 @@ def create_compound_assembly():
 assembly_parts = create_compound_assembly()
 ```
 
-### 复合体的层次结构
+### Hierarchical Compound Structure
 
 ```python
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid, translate_shape
@@ -266,7 +266,7 @@ def create_hierarchical_compound():
 main_assembly, assemblies = create_hierarchical_compound()
 ```
 
-### 复合体的批量操作
+### Batch Operations on Compounds
 
 ```python
 from simplecadapi import (
@@ -396,7 +396,7 @@ def batch_operations_on_compound():
 batch_parts = batch_operations_on_compound()
 ```
 
-### 复合体的查询和筛选
+### Query and Filter Compound
 
 ```python
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid, make_sphere_rsolid
@@ -550,7 +550,7 @@ def query_and_filter_compound():
 filtered_parts = query_and_filter_compound()
 ```
 
-## 字符串表示
+## String Representation
 
 ```python
 # 假设有一个复合体对象
@@ -563,7 +563,7 @@ compound.set_metadata("total_volume", 150.0)
 print(compound)
 ```
 
-输出：
+Output:
 ```
 Compound:
   solid_count: 5
@@ -594,42 +594,42 @@ Compound:
     total_volume: 150.0
 ```
 
-## 与其他几何体的关系
+## Relationships with Other Geometry
 
-- **实体 (Solid)**: 复合体的主要组成元素
-- **面 (Face)**: 通过实体间接关联
-- **边 (Edge)**: 通过实体和面间接关联
+- **Solid (Solid)**: Primary components of a compound
+- **Face (Face)**: Indirectly associated through solids
+- **Edge (Edge)**: Indirectly associated through solids and faces
 
-## 应用场景
+## Application Scenarios
 
-- **装配体建模**: 复杂机械装配
-- **建筑设计**: 建筑群体建模
-- **产品设计**: 多部件产品
-- **制造规划**: 批量生产管理
-- **仿真分析**: 多体系统分析
+- **Assembly modeling**: Complex mechanical assemblies
+- **Architectural design**: Building group modeling
+- **Product design**: Multi-component products
+- **Manufacturing planning**: Batch production management
+- **Simulation analysis**: Multi-body system analysis
 
-## 管理策略
+## Management Strategies
 
-### 层次化管理
-- 使用标签和元数据建立层次结构
-- 按功能、材料、工艺等分类
-- 实现快速查询和批量操作
+### Hierarchical Management
+- Use tags and metadata to establish hierarchical structures
+- Classify by function, material, process, etc.
+- Enable fast querying and batch operations
 
-### 性能优化
-- 合理组织复合体结构
-- 避免过深的嵌套层次
-- 优化查询和筛选算法
+### Performance Optimization
+- Organize compound structures reasonably
+- Avoid excessively deep nesting levels
+- Optimize query and filtering algorithms
 
-### 数据一致性
-- 确保元数据的准确性
-- 维护几何体间的关系
-- 及时更新统计信息
+### Data Consistency
+- Ensure metadata accuracy
+- Maintain relationships between geometry objects
+- Update statistics in a timely manner
 
-## 注意事项
+## Notes
 
-- 复合体可能包含大量几何对象，需要注意性能
-- 几何对象的修改不会自动更新复合体的统计信息
-- 标签和元数据的管理需要建立统一的命名规范
-- 复杂的层次结构可能导致查询效率下降
-- 需要合理设计数据结构以支持高效的批量操作
-- 在进行几何运算时，需要考虑复合体中各对象的相互关系
+- Compounds may contain many geometry objects; be mindful of performance
+- Modifications to geometry objects do not automatically update compound statistics
+- Tag and metadata management requires establishing unified naming conventions
+- Complex hierarchical structures may lead to decreased query efficiency
+- Reasonable data structure design is needed to support efficient batch operations
+- When performing geometric operations, consider the interrelationships between objects in the compound

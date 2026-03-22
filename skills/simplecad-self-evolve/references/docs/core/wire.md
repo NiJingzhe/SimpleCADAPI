@@ -1,40 +1,40 @@
-# Wire 线
+# Wire
 
-## 概述
+## Overview
 
-`Wire` 是 SimpleCAD API 中的线类，表示由多个边连接而成的一维几何路径。线可以是开放的（起点和终点不同）或闭合的（形成封闭路径）。它包装了 CADQuery 的 Wire 对象，并添加了标签功能。
+`Wire` is the wire class in the SimpleCAD API, representing a 1D geometric path formed by connecting multiple edges. A wire can be open (different start and end points) or closed (forming a closed path). It wraps the CADQuery Wire object and adds tagging functionality.
 
-## 类定义
+## Class Definition
 
 ```python
 class Wire(TaggedMixin):
     """线类，包装CADQuery的Wire，添加标签功能"""
 ```
 
-## 继承关系
+## Inheritance
 
-- 继承自 `TaggedMixin`，具有标签和元数据功能
+- Inherits from `TaggedMixin`, providing tag and metadata functionality
 
-## 用途
+## Usage
 
-- 表示连续的路径或轮廓
-- 构成面 (Face) 的边界
-- 定义扫描、拉伸等操作的路径
-- 创建复杂的几何轮廓
+- Represent continuous paths or contours
+- Form the boundary of faces (Face)
+- Define paths for sweep, extrude, and other operations
+- Create complex geometric contours
 
-## 构造函数
+## Constructor
 
 ### `__init__(cq_wire)`
 
-初始化线对象。
+Initializes a wire object.
 
-**参数:**
-- `cq_wire` (cadquery.Wire): CADQuery 的线对象
+**Parameters:**
+- `cq_wire` (cadquery.Wire): A CADQuery wire object
 
-**异常:**
-- `ValueError`: 当输入的线对象无效时抛出
+**Raises:**
+- `ValueError`: When the input wire object is invalid
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import (
     make_rectangle_rwire, 
@@ -48,25 +48,25 @@ circle = make_circle_rwire(center=(0, 0, 0), radius=2.0)
 polyline = make_polyline_rwire(points=[(0, 0, 0), (1, 1, 0), (2, 0, 0)])
 ```
 
-## 主要属性
+## Main Properties
 
-- `cq_wire`: 底层的 CADQuery 线对象
-- `_tags`: 标签集合（继承自 TaggedMixin）
-- `_metadata`: 元数据字典（继承自 TaggedMixin）
+- `cq_wire`: The underlying CADQuery wire object
+- `_tags`: Tag set (inherited from TaggedMixin)
+- `_metadata`: Metadata dictionary (inherited from TaggedMixin)
 
-## 常用方法
+## Common Methods
 
 ### `get_edges()`
 
-获取组成线的所有边。
+Get all edges that make up the wire.
 
-**返回:**
-- `List[Edge]`: 边对象列表
+**Returns:**
+- `List[Edge]`: List of edge objects
 
-**异常:**
-- `ValueError`: 获取边列表失败时抛出
+**Raises:**
+- `ValueError`: When edge list retrieval fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_rectangle_rwire
 
@@ -80,15 +80,15 @@ for i, edge in enumerate(edges):
 
 ### `is_closed()`
 
-检查线是否闭合。
+Check if the wire is closed.
 
-**返回:**
-- `bool`: 如果线闭合返回 True，否则返回 False
+**Returns:**
+- `bool`: Returns True if the wire is closed, False otherwise
 
-**异常:**
-- `ValueError`: 检查闭合性失败时抛出
+**Raises:**
+- `ValueError`: When closure check fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_rectangle_rwire, make_polyline_rwire
 
@@ -101,18 +101,18 @@ polyline = make_polyline_rwire(points=[(0, 0, 0), (1, 1, 0), (2, 0, 0)])
 print(f"折线是否闭合: {polyline.is_closed()}")  # False
 ```
 
-### 标签管理方法
+### Tag Management Methods
 
-继承自 `TaggedMixin` 的方法：
+Methods inherited from `TaggedMixin`:
 
-#### `add_tag(tag)`、`has_tag(tag)`、`get_tags()`、`remove_tag(tag)`
-#### `set_metadata(key, value)`、`get_metadata(key, default=None)`
+#### `add_tag(tag)`, `has_tag(tag)`, `get_tags()`, `remove_tag(tag)`
+#### `set_metadata(key, value)`, `get_metadata(key, default=None)`
 
-使用方法与 Vertex 类似，详见 [Vertex 文档](vertex.md)。
+Usage is similar to Vertex; see [Vertex documentation](vertex.md) for details.
 
-## 使用示例
+## Usage Examples
 
-### 创建不同类型的线
+### Creating Different Types of Wires
 
 ```python
 from simplecadapi import (
@@ -156,7 +156,7 @@ for wire in wires:
     print(f"线类型: {tags}, 边数: {len(edges)}, 闭合: {closed}")
 ```
 
-### 复杂轮廓的创建
+### Creating Complex Contours
 
 ```python
 from simplecadapi import make_polyline_rwire
@@ -201,7 +201,7 @@ print(f"总长度: {profile.get_metadata('total_length'):.3f}")
 print(f"边数: {profile.get_metadata('edge_count')}")
 ```
 
-### 线的分析和处理
+### Wire Analysis and Processing
 
 ```python
 from simplecadapi import make_rectangle_rwire, make_circle_rwire
@@ -262,7 +262,7 @@ def analyze_wire_properties():
 analyze_wire_properties()
 ```
 
-### 线的变换和操作
+### Wire Transformation and Operations
 
 ```python
 from simplecadapi import make_rectangle_rwire, translate_shape, rotate_shape
@@ -319,7 +319,7 @@ def transform_wires():
 transform_wires()
 ```
 
-### 构建线的序列
+### Building Wire Sequences
 
 ```python
 from simplecadapi import make_segment_rwire
@@ -393,7 +393,7 @@ def create_wire_sequence():
 sequence = create_wire_sequence()
 ```
 
-## 字符串表示
+## String Representation
 
 ```python
 from simplecadapi import make_rectangle_rwire
@@ -405,7 +405,7 @@ wire.set_metadata("area", 15.0)
 print(wire)
 ```
 
-输出：
+Output:
 ```
 Wire:
   edge_count: 4
@@ -436,17 +436,17 @@ Wire:
     area: 15.0
 ```
 
-## 与其他几何体的关系
+## Relationships with Other Geometry
 
-- **边 (Edge)**: 线的组成元素
-- **面 (Face)**: 闭合线可以定义面的边界
-- **实体 (Solid)**: 可以通过扫描或拉伸线来创建
+- **Edge (Edge)**: Components of a wire
+- **Face (Face)**: Closed wires can define face boundaries
+- **Solid (Solid)**: Can be created by sweeping or extruding wires
 
-## 注意事项
+## Notes
 
-- 线的边必须连续，相邻边的端点必须重合
-- 闭合线的起点和终点必须重合
-- 线的方向性影响某些操作（如面的法向量）
-- 复杂的线可能包含自相交，需要特别处理
-- 线的长度等于所有边长度的总和
-- 创建面时，外边界线应该逆时针方向，内边界线应该顺时针方向
+- Wire edges must be continuous; endpoints of adjacent edges must coincide
+- The start and end points of a closed wire must coincide
+- Wire orientation affects certain operations (such as face normal direction)
+- Complex wires may contain self-intersections and require special handling
+- Wire length equals the sum of all edge lengths
+- When creating faces, outer boundary wires should be counterclockwise; inner boundary wires should be clockwise

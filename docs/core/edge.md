@@ -1,40 +1,40 @@
-# Edge 边
+# Edge
 
-## 概述
+## Overview
 
-`Edge` 是 SimpleCAD API 中的边类，表示连接两个顶点的一维几何元素。边可以是直线、圆弧、样条曲线等不同类型的曲线。它包装了 CADQuery 的 Edge 对象，并添加了标签功能。
+`Edge` is the edge class in SimpleCAD API, representing a 1D geometric element connecting two vertices. Edges can be lines, arcs, splines, and other types of curves. It wraps CADQuery's Edge object and adds tag functionality.
 
-## 类定义
+## Class Definition
 
 ```python
 class Edge(TaggedMixin):
     """边类，包装CADQuery的Edge，添加标签功能"""
 ```
 
-## 继承关系
+## Inheritance Relationships
 
-- 继承自 `TaggedMixin`，具有标签和元数据功能
+- Inherits from `TaggedMixin`, with tag and metadata functionality
 
-## 用途
+## Usage
 
-- 表示两点之间的连接
-- 构成线 (Wire) 和面 (Face) 的基本元素
-- 提供边的几何信息（长度、顶点等）
-- 支持标签管理和查询
+- Represent connections between two points
+- Fundamental elements composing Wires and Faces
+- Provide geometric information (length, vertices, etc.)
+- Support tag management and queries
 
-## 构造函数
+## Constructor
 
 ### `__init__(cq_edge)`
 
-初始化边对象。
+Initialize an edge object.
 
-**参数:**
-- `cq_edge` (cadquery.Edge): CADQuery 的边对象
+**Parameters:**
+- `cq_edge` (cadquery.Edge): CADQuery edge object
 
-**异常:**
-- `ValueError`: 当输入的边对象无效时抛出
+**Exceptions:**
+- `ValueError`: Raised when the input edge object is invalid
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_line_redge, make_circle_redge
 
@@ -43,25 +43,25 @@ line_edge = make_line_redge(start=(0, 0, 0), end=(1, 1, 0))
 circle_edge = make_circle_redge(center=(0, 0, 0), radius=1.0)
 ```
 
-## 主要属性
+## Main Properties
 
-- `cq_edge`: 底层的 CADQuery 边对象
-- `_tags`: 标签集合（继承自 TaggedMixin）
-- `_metadata`: 元数据字典（继承自 TaggedMixin）
+- `cq_edge`: Underlying CADQuery edge object
+- `_tags`: Tag set (inherited from TaggedMixin)
+- `_metadata`: Metadata dictionary (inherited from TaggedMixin)
 
-## 常用方法
+## Common Methods
 
 ### `get_length()`
 
-获取边的长度。
+Get the length of the edge.
 
-**返回:**
-- `float`: 边的长度
+**Returns:**
+- `float`: Edge length
 
-**异常:**
-- `ValueError`: 获取长度失败时抛出
+**Exceptions:**
+- `ValueError`: Raised when length retrieval fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_line_redge, make_circle_redge
 import math
@@ -79,15 +79,15 @@ print(f"圆形周长: {circle_length}")  # 约 12.566 (2π * 2)
 
 ### `get_start_vertex()`
 
-获取边的起始顶点。
+Get the start vertex of the edge.
 
-**返回:**
-- `Vertex`: 起始顶点对象
+**Returns:**
+- `Vertex`: Start vertex object
 
-**异常:**
-- `ValueError`: 获取顶点失败时抛出
+**Exceptions:**
+- `ValueError`: Raised when vertex retrieval fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_line_redge
 
@@ -99,15 +99,15 @@ print(f"起始点坐标: {start_coords}")  # (1.0, 2.0, 3.0)
 
 ### `get_end_vertex()`
 
-获取边的结束顶点。
+Get the end vertex of the edge.
 
-**返回:**
-- `Vertex`: 结束顶点对象
+**Returns:**
+- `Vertex`: End vertex object
 
-**异常:**
-- `ValueError`: 获取顶点失败时抛出
+**Exceptions:**
+- `ValueError`: Raised when vertex retrieval fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_line_redge
 
@@ -117,18 +117,18 @@ end_coords = end_vertex.get_coordinates()
 print(f"结束点坐标: {end_coords}")  # (4.0, 5.0, 6.0)
 ```
 
-### 标签管理方法
+### Tag Management Methods
 
-继承自 `TaggedMixin` 的方法：
+Methods inherited from `TaggedMixin`:
 
-#### `add_tag(tag)`、`has_tag(tag)`、`get_tags()`、`remove_tag(tag)`
-#### `set_metadata(key, value)`、`get_metadata(key, default=None)`
+#### `add_tag(tag)`, `has_tag(tag)`, `get_tags()`, `remove_tag(tag)`
+#### `set_metadata(key, value)`, `get_metadata(key, default=None)`
 
-使用方法与 Vertex 类似，详见 [Vertex 文档](vertex.md)。
+Usage is similar to Vertex; see [Vertex documentation](vertex.md) for details.
 
-## 使用示例
+## Usage Examples
 
-### 创建不同类型的边
+### Creating Different Types of Edges
 
 ```python
 from simplecadapi import (
@@ -164,7 +164,7 @@ for edge in edges:
     print(f"边标签: {edge.get_tags()}, 长度: {edge.get_length():.3f}")
 ```
 
-### 边的分析和分类
+### Edge Analysis and Classification
 
 ```python
 from simplecadapi import make_line_redge
@@ -219,7 +219,7 @@ def analyze_edge_collection():
 analyze_edge_collection()
 ```
 
-### 构建边的网络
+### Building Edge Networks
 
 ```python
 from simplecadapi import make_line_redge
@@ -289,7 +289,7 @@ total_length = sum(edge.get_length() for edge in network_edges)
 print(f"网络总长度: {total_length:.3f}")
 ```
 
-### 边的几何计算
+### Edge Geometric Calculations
 
 ```python
 from simplecadapi import make_line_redge, make_circle_redge
@@ -348,7 +348,7 @@ def calculate_edge_properties():
 calculate_edge_properties()
 ```
 
-## 字符串表示
+## String Representation
 
 ```python
 from simplecadapi import make_line_redge
@@ -360,7 +360,7 @@ edge.set_metadata("type", "line")
 print(edge)
 ```
 
-输出：
+Output:
 ```
 Edge:
   length: 5.000
@@ -372,18 +372,18 @@ Edge:
     type: line
 ```
 
-## 与其他几何体的关系
+## Relationships with Other Geometries
 
-- **顶点 (Vertex)**: 边的端点
-- **线 (Wire)**: 由多个连接的边组成
-- **面 (Face)**: 边界由边（通过线）定义
-- **实体 (Solid)**: 最终由边构成的面组成
+- **Vertex**: Endpoints of edges
+- **Wire**: Composed of multiple connected edges
+- **Face**: Boundary defined by edges (via wires)
+- **Solid**: Ultimately composed of faces formed by edges
 
-## 注意事项
+## Notes
 
-- 边的长度由其几何形状决定，不能直接修改
-- 圆形边是完整的圆，起始和结束顶点相同
-- 样条边的长度是近似值，可能存在精度误差
-- 边的方向性可能影响某些操作
-- 标签和元数据不会影响边的几何属性
-- 获取顶点时，对于圆形边等闭合边，起始和结束顶点可能相同
+- Edge length is determined by its geometry and cannot be directly modified
+- Circular edges are complete circles with identical start and end vertices
+- Spline edge lengths are approximate values and may have precision errors
+- Edge directionality may affect certain operations
+- Tags and metadata do not affect edge geometry properties
+- When retrieving vertices, for closed edges like circular edges, start and end vertices may be identical

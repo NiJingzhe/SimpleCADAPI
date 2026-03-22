@@ -1,36 +1,36 @@
-# TaggedMixin 标签混入类
+# TaggedMixin
 
-## 概述
+## Overview
 
-`TaggedMixin` 是 SimpleCAD API 中的标签混入类，为所有几何体类提供统一的标签和元数据管理功能。它是一个混入类（Mixin），被所有核心几何体类继承，实现了标签系统的核心功能。
+`TaggedMixin` is the tag mixin class in SimpleCAD API, providing unified tag and metadata management functionality for all geometry classes. It is a mixin class inherited by all core geometry classes, implementing the core functionality of the tag system.
 
-## 类定义
+## Class Definition
 
 ```python
 class TaggedMixin:
     """标签混入类，为几何体提供标签功能"""
 ```
 
-## 用途
+## Usage
 
-- 为几何体添加标识标签
-- 存储和管理元数据
-- 实现几何体的分类和查询
-- 支持复杂的筛选和批量操作
-- 提供几何体的语义信息
+- Add identification tags to geometries
+- Store and manage metadata
+- Implement geometry classification and queries
+- Support complex filtering and batch operations
+- Provide semantic information for geometries
 
-## 初始化
+## Initialization
 
 ### `__init__()`
 
-初始化标签混入类。
+Initialize the tag mixin class.
 
-**说明:**
-- 创建空的标签集合 `_tags`
-- 创建空的元数据字典 `_metadata`
-- 通常在继承类的 `__init__` 方法中调用
+**Description:**
+- Creates an empty tag set `_tags`
+- Creates an empty metadata dictionary `_metadata`
+- Usually called in the `__init__` method of inheriting classes
 
-**示例:**
+**Example:**
 ```python
 class CustomGeometry(TaggedMixin):
     def __init__(self):
@@ -38,24 +38,24 @@ class CustomGeometry(TaggedMixin):
         # 其他初始化代码
 ```
 
-## 主要属性
+## Main Properties
 
-- `_tags`: 标签集合（Set[str]），存储几何体的标签
-- `_metadata`: 元数据字典（Dict[str, Any]），存储键值对数据
+- `_tags`: Tag set (Set[str]), storing geometry tags
+- `_metadata`: Metadata dictionary (Dict[str, Any]), storing key-value pairs
 
-## 标签管理方法
+## Tag Management Methods
 
 ### `add_tag(tag)`
 
-添加标签到几何体。
+Add a tag to the geometry.
 
-**参数:**
-- `tag` (str): 要添加的标签名称
+**Parameters:**
+- `tag` (str): Name of the tag to add
 
-**异常:**
-- `TypeError`: 当标签不是字符串类型时抛出
+**Exceptions:**
+- `TypeError`: Raised when the tag is not a string type
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_box_rsolid
 
@@ -69,16 +69,16 @@ print(box.get_tags())  # {'structural', 'main_component', 'steel_part'}
 
 ### `remove_tag(tag)`
 
-从几何体中移除指定标签。
+Remove a specified tag from the geometry.
 
-**参数:**
-- `tag` (str): 要移除的标签名称
+**Parameters:**
+- `tag` (str): Name of the tag to remove
 
-**说明:**
-- 如果标签不存在，不会抛出异常
-- 使用 `discard` 方法安全移除
+**Description:**
+- If the tag does not exist, no exception will be raised
+- Uses the `discard` method for safe removal
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_box_rsolid
 
@@ -95,15 +95,15 @@ box.remove_tag("nonexistent")
 
 ### `has_tag(tag)`
 
-检查几何体是否具有指定标签。
+Check if the geometry has a specified tag.
 
-**参数:**
-- `tag` (str): 要检查的标签名称
+**Parameters:**
+- `tag` (str): Name of the tag to check
 
-**返回:**
-- `bool`: 如果具有该标签返回 True，否则返回 False
+**Returns:**
+- `bool`: Returns True if the tag exists, False otherwise
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_cylinder_rsolid
 
@@ -120,15 +120,15 @@ if not cylinder.has_tag("solid"):
 
 ### `get_tags()`
 
-获取几何体的所有标签。
+Get all tags of the geometry.
 
-**返回:**
-- `Set[str]`: 标签集合的副本
+**Returns:**
+- `Set[str]`: A copy of the tag set
 
-**说明:**
-- 返回标签集合的副本，修改返回值不会影响原始标签
+**Description:**
+- Returns a copy of the tag set; modifying the return value will not affect the original tags
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_sphere_rsolid
 
@@ -145,17 +145,17 @@ tags.add("new_tag")
 print(f"原始标签仍然是: {sorted(sphere.get_tags())}")
 ```
 
-## 元数据管理方法
+## Metadata Management Methods
 
 ### `set_metadata(key, value)`
 
-设置元数据键值对。
+Set a metadata key-value pair.
 
-**参数:**
-- `key` (str): 元数据键名
-- `value` (Any): 元数据值，可以是任意类型
+**Parameters:**
+- `key` (str): Metadata key name
+- `value` (Any): Metadata value, can be any type
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_box_rsolid
 
@@ -173,16 +173,16 @@ box.set_metadata("supplier", {"name": "ABC Corp", "contact": "info@abc.com"})
 
 ### `get_metadata(key, default=None)`
 
-获取指定键的元数据值。
+Get the metadata value for a specified key.
 
-**参数:**
-- `key` (str): 元数据键名
-- `default` (Any, 可选): 默认值，当键不存在时返回
+**Parameters:**
+- `key` (str): Metadata key name
+- `default` (Any, optional): Default value, returned when the key does not exist
 
-**返回:**
-- `Any`: 元数据值或默认值
+**Returns:**
+- `Any`: Metadata value or default value
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_cylinder_rsolid
 
@@ -206,25 +206,25 @@ surface_finish = cylinder.get_metadata("surface_finish")
 print(f"表面处理: {surface_finish}")  # 表面处理: None
 ```
 
-## 内部辅助方法
+## Internal Helper Methods
 
 ### `_format_tags_and_metadata(indent=0)`
 
-格式化标签和元数据的字符串表示。
+Format the string representation of tags and metadata.
 
-**参数:**
-- `indent` (int): 缩进级别
+**Parameters:**
+- `indent` (int): Indentation level
 
-**返回:**
-- `str`: 格式化的字符串
+**Returns:**
+- `str`: Formatted string
 
-**说明:**
-- 内部方法，用于 `__str__` 方法的实现
-- 生成美观的标签和元数据显示格式
+**Description:**
+- Internal method, used for implementing `__str__` method
+- Generates aesthetically pleasing tag and metadata display format
 
-## 使用示例
+## Usage Examples
 
-### 基础标签使用
+### Basic Tag Usage
 
 ```python
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid, make_sphere_rsolid
@@ -272,7 +272,7 @@ def basic_tagging_example():
 basic_tagging_example()
 ```
 
-### 高级元数据管理
+### Advanced Metadata Management
 
 ```python
 from simplecadapi import make_box_rsolid
@@ -378,7 +378,7 @@ def advanced_metadata_example():
 advanced_part = advanced_metadata_example()
 ```
 
-### 批量标签和元数据操作
+### Batch Tag and Metadata Operations
 
 ```python
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid
@@ -493,7 +493,7 @@ def batch_tagging_example():
 batch_parts = batch_tagging_example()
 ```
 
-### 高级查询和筛选
+### Advanced Query and Filtering
 
 ```python
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid, make_sphere_rsolid
@@ -659,34 +659,34 @@ def advanced_query_example():
 parts_db = advanced_query_example()
 ```
 
-## 最佳实践
+## Best Practices
 
-### 标签命名规范
+### Tag Naming Conventions
 
-1. **一致性**: 使用一致的命名风格
-2. **层次化**: 使用点号分隔的层次结构（如 `material.metal.steel`）
-3. **描述性**: 标签名称应该具有描述性
-4. **避免空格**: 使用下划线代替空格
+1. **Consistency**: Use consistent naming styles
+2. **Hierarchy**: Use dot-separated hierarchical structures (e.g., `material.metal.steel`)
+3. **Descriptive**: Tag names should be descriptive
+4. **Avoid Spaces**: Use underscores instead of spaces
 
-### 元数据组织
+### Metadata Organization
 
-1. **结构化**: 使用字典组织相关的元数据
-2. **类型一致**: 相同用途的元数据使用相同的数据类型
-3. **单位明确**: 数值型元数据要明确单位
-4. **版本控制**: 重要元数据要包含版本信息
+1. **Structured**: Use dictionaries to organize related metadata
+2. **Type Consistency**: Use the same data type for metadata with similar purposes
+3. **Clear Units**: Numerical metadata should specify units
+4. **Version Control**: Important metadata should include version information
 
-### 性能考虑
+### Performance Considerations
 
-1. **标签数量**: 避免过多的标签，影响查询性能
-2. **元数据大小**: 避免存储大型数据对象
-3. **查询优化**: 合理组织标签和元数据以支持高效查询
-4. **内存管理**: 及时清理不需要的标签和元数据
+1. **Tag Quantity**: Avoid excessive tags that may impact query performance
+2. **Metadata Size**: Avoid storing large data objects
+3. **Query Optimization**: Organize tags and metadata appropriately to support efficient queries
+4. **Memory Management**: Clean up unnecessary tags and metadata in a timely manner
 
-## 注意事项
+## Notes
 
-- 标签必须是字符串类型
-- 标签区分大小写
-- 元数据值可以是任意类型，但建议使用可序列化的类型
-- 标签和元数据的修改不会触发几何体的更新
-- 在进行深拷贝时，需要特别处理标签和元数据
-- 标签和元数据不参与几何运算，仅用于管理和查询
+- Tags must be of string type
+- Tags are case-sensitive
+- Metadata values can be of any type, but serializable types are recommended
+- Tag and metadata modifications do not trigger geometry updates
+- Special handling is required for tags and metadata during deep copying
+- Tags and metadata do not participate in geometric operations; they are only used for management and queries

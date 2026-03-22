@@ -1,40 +1,40 @@
-# Vertex 顶点
+# Vertex
 
-## 概述
+## Overview
 
-`Vertex` 是 SimpleCAD API 中的顶点类，表示三维空间中的一个点。它包装了 CADQuery 的 Vertex 对象，并添加了标签功能，用于标识和管理几何体中的特定顶点。
+`Vertex` is the vertex class in SimpleCAD API, representing a point in 3D space. It wraps CADQuery's Vertex object and adds tag functionality for identifying and managing specific vertices in geometries.
 
-## 类定义
+## Class Definition
 
 ```python
 class Vertex(TaggedMixin):
     """顶点类，包装CADQuery的Vertex，添加标签功能"""
 ```
 
-## 继承关系
+## Inheritance Relationships
 
-- 继承自 `TaggedMixin`，具有标签和元数据功能
+- Inherits from `TaggedMixin`, with tag and metadata functionality
 
-## 用途
+## Usage
 
-- 表示三维空间中的点
-- 作为边、线、面等几何体的构成元素
-- 提供顶点的坐标信息
-- 支持标签管理和查询
+- Represent points in 3D space
+- Serve as building elements for edges, wires, faces, and other geometries
+- Provide vertex coordinate information
+- Support tag management and queries
 
-## 构造函数
+## Constructor
 
 ### `__init__(cq_vertex)`
 
-初始化顶点对象。
+Initialize a vertex object.
 
-**参数:**
-- `cq_vertex` (cadquery.Vertex): CADQuery 的顶点对象
+**Parameters:**
+- `cq_vertex` (cadquery.Vertex): CADQuery vertex object
 
-**异常:**
-- `ValueError`: 当输入的顶点对象无效时抛出
+**Exceptions:**
+- `ValueError`: Raised when the input vertex object is invalid
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_point_rvertex
 
@@ -42,25 +42,25 @@ from simplecadapi import make_point_rvertex
 vertex = make_point_rvertex(1.0, 2.0, 3.0)
 ```
 
-## 主要属性
+## Main Properties
 
-- `cq_vertex`: 底层的 CADQuery 顶点对象
-- `_tags`: 标签集合（继承自 TaggedMixin）
-- `_metadata`: 元数据字典（继承自 TaggedMixin）
+- `cq_vertex`: Underlying CADQuery vertex object
+- `_tags`: Tag set (inherited from TaggedMixin)
+- `_metadata`: Metadata dictionary (inherited from TaggedMixin)
 
-## 常用方法
+## Common Methods
 
 ### `get_coordinates()`
 
-获取顶点的坐标。
+Get the coordinates of the vertex.
 
-**返回:**
-- `Tuple[float, float, float]`: 顶点坐标 (x, y, z)
+**Returns:**
+- `Tuple[float, float, float]`: Vertex coordinates (x, y, z)
 
-**异常:**
-- `ValueError`: 获取坐标失败时抛出
+**Exceptions:**
+- `ValueError`: Raised when coordinate retrieval fails
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import make_point_rvertex
 
@@ -69,14 +69,14 @@ coords = vertex.get_coordinates()
 print(coords)  # (1.0, 2.0, 3.0)
 ```
 
-### 标签管理方法
+### Tag Management Methods
 
-继承自 `TaggedMixin` 的方法：
+Methods inherited from `TaggedMixin`:
 
 #### `add_tag(tag)`
-添加标签。
+Add a tag.
 
-**示例:**
+**Example:**
 ```python
 vertex = make_point_rvertex(0, 0, 0)
 vertex.add_tag("origin")
@@ -84,9 +84,9 @@ vertex.add_tag("reference_point")
 ```
 
 #### `has_tag(tag)`
-检查是否有指定标签。
+Check if a specified tag exists.
 
-**示例:**
+**Example:**
 ```python
 vertex = make_point_rvertex(0, 0, 0)
 vertex.add_tag("origin")
@@ -96,9 +96,9 @@ if vertex.has_tag("origin"):
 ```
 
 #### `get_tags()`
-获取所有标签。
+Get all tags.
 
-**示例:**
+**Example:**
 ```python
 vertex = make_point_rvertex(0, 0, 0)
 vertex.add_tag("origin")
@@ -109,21 +109,21 @@ print(tags)  # {'origin', 'reference'}
 ```
 
 #### `remove_tag(tag)`
-移除标签。
+Remove a tag.
 
-**示例:**
+**Example:**
 ```python
 vertex = make_point_rvertex(0, 0, 0)
 vertex.add_tag("temp")
 vertex.remove_tag("temp")
 ```
 
-### 元数据管理方法
+### Metadata Management Methods
 
 #### `set_metadata(key, value)`
-设置元数据。
+Set metadata.
 
-**示例:**
+**Example:**
 ```python
 vertex = make_point_rvertex(0, 0, 0)
 vertex.set_metadata("created_by", "user_input")
@@ -131,9 +131,9 @@ vertex.set_metadata("importance", "high")
 ```
 
 #### `get_metadata(key, default=None)`
-获取元数据。
+Get metadata.
 
-**示例:**
+**Example:**
 ```python
 vertex = make_point_rvertex(0, 0, 0)
 vertex.set_metadata("created_by", "user_input")
@@ -145,9 +145,9 @@ unknown = vertex.get_metadata("unknown_key", "default_value")
 print(unknown)  # "default_value"
 ```
 
-## 使用示例
+## Usage Examples
 
-### 创建和使用顶点
+### Creating and Using Vertices
 
 ```python
 from simplecadapi import make_point_rvertex
@@ -164,7 +164,7 @@ print(f"顶点1坐标: {coords1}")  # 顶点1坐标: (0.0, 0.0, 0.0)
 print(f"顶点2坐标: {coords2}")  # 顶点2坐标: (1.0, 1.0, 1.0)
 ```
 
-### 顶点标签管理
+### Vertex Tag Management
 
 ```python
 from simplecadapi import make_point_rvertex
@@ -195,7 +195,7 @@ corners = [v for v in vertices if v.has_tag("corner")]
 print(f"找到 {len(corners)} 个角点")
 ```
 
-### 顶点分类和管理
+### Vertex Classification and Management
 
 ```python
 from simplecadapi import make_point_rvertex
@@ -249,7 +249,7 @@ print(f"角点数量: {len(corners)}")
 print(f"原点坐标: {origin.get_coordinates()}")
 ```
 
-### 顶点距离计算
+### Vertex Distance Calculation
 
 ```python
 import math
@@ -281,7 +281,7 @@ print(f"v1 到 v3 的距离: {dist13}")  # 5.0
 print(f"v2 到 v3 的距离: {dist23}")  # 约 7.07
 ```
 
-## 字符串表示
+## String Representation
 
 ```python
 from simplecadapi import make_point_rvertex
@@ -293,7 +293,7 @@ vertex.set_metadata("created_by", "example")
 print(vertex)
 ```
 
-输出：
+Output:
 ```
 Vertex:
   coordinates: [1.234, 5.678, 9.012]
@@ -302,19 +302,19 @@ Vertex:
     created_by: example
 ```
 
-## 与其他几何体的关系
+## Relationships with Other Geometries
 
-顶点是构成更复杂几何体的基本元素：
+Vertices are the fundamental elements that compose more complex geometries:
 
-- **边 (Edge)**: 由两个顶点定义
-- **线 (Wire)**: 由多个连接的边组成，包含多个顶点
-- **面 (Face)**: 边界由顶点定义
-- **实体 (Solid)**: 最终由顶点构成
+- **Edge**: Defined by two vertices
+- **Wire**: Composed of multiple connected edges, containing multiple vertices
+- **Face**: Boundary defined by vertices
+- **Solid**: Ultimately composed of vertices
 
-## 注意事项
+## Notes
 
-- 顶点对象包装了 CADQuery 的底层顶点，不要直接修改坐标
-- 标签是字符串类型，区分大小写
-- 元数据可以存储任意类型的值
-- 顶点坐标是只读的，如需修改位置应创建新顶点
-- 浮点数坐标可能存在精度问题，比较时应考虑容差
+- Vertex objects wrap CADQuery's underlying vertices; do not modify coordinates directly
+- Tags are of string type and are case-sensitive
+- Metadata can store values of any type
+- Vertex coordinates are read-only; to modify positions, create new vertices
+- Floating-point coordinates may have precision issues; consider tolerance when comparing

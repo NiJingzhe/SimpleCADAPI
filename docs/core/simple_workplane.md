@@ -1,10 +1,10 @@
-# SimpleWorkplane 工作平面
+# SimpleWorkplane
 
-## 概述
+## Overview
 
-`SimpleWorkplane` 是 SimpleCAD API 中的工作平面类，用于定义局部坐标系和几何建模的工作平面。它支持嵌套使用，可以作为上下文管理器，为几何操作提供局部坐标系环境。
+`SimpleWorkplane` is the workplane class in SimpleCAD API, used for defining local coordinate systems and workplanes for geometric modeling. It supports nested usage and can be used as a context manager, providing a local coordinate system environment for geometric operations.
 
-## 类定义
+## Class Definition
 
 ```python
 class SimpleWorkplane:
@@ -14,26 +14,26 @@ class SimpleWorkplane:
     """
 ```
 
-## 用途
+## Usage
 
-- 定义局部工作平面
-- 提供上下文管理器功能, 使用with语句自动管理坐标系
-- 支持嵌套坐标系
-- 与 CADQuery Workplane 的转换
-- 简化复杂几何的建模
+- Define local workplanes
+- Provide context manager functionality, using with statements to automatically manage coordinate systems
+- Support nested coordinate systems
+- Conversion with CADQuery Workplane
+- Simplify complex geometric modeling
 
-## 构造函数
+## Constructor
 
 ### `__init__(origin, normal, x_dir)`
 
-初始化工作平面。
+Initialize a workplane.
 
-**参数:**
-- `origin` (Tuple[float, float, float], 可选): 工作平面原点，默认 (0, 0, 0)
-- `normal` (Tuple[float, float, float], 可选): 工作平面法向量，默认 (0, 0, 1)
-- `x_dir` (Tuple[float, float, float], 可选): 工作平面X轴方向，默认 (1, 0, 0)
+**Parameters:**
+- `origin` (Tuple[float, float, float], optional): Workplane origin, default (0, 0, 0)
+- `normal` (Tuple[float, float, float], optional): Workplane normal vector, default (0, 0, 1)
+- `x_dir` (Tuple[float, float, float], optional): Workplane X-axis direction, default (1, 0, 0)
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import SimpleWorkplane
 
@@ -55,18 +55,18 @@ wp = SimpleWorkplane(
 )
 ```
 
-## 主要属性
+## Main Properties
 
-- `cs`: 工作平面对应的坐标系 (CoordinateSystem)
-- `cq_workplane`: CADQuery 工作平面对象（懒加载）
+- `cs`: Corresponding coordinate system of the workplane (CoordinateSystem)
+- `cq_workplane`: CADQuery workplane object (lazy loaded)
 
-## 常用方法
+## Common Methods
 
-### 上下文管理器方法
+### Context Manager Methods
 
-SimpleWorkplane 支持 `with` 语句，在上下文中自动管理当前坐标系。
+SimpleWorkplane supports `with` statements to automatically manage the current coordinate system within the context.
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import SimpleWorkplane, make_box_rsolid
 
@@ -81,21 +81,21 @@ with SimpleWorkplane(origin=(2, 0, 0)) as wp:
 
 ### `to_cq_workplane()`
 
-转换为 CADQuery 的 Workplane 对象。
+Convert to CADQuery's Workplane object.
 
-**返回:**
-- `cadquery.Workplane`: CADQuery 工作平面对象
+**Returns:**
+- `cadquery.Workplane`: CADQuery workplane object
 
-**示例:**
+**Example:**
 ```python
 from simplecadapi import SimpleWorkplane
 
 wp = SimpleWorkplane(origin=(0, 0, 1))
 cq_wp = wp.to_cq_workplane()
 ```
-## 使用示例
+## Usage Examples
 
-### 基本使用
+### Basic Usage
 
 ```python
 from simplecadapi import SimpleWorkplane, make_circle_rface, extrude_rsolid
@@ -112,7 +112,7 @@ with wp:
     cylinder = extrude_rsolid(circle, height=2.0)
 ```
 
-### 嵌套工作平面
+### Nested Workplanes
 
 ```python
 from simplecadapi import SimpleWorkplane, make_box_rsolid
@@ -130,7 +130,7 @@ with SimpleWorkplane(origin=(1, 0, 0)) as wp1:
             box3 = make_box_rsolid(1, 1, 1)  # 位置在 (1, 1, 1)
 ```
 
-### 创建复杂几何
+### Creating Complex Geometry
 
 ```python
 from simplecadapi import SimpleWorkplane, make_rectangle_rface, extrude_rsolid
@@ -162,7 +162,7 @@ def create_complex_part():
 parts = create_complex_part()
 ```
 
-### 旋转工作平面
+### Rotated Workplanes
 
 ```python
 import math
@@ -190,7 +190,7 @@ def create_rotated_cylinders():
 cylinders = create_rotated_cylinders()
 ```
 
-### 沿路径创建工作平面
+### Creating Workplanes Along a Path
 
 ```python
 from simplecadapi import SimpleWorkplane, make_box_rsolid
@@ -228,15 +228,15 @@ def create_path_features():
 features = create_path_features()
 ```
 
-## 坐标系转换
+## Coordinate System Transformation
 
-SimpleWorkplane 会自动处理坐标系转换：
+SimpleWorkplane automatically handles coordinate system transformations:
 
-- 输入的坐标和方向向量在当前坐标系中定义
-- 内部会转换为全局坐标系
-- 自动处理正交化以确保坐标系的正确性
+- Input coordinates and direction vectors are defined in the current coordinate system
+- Internally converted to global coordinate system
+- Automatically handles orthogonalization to ensure coordinate system correctness
 
-## 字符串表示
+## String Representation
 
 ```python
 from simplecadapi import SimpleWorkplane
@@ -245,7 +245,7 @@ wp = SimpleWorkplane(origin=(1, 2, 3))
 print(wp)
 ```
 
-输出：
+Output:
 ```
 SimpleWorkplane:
   coordinate_system:
@@ -256,9 +256,9 @@ SimpleWorkplane:
       z_axis: [0.000, 0.000, 1.000]
 ```
 
-## 与 CADQuery 的兼容性
+## CADQuery Compatibility
 
-SimpleWorkplane 可以无缝转换为 CADQuery 的 Workplane：
+SimpleWorkplane can be seamlessly converted to CADQuery's Workplane:
 
 ```python
 from simplecadapi import SimpleWorkplane
@@ -270,9 +270,9 @@ cq_wp = wp.to_cq_workplane()
 cq_result = cq_wp.box(1, 1, 1)
 ```
 
-## 注意事项
+## Notes
 
-- 使用 `with` 语句时，工作平面会自动管理坐标系栈
-- 嵌套工作平面中的坐标都是相对于父工作平面的
-- 如果法向量和X轴方向平行，系统会自动选择合适的Y轴方向
-- 坐标系会自动正交化以确保正确性
+- When using `with` statements, the workplane automatically manages the coordinate system stack
+- Coordinates in nested workplanes are relative to the parent workplane
+- If the normal vector and X-axis direction are parallel, the system automatically selects an appropriate Y-axis direction
+- Coordinate systems are automatically orthogonalized to ensure correctness
