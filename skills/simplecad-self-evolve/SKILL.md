@@ -5,9 +5,9 @@ license: MIT
 compatibility: Requires Python 3.10+, active virtual environment, and network access for package installation.
 metadata:
   project: simplecadapi
-  version: 2.0.6
+  version: 2.0.7
   runtime-package: simplecadapi
-  runtime-spec: simplecadapi==2.0.6
+  runtime-spec: simplecadapi==2.0.7
   cases-module: simplecad_self_evolve_cases
 ---
 
@@ -53,7 +53,7 @@ metadata:
 ## Install behavior
 - Preferred: run `scripts/install.sh` once when skill is installed/activated.
 - Runtime wrappers auto-install on demand if `simplecadapi` is missing.
-- Package installed by default: `simplecadapi==2.0.6`
+- Package installed by default: `simplecadapi==2.0.7`
 - Wrappers install only into a virtual environment interpreter (set `PYTHON_BIN` when needed).
 
 ## Interpreter selection
