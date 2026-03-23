@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 
-PACKAGE_SPEC = "simplecadapi==2.0.7"
+PACKAGE_SPEC = "simplecadapi==2.0.8"
 CASES_MODULE = "simplecad_self_evolve_cases"
 
 

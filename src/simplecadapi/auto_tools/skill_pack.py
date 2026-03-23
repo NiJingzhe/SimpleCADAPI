@@ -565,13 +565,16 @@ class SkillPackager:
             7. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
             8. For inspection/debugging, query geometry with QL and print only the queried facts you need; do not print whole solids, assemblies, or full model objects.
             9. Boolean operations always return `List[Solid]`. You MUST check `len(results)` before using `results[0]`.
-            10. If tangent-only contact leaves multiple solids after `union_rsolidlist(...)`, that is often acceptable. Keep the list and continue operating on the list or iterate over its solids.
-            11. If the design explicitly requires exactly one merged solid and `len(results) != 1`, you MUST NOT silently pick one item. Instead, slightly adjust part placement so the intended bodies overlap/embed, run the union again, and only then unwrap the single result.
-            12. After model construction, ask the user whether the result is satisfactory and whether any modifications are needed. Only after explicit user confirmation may you add the script to evolve cases.
+            10. `union_rsolidlist(...)` already uses SimpleCAD's tuned default boolean settings internally. Do not add manual boolean tuning unless you are debugging a stubborn edge case.
+            11. If tangent-only contact leaves multiple solids after `union_rsolidlist(...)`, that is often acceptable. Keep the list and continue operating on the list or iterate over its solids.
+            12. If the design explicitly requires exactly one merged solid and `len(results) != 1`, you MUST NOT silently pick one item. Instead, slightly adjust part placement so the intended bodies overlap/embed, run the union again, and only then unwrap the single result.
+            13. After model construction, ask the user whether the result is satisfactory and whether any modifications are needed. Only after explicit user confirmation may you add the script to evolve cases.
 
             ## Boolean result discipline
             - `union_rsolidlist(...)`, `cut_rsolidlist(...)`, and `intersect_rsolidlist(...)` accept mixed inputs: standalone `Solid`, lists of `Solid`, and nested sequences.
             - They always return `List[Solid]`.
+            - `union_rsolidlist(...)` already applies the package's default glue mode and a conservative internal tolerance.
+            - If a union still returns multiple solids that remain separated beyond tolerance, the API prints a stdout warning automatically.
             - Default behavior: keep the list result and pass it forward or iterate over it.
             - Only unwrap to a single solid after an explicit `len(results) == 1` check.
             - If a single merged solid is required but a union still returns multiple solids, slightly move the parts so they overlap instead of merely touching, then recompute the union.
