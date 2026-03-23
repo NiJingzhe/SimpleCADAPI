@@ -2,10 +2,12 @@
 
 import sys
 import os
+import io
 import unittest
 import numpy as np
 import tempfile
 import shutil
+from contextlib import redirect_stdout
 
 # 添加项目路径到Python路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
@@ -271,12 +273,49 @@ class TestBooleanOperations(unittest.TestCase):
         box_far_3 = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 5, 0))
 
         solids = [box_far_1, box_far_2, box_far_3]
-        results = scad.union_rsolidlist(solids)
+        stdout_buffer = io.StringIO()
+        with redirect_stdout(stdout_buffer):
+            results = scad.union_rsolidlist(solids)
+        warning_text = stdout_buffer.getvalue()
 
         self.assertIsInstance(results, list)
         self.assertEqual(len(results), len(solids))
         for solid in results:
             self.assertIsInstance(solid, scad.Solid)
+        self.assertIn("[WARNING]", warning_text)
+        self.assertIn("does not touch", warning_text)
+        self.assertIn("exceeds tol", warning_text)
+
+    def test_union_touching_boxes_cleans_splitter_faces(self):
+        """Test union of face-touching boxes follows CadQuery-style clean behavior."""
+
+        box_left = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 0, 0))
+        box_right = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(1.0, 0, 0))
+
+        stdout_buffer = io.StringIO()
+        with redirect_stdout(stdout_buffer):
+            results = scad.union_rsolidlist(box_left, box_right)
+
+        self.assertEqual(len(results), 1)
+        self.assertAlmostEqual(results[0].get_volume(), 2.0, places=6)
+        self.assertEqual(len(results[0].get_faces()), 6)
+        self.assertEqual(stdout_buffer.getvalue(), "")
+
+    def test_union_supports_fuzzy_tolerance(self):
+        """Test union forwards CadQuery fuzzy tolerance to the OCC kernel."""
+
+        box_left = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 0, 0))
+        box_right = scad.make_box_rsolid(
+            1.0, 1.0, 1.0, bottom_face_center=(1.001, 0, 0)
+        )
+
+        without_tol = scad.union_rsolidlist(box_left, box_right)
+        with_tol = scad.union_rsolidlist(box_left, box_right, tol=1e-3)
+
+        self.assertEqual(len(without_tol), 2)
+        self.assertEqual(len(with_tol), 1)
+        self.assertGreater(with_tol[0].get_volume(), 2.0)
+        self.assertLess(with_tol[0].get_volume(), 2.01)
 
     def test_cut(self):
         """Test cut."""
@@ -609,7 +648,7 @@ class TestComplexExamples(unittest.TestCase):
         gear_base = gear_base_list[0]
 
         # 创建齿（简化版本）
-        tooth_profile = scad.make_rectangle_rface(0.5, 0.3, center=(4.5, 0, 0))
+        tooth_profile = scad.make_rectangle_rface(0.5, 0.3, center=(5.0, 0, 0))
         tooth = scad.extrude_rsolid(tooth_profile, (0, 0, 1), 1.2)
 
         # 合并一个齿到基础上

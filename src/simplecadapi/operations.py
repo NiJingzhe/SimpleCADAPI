@@ -26,7 +26,83 @@ from .field import (
     intersect_rscalarfield,
 )
 
-from cadquery.occ_impl.shapes import fuse, cut, intersect, revolve
+from cadquery.occ_impl.shapes import cut, intersect, revolve
+
+
+_DEFAULT_UNION_GLUE = True
+_DEFAULT_UNION_TOL_FACTOR = 1e-7
+_DEFAULT_UNION_TOL_MIN = 1e-7
+_DEFAULT_UNION_TOL_MAX = 1e-5
+
+
+def _resolve_union_tol(
+    solids: Sequence[Solid], tol: Optional[float]
+) -> Optional[float]:
+    """Resolve a conservative fuzzy tolerance for boolean union.
+
+    When callers do not specify `tol`, use a scale-aware value that is large enough
+    to absorb small numerical noise but not aggressive enough to close meaningful
+    modeling gaps by default.
+    """
+
+    if tol is not None:
+        return tol
+
+    bbox_min = np.array([np.inf, np.inf, np.inf], dtype=float)
+    bbox_max = np.array([-np.inf, -np.inf, -np.inf], dtype=float)
+
+    for solid in solids:
+        bb = solid.cq_solid.BoundingBox()
+        bbox_min = np.minimum(bbox_min, np.array([bb.xmin, bb.ymin, bb.zmin]))
+        bbox_max = np.maximum(bbox_max, np.array([bb.xmax, bb.ymax, bb.zmax]))
+
+    span = float(np.linalg.norm(bbox_max - bbox_min))
+    if not np.isfinite(span) or span <= 0:
+        return _DEFAULT_UNION_TOL_MIN
+
+    return min(
+        max(span * _DEFAULT_UNION_TOL_FACTOR, _DEFAULT_UNION_TOL_MIN),
+        _DEFAULT_UNION_TOL_MAX,
+    )
+
+
+def _warn_if_union_results_remain_separated(
+    results: Sequence[Solid], tol: Optional[float]
+) -> None:
+    """Print a clear stdout warning when union results remain separated beyond tol."""
+
+    if len(results) < 2:
+        return
+
+    effective_tol = float(tol or 0.0)
+    nearest_gap_above_tol: Optional[float] = None
+
+    for i in range(len(results)):
+        for j in range(i + 1, len(results)):
+            gap = float(results[i].cq_solid.distance(results[j].cq_solid))
+            if gap > effective_tol:
+                if nearest_gap_above_tol is None or gap < nearest_gap_above_tol:
+                    nearest_gap_above_tol = gap
+
+    if nearest_gap_above_tol is None:
+        return
+
+    if len(results) == 2:
+        print(
+            "[WARNING] union_rsolidlist returned 2 separated solids: the two objects do not touch, "
+            f"and the gap between them is about {nearest_gap_above_tol:.6g}, which exceeds tol={effective_tol:.6g}. "
+            "Please check the relationship between the two objects and decide whether to adjust them so they connect, "
+            "or accept them as two separate solids."
+        )
+        return
+
+    print(
+        f"[WARNING] union_rsolidlist returned {len(results)} separated solids: "
+        "at least one pair of objects does not touch, "
+        f"and the smallest detected separation gap is about {nearest_gap_above_tol:.6g}, which exceeds tol={effective_tol:.6g}. "
+        "Please check the relationship between these objects and decide whether to adjust them so they connect, "
+        "or accept them as separate solids."
+    )
 
 
 # =============================================================================
@@ -1239,29 +1315,41 @@ def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]:
 # =============================================================================
 
 
-def union_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
+def union_rsolidlist(
+    *solids: Union[Solid, Sequence[Solid]],
+    clean: bool = True,
+    glue: bool = _DEFAULT_UNION_GLUE,
+    tol: Optional[float] = None,
+) -> List[Solid]:
     """Compute the boolean union of one or more solids.
 
     Args:
         solids: One or more Solid objects or sequences of Solid. Nested sequences are
             flattened before processing.
+        clean: Call CadQuery's `clean()` after the union to unify same-domain faces
+            and remove splitter edges when possible.
+        glue: Enable OCC glue mode for touching or partially overlapping inputs.
+            Defaults to True for SimpleCAD's standard union behavior.
+        tol: Optional fuzzy-boolean tolerance used by the OCC union kernel. When
+            omitted, SimpleCAD chooses a conservative scale-aware tolerance.
 
     Returns:
         List[Solid]: Resulting solids after union attempts. Solids that can be fused
-            are merged; disjoint or tangent-only contacts remain separate, so the
-            list may contain multiple solids.
+        are merged; disjoint or tangent-only contacts remain separate, so the
+        list may contain multiple solids.
 
     Usage:
         All boolean operations (union/cut/intersect) accept a mix of Solid and
         sequences; results are always returned as a list of Solid.
         Keep the list result unless you have explicitly verified `len(result) == 1`.
+        SimpleCAD enables glue mode by default and applies a conservative internal
+        fuzzy tolerance so normal code does not need to tune boolean parameters.
         Touching-but-not-intersecting inputs can legitimately return multiple solids.
         If that happens, keep using the list: pass it directly into later union calls,
-        or iterate over the solids for later cut/intersect steps.
-        If you truly need exactly one merged solid, you must check the list length
-        before using `result[0]`. When the length is not 1, do not pick an element
-        arbitrarily; instead, adjust part placement so the solids overlap slightly,
-        then run the union again.
+        or iterate over the solids for later cut/intersect steps. When returned
+        solids remain separated by more than the active tolerance, SimpleCAD prints
+        a stdout warning describing the detected gap. If you truly need exactly one
+        merged solid, you must check the list length before using `result[0]`.
 
     Examples:
         # Rounded-bar style input: end caps only touch the center body.
@@ -1292,33 +1380,6 @@ def union_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
         final_body = merged[0]
     """
 
-    def _attempt_fuse(base: Solid, candidate: Solid) -> Optional[Solid]:
-        s1 = base.cq_solid
-        s2 = candidate.cq_solid
-
-        if s1.isNull() or s2.isNull():
-            raise ValueError("输入实体无效，无法进行并集运算。")
-
-        fused_shape = fuse(s1, s2)
-        if hasattr(fused_shape, "Solids") and fused_shape.Solids():
-            cq_result = fused_shape.Solids()[0]
-        else:
-            cq_result = fused_shape
-
-        fused_solid = Solid(cq_result)
-        if math.isclose(
-            fused_solid.get_volume(),
-            base.get_volume(),
-            rel_tol=1e-9,
-            abs_tol=1e-12,
-        ):
-            return None
-
-        fused_solid._tags = base._tags.union(candidate._tags)
-        fused_solid._metadata = {**base._metadata, **candidate._metadata}
-
-        return fused_solid
-
     try:
         # 递归展开所有参数：将Solid直接添加，将序列展开
         def _flatten_solids(args):
@@ -1340,30 +1401,49 @@ def union_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
         for solid in remaining:
             if not isinstance(solid, Solid):
                 raise ValueError("union_rsolidlist函数只接受Solid类型的对象")
+            if solid.cq_solid.isNull():
+                raise ValueError("输入实体无效，无法进行并集运算。")
+
+        if len(remaining) == 1 and not clean:
+            return [remaining[0]]
+
+        effective_tol = _resolve_union_tol(remaining, tol)
+        cq_shapes = [solid.cq_solid for solid in remaining]
+
+        if len(cq_shapes) == 1:
+            fused_shape = cq_shapes[0]
+        else:
+            fused_shape = cq_shapes[0].fuse(
+                *cq_shapes[1:], glue=glue, tol=effective_tol
+            )
+
+        if clean:
+            fused_shape = fused_shape.clean()
+
+        if hasattr(fused_shape, "Solids"):
+            cq_results = list(fused_shape.Solids())
+        elif hasattr(fused_shape, "ShapeType") and fused_shape.ShapeType() == "Solid":
+            cq_results = [fused_shape]
+        else:
+            cq_results = []
+
+        if not cq_results:
+            raise ValueError("并集结果中未找到有效实体。")
+
+        all_tags = set()
+        all_metadata = {}
+        for solid in remaining:
+            all_tags.update(solid._tags)
+            all_metadata.update(solid._metadata)
 
         result: List[Solid] = []
+        for cq_result in cq_results:
+            fused_solid = Solid(cq_result)
+            fused_solid._tags = all_tags.copy()
+            fused_solid._metadata = all_metadata.copy()
+            result.append(fused_solid)
 
-        while remaining:
-            base = remaining.pop(0)
-            merged = True
-
-            while merged:
-                merged = False
-                idx = 0
-                while idx < len(remaining):
-                    candidate = remaining[idx]
-                    fused = _attempt_fuse(base, candidate)
-                    if fused is None:
-                        idx += 1
-                        continue
-
-                    base = fused
-                    remaining.pop(idx)
-                    merged = True
-
-                # 如果在本轮中没有融合发生，则跳出内循环
-
-            result.append(base)
+        _warn_if_union_results_remain_separated(result, effective_tol)
 
         return result
     except Exception as e:
