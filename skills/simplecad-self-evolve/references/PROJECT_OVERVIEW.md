@@ -1,8 +1,8 @@
 # Project Overview
 
 - Project: `simplecadapi`
-- Version: `2.0.8`
-- Runtime package: `simplecadapi==2.0.8`
+- Version: `2.0.9`
+- Runtime package: `simplecadapi==2.0.9`
 - Skill cases module: `simplecad_self_evolve_cases`
 
 ## What this skill bundles
