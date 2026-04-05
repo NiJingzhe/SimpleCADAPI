@@ -9,7 +9,7 @@ Experimental scripts and temporary modeling examples are not included as formal 
 
 ## Package Installation (Python Package Managers)
 
-Current package name: `simplecadapi`, version: `2.0.8` (see `pyproject.toml`).
+Current package name: `simplecadapi`, version: `2.0.9` (see `pyproject.toml`).
 
 ### Method A: Install from package repository with pip
 
@@ -42,7 +42,7 @@ uv add simplecadapi
 The repository already contains example build artifacts (`dist/`):
 
 ```bash
-pip install dist/simplecadapi-2.0.8-py3-none-any.whl
+pip install dist/simplecadapi-2.0.9-py3-none-any.whl
 ```
 
 If you need to rebuild:

@@ -32,7 +32,7 @@ export SIMPLECAD_RUNTIME_PACKAGE="simplecadapi"
 export SIMPLECAD_CASES_ROOT="${SKILL_ROOT}/cases"
 export SIMPLECAD_CASES_MODULE="simplecad_self_evolve_cases"
 
-PACKAGE_SPEC="simplecadapi==2.0.8"
+PACKAGE_SPEC="simplecadapi==2.0.9"
 JUPYTER_DEPS=("jupyterlab>=4.5.5" "ipykernel>=6.29.5")
 INSTALL_JUPYTER=0
 INSTALL_ARGS=()
@@ -85,4 +85,4 @@ print("simplecadapi import OK")
 print(getattr(scad, "__description__", ""))
 PY
 
-echo "Runtime install completed for simplecadapi 2.0.8."
+echo "Runtime install completed for simplecadapi 2.0.9."
