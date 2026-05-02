@@ -18,11 +18,16 @@ from copy import deepcopy
 from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
 import math
 
-import cadquery as cq
+from .errors import raise_harness_error
+
 import numpy as np
+from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
 from OCP.gp import gp_Trsf
 
+from .kernel.ocp_properties import bounding_box
+
 from .core import Solid, Face
+from .expr import ExpressionGraph, ScalarLike, evaluate_scalar, lift_scalar
 from .tagging import resolve_anchor_tag_candidates
 
 
@@ -178,6 +183,37 @@ class AxisAnchor:
     local_point: Tuple[float, float, float]
     local_direction: Tuple[float, float, float]
     label: str = ""
+
+
+def _point_anchor_to_dict(anchor: PointAnchor) -> Dict[str, object]:
+    return {
+        "kind": "point",
+        "part": anchor.part,
+        "local_point": list(anchor.local_point),
+        "label": anchor.label,
+    }
+
+
+def _axis_anchor_to_dict(anchor: AxisAnchor) -> Dict[str, object]:
+    return {
+        "kind": "axis",
+        "part": anchor.part,
+        "local_point": list(anchor.local_point),
+        "local_direction": list(anchor.local_direction),
+        "label": anchor.label,
+    }
+
+
+def _solid_source_graph_dict(solid: Solid) -> Optional[Dict[str, object]]:
+    graph_meta = solid.get_metadata("graph")
+    if not isinstance(graph_meta, dict):
+        return None
+    return {
+        "graph_id": graph_meta.get("graph_id"),
+        "node_id": graph_meta.get("node_id"),
+        "op": graph_meta.get("op"),
+        "output_slot": graph_meta.get("output_slot", 0),
+    }
 
 
 @dataclass(frozen=True)
@@ -441,6 +477,8 @@ class Assembly:
         self._parts: Dict[str, _PartNode] = {}
         self._order: List[str] = []
         self._constraints: List[_Constraint] = []
+        self._expression_graph = ExpressionGraph()
+        self._constraint_param_exprs: List[Dict[str, object]] = []
 
     def copy(self) -> "Assembly":
         """Deep-copy the current assembly object."""
@@ -463,7 +501,35 @@ class Assembly:
             )
 
         copied._constraints = deepcopy(self._constraints)
+        copied._expression_graph = ExpressionGraph.from_dict(
+            self._expression_graph.to_dict()
+        )
+        copied._constraint_param_exprs = deepcopy(self._constraint_param_exprs)
         return copied
+
+    def expression_graph(self) -> ExpressionGraph:
+        return self._expression_graph
+
+    def constraint_param_exprs(self) -> List[Dict[str, object]]:
+        return list(self._constraint_param_exprs)
+
+    def to_dict(self) -> Dict[str, object]:
+        constraints_payload = deepcopy(self._constraint_param_exprs)
+        return {
+            "name": self.name,
+            "parts": [
+                {
+                    "name": name,
+                    "parent": self._parts[name].parent,
+                    "local_transform": self._parts[name].local_transform.tolist(),
+                    "source_graph": _solid_source_graph_dict(self._parts[name].solid),
+                }
+                for name in self._order
+            ],
+            "constraint_param_exprs": constraints_payload,
+            "constraints": deepcopy(constraints_payload),
+            "expression_graph": self._expression_graph.to_dict(),
+        }
 
     def add_part(
         self,
@@ -565,6 +631,13 @@ class Assembly:
     # ------------------------------------------------------------------
     def coincident(self, reference: PointAnchor, moving: PointAnchor) -> "Assembly":
         self._constraints.append(_CoincidentConstraint(reference, moving))
+        self._constraint_param_exprs.append(
+            {
+                "type": "coincident",
+                "reference": _point_anchor_to_dict(reference),
+                "moving": _point_anchor_to_dict(moving),
+            }
+        )
         return self
 
     def concentric(
@@ -576,23 +649,47 @@ class Assembly:
         self._constraints.append(
             _ConcentricConstraint(reference, moving, same_direction=same_direction)
         )
+        self._constraint_param_exprs.append(
+            {
+                "type": "concentric",
+                "reference": _axis_anchor_to_dict(reference),
+                "moving": _axis_anchor_to_dict(moving),
+                "same_direction": bool(same_direction),
+            }
+        )
         return self
 
     def offset(
         self,
         reference: PointAnchor,
         moving: PointAnchor,
-        distance: float,
+        distance: ScalarLike,
         axis: AxisLike = "z",
     ) -> "Assembly":
         axis_vec = _axis_name_to_unit(axis)
+        distance_expr = lift_scalar(distance)
+        self._expression_graph.register(distance_expr)
         self._constraints.append(
             _AxisOffsetConstraint(
                 reference=reference,
                 moving=moving,
                 axis=(float(axis_vec[0]), float(axis_vec[1]), float(axis_vec[2])),
-                distance=float(distance),
+                distance=float(evaluate_scalar(distance)),
             )
+        )
+        self._constraint_param_exprs.append(
+            {
+                "type": "offset",
+                "reference": _point_anchor_to_dict(reference),
+                "moving": _point_anchor_to_dict(moving),
+                "axis": [
+                    float(axis_vec[0]),
+                    float(axis_vec[1]),
+                    float(axis_vec[2]),
+                ],
+                "distance": float(evaluate_scalar(distance)),
+                "distance_expr": {"expr_id": distance_expr.expr_id},
+            }
         )
         return self
 
@@ -600,17 +697,29 @@ class Assembly:
         self,
         reference: PointAnchor,
         moving: PointAnchor,
-        distance: float,
+        distance: ScalarLike,
         fallback_axis: AxisLike = "x",
     ) -> "Assembly":
         fb = _axis_name_to_unit(fallback_axis)
+        distance_expr = lift_scalar(distance)
+        self._expression_graph.register(distance_expr)
         self._constraints.append(
             _PointDistanceConstraint(
                 reference=reference,
                 moving=moving,
-                distance=float(distance),
+                distance=float(evaluate_scalar(distance)),
                 fallback_axis=(float(fb[0]), float(fb[1]), float(fb[2])),
             )
+        )
+        self._constraint_param_exprs.append(
+            {
+                "type": "distance",
+                "reference": _point_anchor_to_dict(reference),
+                "moving": _point_anchor_to_dict(moving),
+                "distance": float(evaluate_scalar(distance)),
+                "distance_expr": {"expr_id": distance_expr.expr_id},
+                "fallback_axis": [float(fb[0]), float(fb[1]), float(fb[2])],
+            }
         )
         return self
 
@@ -743,7 +852,7 @@ class Assembly:
 
     def _bbox_point(self, part_name: str, where: str) -> np.ndarray:
         node = self._parts[part_name]
-        bb = node.solid.cq_solid.BoundingBox()
+        bb = bounding_box(node.solid.wrapped)
 
         cx = 0.5 * (bb.xmin + bb.xmax)
         cy = 0.5 * (bb.ymin + bb.ymax)
@@ -770,7 +879,7 @@ class Assembly:
 
     def _part_span_along_axis_local(self, part_name: str, axis: str) -> float:
         node = self._parts[part_name]
-        bb = node.solid.cq_solid.BoundingBox()
+        bb = bounding_box(node.solid.wrapped)
         token = axis.lower().strip()
         if token == "x":
             return float(bb.xmax - bb.xmin)
@@ -817,8 +926,11 @@ class Assembly:
             float(transform[2, 3]),
         )
 
-        transformed_cq = solid.cq_solid.located(cq.Location(tr))
-        transformed = Solid(transformed_cq)
+        xform = BRepBuilderAPI_Transform(solid.wrapped, tr, True)
+        xform.Build()
+        if not xform.IsDone():
+            raise ValueError("Assembly solid transform failed")
+        transformed = Solid(xform.Shape())
         transformed._tags = solid._tags.copy()
         transformed._metadata = solid._metadata.copy()
         return transformed
@@ -834,47 +946,79 @@ def make_assembly_rassembly(
 ) -> Assembly:
     """Type-1 mapping: lift a parameter description into an assembly object."""
 
-    asm = Assembly(name=name)
-    parent_map = dict(parents or {})
-    transform_map = dict(local_transforms or {})
+    try:
+        asm = Assembly(name=name)
+        parent_map = dict(parents or {})
+        transform_map = dict(local_transforms or {})
 
-    pending: Dict[str, Solid] = {}
-    for part_name, solid in parts:
-        if part_name in pending:
-            raise ValueError(f"重复零件名: {part_name}")
-        pending[part_name] = solid
+        pending: Dict[str, Solid] = {}
+        for part_name, solid in parts:
+            if part_name in pending:
+                raise ValueError(f"重复零件名: {part_name}")
+            pending[part_name] = solid
 
-    while pending:
-        progressed = False
-        for part_name, solid in list(pending.items()):
-            parent_name = parent_map.get(part_name)
-            if parent_name is not None and parent_name not in asm._parts:
-                continue
+        while pending:
+            progressed = False
+            for part_name, solid in list(pending.items()):
+                parent_name = parent_map.get(part_name)
+                if parent_name is not None and parent_name not in asm._parts:
+                    continue
 
-            asm.add_part(
-                part_name,
-                solid,
-                parent=parent_name,
-                local_transform=transform_map.get(part_name),
-            )
-            del pending[part_name]
-            progressed = True
+                asm.add_part(
+                    part_name,
+                    solid,
+                    parent=parent_name,
+                    local_transform=transform_map.get(part_name),
+                )
+                del pending[part_name]
+                progressed = True
 
-        if not progressed:
-            unresolved = ", ".join(sorted(pending.keys()))
-            raise ValueError(
-                f"无法解析父子关系（可能父节点缺失或存在循环依赖）: {unresolved}"
-            )
+            if not progressed:
+                unresolved = ", ".join(sorted(pending.keys()))
+                raise ValueError(
+                    f"无法解析父子关系（可能父节点缺失或存在循环依赖）: {unresolved}"
+                )
 
-    return asm
+        return asm
+    except Exception as e:
+        raise_harness_error(
+            operation="make_assembly_rassembly",
+            what_happened="Failed to create the assembly from the provided parts.",
+            possible_causes=[
+                "The parts sequence contains duplicate names.",
+                "A parent reference is missing or creates a cycle.",
+                "A part or local transform has the wrong type.",
+            ],
+            how_to_fix=[
+                "Pass parts as a sequence of (name, Solid) tuples with unique names.",
+                "Make sure every parent name exists in the same assembly definition.",
+                "If local_transforms is used, pass 4x4 numeric matrices.",
+            ],
+            error=e,
+        )
 
 
 def clone_assembly_rassembly(assembly: Assembly) -> Assembly:
     """Type-2 mapping: clone one assembly object into another."""
 
-    if not isinstance(assembly, Assembly):
-        raise ValueError("clone_assembly_rassembly 仅接受 Assembly")
-    return assembly.copy()
+    try:
+        if not isinstance(assembly, Assembly):
+            raise ValueError("clone_assembly_rassembly 仅接受 Assembly")
+        return assembly.copy()
+    except Exception as e:
+        raise_harness_error(
+            operation="clone_assembly_rassembly",
+            what_happened="Failed to clone the assembly.",
+            possible_causes=[
+                "The provided object is not an Assembly instance.",
+                "The assembly contains invalid internal state.",
+            ],
+            how_to_fix=[
+                "Pass a real Assembly object returned by SimpleCADAPI.",
+                "If cloning still fails, inspect how the source assembly was constructed.",
+            ],
+            error=e,
+        )
 
 
 def add_part_rassembly(
@@ -886,9 +1030,26 @@ def add_part_rassembly(
 ) -> Assembly:
     """Type-2 mapping: add a part in assembly space and return a new assembly."""
 
-    copied = assembly.copy()
-    copied.add_part(name, solid, parent=parent, local_transform=local_transform)
-    return copied
+    try:
+        copied = assembly.copy()
+        copied.add_part(name, solid, parent=parent, local_transform=local_transform)
+        return copied
+    except Exception as e:
+        raise_harness_error(
+            operation="add_part_rassembly",
+            what_happened="Failed to add the part to the assembly.",
+            possible_causes=[
+                "The assembly or solid argument has the wrong type.",
+                "The part name is empty or already exists.",
+                "The parent or local_transform argument is invalid.",
+            ],
+            how_to_fix=[
+                "Pass an Assembly object, a unique part name, and a Solid object.",
+                "If parent is used, pass an existing part name or PartHandle.",
+                "If local_transform is used, pass a 4x4 numeric matrix.",
+            ],
+            error=e,
+        )
 
 
 def clear_constraints_rassembly(assembly: Assembly) -> Assembly:
@@ -907,9 +1068,26 @@ def translate_part_rassembly(
 ) -> Assembly:
     """Type-2 mapping: translate a part and return a new assembly."""
 
-    copied = assembly.copy()
-    copied.translate_part(part, vector, frame=frame)
-    return copied
+    try:
+        copied = assembly.copy()
+        copied.translate_part(part, vector, frame=frame)
+        return copied
+    except Exception as e:
+        raise_harness_error(
+            operation="translate_part_rassembly",
+            what_happened="Failed to translate the assembly part.",
+            possible_causes=[
+                "The assembly argument is invalid.",
+                "The part identifier does not resolve to a known part.",
+                "The vector or frame argument is invalid.",
+            ],
+            how_to_fix=[
+                "Pass a valid Assembly object.",
+                "Use a part name string or PartHandle that exists in the assembly.",
+                "Pass a finite 3D vector and use frame='world' or frame='local'.",
+            ],
+            error=e,
+        )
 
 
 def rotate_part_rassembly(
@@ -922,9 +1100,26 @@ def rotate_part_rassembly(
 ) -> Assembly:
     """Type-2 mapping: rotate a part and return a new assembly."""
 
-    copied = assembly.copy()
-    copied.rotate_part(part, angle_deg, axis=axis, origin=origin, frame=frame)
-    return copied
+    try:
+        copied = assembly.copy()
+        copied.rotate_part(part, angle_deg, axis=axis, origin=origin, frame=frame)
+        return copied
+    except Exception as e:
+        raise_harness_error(
+            operation="rotate_part_rassembly",
+            what_happened="Failed to rotate the assembly part.",
+            possible_causes=[
+                "The assembly argument is invalid.",
+                "The part identifier does not resolve to a known part.",
+                "The angle, axis, origin, or frame argument is invalid.",
+            ],
+            how_to_fix=[
+                "Pass a valid Assembly object and an existing part identifier.",
+                "Use a finite angle, a valid axis, and a valid origin point.",
+                "Use frame='world' or frame='local'.",
+            ],
+            error=e,
+        )
 
 
 def constrain_coincident_rassembly(
@@ -934,9 +1129,26 @@ def constrain_coincident_rassembly(
 ) -> Assembly:
     """Type-2 mapping: add a coincident constraint and return a new assembly."""
 
-    copied = assembly.copy()
-    copied.coincident(reference, moving)
-    return copied
+    try:
+        copied = assembly.copy()
+        copied.coincident(reference, moving)
+        return copied
+    except Exception as e:
+        raise_harness_error(
+            operation="constrain_coincident_rassembly",
+            what_happened="Failed to add the coincident constraint.",
+            possible_causes=[
+                "The assembly argument is invalid.",
+                "The reference or moving anchor is invalid.",
+                "The anchors refer to parts that do not exist in the assembly.",
+            ],
+            how_to_fix=[
+                "Pass a valid Assembly object.",
+                "Use PointAnchor objects created from parts in the same assembly.",
+                "Check that both anchors reference existing parts.",
+            ],
+            error=e,
+        )
 
 
 def constrain_concentric_rassembly(
@@ -947,9 +1159,26 @@ def constrain_concentric_rassembly(
 ) -> Assembly:
     """Type-2 mapping: add a concentric constraint and return a new assembly."""
 
-    copied = assembly.copy()
-    copied.concentric(reference, moving, same_direction=same_direction)
-    return copied
+    try:
+        copied = assembly.copy()
+        copied.concentric(reference, moving, same_direction=same_direction)
+        return copied
+    except Exception as e:
+        raise_harness_error(
+            operation="constrain_concentric_rassembly",
+            what_happened="Failed to add the concentric constraint.",
+            possible_causes=[
+                "The assembly argument is invalid.",
+                "The reference or moving axis anchor is invalid.",
+                "The anchors refer to parts that do not exist in the assembly.",
+            ],
+            how_to_fix=[
+                "Pass a valid Assembly object.",
+                "Use AxisAnchor objects created from parts in the same assembly.",
+                "Check that both anchors reference existing parts.",
+            ],
+            error=e,
+        )
 
 
 def constrain_offset_rassembly(
@@ -961,9 +1190,26 @@ def constrain_offset_rassembly(
 ) -> Assembly:
     """Type-2 mapping: add an axial offset constraint and return a new assembly."""
 
-    copied = assembly.copy()
-    copied.offset(reference, moving, distance, axis=axis)
-    return copied
+    try:
+        copied = assembly.copy()
+        copied.offset(reference, moving, distance, axis=axis)
+        return copied
+    except Exception as e:
+        raise_harness_error(
+            operation="constrain_offset_rassembly",
+            what_happened="Failed to add the axial offset constraint.",
+            possible_causes=[
+                "The assembly argument is invalid.",
+                "The point anchors are invalid.",
+                "The distance or axis argument is invalid.",
+            ],
+            how_to_fix=[
+                "Pass a valid Assembly object.",
+                "Use PointAnchor objects created from parts in the same assembly.",
+                "Pass a finite distance and a valid axis token or axis vector.",
+            ],
+            error=e,
+        )
 
 
 def constrain_distance_rassembly(
@@ -975,9 +1221,26 @@ def constrain_distance_rassembly(
 ) -> Assembly:
     """Type-2 mapping: add a point-distance constraint and return a new assembly."""
 
-    copied = assembly.copy()
-    copied.distance(reference, moving, distance, fallback_axis=fallback_axis)
-    return copied
+    try:
+        copied = assembly.copy()
+        copied.distance(reference, moving, distance, fallback_axis=fallback_axis)
+        return copied
+    except Exception as e:
+        raise_harness_error(
+            operation="constrain_distance_rassembly",
+            what_happened="Failed to add the point-distance constraint.",
+            possible_causes=[
+                "The assembly argument is invalid.",
+                "The point anchors are invalid.",
+                "The distance or fallback_axis argument is invalid.",
+            ],
+            how_to_fix=[
+                "Pass a valid Assembly object.",
+                "Use PointAnchor objects created from parts in the same assembly.",
+                "Pass a finite distance and a valid fallback axis.",
+            ],
+            error=e,
+        )
 
 
 def stack_rassembly(
@@ -991,17 +1254,34 @@ def stack_rassembly(
 ) -> Assembly:
     """Type-2 mapping: apply a stack layout and return a new assembly."""
 
-    copied = assembly.copy()
-    stack(
-        copied,
-        parts=parts,
-        axis=axis,
-        gap=gap,
-        align=align,
-        justify=justify,
-        bounds=bounds,
-    )
-    return copied
+    try:
+        copied = assembly.copy()
+        stack(
+            copied,
+            parts=parts,
+            axis=axis,
+            gap=gap,
+            align=align,
+            justify=justify,
+            bounds=bounds,
+        )
+        return copied
+    except Exception as e:
+        raise_harness_error(
+            operation="stack_rassembly",
+            what_happened="Failed to apply the stack layout to the assembly.",
+            possible_causes=[
+                "One or more part identifiers are invalid.",
+                "The axis, gap, align, justify, or bounds arguments are invalid.",
+                "The requested layout does not fit inside the provided bounds.",
+            ],
+            how_to_fix=[
+                "Pass part names or PartHandle objects that exist in the assembly.",
+                "Use axis='x'/'y'/'z', gap >= 0, and supported align/justify values.",
+                "If bounds are used, make sure the available span is large enough for the requested layout.",
+            ],
+            error=e,
+        )
 
 
 def solve_assembly_rresult(
@@ -1011,8 +1291,25 @@ def solve_assembly_rresult(
 ) -> AssemblyResult:
     """Type-2 mapping: map an assembly to a solve result without mutating it."""
 
-    copied = assembly.copy()
-    return copied.solve(max_iterations=max_iterations, tolerance=tolerance)
+    try:
+        copied = assembly.copy()
+        return copied.solve(max_iterations=max_iterations, tolerance=tolerance)
+    except Exception as e:
+        raise_harness_error(
+            operation="solve_assembly_rresult",
+            what_happened="Failed to solve the assembly constraints.",
+            possible_causes=[
+                "The assembly contains invalid constraints or anchors.",
+                "max_iterations or tolerance is invalid.",
+                "The solver encountered non-finite numeric values.",
+            ],
+            how_to_fix=[
+                "Pass a valid Assembly object with well-formed constraints.",
+                "Use max_iterations > 0 and tolerance > 0.",
+                "Inspect the involved anchors and distances if the solver diverges.",
+            ],
+            error=e,
+        )
 
 
 def stack(

@@ -18,6 +18,68 @@ class ScalarField:
     children: Tuple["ScalarField", ...] = ()
 
 
+def _jsonify_scalar_value(value: Any) -> Any:
+    if isinstance(value, tuple):
+        return [_jsonify_scalar_value(v) for v in value]
+    if isinstance(value, list):
+        return [_jsonify_scalar_value(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _jsonify_scalar_value(v) for k, v in value.items()}
+    return value
+
+
+def _tuple3(value: Any, name: str) -> Tuple[float, float, float]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError(f"{name} 必须是长度为3的序列")
+    return (float(value[0]), float(value[1]), float(value[2]))
+
+
+def _normalize_scalar_field_params(op: str, params: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(params)
+    if op in {"sphere", "ellipsoid", "box"}:
+        normalized["center"] = _tuple3(normalized["center"], "center")
+    if op == "ellipsoid":
+        normalized["radii"] = _tuple3(normalized["radii"], "radii")
+    if op == "box":
+        normalized["size"] = _tuple3(normalized["size"], "size")
+    if op == "capsule":
+        normalized["p0"] = _tuple3(normalized["p0"], "p0")
+        normalized["p1"] = _tuple3(normalized["p1"], "p1")
+    if op == "translate":
+        normalized["offset"] = _tuple3(normalized["offset"], "offset")
+    if op == "scale":
+        normalized["factors"] = _tuple3(normalized["factors"], "factors")
+    if op == "rotate":
+        normalized["axis"] = _tuple3(normalized["axis"], "axis")
+        normalized["angle"] = float(normalized["angle"])
+    if op in {"sphere", "capsule"}:
+        normalized["radius"] = float(normalized["radius"])
+    if op in {"smooth_union", "smooth_subtract"}:
+        normalized["k"] = float(normalized["k"])
+    return normalized
+
+
+def serialize_scalar_field(field: ScalarField) -> dict[str, Any]:
+    """Serialize a ScalarField tree to a JSON-compatible dictionary."""
+
+    return {
+        "op": field.op,
+        "params": _jsonify_scalar_value(field.params),
+        "children": [serialize_scalar_field(child) for child in field.children],
+    }
+
+
+def deserialize_scalar_field(data: dict[str, Any]) -> ScalarField:
+    """Deserialize a ScalarField tree from JSON-compatible data."""
+
+    op = str(data["op"])
+    params = _normalize_scalar_field_params(op, dict(data.get("params", {})))
+    children = tuple(
+        deserialize_scalar_field(child) for child in data.get("children", [])
+    )
+    return ScalarField(op=op, params=params, children=children)
+
+
 def make_sphere_rscalarfield(
     center: Tuple[float, float, float], radius: float
 ) -> ScalarField:

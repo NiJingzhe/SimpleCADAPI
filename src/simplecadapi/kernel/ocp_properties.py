@@ -1,0 +1,192 @@
+"""OCP-native geometry properties, bounding boxes, distance and normals."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Sequence, Tuple
+
+from OCP.Bnd import Bnd_Box
+from OCP.BRep import BRep_Tool
+from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.BRepBndLib import BRepBndLib
+from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+from OCP.BRepGProp import BRepGProp
+from OCP.BRepLProp import BRepLProp_SLProps
+from OCP.GProp import GProp_GProps
+from OCP.GeomAbs import GeomAbs_Plane
+import math
+
+from OCP.TopAbs import TopAbs_REVERSED, TopAbs_VERTEX
+from OCP.TopoDS import TopoDS, TopoDS_Edge, TopoDS_Face, TopoDS_Shape, TopoDS_Solid
+from OCP.gp import gp_Pnt, gp_Vec
+
+from .ocp_topology import vertex_point
+
+
+@dataclass(frozen=True)
+class Vec3:
+    x: float
+    y: float
+    z: float
+
+    def __iter__(self):
+        yield self.x
+        yield self.y
+        yield self.z
+
+    def to_tuple(self) -> tuple[float, float, float]:
+        return (self.x, self.y, self.z)
+
+    def dot(self, other: object) -> float:
+        ox, oy, oz = _coerce_vec3(other)
+        return self.x * ox + self.y * oy + self.z * oz
+
+    def norm(self) -> float:
+        return math.sqrt(self.dot(self))
+
+    def normalized(self) -> "Vec3":
+        n = self.norm()
+        if n <= 1e-15:
+            raise ValueError("Cannot normalize a zero-length vector")
+        return Vec3(self.x / n, self.y / n, self.z / n)
+
+    def getAngle(self, other: object) -> float:
+        ox, oy, oz = _coerce_vec3(other)
+        on = math.sqrt(ox * ox + oy * oy + oz * oz)
+        sn = self.norm()
+        if sn <= 1e-15 or on <= 1e-15:
+            raise ValueError("Cannot compute angle with a zero-length vector")
+        value = max(-1.0, min(1.0, self.dot((ox, oy, oz)) / (sn * on)))
+        return math.acos(value)
+
+    def __mul__(self, scalar: float) -> "Vec3":
+        return Vec3(self.x * float(scalar), self.y * float(scalar), self.z * float(scalar))
+
+    __rmul__ = __mul__
+
+    def __repr__(self) -> str:
+        return f"Vec3({self.x:.6g}, {self.y:.6g}, {self.z:.6g})"
+
+
+def _coerce_vec3(value: object) -> tuple[float, float, float]:
+    if isinstance(value, Vec3):
+        return value.to_tuple()
+    if hasattr(value, "x") and hasattr(value, "y") and hasattr(value, "z"):
+        return (float(getattr(value, "x")), float(getattr(value, "y")), float(getattr(value, "z")))
+    if isinstance(value, (tuple, list)) and len(value) == 3:
+        return (float(value[0]), float(value[1]), float(value[2]))
+    raise TypeError(f"Expected a 3D vector-like value, got {type(value).__name__}")
+
+
+def _props_point(props: GProp_GProps) -> Vec3:
+    p = props.CentreOfMass()
+    return Vec3(float(p.X()), float(p.Y()), float(p.Z()))
+
+
+def linear_length(edge: TopoDS_Edge) -> float:
+    props = GProp_GProps()
+    BRepGProp.LinearProperties_s(edge, props)
+    return float(props.Mass())
+
+
+def surface_area(face: TopoDS_Face) -> float:
+    props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(face, props)
+    return float(props.Mass())
+
+
+def volume(solid: TopoDS_Solid) -> float:
+    props = GProp_GProps()
+    BRepGProp.VolumeProperties_s(solid, props)
+    return float(props.Mass())
+
+
+def center_of_mass(shape: TopoDS_Shape) -> Vec3:
+    # Try dimension-specific mass properties. The first successful non-zero mass wins.
+    props = GProp_GProps()
+    try:
+        BRepGProp.VolumeProperties_s(shape, props)
+        if abs(float(props.Mass())) > 1e-15:
+            return _props_point(props)
+    except Exception:
+        pass
+    props = GProp_GProps()
+    try:
+        BRepGProp.SurfaceProperties_s(shape, props)
+        if abs(float(props.Mass())) > 1e-15:
+            return _props_point(props)
+    except Exception:
+        pass
+    props = GProp_GProps()
+    try:
+        BRepGProp.LinearProperties_s(shape, props)
+        if abs(float(props.Mass())) > 1e-15:
+            return _props_point(props)
+    except Exception:
+        pass
+    try:
+        if shape.ShapeType() == TopAbs_VERTEX:
+            return Vec3(*vertex_point(TopoDS.Vertex_s(shape)))
+    except Exception:
+        pass
+    bb = bounding_box(shape)
+    return Vec3((bb.xmin + bb.xmax) / 2, (bb.ymin + bb.ymax) / 2, (bb.zmin + bb.zmax) / 2)
+
+
+@dataclass(frozen=True)
+class BoundingBox:
+    xmin: float
+    ymin: float
+    zmin: float
+    xmax: float
+    ymax: float
+    zmax: float
+
+    @property
+    def xlen(self) -> float:
+        return self.xmax - self.xmin
+
+    @property
+    def ylen(self) -> float:
+        return self.ymax - self.ymin
+
+    @property
+    def zlen(self) -> float:
+        return self.zmax - self.zmin
+
+
+def bounding_box(shape: TopoDS_Shape) -> BoundingBox:
+    box = Bnd_Box()
+    box.SetGap(0.0)
+    BRepBndLib.AddOptimal_s(shape, box, False, False)
+    xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
+    return BoundingBox(float(xmin), float(ymin), float(zmin), float(xmax), float(ymax), float(zmax))
+
+
+def distance(shape_a: TopoDS_Shape, shape_b: TopoDS_Shape) -> float:
+    dist = BRepExtrema_DistShapeShape(shape_a, shape_b)
+    dist.Perform()
+    if not dist.IsDone():
+        raise ValueError("OCP distance calculation failed")
+    return float(dist.Value())
+
+
+def face_normal_at(face: TopoDS_Face, u: float = 0.5, v: float = 0.5) -> Vec3:
+    adaptor = BRepAdaptor_Surface(face, True)
+    umin = float(adaptor.FirstUParameter())
+    umax = float(adaptor.LastUParameter())
+    vmin = float(adaptor.FirstVParameter())
+    vmax = float(adaptor.LastVParameter())
+    uu = umin + (umax - umin) * float(u)
+    vv = vmin + (vmax - vmin) * float(v)
+    props = BRepLProp_SLProps(adaptor, uu, vv, 1, 1e-7)
+    if not props.IsNormalDefined():
+        raise ValueError("Face normal is not defined at the requested parameters")
+    n = props.Normal()
+    if face.Orientation() == TopAbs_REVERSED:
+        n.Reverse()
+    return Vec3(float(n.X()), float(n.Y()), float(n.Z()))
+
+
+def edge_center(edge: TopoDS_Edge) -> Vec3:
+    return center_of_mass(edge)

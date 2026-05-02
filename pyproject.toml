@@ -1,13 +1,13 @@
 [project]
 name = "simplecadapi"
 version = "2.0.9"
-description = "A simplified CAD modeling Python API based on CADQuery"
+description = "A simplified OCP-native CAD modeling Python API"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "倪旌哲", email = "nijingzhe@zju.edu.cn" }]
 maintainers = [{ name = "倪旌哲", email = "nijingzhe@zju.edu.cn" }]
 requires-python = ">=3.10"
-keywords = ["cad", "modeling", "3d", "design", "cadquery"]
+keywords = ["cad", "modeling", "3d", "design", "ocp", "opencascade"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -22,9 +22,9 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-    "cadquery>=2.5.2",
     "numpy>=1.21.0",
     "rich>=14.0.0",
+    "cadquery-ocp>=7.8.1",
 ]
 
 [project.optional-dependencies]
@@ -35,7 +35,7 @@ dev = [
   "black>=23.0",
   "isort>=5.0",
 ]
-editor = ["cq-editor>=0.5.0"]
+editor = []
 
 [project.urls]
 Homepage = "https://github.com/NiJingzhe/SimpleCADAPI"
@@ -55,8 +55,6 @@ include = ["src/**/*", "docs/**"]
 dev = [
     "twine>=6.1.0",
     "pytest",
-    "cq-editor>=0.5.0",
-    "cadquery>=2.5.2",
     "jupyterlab>=4.5.5",
     "ipykernel>=6.29.5",
     "matplotlib>=3.10.8",

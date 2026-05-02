@@ -20,3 +20,8 @@ sandbox/
 skills/*.tar.gz
 
 .DS_Store
+
+# CAD/export artifacts
+*.step
+*.stl
+examples.py

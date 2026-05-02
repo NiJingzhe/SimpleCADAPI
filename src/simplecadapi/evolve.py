@@ -1,6 +1,8 @@
 from simplecadapi import *
 import math
 
+from .errors import raise_harness_error
+
 
 def make_n_hole_flange_rsolid(
     flange_outer_diameter=120.0,
@@ -43,16 +45,25 @@ def make_n_hole_flange_rsolid(
         print(f"    法兰内孔圆柱创建成功，直径: {flange_inner_diameter}mm")
 
         # 从外圆柱中减去内孔形成法兰主体
-        flange_body_results = cut_rsolidlist(outer_cylinder, inner_cylinder)
-        if len(flange_body_results) != 1:
-            raise ValueError("法兰主体切割结果不是单个实体，请检查参数设置。")
-        flange_body = flange_body_results[0]
+        flange_body = cut_rsolidlist(outer_cylinder, inner_cylinder)
         body_volume = flange_body.get_volume()
         print(f"    法兰主体创建完成，体积: {body_volume:.2f} mm³")
 
     except Exception as e:
         print(f"    错误: 步骤1创建法兰主体失败 - {e}")
-        raise ValueError(f"法兰主体创建失败") from e
+        raise_harness_error(
+            operation="make_n_hole_flange_rsolid",
+            what_happened="Failed while creating the flange body.",
+            possible_causes=[
+                "The flange diameter or thickness parameters are invalid.",
+                "The inner cut did not produce a single flange solid.",
+            ],
+            how_to_fix=[
+                "Check flange_outer_diameter, flange_inner_diameter, and flange_thickness.",
+                "Make sure the inner diameter is smaller than the outer diameter.",
+            ],
+            error=e,
+        )
 
     try:
         # 步骤2: 创建中心凸起圆环（保持中心通孔）
@@ -77,24 +88,29 @@ def make_n_hole_flange_rsolid(
         print(f"    凸起圆环内孔创建成功，直径: {flange_inner_diameter}mm")
 
         # 从凸起圆环中减去内孔，形成环形凸起
-        boss_ring_results = cut_rsolidlist(boss_outer_solid, boss_inner_hole)
-        if len(boss_ring_results) != 1:
-            raise ValueError("凸起圆环切割结果不是单个实体，请检查参数设置。")
-        boss_ring = boss_ring_results[0]
+        boss_ring = cut_rsolidlist(boss_outer_solid, boss_inner_hole)
         print("    凸起圆环内孔切割完成，形成环形凸起")
 
         # 合并法兰主体和凸起圆环
-        union_results = union_rsolidlist([flange_body, boss_ring])
-        if len(union_results) != 1:
-            raise ValueError("法兰主体与凸起圆环无法合并成一个整体，请检查几何参数。")
-
-        flange_with_boss = union_results[0]
+        flange_with_boss = union_rsolidlist([flange_body, boss_ring])
         boss_volume = flange_with_boss.get_volume()
         print(f"    法兰主体与凸起圆环合并完成，体积: {boss_volume:.2f} mm³")
 
     except Exception as e:
         print(f"    错误: 步骤2创建中心凸起圆环失败 - {e}")
-        raise ValueError(f"中心凸起圆环创建失败") from e
+        raise_harness_error(
+            operation="make_n_hole_flange_rsolid",
+            what_happened="Failed while creating or merging the center boss ring.",
+            possible_causes=[
+                "The boss ring parameters are incompatible with the flange body.",
+                "The boss cut or union result was not a single solid.",
+            ],
+            how_to_fix=[
+                "Check boss_outer_diameter, boss_height, and flange_inner_diameter.",
+                "Make sure the boss overlaps the flange body as intended before union.",
+            ],
+            error=e,
+        )
 
     try:
         # 步骤3: 创建连接孔
@@ -125,10 +141,7 @@ def make_n_hole_flange_rsolid(
             )
 
             # 切割孔
-            current_flange_results = cut_rsolidlist(current_flange, hole)
-            if len(current_flange_results) != 1:
-                raise ValueError("连接孔切割结果不是单个实体，请检查参数设置。")
-            current_flange = current_flange_results[0]
+            current_flange = cut_rsolidlist(current_flange, hole)
             print(f"    第{i + 1}个孔位置: ({x:.2f}, {y:.2f}), 角度: {angle:.1f}°")
 
         flange_with_holes = current_flange
@@ -138,7 +151,19 @@ def make_n_hole_flange_rsolid(
 
     except Exception as e:
         print(f"    错误: 步骤3创建连接孔失败 - {e}")
-        raise ValueError(f"连接孔创建失败") from e
+        raise_harness_error(
+            operation="make_n_hole_flange_rsolid",
+            what_happened="Failed while cutting the bolt holes.",
+            possible_causes=[
+                "The hole pattern parameters place holes outside the flange body.",
+                "One of the hole cuts did not produce a valid single solid.",
+            ],
+            how_to_fix=[
+                "Check hole_diameter, hole_circle_diameter, and hole_count.",
+                "Verify the bolt circle lies inside the flange body.",
+            ],
+            error=e,
+        )
 
     try:
         # 步骤4: 添加倒角处理
@@ -180,7 +205,19 @@ def make_n_hole_flange_rsolid(
 
     except Exception as e:
         print(f"    错误: 步骤5验证失败 - {e}")
-        raise ValueError(f"最终结果验证失败") from e
+        raise_harness_error(
+            operation="make_n_hole_flange_rsolid",
+            what_happened="The final flange result failed validation.",
+            possible_causes=[
+                "An earlier modeling step returned an invalid solid.",
+                "The final solid lost validity during later feature operations.",
+            ],
+            how_to_fix=[
+                "Inspect the intermediate flange body after each step.",
+                "Temporarily skip chamfering to isolate the first failing stage.",
+            ],
+            error=e,
+        )
 
     print(f"{hole_count}孔法兰创建完成！")
     return chamfered_flange
@@ -284,7 +321,19 @@ def make_naca_propeller_blade_rsolid(
 
     except Exception as e:
         print(f"    错误: 步骤1生成翼型截面失败 - {e}")
-        raise ValueError(f"翼型截面生成失败，可能是NACA翼型计算或几何变换失败") from e
+        raise_harness_error(
+            operation="make_naca_propeller_blade_rsolid",
+            what_happened="Failed while generating blade section profiles.",
+            possible_causes=[
+                "The airfoil generation produced invalid points.",
+                "The section transform or twist step produced invalid geometry.",
+            ],
+            how_to_fix=[
+                "Check blade_length, root_chord, tip_chord, total_twist_angle, and num_sections.",
+                "Inspect the generated section wires before lofting.",
+            ],
+            error=e,
+        )
 
     try:
         # 步骤2: 通过放样创建桨叶实体
@@ -310,7 +359,19 @@ def make_naca_propeller_blade_rsolid(
 
     except Exception as e:
         print(f"    错误: 步骤2放样创建实体失败 - {e}")
-        raise ValueError(f"放样操作失败，可能是截面几何不兼容或放样算法失败") from e
+        raise_harness_error(
+            operation="make_naca_propeller_blade_rsolid",
+            what_happened="Failed while lofting the blade sections.",
+            possible_causes=[
+                "The section wires are not mutually compatible for lofting.",
+                "One or more section profiles are invalid or self-intersecting.",
+            ],
+            how_to_fix=[
+                "Validate every section wire individually.",
+                "Try reducing twist or simplifying the airfoil section count to isolate the incompatibility.",
+            ],
+            error=e,
+        )
 
     print("螺旋桨叶片创建完成！")
     print(f"最终参数总结:")
@@ -371,7 +432,19 @@ def make_threaded_rod_rsolid(
 
     except Exception as e:
         print(f"    错误: 步骤1创建螺杆主体失败 - {e}")
-        raise ValueError(f"螺杆主体创建失败，可能是螺杆参数无效") from e
+        raise_harness_error(
+            operation="make_threaded_rod_rsolid",
+            what_happened="Failed while creating the rod body.",
+            possible_causes=[
+                "The rod diameter or length parameters are invalid.",
+                "The base rod extrusion failed.",
+            ],
+            how_to_fix=[
+                "Check thread_diameter and total_length.",
+                "Make sure all rod dimensions are positive and finite.",
+            ],
+            error=e,
+        )
 
     try:
         # 步骤2: 创建螺纹切割体
@@ -415,33 +488,58 @@ def make_threaded_rod_rsolid(
 
     except Exception as e:
         print(f"    错误: 步骤2创建螺纹切割体失败 - {e}")
-        raise ValueError(f"螺纹切割体创建失败，可能是螺纹参数无效或螺旋扫掠失败") from e
+        raise_harness_error(
+            operation="make_threaded_rod_rsolid",
+            what_happened="Failed while creating the helical thread cutter.",
+            possible_causes=[
+                "The thread pitch or thread length is invalid.",
+                "The helical sweep failed for the chosen thread profile.",
+            ],
+            how_to_fix=[
+                "Check thread_pitch, thread_length, and thread_start_position.",
+                "Try a simpler thread profile or shorter thread span to isolate the sweep failure.",
+            ],
+            error=e,
+        )
 
     try:
         # 步骤3: 从螺杆中减去螺纹切割体形成螺纹
         print("  步骤3: 切割螺纹...")
 
-        thread_solid_results = cut_rsolidlist(thread_solid, helical_cut_solid)
-        if len(thread_solid_results) != 1:
-            raise ValueError("螺纹切割结果不是单个实体，请检查参数设置。")
-        thread_solid = thread_solid_results[0]
+        thread_solid = cut_rsolidlist(thread_solid, helical_cut_solid)
         print("    螺纹切割完成")
 
     except Exception as e:
         print(f"    错误: 步骤3切割螺纹失败 - {e}")
-        raise ValueError(f"螺纹切割失败，可能是几何运算失败") from e
+        raise_harness_error(
+            operation="make_threaded_rod_rsolid",
+            what_happened="Failed while cutting the thread geometry into the rod body.",
+            possible_causes=[
+                "The thread cutter does not intersect the rod body as expected.",
+                "The boolean cut failed on the current geometry.",
+            ],
+            how_to_fix=[
+                "Inspect the rod body and the translated helical cutter before the cut step.",
+                "Reduce thread depth or simplify the cutter geometry to isolate the boolean failure.",
+            ],
+            error=e,
+        )
 
     try:
         # 步骤4: 添加螺杆末端倒角
         print("  步骤4: 添加螺杆末端倒角...")
 
-        # 获取螺杆的边进行倒角
-        thread_edges = thread_solid.get_edges()
-        # 选择螺杆底端的边进行倒角（通常是圆形边）
-        bottom_edges = thread_edges[:1]  # 简单选择前几条边
+        # 使用QL语义选择器选择螺杆底端的圆形边，避免依赖拓扑顺序。
+        bottom_edge_selector = (
+            ql.edges()
+            .where(ql.curve_type("circle"))
+            .order_by(ql.center_axis("z"))
+            .take(1)
+            .exactly(1)
+        )
 
         # 对螺杆末端进行倒角处理
-        thread_solid = chamfer_rsolid(thread_solid, bottom_edges, chamfer_size)
+        thread_solid = chamfer_rsolid(thread_solid, bottom_edge_selector, chamfer_size)
         print(f"    螺杆末端倒角完成，倒角尺寸: {chamfer_size}mm")
 
     except Exception as e:
@@ -466,7 +564,19 @@ def make_threaded_rod_rsolid(
 
     except Exception as e:
         print(f"    错误: 步骤5验证失败 - {e}")
-        raise ValueError(f"最终结果验证失败") from e
+        raise_harness_error(
+            operation="make_threaded_rod_rsolid",
+            what_happened="The final threaded rod result failed validation.",
+            possible_causes=[
+                "An earlier rod or thread step returned an invalid solid.",
+                "The final result is no longer a valid Solid after feature operations.",
+            ],
+            how_to_fix=[
+                "Inspect the intermediate rod body, thread cutter, and final cut result.",
+                "Temporarily skip chamfering to isolate the first failing stage.",
+            ],
+            error=e,
+        )
 
     print("螺杆创建完成！")
     return thread_solid

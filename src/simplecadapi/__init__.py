@@ -1,4 +1,4 @@
-"""SimpleCAD API: a simplified Python CAD modeling API built on CADQuery."""
+"""SimpleCAD API: a simplified OCP-native Python CAD modeling API."""
 
 from .core import (
     # 核心类
@@ -43,39 +43,32 @@ from .operations import (
     make_three_point_arc_redge,
     make_three_point_arc_rwire,
     make_wire_from_edges_rwire,
-
     # 变换操作
     mirror_shape,
     rotate_shape,
     translate_shape,
-
     # 3D操作
     extrude_rsolid,
     helical_sweep_rsolid,
     loft_rsolid,
     revolve_rsolid,
     sweep_rsolid,
-
     # 标签和选择
     select_edges_by_tag,
     select_faces_by_tag,
     set_tag,
-
     # 布尔运算
     cut_rsolidlist,
     intersect_rsolidlist,
     union_rsolidlist,
-
     # 导出
     export_step,
     export_stl,
     render_screenshot_rpath,
-
     # 高级特征操作
     chamfer_rsolid,
     fillet_rsolid,
     shell_rsolid,
-
     # 其他
     linear_pattern_rsolidlist,
     radial_pattern_rsolidlist,
@@ -110,12 +103,44 @@ from .constraints import (
     AxisAnchor,
     stack,
 )
+from .graph import GraphSession, suspend_graph_recording
+from .serializer import export_graph_json, import_graph_json, replay_graph
+from .serializer import export_session_json, import_session_json
+from .serializer import export_model_json, import_model_json, replay_model_json
+from .freecad_translator import (
+    translate_model_json_to_fcstd,
+    translate_model_json_to_freecad_script,
+)
+from .expr import (
+    Expr,
+    Var,
+    Const,
+    ExpressionGraph,
+    acos,
+    asin,
+    atan,
+    atan2,
+    const,
+    cos,
+    sin,
+    sqrt,
+    tan,
+    var,
+)
+from .sketch import Sketch
+from .topology import SemanticDelta, SemanticRef
+from .errors import SimpleCADError
 
 from . import field
 from . import ql
 
+# Avoid advertising internal implementation submodules from the top-level package
+# namespace. They remain importable as `simplecadapi.<module>` when needed.
+for _name in ("tracking", "autotag", "topology", "graph", "serializer"):
+    globals().pop(_name, None)
+
 __author__ = "SimpleCAD API Team"
-__description__ = "Simplified CAD modeling Python API based on CADQuery"
+__description__ = "Simplified OCP-native CAD modeling Python API"
 
 # 便于使用的别名
 Workplane = SimpleWorkplane
@@ -175,11 +200,9 @@ __all__ = [
     "Solid",
     "AnyShape",
     "TaggedMixin",
-
     # 坐标系
     "get_current_cs",
     "WORLD_CS",
-
     # 基础几何创建
     "make_angle_arc_redge",
     "make_angle_arc_rwire",
@@ -206,46 +229,39 @@ __all__ = [
     "make_three_point_arc_redge",
     "make_three_point_arc_rwire",
     "make_wire_from_edges_rwire",
-
     # 变换操作
     "mirror_shape",
     "rotate_shape",
     "translate_shape",
-
     # 3D操作
     "extrude_rsolid",
     "helical_sweep_rsolid",
     "loft_rsolid",
     "revolve_rsolid",
     "sweep_rsolid",
-
     # 标签和选择
     "select_edges_by_tag",
     "select_faces_by_tag",
     "set_tag",
-
     # 布尔运算
     "cut_rsolidlist",
     "intersect_rsolidlist",
     "union_rsolidlist",
-
     # 导出
     "export_step",
     "export_stl",
+    "replay_model_json",
     "render_screenshot_rpath",
-
     # 高级特征操作
     "chamfer_rsolid",
     "fillet_rsolid",
     "shell_rsolid",
-
     # 其他
     "linear_pattern_rsolidlist",
     "make_n_hole_flange_rsolid",
     "make_naca_propeller_blade_rsolid",
     "make_threaded_rod_rsolid",
     "radial_pattern_rsolidlist",
-
     # 声明式装配约束
     "add_part_rassembly",
     "clear_constraints_rassembly",
@@ -268,7 +284,36 @@ __all__ = [
     "stack",
     "field",
     "ql",
-
+    # Graph/session + serialization APIs
+    "GraphSession",
+    "suspend_graph_recording",
+    "export_graph_json",
+    "import_graph_json",
+    "replay_graph",
+    "export_session_json",
+    "import_session_json",
+    "export_model_json",
+    "import_model_json",
+    "translate_model_json_to_freecad_script",
+    "translate_model_json_to_fcstd",
+    "Expr",
+    "Var",
+    "Const",
+    "ExpressionGraph",
+    "acos",
+    "asin",
+    "atan",
+    "atan2",
+    "const",
+    "cos",
+    "sin",
+    "sqrt",
+    "tan",
+    "var",
+    "Sketch",
+    "SemanticRef",
+    "SemanticDelta",
+    "SimpleCADError",
     # 别名
     "create_angle_arc",
     "create_angle_arc_wire",

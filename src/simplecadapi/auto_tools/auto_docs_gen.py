@@ -21,6 +21,30 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "evolve.py",
     "constraints.py",
     "ql.py",
+    "serializer.py",
+    "expr.py",
+    "graph.py",
+    "sketch.py",
+    "errors.py",
+    "topology.py",
+)
+
+FULL_PUBLIC_FUNCTION_MODULES = frozenset(
+    {
+        "operations.py",
+        "field.py",
+        "evolve.py",
+        "constraints.py",
+        "ql.py",
+    }
+)
+
+EXPORTED_FUNCTION_MODULES = frozenset(
+    {"serializer.py", "graph.py", "expr.py", "errors.py"}
+)
+
+EXPORTED_CALLABLE_MODULES = frozenset(
+    {"expr.py", "graph.py", "sketch.py", "errors.py", "topology.py"}
 )
 
 MISSING = object()
@@ -60,9 +84,11 @@ class ApiInfo:
     """Container for extracted API metadata."""
 
     name: str
+    kind: str
     signature: str
     source_file: str
     parsed_doc: Dict[str, object]
+    doc_filename: str = ""
 
 
 class APIDocumentGenerator:
@@ -86,10 +112,11 @@ class APIDocumentGenerator:
             print(message)
 
     def extract_apis(self) -> List[ApiInfo]:
-        """Extract all top-level public functions with docstrings."""
+        """Extract supported public callables with docstrings."""
         self.log("正在分析源文件...")
 
         extracted: List[ApiInfo] = []
+        exported_names = self._load_top_level_exports()
         for file_path in self.source_files:
             if not file_path.exists():
                 self.log(f"警告: 找不到文件 {file_path}，跳过。")
@@ -98,33 +125,151 @@ class APIDocumentGenerator:
             self.log(f"  正在处理 {file_path}...")
             source = file_path.read_text(encoding="utf-8")
             tree = ast.parse(source, filename=str(file_path))
+            module_name = file_path.name
 
             file_count = 0
             for node in tree.body:
-                if not isinstance(node, ast.FunctionDef):
-                    continue
-                if node.name.startswith("_"):
-                    continue
-
-                docstring = ast.get_docstring(node)
-                if not docstring:
+                api_info = self._extract_api_info(node, module_name, exported_names)
+                if api_info is None:
                     continue
 
-                extracted.append(
-                    ApiInfo(
-                        name=node.name,
-                        signature=self._get_function_signature(node),
-                        source_file=file_path.name,
-                        parsed_doc=self._parse_docstring(docstring),
-                    )
-                )
+                extracted.append(api_info)
                 file_count += 1
 
             self.log(f"    从 {file_path.name} 提取到 {file_count} 个API")
 
-        self.apis = extracted
-        self.log(f"成功总共提取到 {len(extracted)} 个API")
-        return extracted
+        self.apis = self._assign_doc_filenames(extracted)
+        self.log(f"成功总共提取到 {len(self.apis)} 个API")
+        return self.apis
+
+    @staticmethod
+    def _assign_doc_filenames(apis: List[ApiInfo]) -> List[ApiInfo]:
+        counts: Dict[str, int] = {}
+        assigned: List[ApiInfo] = []
+
+        for api in apis:
+            base = api.name
+            lowered = base.lower()
+            counts[lowered] = counts.get(lowered, 0) + 1
+            if counts[lowered] == 1:
+                filename = f"{base}.md"
+            else:
+                filename = f"{base}_{api.kind}.md"
+            assigned.append(
+                ApiInfo(
+                    name=api.name,
+                    kind=api.kind,
+                    signature=api.signature,
+                    source_file=api.source_file,
+                    parsed_doc=api.parsed_doc,
+                    doc_filename=filename,
+                )
+            )
+
+        return assigned
+
+    def _extract_api_info(
+        self,
+        node: ast.stmt,
+        module_name: str,
+        exported_names: set[str],
+    ) -> ApiInfo | None:
+        if isinstance(node, ast.FunctionDef):
+            if not self._should_include_function(
+                node.name, module_name, exported_names
+            ):
+                return None
+
+            docstring = ast.get_docstring(node)
+            if not docstring:
+                return None
+
+            return ApiInfo(
+                name=node.name,
+                kind="function",
+                signature=self._get_function_signature(node),
+                source_file=module_name,
+                parsed_doc=self._parse_docstring(docstring),
+            )
+
+        if isinstance(node, ast.ClassDef):
+            if not self._should_include_class(node.name, module_name, exported_names):
+                return None
+
+            docstring = ast.get_docstring(node)
+            if not docstring:
+                return None
+
+            return ApiInfo(
+                name=node.name,
+                kind="class",
+                signature=self._get_class_signature(node),
+                source_file=module_name,
+                parsed_doc=self._parse_docstring(docstring),
+            )
+
+        return None
+
+    @staticmethod
+    def _should_include_function(
+        name: str,
+        module_name: str,
+        exported_names: set[str],
+    ) -> bool:
+        if name.startswith("_"):
+            return False
+        if module_name in FULL_PUBLIC_FUNCTION_MODULES:
+            return True
+        if module_name in EXPORTED_FUNCTION_MODULES:
+            if not exported_names:
+                return True
+            return name in exported_names
+        return False
+
+    @staticmethod
+    def _should_include_class(
+        name: str,
+        module_name: str,
+        exported_names: set[str],
+    ) -> bool:
+        if name.startswith("_"):
+            return False
+        if module_name not in EXPORTED_CALLABLE_MODULES:
+            return False
+        if not exported_names:
+            return True
+        return name in exported_names
+
+    def _load_top_level_exports(self) -> set[str]:
+        init_file = self._find_top_level_init_file()
+        if init_file is None or not init_file.exists():
+            return set()
+
+        tree = ast.parse(init_file.read_text(encoding="utf-8"), filename=str(init_file))
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            if len(node.targets) != 1:
+                continue
+            target = node.targets[0]
+            if not isinstance(target, ast.Name) or target.id != "__all__":
+                continue
+            if not isinstance(node.value, (ast.List, ast.Tuple)):
+                continue
+
+            exported: set[str] = set()
+            for item in node.value.elts:
+                if isinstance(item, ast.Constant) and isinstance(item.value, str):
+                    exported.add(item.value)
+            return exported
+        return set()
+
+    def _find_top_level_init_file(self) -> Path | None:
+        for source_file in self.source_files:
+            candidate = source_file.parent / "__init__.py"
+            if candidate.exists():
+                return candidate
+        return None
 
     def generate_markdown_docs(self) -> None:
         """Generate markdown docs for all configured output directories."""
@@ -143,7 +288,7 @@ class APIDocumentGenerator:
         created_or_updated = 0
 
         for api in sorted(self.apis, key=lambda item: item.name):
-            filename = f"{api.name}.md"
+            filename = api.doc_filename or f"{api.name}.md"
             file_path = output_dir / filename
             md_content = self._build_single_api_markdown(api)
             changed = self._write_if_changed(file_path, md_content)
@@ -168,11 +313,14 @@ class APIDocumentGenerator:
     def _build_single_api_markdown(self, api: ApiInfo) -> str:
         parsed = api.parsed_doc
         md_lines: List[str] = []
+        definition_title = (
+            "Class Definition" if api.kind == "class" else "API Definition"
+        )
 
         md_lines.append(f"# {api.name}")
         md_lines.append("")
 
-        md_lines.append("## API Definition")
+        md_lines.append(f"## {definition_title}")
         md_lines.append("")
         md_lines.append("```python")
         md_lines.append(api.signature)
@@ -246,6 +394,9 @@ class APIDocumentGenerator:
             "Tagging and Selection": [],
             "Boolean Operations": [],
             "Export": [],
+            "Modeling Graph and Replay": [],
+            "Expressions and Parameters": [],
+            "Types and Errors": [],
             "Advanced Features": [],
             "Evolve": [],
             "Assembly Constraints": [],
@@ -261,6 +412,18 @@ class APIDocumentGenerator:
 
             if api.source_file == "constraints.py":
                 categories["Assembly Constraints"].append(api)
+                continue
+
+            if api.source_file in {"serializer.py", "graph.py"}:
+                categories["Modeling Graph and Replay"].append(api)
+                continue
+
+            if api.source_file == "expr.py":
+                categories["Expressions and Parameters"].append(api)
+                continue
+
+            if api.source_file in {"sketch.py", "errors.py"}:
+                categories["Types and Errors"].append(api)
                 continue
 
             if name.startswith("make_"):
@@ -285,7 +448,7 @@ class APIDocumentGenerator:
         md_lines: List[str] = [
             "# SimpleCAD API Index",
             "",
-            "This index includes API docs generated from `operations.py`, `evolve.py`, `constraints.py`, and `ql.py`.",
+            "This index includes generated docs for the public SimpleCAD API surface, including v2 graph, expression, and model JSON workflows.",
             "",
         ]
 
@@ -296,7 +459,8 @@ class APIDocumentGenerator:
             md_lines.append("")
             for api in sorted(api_list, key=lambda item: item.name):
                 source_info = f" *(from {api.source_file})*"
-                md_lines.append(f"- [{api.name}]({api.name}.md){source_info}")
+                doc_filename = api.doc_filename or f"{api.name}.md"
+                md_lines.append(f"- [{api.name}]({doc_filename}){source_info}")
             md_lines.append("")
 
         return "\n".join(md_lines).rstrip() + "\n"
@@ -511,6 +675,51 @@ class APIDocumentGenerator:
             returns = f" -> {self._safe_unparse(node.returns)}"
 
         return f"def {node.name}({', '.join(params)}){returns}"
+
+    def _get_class_signature(self, node: ast.ClassDef) -> str:
+        init_method: ast.FunctionDef | None = None
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+                init_method = item
+                break
+
+        if init_method is None:
+            return f"class {node.name}"
+
+        params: List[str] = []
+
+        positional = list(init_method.args.posonlyargs) + list(init_method.args.args)
+        if positional and positional[0].arg == "self":
+            positional = positional[1:]
+        padded_defaults = [MISSING] * (
+            len(positional) - len(init_method.args.defaults)
+        ) + list(init_method.args.defaults)
+
+        for arg, default in zip(positional, padded_defaults):
+            params.append(self._format_arg(arg, default))
+
+        if init_method.args.posonlyargs:
+            visible_posonly_count = len(init_method.args.posonlyargs)
+            if init_method.args.args and init_method.args.args[0].arg == "self":
+                visible_posonly_count = max(0, visible_posonly_count - 1)
+            if visible_posonly_count > 0:
+                params.insert(visible_posonly_count, "/")
+
+        if init_method.args.vararg:
+            params.append(f"*{self._format_arg(init_method.args.vararg)}")
+        elif init_method.args.kwonlyargs:
+            params.append("*")
+
+        for kw_arg, kw_default in zip(
+            init_method.args.kwonlyargs, init_method.args.kw_defaults
+        ):
+            default = kw_default if kw_default is not None else MISSING
+            params.append(self._format_arg(kw_arg, default))
+
+        if init_method.args.kwarg:
+            params.append(f"**{self._format_arg(init_method.args.kwarg)}")
+
+        return f"class {node.name}({', '.join(params)})"
 
     def _format_arg(self, arg: ast.arg, default: object = MISSING) -> str:
         text = arg.arg

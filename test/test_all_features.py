@@ -13,6 +13,7 @@ from contextlib import redirect_stdout
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 import simplecadapi as scad
+from simplecadapi.kernel.ocp_properties import bounding_box
 
 
 class TestBasicShapes(unittest.TestCase):
@@ -256,10 +257,7 @@ class TestBooleanOperations(unittest.TestCase):
 
     def test_union(self):
         """Test union."""
-        results = scad.union_rsolidlist([self.box1, self.box2])
-        self.assertIsInstance(results, list)
-        self.assertEqual(len(results), 1)
-        result = results[0]
+        result = scad.union_rsolidlist([self.box1, self.box2])
         self.assertIsInstance(result, scad.Solid)
         # 并集体积应该大于任一单独体积
         self.assertGreater(result.get_volume(), self.box1.get_volume())
@@ -273,18 +271,12 @@ class TestBooleanOperations(unittest.TestCase):
         box_far_3 = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 5, 0))
 
         solids = [box_far_1, box_far_2, box_far_3]
-        stdout_buffer = io.StringIO()
-        with redirect_stdout(stdout_buffer):
-            results = scad.union_rsolidlist(solids)
-        warning_text = stdout_buffer.getvalue()
+        with self.assertRaises(scad.SimpleCADError) as ctx:
+            scad.union_rsolidlist(solids)
 
-        self.assertIsInstance(results, list)
-        self.assertEqual(len(results), len(solids))
-        for solid in results:
-            self.assertIsInstance(solid, scad.Solid)
-        self.assertIn("[WARNING]", warning_text)
-        self.assertIn("does not touch", warning_text)
-        self.assertIn("exceeds tol", warning_text)
+        message = str(ctx.exception)
+        self.assertIn("union_rsolidlist", message)
+        self.assertIn("单个Solid结果", message)
 
     def test_union_touching_boxes_cleans_splitter_faces(self):
         """Test union of face-touching boxes follows CadQuery-style clean behavior."""
@@ -294,11 +286,10 @@ class TestBooleanOperations(unittest.TestCase):
 
         stdout_buffer = io.StringIO()
         with redirect_stdout(stdout_buffer):
-            results = scad.union_rsolidlist(box_left, box_right)
+            result = scad.union_rsolidlist(box_left, box_right)
 
-        self.assertEqual(len(results), 1)
-        self.assertAlmostEqual(results[0].get_volume(), 2.0, places=6)
-        self.assertEqual(len(results[0].get_faces()), 6)
+        self.assertAlmostEqual(result.get_volume(), 2.0, places=6)
+        self.assertEqual(len(result.get_faces()), 6)
         self.assertEqual(stdout_buffer.getvalue(), "")
 
     def test_union_supports_fuzzy_tolerance(self):
@@ -309,30 +300,24 @@ class TestBooleanOperations(unittest.TestCase):
             1.0, 1.0, 1.0, bottom_face_center=(1.001, 0, 0)
         )
 
-        without_tol = scad.union_rsolidlist(box_left, box_right)
+        with self.assertRaises(scad.SimpleCADError):
+            scad.union_rsolidlist(box_left, box_right)
         with_tol = scad.union_rsolidlist(box_left, box_right, tol=1e-3)
 
-        self.assertEqual(len(without_tol), 2)
-        self.assertEqual(len(with_tol), 1)
-        self.assertGreater(with_tol[0].get_volume(), 2.0)
-        self.assertLess(with_tol[0].get_volume(), 2.01)
+        self.assertIsInstance(with_tol, scad.Solid)
+        self.assertGreater(with_tol.get_volume(), 2.0)
+        self.assertLess(with_tol.get_volume(), 2.01)
 
     def test_cut(self):
         """Test cut."""
-        result_list = scad.cut_rsolidlist(self.box1, self.box2)
-        self.assertIsInstance(result_list, list)
-        self.assertEqual(len(result_list), 1)
-        result = result_list[0]
+        result = scad.cut_rsolidlist(self.box1, self.box2)
         self.assertIsInstance(result, scad.Solid)
         # 差集体积应该小于原体积
         self.assertLess(result.get_volume(), self.box1.get_volume())
 
     def test_intersect(self):
         """Test intersect."""
-        result_list = scad.intersect_rsolidlist(self.box1, self.box2)
-        self.assertIsInstance(result_list, list)
-        self.assertEqual(len(result_list), 1)
-        result = result_list[0]
+        result = scad.intersect_rsolidlist(self.box1, self.box2)
         self.assertIsInstance(result, scad.Solid)
         # 交集体积应该小于任一体积
         self.assertLess(result.get_volume(), self.box1.get_volume())
@@ -620,12 +605,8 @@ class TestComplexExamples(unittest.TestCase):
         hole2 = scad.make_cylinder_rsolid(1, 3, bottom_face_center=(4, 0, 0))
 
         # 组合
-        bracket_list = scad.cut_rsolidlist(base, hole1)
-        self.assertEqual(len(bracket_list), 1)
-        bracket = bracket_list[0]
-        bracket_list = scad.cut_rsolidlist(bracket, hole2)
-        self.assertEqual(len(bracket_list), 1)
-        bracket = bracket_list[0]
+        bracket = scad.cut_rsolidlist(base, hole1)
+        bracket = scad.cut_rsolidlist(bracket, hole2)
 
         # 添加标签
         scad.set_tag(bracket, "bracket")
@@ -643,19 +624,14 @@ class TestComplexExamples(unittest.TestCase):
 
         # 创建中心孔
         center_hole = scad.make_cylinder_rsolid(1, 1.5, bottom_face_center=(0, 0, 0.5))
-        gear_base_list = scad.cut_rsolidlist(gear_base, center_hole)
-        self.assertEqual(len(gear_base_list), 1)
-        gear_base = gear_base_list[0]
+        gear_base = scad.cut_rsolidlist(gear_base, center_hole)
 
         # 创建齿（简化版本）
         tooth_profile = scad.make_rectangle_rface(0.5, 0.3, center=(5.0, 0, 0))
         tooth = scad.extrude_rsolid(tooth_profile, (0, 0, 1), 1.2)
 
         # 合并一个齿到基础上
-        gear_list = scad.union_rsolidlist([gear_base, tooth])
-        self.assertIsInstance(gear_list, list)
-        self.assertEqual(len(gear_list), 1)
-        gear = gear_list[0]
+        gear = scad.union_rsolidlist([gear_base, tooth])
 
         # 验证
         self.assertIsInstance(gear, scad.Solid)
@@ -670,10 +646,7 @@ class TestComplexExamples(unittest.TestCase):
         cone_top = scad.make_cone_rsolid(2.0, 2.0, 0.5, bottom_face_center=(0, 0, 3.0))
 
         # 合并圆柱体和圆锥体
-        combined_list = scad.union_rsolidlist([base_cylinder, cone_top])
-        self.assertIsInstance(combined_list, list)
-        self.assertEqual(len(combined_list), 1)
-        combined_shape = combined_list[0]
+        combined_shape = scad.union_rsolidlist([base_cylinder, cone_top])
 
         # 验证
         self.assertIsInstance(combined_shape, scad.Solid)
@@ -681,12 +654,9 @@ class TestComplexExamples(unittest.TestCase):
 
         # 测试从圆锥体上切割
         cut_cone = scad.make_cone_rsolid(1.0, 1.5, bottom_face_center=(0, 0, 0))
-        result_list = scad.cut_rsolidlist(combined_shape, cut_cone)
+        result = scad.cut_rsolidlist(combined_shape, cut_cone)
 
         # 验证切割后的体积小于原体积
-        self.assertIsInstance(result_list, list)
-        self.assertEqual(len(result_list), 1)
-        result = result_list[0]
         self.assertIsInstance(result, scad.Solid)
         self.assertLess(result.get_volume(), combined_shape.get_volume())
 
@@ -698,14 +668,10 @@ class TestComplexExamples(unittest.TestCase):
         box3 = scad.make_box_rsolid(2, 2, 2, bottom_face_center=(0, 1, 0))
 
         # 复合布尔运算：(box1 ∪ box2) ∩ box3
-        union_results = scad.union_rsolidlist([box1, box2])
-        self.assertTrue(union_results)
-        final_results = scad.intersect_rsolidlist(union_results[0], box3)
+        union_result = scad.union_rsolidlist([box1, box2])
+        final_result = scad.intersect_rsolidlist(union_result, box3)
 
         # 验证
-        self.assertIsInstance(final_results, list)
-        self.assertEqual(len(final_results), 1)
-        final_result = final_results[0]
         self.assertIsInstance(final_result, scad.Solid)
         self.assertGreater(final_result.get_volume(), 0)
         self.assertLess(final_result.get_volume(), box1.get_volume())
@@ -815,16 +781,10 @@ class TestNewFunctionIntegration(unittest.TestCase):
         points = [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (2.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
         rect_wire = scad.make_polyline_rwire(points, closed=True)
 
-        try:
-            # 将Wire转换为Face并拉伸
-            import cadquery as cq
-
-            rect_face = scad.Face(cq.Face.makeFromWires(rect_wire.cq_wire))
-            extruded = scad.extrude_rsolid(rect_face, (0, 0, 1), 1.0)
-            self.assertIsInstance(extruded, scad.Solid)
-            self.assertAlmostEqual(extruded.get_volume(), 2.0, places=6)
-        except Exception as e:
-            self.skipTest(f"Extrusion integration not fully working: {e}")
+        rect_face = scad.make_face_from_wire_rface(rect_wire)
+        extruded = scad.extrude_rsolid(rect_face, (0, 0, 1), 1.0)
+        self.assertIsInstance(extruded, scad.Solid)
+        self.assertAlmostEqual(extruded.get_volume(), 2.0, places=6)
 
     def test_alias_functions(self):
         """Test alias functions."""
@@ -870,8 +830,8 @@ class TestDeclarativeConstraints(unittest.TestCase):
         result = asm.solve()
         self.assertTrue(result.report.converged)
 
-        sleeve_bb = result.get_solid("sleeve").cq_solid.BoundingBox()
-        rod_bb = result.get_solid("rod").cq_solid.BoundingBox()
+        sleeve_bb = bounding_box(result.get_solid("sleeve").wrapped)
+        rod_bb = bounding_box(result.get_solid("rod").wrapped)
 
         sleeve_cx = 0.5 * (sleeve_bb.xmin + sleeve_bb.xmax)
         sleeve_cy = 0.5 * (sleeve_bb.ymin + sleeve_bb.ymax)
@@ -896,9 +856,9 @@ class TestDeclarativeConstraints(unittest.TestCase):
         result = asm.solve()
         self.assertTrue(result.report.converged)
 
-        bb_a = result.get_solid("a").cq_solid.BoundingBox()
-        bb_b = result.get_solid("b").cq_solid.BoundingBox()
-        bb_c = result.get_solid("c").cq_solid.BoundingBox()
+        bb_a = bounding_box(result.get_solid("a").wrapped)
+        bb_b = bounding_box(result.get_solid("b").wrapped)
+        bb_c = bounding_box(result.get_solid("c").wrapped)
 
         self.assertAlmostEqual(bb_b.zmin, bb_a.zmax + 1.5, places=6)
         self.assertAlmostEqual(bb_c.zmin, bb_b.zmax + 1.5, places=6)
@@ -938,8 +898,8 @@ class TestDeclarativeConstraints(unittest.TestCase):
         asm.translate_part("parent", (10.0, 0.0, 0.0), frame="world")
         result = asm.solve()
 
-        bb_parent = result.get_solid("parent").cq_solid.BoundingBox()
-        bb_child = result.get_solid("child").cq_solid.BoundingBox()
+        bb_parent = bounding_box(result.get_solid("parent").wrapped)
+        bb_child = bounding_box(result.get_solid("child").wrapped)
 
         center_parent_x = 0.5 * (bb_parent.xmin + bb_parent.xmax)
         center_child_x = 0.5 * (bb_child.xmin + bb_child.xmax)
@@ -970,9 +930,9 @@ class TestDeclarativeConstraints(unittest.TestCase):
         result = asm.solve()
         self.assertTrue(result.report.converged)
 
-        bb_a = result.get_solid("a").cq_solid.BoundingBox()
-        bb_b = result.get_solid("b").cq_solid.BoundingBox()
-        bb_c = result.get_solid("container").cq_solid.BoundingBox()
+        bb_a = bounding_box(result.get_solid("a").wrapped)
+        bb_b = bounding_box(result.get_solid("b").wrapped)
+        bb_c = bounding_box(result.get_solid("container").wrapped)
 
         # 容器高10，(2 + 1 + gap1)=4，居中后首件底部应在z=3
         self.assertAlmostEqual(bb_a.zmin, bb_c.zmin + 3.0, places=6)
@@ -1003,10 +963,10 @@ class TestDeclarativeConstraints(unittest.TestCase):
         result = asm.solve()
         self.assertTrue(result.report.converged)
 
-        bb1 = result.get_solid("p1").cq_solid.BoundingBox()
-        bb2 = result.get_solid("p2").cq_solid.BoundingBox()
-        bb3 = result.get_solid("p3").cq_solid.BoundingBox()
-        bbc = result.get_solid("container").cq_solid.BoundingBox()
+        bb1 = bounding_box(result.get_solid("p1").wrapped)
+        bb2 = bounding_box(result.get_solid("p2").wrapped)
+        bb3 = bounding_box(result.get_solid("p3").wrapped)
+        bbc = bounding_box(result.get_solid("container").wrapped)
 
         # 总高11，三个高度各1 => gap=(11-3)/2=4
         self.assertAlmostEqual(bb1.zmin, bbc.zmin, places=6)
@@ -1041,8 +1001,8 @@ class TestDeclarativeConstraints(unittest.TestCase):
         base_result = scad.solve_assembly_rresult(base)
         moved_result = scad.solve_assembly_rresult(moved)
 
-        bb_base_b = base_result.get_solid("b").cq_solid.BoundingBox()
-        bb_moved_b = moved_result.get_solid("b").cq_solid.BoundingBox()
+        bb_base_b = bounding_box(base_result.get_solid("b").wrapped)
+        bb_moved_b = bounding_box(moved_result.get_solid("b").wrapped)
 
         base_cx = 0.5 * (bb_base_b.xmin + bb_base_b.xmax)
         moved_cx = 0.5 * (bb_moved_b.xmin + bb_moved_b.xmax)
@@ -1074,8 +1034,8 @@ class TestDeclarativeConstraints(unittest.TestCase):
         )
 
         result = scad.solve_assembly_rresult(asm)
-        bb_parent = result.get_solid("parent").cq_solid.BoundingBox()
-        bb_child = result.get_solid("child").cq_solid.BoundingBox()
+        bb_parent = bounding_box(result.get_solid("parent").wrapped)
+        bb_child = bounding_box(result.get_solid("child").wrapped)
 
         center_parent_x = 0.5 * (bb_parent.xmin + bb_parent.xmax)
         center_child_x = 0.5 * (bb_child.xmin + bb_child.xmax)

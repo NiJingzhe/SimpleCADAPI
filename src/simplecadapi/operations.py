@@ -1,13 +1,20 @@
 """SimpleCAD API operation implementations based on the README design."""
 
-from typing import List, Tuple, Union, Optional, Sequence, cast, Dict
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union, cast
 import math
 import numpy as np
-import cadquery as cq
-from cadquery import Vector
-from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing
+
+from ._vendor_warning_filters import suppress_vendor_deprecation_warnings
+from .errors import SimpleCADError, raise_harness_error
+
+suppress_vendor_deprecation_warnings()
+
+from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex, BRepBuilderAPI_Sewing
 from OCP.TopAbs import TopAbs_SHELL
 from OCP.TopExp import TopExp_Explorer
+from OCP.gp import gp_Pnt
 
 from .core import (
     Vertex,
@@ -21,18 +28,194 @@ from .core import (
 from .field import (
     ScalarField,
     bounds_rbbox,
+    serialize_scalar_field,
     eval_rarray,
     make_box_rscalarfield,
     intersect_rscalarfield,
 )
-
-from cadquery.occ_impl.shapes import cut, intersect, revolve
+from .autotag import apply_tracking_tags_to_delta
+from .expr import ScalarLike, evaluate_scalar, evaluate_value
+from .graph import (
+    get_active_session,
+    record_operation_if_active,
+    suspend_graph_recording,
+)
+from .ql import ShapeSelector
+from .topology import (
+    SemanticDelta,
+    SemanticRef,
+    TopoDelta,
+    TopoRef,
+    topo_ref_to_dict,
+)
+from .tracking import (
+    TrackedBooleanResult,
+    TrackedResult,
+    tracked_chamfer,
+    tracked_cut,
+    tracked_extrude,
+    tracked_fillet,
+    tracked_intersect,
+    tracked_mirror,
+    tracked_loft,
+    tracked_revolve,
+    tracked_rotate,
+    tracked_shell,
+    tracked_sweep,
+    tracked_translate,
+    tracked_union,
+)
+from .kernel.ocp_builders import (
+    make_box_solid,
+    make_cone_solid,
+    make_cylinder_solid,
+    make_sphere_solid,
+)
+from .kernel.ocp_curves import (
+    make_arc_angle_edge,
+    make_arc_three_point_edge,
+    make_bspline_edge,
+    make_circle_edge,
+    make_helix_wire,
+    make_line_edge,
+    make_polyline_wire,
+    make_wire_from_edges as make_wire_from_edges_ocp,
+)
+from .kernel.ocp_features import (
+    make_face_from_wire as make_face_from_wire_ocp,
+    make_helical_sweep_solid,
+    make_loft_solid,
+    make_sweep_solid,
+)
+from .kernel.ocp_transforms import (
+    mirror_shape_ocp,
+    rotate_shape_ocp,
+    translate_shape_ocp,
+)
+from .kernel.ocp_booleans import common_shapes, fuse_shapes, solids_of
+from .kernel.ocp_export import export_step_shapes, export_stl_shape, make_compound
+from .kernel.ocp_mesh import make_triangle_face, shell_is_closed, shell_metric, solid_from_shell, tessellate_face
+from .kernel.ocp_properties import bounding_box, distance as ocp_distance
 
 
 _DEFAULT_UNION_GLUE = True
 _DEFAULT_UNION_TOL_FACTOR = 1e-7
 _DEFAULT_UNION_TOL_MIN = 1e-7
 _DEFAULT_UNION_TOL_MAX = 1e-5
+
+
+_OP_MAKE_POINT_RVERTEX = "make_point_rvertex"
+_OP_MAKE_LINE_REDGE = "make_line_redge"
+_OP_MAKE_CIRCLE_REDGE = "make_circle_redge"
+_OP_MAKE_THREE_POINT_ARC_REDGE = "make_three_point_arc_redge"
+_OP_MAKE_ANGLE_ARC_REDGE = "make_angle_arc_redge"
+_OP_MAKE_SPLINE_REDGE = "make_spline_redge"
+_OP_MAKE_HELIX_REDGE = "make_helix_redge"
+_OP_MAKE_WIRE_FROM_EDGES_RWIRE = "make_wire_from_edges_rwire"
+_OP_MAKE_FACE_FROM_WIRE_RFACE = "make_face_from_wire_rface"
+_OP_MAKE_FIELD_SURFACE_RSOLID = "make_field_surface_rsolid"
+_OP_MAKE_TRANSLATE_RSHAPE = "make_translate_rshape"
+_OP_MAKE_ROTATE_RSHAPE = "make_rotate_rshape"
+_OP_MAKE_MIRROR_RSHAPE = "make_mirror_rshape"
+_OP_MAKE_EXTRUDE_RSOLID = "make_extrude_rsolid"
+_OP_MAKE_REVOLVE_RSOLID = "make_revolve_rsolid"
+_OP_MAKE_LOFT_RSOLID = "make_loft_rsolid"
+_OP_MAKE_SWEEP_RSOLID = "make_sweep_rsolid"
+_OP_MAKE_UNION_RSOLIDLIST = "make_union_rsolidlist"
+_OP_MAKE_CUT_RSOLIDLIST = "make_cut_rsolidlist"
+_OP_MAKE_INTERSECT_RSOLIDLIST = "make_intersect_rsolidlist"
+_OP_MAKE_FILLET_RSOLID = "make_fillet_rsolid"
+_OP_MAKE_CHAMFER_RSOLID = "make_chamfer_rsolid"
+_OP_MAKE_SHELL_RSOLID = "make_shell_rsolid"
+
+
+def _orthonormal_plane_axes(
+    normal: Tuple[float, float, float],
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    normal_vec = np.array(normal, dtype=float)
+    norm = float(np.linalg.norm(normal_vec))
+    if norm <= 1e-12:
+        raise ValueError("法向量不能是零向量")
+    z_axis = normal_vec / norm
+    ref_vec = (
+        np.array([1.0, 0.0, 0.0]) if abs(z_axis[2]) > 0.9 else np.array([0.0, 0.0, 1.0])
+    )
+    x_axis = np.cross(z_axis, ref_vec)
+    x_norm = float(np.linalg.norm(x_axis))
+    if x_norm <= 1e-12:
+        raise ValueError("无法根据给定法向量构建局部坐标系")
+    x_axis = x_axis / x_norm
+    y_axis = np.cross(z_axis, x_axis)
+    y_axis = y_axis / float(np.linalg.norm(y_axis))
+    return z_axis, x_axis, y_axis
+
+
+def _pick_perpendicular_unit(axis: Tuple[float, float, float]) -> np.ndarray:
+    axis_vec = np.array(axis, dtype=float)
+    axis_norm = float(np.linalg.norm(axis_vec))
+    if axis_norm <= 1e-12:
+        raise ValueError("轴向量不能是零向量")
+    axis_unit = axis_vec / axis_norm
+    ref_vec = (
+        np.array([1.0, 0.0, 0.0])
+        if abs(axis_unit[2]) > 0.9
+        else np.array([0.0, 0.0, 1.0])
+    )
+    radial = np.cross(axis_unit, ref_vec)
+    radial_norm = float(np.linalg.norm(radial))
+    if radial_norm <= 1e-12:
+        raise ValueError("无法根据给定轴向量构建旋转剖面")
+    return radial / radial_norm
+
+
+def _offset_point_expr(
+    center: Tuple[ScalarLike, ScalarLike, ScalarLike],
+    x_axis: Sequence[float],
+    y_axis: Sequence[float],
+    dx: ScalarLike,
+    dy: ScalarLike,
+) -> Tuple[ScalarLike, ScalarLike, ScalarLike]:
+    return (
+        center[0] + dx * float(x_axis[0]) + dy * float(y_axis[0]),
+        center[1] + dx * float(x_axis[1]) + dy * float(y_axis[1]),
+        center[2] + dx * float(x_axis[2]) + dy * float(y_axis[2]),
+    )
+
+
+def _make_closed_profile_rwire(
+    points: Sequence[Tuple[ScalarLike, ScalarLike, ScalarLike]],
+) -> Wire:
+    edges = [
+        make_line_redge(points[idx], points[(idx + 1) % len(points)])
+        for idx in range(len(points))
+    ]
+    return make_wire_from_edges_rwire(edges)
+
+
+def _make_closed_profile_rface(
+    points: Sequence[Tuple[ScalarLike, ScalarLike, ScalarLike]],
+    *,
+    normal: Tuple[float, float, float] = (0.0, 0.0, 1.0),
+) -> Face:
+    wire = _make_closed_profile_rwire(points)
+    return make_face_from_wire_rface(wire, normal=normal)
+
+
+def _wrap_public_api_error(
+    *,
+    operation: str,
+    what_happened: str,
+    possible_causes: Sequence[str],
+    how_to_fix: Sequence[str],
+    error: BaseException,
+) -> None:
+    raise_harness_error(
+        operation=operation,
+        what_happened=what_happened,
+        possible_causes=possible_causes,
+        how_to_fix=how_to_fix,
+        error=error,
+    )
 
 
 def _resolve_union_tol(
@@ -52,7 +235,7 @@ def _resolve_union_tol(
     bbox_max = np.array([-np.inf, -np.inf, -np.inf], dtype=float)
 
     for solid in solids:
-        bb = solid.cq_solid.BoundingBox()
+        bb = bounding_box(solid.wrapped)
         bbox_min = np.minimum(bbox_min, np.array([bb.xmin, bb.ymin, bb.zmin]))
         bbox_max = np.maximum(bbox_max, np.array([bb.xmax, bb.ymax, bb.zmax]))
 
@@ -79,7 +262,7 @@ def _warn_if_union_results_remain_separated(
 
     for i in range(len(results)):
         for j in range(i + 1, len(results)):
-            gap = float(results[i].cq_solid.distance(results[j].cq_solid))
+            gap = float(ocp_distance(results[i].wrapped, results[j].wrapped))
             if gap > effective_tol:
                 if nearest_gap_above_tol is None or gap < nearest_gap_above_tol:
                     nearest_gap_above_tol = gap
@@ -105,38 +288,486 @@ def _warn_if_union_results_remain_separated(
     )
 
 
+def _flatten_boolean_solids(
+    args: Sequence[Union[Solid, Sequence[Solid]]], operation_name: str
+) -> List[Solid]:
+    """Flatten nested boolean inputs into a validated solid list."""
+
+    def _flatten(values: Sequence[Union[Solid, Sequence[Solid]]]) -> List[Solid]:
+        flattened: List[Solid] = []
+        for value in values:
+            if isinstance(value, Solid):
+                flattened.append(value)
+            elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+                flattened.extend(
+                    _flatten(cast(Sequence[Union[Solid, Sequence[Solid]]], value))
+                )
+            else:
+                raise ValueError(f"{operation_name}函数只接受Solid类型的对象")
+        return flattened
+
+    return _flatten(args)
+
+
+def _require_single_boolean_solid(
+    result_shapes: Sequence[Any],
+    *,
+    operation: str,
+    failure_reason: str,
+) -> Solid:
+    if not result_shapes:
+        raise ValueError(failure_reason)
+    if len(result_shapes) != 1:
+        raise ValueError(
+            f"{operation} 期望得到单个Solid结果，但内核返回了 {len(result_shapes)} 个实体。"
+        )
+    return Solid(result_shapes[0])
+
+
+def _copy_runtime_state(source: AnyShape, target: AnyShape) -> AnyShape:
+    runtime = getattr(source, "_runtime", None)
+    if isinstance(runtime, dict):
+        target._runtime = runtime.copy()
+    return target
+
+
+def _current_context_metadata() -> Dict[str, Tuple[float, float, float]]:
+    cs = get_current_cs()
+    return {
+        "origin": (float(cs.origin[0]), float(cs.origin[1]), float(cs.origin[2])),
+        "x_axis": (float(cs.x_axis[0]), float(cs.x_axis[1]), float(cs.x_axis[2])),
+        "y_axis": (float(cs.y_axis[0]), float(cs.y_axis[1]), float(cs.y_axis[2])),
+        "z_axis": (float(cs.z_axis[0]), float(cs.z_axis[1]), float(cs.z_axis[2])),
+    }
+
+
+def _attach_track_summary(
+    shape: AnyShape,
+    *,
+    op: str,
+    delta: Optional[object] = None,
+    delta_entries: Optional[Dict[str, Dict[str, object]]] = None,
+) -> AnyShape:
+    track_payload: Dict[str, object] = {"op": op}
+    if delta is not None:
+        track_payload["has_delta"] = True
+        track_payload["preserved"] = len(getattr(delta, "preserved", ()))
+        track_payload["modified"] = len(getattr(delta, "modified", ()))
+        track_payload["generated"] = len(getattr(delta, "generated", ()))
+        track_payload["deleted"] = len(getattr(delta, "deleted", ()))
+    if delta_entries:
+        track_payload["entry_count"] = len(delta_entries)
+    shape.set_metadata("track", track_payload)
+    return shape
+
+
+def _vector_like_to_tuple(value: Any) -> Optional[Tuple[float, float, float]]:
+    if value is None:
+        return None
+    if hasattr(value, "x") and hasattr(value, "y") and hasattr(value, "z"):
+        return (float(value.x), float(value.y), float(value.z))
+    if isinstance(value, (list, tuple)) and len(value) == 3:
+        return (float(value[0]), float(value[1]), float(value[2]))
+    return None
+
+
+def _make_selector_hint(shape: AnyShape) -> Dict[str, object]:
+    hint: Dict[str, object] = {
+        "kind": type(shape).__name__.lower(),
+        "tags": sorted(shape.get_tags()),
+    }
+
+    if isinstance(shape, Edge):
+        hint["length"] = float(shape.get_length())
+        try:
+            hint["start"] = tuple(
+                float(v) for v in shape.get_start_vertex().get_coordinates()
+            )
+            hint["end"] = tuple(
+                float(v) for v in shape.get_end_vertex().get_coordinates()
+            )
+        except Exception:
+            center = getattr(shape.wrapped, "Center", lambda: None)()
+            center_tuple = _vector_like_to_tuple(center)
+            if center_tuple is not None:
+                hint["center"] = center_tuple
+    elif isinstance(shape, Face):
+        hint["area"] = float(shape.get_area())
+        center_tuple = _vector_like_to_tuple(shape.get_center())
+        normal_tuple = _vector_like_to_tuple(shape.get_normal_at())
+        if center_tuple is not None:
+            hint["center"] = center_tuple
+        if normal_tuple is not None:
+            hint["normal"] = normal_tuple
+    elif isinstance(shape, Wire):
+        hint["edge_count"] = len(shape.get_edges())
+        hint["closed"] = bool(shape.is_closed())
+    elif isinstance(shape, Vertex):
+        hint["coordinates"] = tuple(float(v) for v in shape.get_coordinates())
+    elif isinstance(shape, Solid):
+        hint["volume"] = float(shape.get_volume())
+        bb = bounding_box(shape.wrapped)
+        hint["bbox"] = {
+            "min": (float(bb.xmin), float(bb.ymin), float(bb.zmin)),
+            "max": (float(bb.xmax), float(bb.ymax), float(bb.zmax)),
+        }
+
+    return hint
+
+
+def _serialize_shape_ref(shape: AnyShape) -> Optional[Dict[str, object]]:
+    topo_ref = shape._get_runtime("topo.ref")
+    if isinstance(topo_ref, TopoRef):
+        data = cast(Dict[str, object], topo_ref_to_dict(topo_ref))
+        data["selector_hint"] = _make_selector_hint(shape)
+        return data
+
+    topo_ref_meta = shape.get_metadata("topo_ref")
+    if isinstance(topo_ref_meta, dict):
+        data = cast(Dict[str, object], dict(topo_ref_meta))
+        data["selector_hint"] = _make_selector_hint(shape)
+        return data
+
+    return None
+
+
+def _serialize_shape_refs(shapes: Sequence[AnyShape]) -> List[Dict[str, object]]:
+    refs: List[Dict[str, object]] = []
+    for shape in shapes:
+        ref = _serialize_shape_ref(shape)
+        if ref is not None:
+            refs.append(ref)
+    return refs
+
+
+def _shape_ref_topo_id(shape: AnyShape) -> Optional[str]:
+    ref = _serialize_shape_ref(shape)
+    if ref is None:
+        return None
+    topo_id = ref.get("topo_id")
+    return str(topo_id) if topo_id is not None else None
+
+
+def _serialize_selection_indices(
+    selected_shapes: Sequence[AnyShape],
+    candidates: Sequence[AnyShape],
+) -> List[int]:
+    candidate_index_by_topo_id: Dict[str, int] = {}
+    for idx, candidate in enumerate(candidates):
+        topo_id = _shape_ref_topo_id(candidate)
+        if topo_id is not None and topo_id not in candidate_index_by_topo_id:
+            candidate_index_by_topo_id[topo_id] = idx
+
+    result: List[int] = []
+    for selected in selected_shapes:
+        topo_id = _shape_ref_topo_id(selected)
+        if topo_id is None:
+            continue
+        if topo_id in candidate_index_by_topo_id:
+            result.append(candidate_index_by_topo_id[topo_id])
+    return result
+
+
+def _resolve_selector_or_shapes(
+    scope: AnyShape,
+    selection: Union[Sequence[AnyShape], ShapeSelector],
+) -> List[AnyShape]:
+    if isinstance(selection, ShapeSelector):
+        return cast(List[AnyShape], selection.resolve(scope))
+    return list(selection)
+
+
+def _serialize_selection_query(
+    selection: Union[Sequence[AnyShape], ShapeSelector],
+) -> Optional[Dict[str, object]]:
+    if isinstance(selection, ShapeSelector):
+        return cast(Dict[str, object], selection.to_dict())
+    return None
+
+
+def _semantic_delta_for_output(
+    op: str, output_count: int = 1, entity_type: Optional[str] = None
+) -> SemanticDelta:
+    resolved_entity_type = entity_type
+    if resolved_entity_type is None:
+        if op in {
+            "make_point",
+            _OP_MAKE_POINT_RVERTEX,
+        }:
+            resolved_entity_type = "Point"
+        elif op in {
+            "make_line",
+            "make_circle_edge",
+            "make_circle_wire",
+            "make_circle_face",
+            "make_rectangle_wire",
+            "make_rectangle_face",
+            "make_segment_wire",
+            "make_three_point_arc",
+            "make_three_point_arc_wire",
+            "make_angle_arc",
+            "make_angle_arc_wire",
+            "make_spline",
+            "make_spline_wire",
+            "make_polyline_wire",
+            "make_helix",
+            "make_helix_wire",
+            "make_face_from_wire",
+            "make_wire_from_edges",
+            _OP_MAKE_LINE_REDGE,
+            _OP_MAKE_CIRCLE_REDGE,
+            _OP_MAKE_THREE_POINT_ARC_REDGE,
+            _OP_MAKE_ANGLE_ARC_REDGE,
+            _OP_MAKE_SPLINE_REDGE,
+            _OP_MAKE_HELIX_REDGE,
+            _OP_MAKE_FACE_FROM_WIRE_RFACE,
+            _OP_MAKE_WIRE_FROM_EDGES_RWIRE,
+        }:
+            if op.endswith("_face") or op in {
+                "make_face_from_wire",
+                _OP_MAKE_FACE_FROM_WIRE_RFACE,
+            }:
+                resolved_entity_type = "Sketch"
+            else:
+                resolved_entity_type = "Profile"
+        elif op in {
+            "make_box",
+            "make_cylinder",
+            "make_cone",
+            "make_sphere",
+            "extrude",
+            "revolve",
+            "loft",
+            "sweep",
+            "helical_sweep",
+            "fillet",
+            "chamfer",
+            "shell",
+            "cut",
+            "union",
+            "intersect",
+            "translate",
+            "rotate",
+            "mirror",
+            _OP_MAKE_EXTRUDE_RSOLID,
+            _OP_MAKE_REVOLVE_RSOLID,
+            _OP_MAKE_LOFT_RSOLID,
+            _OP_MAKE_SWEEP_RSOLID,
+            _OP_MAKE_FILLET_RSOLID,
+            _OP_MAKE_CHAMFER_RSOLID,
+            _OP_MAKE_SHELL_RSOLID,
+            _OP_MAKE_CUT_RSOLIDLIST,
+            _OP_MAKE_UNION_RSOLIDLIST,
+            _OP_MAKE_INTERSECT_RSOLIDLIST,
+            _OP_MAKE_TRANSLATE_RSHAPE,
+            _OP_MAKE_ROTATE_RSHAPE,
+            _OP_MAKE_MIRROR_RSHAPE,
+            _OP_MAKE_FIELD_SURFACE_RSOLID,
+        }:
+            if op in {
+                "extrude",
+                "revolve",
+                "loft",
+                "sweep",
+                "fillet",
+                "chamfer",
+                "shell",
+                "cut",
+                "union",
+                "intersect",
+                _OP_MAKE_EXTRUDE_RSOLID,
+                _OP_MAKE_REVOLVE_RSOLID,
+                _OP_MAKE_LOFT_RSOLID,
+                _OP_MAKE_SWEEP_RSOLID,
+                _OP_MAKE_FILLET_RSOLID,
+                _OP_MAKE_CHAMFER_RSOLID,
+                _OP_MAKE_SHELL_RSOLID,
+                _OP_MAKE_CUT_RSOLIDLIST,
+                _OP_MAKE_UNION_RSOLIDLIST,
+                _OP_MAKE_INTERSECT_RSOLIDLIST,
+                _OP_MAKE_FIELD_SURFACE_RSOLID,
+            }:
+                resolved_entity_type = "Feature"
+            else:
+                resolved_entity_type = "Body"
+        else:
+            resolved_entity_type = "ShapeOutput"
+
+    refs = tuple(
+        SemanticRef(
+            graph_id="pending",
+            node_id="pending",
+            entity_type=resolved_entity_type,
+            entity_id=f"{op}:{slot}",
+        )
+        for slot in range(output_count)
+    )
+    return SemanticDelta(created=refs, metadata={"op": op})
+
+
+def _finalize_primitive_shape(
+    shape: AnyShape,
+    *,
+    op: str,
+    params: Dict[str, object],
+    tags: Optional[Set[str]] = None,
+) -> AnyShape:
+    _attach_track_summary(shape, op=op)
+    record_operation_if_active(
+        op=op,
+        params=params,
+        outputs=shape,
+        semantic_delta=_semantic_delta_for_output(op),
+        context=_current_context_metadata(),
+        tags=tags,
+    )
+    return shape
+
+
+def _finalize_primitive_solid(
+    solid: Solid,
+    *,
+    op: str,
+    params: Dict[str, object],
+    tags: Optional[Set[str]] = None,
+) -> Solid:
+    return cast(
+        Solid,
+        _finalize_primitive_shape(solid, op=op, params=params, tags=tags),
+    )
+
+
+def _finalize_derived_shape(
+    shape: AnyShape,
+    *,
+    op: str,
+    params: Dict[str, object],
+    input_shapes: Sequence[AnyShape],
+    tags: Optional[Set[str]] = None,
+) -> AnyShape:
+    _attach_track_summary(shape, op=op)
+    record_operation_if_active(
+        op=op,
+        params=params,
+        outputs=shape,
+        input_shapes=input_shapes,
+        semantic_delta=_semantic_delta_for_output(op),
+        context=_current_context_metadata(),
+        tags=tags,
+    )
+    return shape
+
+
+def _finalize_tracked_solid(
+    solid: Solid,
+    *,
+    op: str,
+    params: Dict[str, object],
+    source_solid: Optional[Solid] = None,
+    delta: Optional[object] = None,
+    delta_entries: Optional[Dict[str, Dict[str, object]]] = None,
+    input_shapes: Optional[Sequence[AnyShape]] = None,
+) -> Solid:
+    if delta is not None:
+        apply_tracking_tags_to_delta(
+            solid,
+            cast(TopoDelta, delta),
+            cast(Optional[Dict[str, Dict[str, Any]]], delta_entries),
+            op=op,
+            source_solid=source_solid,
+        )
+    _attach_track_summary(
+        solid,
+        op=op,
+        delta=delta,
+        delta_entries=delta_entries,
+    )
+    record_operation_if_active(
+        op=op,
+        params=params,
+        outputs=solid,
+        input_shapes=input_shapes,
+        semantic_delta=_semantic_delta_for_output(op),
+        topo_delta=cast(Optional[TopoDelta], delta),
+        context=_current_context_metadata(),
+    )
+    return solid
+
+
 # =============================================================================
 # 基础图形创建函数
 # =============================================================================
 
 
-def make_point_rvertex(x: float, y: float, z: float) -> Vertex:
+def make_point_rvertex(x: ScalarLike, y: ScalarLike, z: ScalarLike) -> Vertex:
     """Create a point in 3D space and return it as a vertex."""
     try:
         cs = get_current_cs()
-        global_point = cs.transform_point(np.array([x, y, z]))
-        cq_vertex = cq.Vertex.makeVertex(*global_point)
-        return Vertex(cq_vertex)
+        point_value = cast(Tuple[float, float, float], evaluate_value((x, y, z)))
+        global_point = cs.transform_point(np.array(point_value))
+        vertex_shape = BRepBuilderAPI_MakeVertex(gp_Pnt(float(global_point[0]), float(global_point[1]), float(global_point[2]))).Vertex()
+        return cast(
+            Vertex,
+            _finalize_primitive_shape(
+                Vertex(vertex_shape),
+                op=_OP_MAKE_POINT_RVERTEX,
+                params={"x": x, "y": y, "z": z},
+                tags={"primitive", "vertex"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建点失败: {e}. 请检查坐标值是否有效。")
+        _wrap_public_api_error(
+            operation="make_point_rvertex",
+            what_happened="Failed to create a point vertex.",
+            possible_causes=[
+                "One or more coordinate values are not valid finite scalars.",
+                "The current coordinate system rejected the transformed point.",
+            ],
+            how_to_fix=[
+                "Pass numeric x, y, and z values or valid scalar expressions.",
+                "Inspect the coordinate values and the active workplane before retrying.",
+            ],
+            error=e,
+        )
 
 
 def make_line_redge(
-    start: Tuple[float, float, float], end: Tuple[float, float, float]
+    start: Tuple[ScalarLike, ScalarLike, ScalarLike],
+    end: Tuple[ScalarLike, ScalarLike, ScalarLike],
 ) -> Edge:
     """Create a straight edge between two points."""
     try:
         cs = get_current_cs()
-        start_global = cs.transform_point(np.array(start))
-        end_global = cs.transform_point(np.array(end))
+        start_value = cast(Tuple[float, float, float], evaluate_value(start))
+        end_value = cast(Tuple[float, float, float], evaluate_value(end))
+        start_global = cs.transform_point(np.array(start_value))
+        end_global = cs.transform_point(np.array(end_value))
 
-        start_vec = Vector(*start_global)
-        end_vec = Vector(*end_global)
 
-        cq_edge = cq.Edge.makeLine(start_vec, end_vec)
-        return Edge(cq_edge)
+        edge_shape = make_line_edge(start_global, end_global)
+        return cast(
+            Edge,
+            _finalize_primitive_shape(
+                Edge(edge_shape),
+                op=_OP_MAKE_LINE_REDGE,
+                params={"start": start, "end": end},
+                tags={"primitive", "edge"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建线段失败: {e}. 请检查起始点和结束点坐标是否有效。")
+        _wrap_public_api_error(
+            operation="make_line_redge",
+            what_happened="Failed to create a line edge.",
+            possible_causes=[
+                "The start or end point is not a valid finite 3D point.",
+                "The transformed points are degenerate or rejected by the kernel.",
+            ],
+            how_to_fix=[
+                "Pass start and end as 3-element numeric tuples or valid expressions.",
+                "Ensure the two points are distinct and finite.",
+            ],
+            error=e,
+        )
 
 
 def make_segment_redge(
@@ -151,78 +782,196 @@ def make_segment_rwire(
 ) -> Wire:
     """Create a wire containing a single straight segment."""
     try:
-        edge = make_line_redge(start, end)
-        cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
-        return Wire(cq_wire)
+        if get_active_session() is not None:
+            edge = make_line_redge(start, end)
+            return make_wire_from_edges_rwire([edge])
+
+        with suspend_graph_recording():
+            edge = make_line_redge(start, end)
+        wire_shape = make_wire_from_edges_ocp([edge.wrapped])
+        return cast(
+            Wire,
+            _finalize_primitive_shape(
+                Wire(wire_shape),
+                op="make_segment_wire",
+                params={"start": start, "end": end},
+                tags={"primitive", "wire"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建线段线失败: {e}")
+        _wrap_public_api_error(
+            operation="make_segment_rwire",
+            what_happened="Failed to create a single-segment wire.",
+            possible_causes=[
+                "The segment endpoints are invalid.",
+                "The kernel could not assemble the segment into a wire.",
+            ],
+            how_to_fix=[
+                "Pass two valid 3D endpoints.",
+                "If the segment is computed dynamically, log the two endpoints before retrying.",
+            ],
+            error=e,
+        )
 
 
 def make_circle_redge(
     center: Tuple[float, float, float],
-    radius: float,
+    radius: ScalarLike,
     normal: Tuple[float, float, float] = (0, 0, 1),
 ) -> Edge:
     """Create a circular edge."""
     try:
-        if radius <= 0:
+        radius_value = evaluate_scalar(radius)
+        if radius_value <= 0:
             raise ValueError("半径必须大于0")
 
         cs = get_current_cs()
-        center_global = cs.transform_point(np.array(center))
-        normal_global = cs.transform_point(np.array(normal)) - cs.origin
+        center_value = cast(Tuple[float, float, float], evaluate_value(center))
+        normal_value = cast(Tuple[float, float, float], evaluate_value(normal))
+        center_global = cs.transform_point(np.array(center_value))
+        normal_global = cs.transform_point(np.array(normal_value)) - cs.origin
 
-        center_vec = Vector(*center_global)
-        normal_vec = Vector(*normal_global)
 
-        cq_edge = cq.Edge.makeCircle(radius, center_vec, normal_vec)
-        return Edge(cq_edge)
+        edge_shape = make_circle_edge(center_global, radius_value, normal_global)
+        return cast(
+            Edge,
+            _finalize_primitive_shape(
+                Edge(edge_shape),
+                op=_OP_MAKE_CIRCLE_REDGE,
+                params={"center": center, "radius": radius, "normal": normal},
+                tags={"primitive", "edge"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建圆失败: {e}. 请检查圆心坐标、半径和法向量是否有效。")
+        _wrap_public_api_error(
+            operation="make_circle_redge",
+            what_happened="Failed to create a circular edge.",
+            possible_causes=[
+                "The radius is not a positive finite scalar.",
+                "The center or normal is not a valid finite 3D vector.",
+                "The kernel rejected the circle definition.",
+            ],
+            how_to_fix=[
+                "Use a radius greater than zero.",
+                "Pass finite center and normal vectors.",
+                "If the normal is computed dynamically, verify it is not zero-length.",
+            ],
+            error=e,
+        )
 
 
 def make_circle_rwire(
     center: Tuple[float, float, float],
-    radius: float,
+    radius: ScalarLike,
     normal: Tuple[float, float, float] = (0, 0, 1),
 ) -> Wire:
     """Create a circular wire."""
     try:
-        edge = make_circle_redge(center, radius, normal)
-        cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
-        return Wire(cq_wire)
+        if get_active_session() is not None:
+            edge = make_circle_redge(center, radius, normal)
+            return make_wire_from_edges_rwire([edge])
+
+        with suspend_graph_recording():
+            edge = make_circle_redge(center, radius, normal)
+        wire_shape = make_wire_from_edges_ocp([edge.wrapped])
+        return cast(
+            Wire,
+            _finalize_primitive_shape(
+                Wire(wire_shape),
+                op="make_circle_wire",
+                params={"center": center, "radius": radius, "normal": normal},
+                tags={"primitive", "wire"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建圆线失败: {e}")
+        _wrap_public_api_error(
+            operation="make_circle_rwire",
+            what_happened="Failed to create a circular wire.",
+            possible_causes=[
+                "The circle edge could not be created.",
+                "The wire assembly step rejected the generated edge.",
+            ],
+            how_to_fix=[
+                "Check the center, radius, and normal inputs.",
+                "Retry with a positive radius and a valid normal vector.",
+            ],
+            error=e,
+        )
 
 
 def make_circle_rface(
     center: Tuple[float, float, float],
-    radius: float,
+    radius: ScalarLike,
     normal: Tuple[float, float, float] = (0, 0, 1),
 ) -> Face:
     """Create a circular face."""
     try:
-        wire = make_circle_rwire(center, radius, normal)
-        cq_face = cq.Face.makeFromWires(wire.cq_wire)
-        return Face(cq_face)
+        if get_active_session() is not None:
+            wire = make_circle_rwire(center, radius, normal)
+            return make_face_from_wire_rface(wire, normal=normal)
+
+        with suspend_graph_recording():
+            wire = make_circle_rwire(center, radius, normal)
+        face_shape = make_face_from_wire_ocp(wire.wrapped)
+        face = Face(face_shape)
+        face._tags = wire._tags.copy()
+        face._metadata = wire._metadata.copy()
+        return cast(
+            Face,
+            _finalize_primitive_shape(
+                face,
+                op="make_circle_face",
+                params={"center": center, "radius": radius, "normal": normal},
+                tags={"primitive", "face"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建圆面失败: {e}")
+        _wrap_public_api_error(
+            operation="make_circle_rface",
+            what_happened="Failed to create a circular face.",
+            possible_causes=[
+                "The underlying circular wire could not be created.",
+                "The kernel could not create a face from the wire.",
+            ],
+            how_to_fix=[
+                "Verify the center, radius, and normal values.",
+                "Use a positive radius and a valid non-zero normal vector.",
+            ],
+            error=e,
+        )
 
 
 def make_rectangle_rwire(
-    width: float,
-    height: float,
-    center: Tuple[float, float, float] = (0, 0, 0),
-    normal: Tuple[float, float, float] = (0, 0, 1),
+    width: ScalarLike,
+    height: ScalarLike,
+    center: Tuple[ScalarLike, ScalarLike, ScalarLike] = (0, 0, 0),
+    normal: Tuple[ScalarLike, ScalarLike, ScalarLike] = (0, 0, 1),
 ) -> Wire:
     """Create a rectangular wire."""
     try:
-        if width <= 0 or height <= 0:
+        width_value = evaluate_scalar(width)
+        height_value = evaluate_scalar(height)
+        if width_value <= 0 or height_value <= 0:
             raise ValueError("宽度和高度必须大于0")
 
+        if get_active_session() is not None:
+            normal_value = cast(Tuple[float, float, float], evaluate_value(normal))
+            _, x_axis, y_axis = _orthonormal_plane_axes(normal_value)
+            half_w = width / 2
+            half_h = height / 2
+            corners = [
+                _offset_point_expr(center, x_axis, y_axis, -half_w, -half_h),
+                _offset_point_expr(center, x_axis, y_axis, half_w, -half_h),
+                _offset_point_expr(center, x_axis, y_axis, half_w, half_h),
+                _offset_point_expr(center, x_axis, y_axis, -half_w, half_h),
+            ]
+            return _make_closed_profile_rwire(corners)
+
         cs = get_current_cs()
-        center_global = cs.transform_point(np.array(center))
-        normal_global = cs.transform_point(np.array(normal)) - cs.origin
+        center_value = cast(Tuple[float, float, float], evaluate_value(center))
+        normal_value = cast(Tuple[float, float, float], evaluate_value(normal))
+        center_global = cs.transform_point(np.array(center_value))
+        normal_global = cs.transform_point(np.array(normal_value)) - cs.origin
 
         # 标准化法向量
         normal_vec = normal_global / np.linalg.norm(normal_global)
@@ -241,7 +990,7 @@ def make_rectangle_rwire(
         local_y = local_y / np.linalg.norm(local_y)
 
         # 创建矩形的四个顶点（在本地坐标系中）
-        half_w, half_h = width / 2, height / 2
+        half_w, half_h = width_value / 2, height_value / 2
         local_points = [
             (-half_w, -half_h),
             (half_w, -half_h),
@@ -256,34 +1005,89 @@ def make_rectangle_rwire(
             point_3d = (
                 center_global + local_point[0] * local_x + local_point[1] * local_y
             )
-            global_points.append(Vector(*point_3d))
+            global_points.append(tuple(float(v) for v in point_3d))
 
         # 创建边
-        edges = []
-        for i in range(len(global_points)):
-            start = global_points[i]
-            end = global_points[(i + 1) % len(global_points)]
-            edges.append(cq.Edge.makeLine(start, end))
-
-        cq_wire = cq.Wire.assembleEdges(edges)
-        return Wire(cq_wire)
+        wire_points = [(float(point[0]), float(point[1]), float(point[2])) for point in global_points]
+        wire_shape = make_polyline_wire(wire_points, closed=True)
+        return cast(
+            Wire,
+            _finalize_primitive_shape(
+                Wire(wire_shape),
+                op="make_rectangle_wire",
+                params={
+                    "width": width,
+                    "height": height,
+                    "center": center,
+                    "normal": normal,
+                },
+                tags={"primitive", "wire"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建矩形失败: {e}. 请检查宽度、高度和中心点坐标是否有效。")
+        _wrap_public_api_error(
+            operation="make_rectangle_rwire",
+            what_happened="Failed to create a rectangular wire.",
+            possible_causes=[
+                "Width or height is not a positive finite scalar.",
+                "The center or normal is not a valid finite 3D vector.",
+                "The local rectangle basis became degenerate.",
+            ],
+            how_to_fix=[
+                "Use width and height values greater than zero.",
+                "Pass a valid center and a non-zero normal vector.",
+                "If the normal is near zero, normalize or replace it before retrying.",
+            ],
+            error=e,
+        )
 
 
 def make_rectangle_rface(
-    width: float,
-    height: float,
-    center: Tuple[float, float, float] = (0, 0, 0),
-    normal: Tuple[float, float, float] = (0, 0, 1),
+    width: ScalarLike,
+    height: ScalarLike,
+    center: Tuple[ScalarLike, ScalarLike, ScalarLike] = (0, 0, 0),
+    normal: Tuple[ScalarLike, ScalarLike, ScalarLike] = (0, 0, 1),
 ) -> Face:
     """Create a rectangular face."""
     try:
-        wire = make_rectangle_rwire(width, height, center, normal)
-        cq_face = cq.Face.makeFromWires(wire.cq_wire)
-        return Face(cq_face)
+        if get_active_session() is not None:
+            wire = make_rectangle_rwire(width, height, center, normal)
+            return make_face_from_wire_rface(wire, normal=cast(Any, normal))
+
+        with suspend_graph_recording():
+            wire = make_rectangle_rwire(width, height, center, normal)
+        face_shape = make_face_from_wire_ocp(wire.wrapped)
+        face = Face(face_shape)
+        face._tags = wire._tags.copy()
+        face._metadata = wire._metadata.copy()
+        return cast(
+            Face,
+            _finalize_primitive_shape(
+                face,
+                op="make_rectangle_face",
+                params={
+                    "width": width,
+                    "height": height,
+                    "center": center,
+                    "normal": normal,
+                },
+                tags={"primitive", "face"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建矩形面失败: {e}")
+        _wrap_public_api_error(
+            operation="make_rectangle_rface",
+            what_happened="Failed to create a rectangular face.",
+            possible_causes=[
+                "The rectangular wire could not be created.",
+                "The face construction step rejected the generated wire.",
+            ],
+            how_to_fix=[
+                "Verify width, height, center, and normal.",
+                "Retry with positive dimensions and a valid non-zero normal vector.",
+            ],
+            error=e,
+        )
 
 
 def make_face_from_wire_rface(
@@ -306,12 +1110,11 @@ def make_face_from_wire_rface(
         normal_vec = global_normal / np.linalg.norm(global_normal)
 
         # 创建面
-        cq_face = cq.Face.makeFromWires(wire.cq_wire)
+        face_shape = make_face_from_wire_ocp(wire.wrapped)
+        face = Face(face_shape)
 
         # 检查面的法向量是否与期望方向一致
-        # normalAt方法返回tuple (normal_vector, u_vector)
-        face_normal_tuple = cq_face.normalAt(0.5, 0.5)
-        face_normal = face_normal_tuple[0]  # 取第一个元素作为法向量
+        face_normal = face.get_normal_at()
         face_normal_vec = np.array([face_normal.x, face_normal.y, face_normal.z])
 
         # 计算法向量的点积，如果小于0则需要反向
@@ -324,15 +1127,36 @@ def make_face_from_wire_rface(
             # 或者我们接受当前面的方向，添加一个警告
             print(f"警告: 创建的面的法向量与期望方向相反 (点积: {dot_product:.3f})")
 
-        face = Face(cq_face)
-
         # 复制标签和元数据
         face._tags = wire._tags.copy()
         face._metadata = wire._metadata.copy()
 
-        return face
+        return cast(
+            Face,
+            _finalize_derived_shape(
+                face,
+                op=_OP_MAKE_FACE_FROM_WIRE_RFACE,
+                params={"normal": normal},
+                input_shapes=[wire],
+                tags={"derived", "face"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建面失败: {e}. 请检查输入的线是否有效且封闭。")
+        _wrap_public_api_error(
+            operation="make_face_from_wire_rface",
+            what_happened="Failed to create a face from the input wire.",
+            possible_causes=[
+                "The input is not a Wire instance.",
+                "The wire is open or geometrically invalid.",
+                "The kernel rejected the closed wire when building a face.",
+            ],
+            how_to_fix=[
+                "Pass a Wire object, not an Edge or a list of points.",
+                "Ensure the wire is closed before calling this API.",
+                "If the wire was assembled from edges, verify the edges connect end-to-end.",
+            ],
+            error=e,
+        )
 
 
 _TETRAHEDRA = (
@@ -478,6 +1302,7 @@ def make_field_surface_rsolid(
 ) -> Solid:
     """Build a closed solid from a scalar field isosurface."""
     try:
+        original_field = field
         if bounds is None:
             if isinstance(field, ScalarField):
                 bounds = bounds_rbbox(field)
@@ -527,8 +1352,7 @@ def make_field_surface_rsolid(
             if len({tri[0], tri[1], tri[2]}) < 3:
                 continue
             try:
-                wire = cq.Wire.makePolygon(tri, close=True)
-                faces.append(cq.Face.makeFromWires(wire))
+                faces.append(make_triangle_face(tri))
             except Exception:
                 continue
             pts = [tuple(np.round(p, 8)) for p in tri]
@@ -538,7 +1362,7 @@ def make_field_surface_rsolid(
                 edge_count[key] = edge_count.get(key, 0) + 1
         sewing = BRepBuilderAPI_Sewing(1e-6)
         for face in faces:
-            sewing.Add(face.wrapped)
+            sewing.Add(face)
         sewing.Perform()
         sewed = sewing.SewedShape()
         shells = []
@@ -553,18 +1377,11 @@ def make_field_surface_rsolid(
         if not shells:
             raise ValueError("未能从等势面构建闭合壳体")
 
-        def _shell_metric(shell_obj):
-            cq_shell = cq.Shell(shell_obj)
-            bb = cq_shell.BoundingBox()
-            volume = (bb.xmax - bb.xmin) * (bb.ymax - bb.ymin) * (bb.zmax - bb.zmin)
-            face_count = len(cq_shell.Faces())
-            return (face_count, volume)
+        shell = max(shells, key=shell_metric)
 
-        shell = max(shells, key=_shell_metric)
+        solid = Solid(solid_from_shell(shell))
 
-        solid = Solid(cq.Solid.makeSolid(cq.Shell(shell)))
-
-        shell_closed_value = bool(cq.Shell(shell).Closed())
+        shell_closed_value = shell_is_closed(shell)
 
         mesh_closed = all(count == 2 for count in edge_count.values())
         report = {
@@ -580,9 +1397,45 @@ def make_field_surface_rsolid(
             "cap_bounds": bool(cap_bounds),
         }
         solid.set_metadata("field_report", report)
-        return solid
+
+        params: Dict[str, object] = {
+            "bounds": {
+                "min": (xmin, ymin, zmin),
+                "max": (xmax, ymax, zmax),
+            },
+            "resolution": resolution,
+            "iso": iso,
+            "cap_bounds": bool(cap_bounds),
+        }
+        if isinstance(original_field, ScalarField):
+            params["field_serialization_mode"] = "scalar_field"
+            params["field_tree"] = serialize_scalar_field(original_field)
+        else:
+            params["field_serialization_mode"] = "opaque_callable"
+            params["field_callable_repr"] = repr(original_field)
+
+        return _finalize_primitive_solid(
+            solid,
+            op=_OP_MAKE_FIELD_SURFACE_RSOLID,
+            params=params,
+            tags={"primitive", "solid", "field"},
+        )
     except Exception as e:
-        raise ValueError(f"场函数等势面构建失败: {e}.")
+        _wrap_public_api_error(
+            operation="make_field_surface_rsolid",
+            what_happened="Failed to build an isosurface solid from the scalar field.",
+            possible_causes=[
+                "The field evaluation returned invalid values or a mismatched shape.",
+                "The resolution is too low or the iso value does not intersect the field range.",
+                "The marching and sewing steps could not produce a closed shell.",
+            ],
+            how_to_fix=[
+                "Check that the field callable or ScalarField returns finite numeric values.",
+                "Use bounds that actually contain the target isosurface.",
+                "Increase resolution or adjust the iso value if no surface is found.",
+            ],
+            error=e,
+        )
 
 
 def make_wire_from_edges_rwire(edges: List[Edge]) -> Wire:
@@ -591,190 +1444,473 @@ def make_wire_from_edges_rwire(edges: List[Edge]) -> Wire:
         if not edges:
             raise ValueError("边列表不能为空")
 
-        cq_wire = cq.Wire.assembleEdges([edge.cq_edge for edge in edges])
-        return Wire(cq_wire)
+        wire_shape = make_wire_from_edges_ocp([edge.wrapped for edge in edges])
+        return cast(
+            Wire,
+            _finalize_derived_shape(
+                Wire(wire_shape),
+                op=_OP_MAKE_WIRE_FROM_EDGES_RWIRE,
+                params={"edge_count": len(edges)},
+                input_shapes=edges,
+                tags={"derived", "wire"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建线失败: {e}. 请检查输入的边是否有效。")
+        _wrap_public_api_error(
+            operation="make_wire_from_edges_rwire",
+            what_happened="Failed to assemble a wire from the input edges.",
+            possible_causes=[
+                "The edge list is empty.",
+                "One or more items are invalid edges.",
+                "The edges do not connect into a valid wire chain.",
+            ],
+            how_to_fix=[
+                "Pass a non-empty list of Edge objects.",
+                "Ensure consecutive edges share matching endpoints.",
+                "Inspect the edge order if the wire should form a closed loop.",
+            ],
+            error=e,
+        )
 
 
 def make_box_rsolid(
-    width: float,
-    height: float,
-    depth: float,
+    width: ScalarLike,
+    height: ScalarLike,
+    depth: ScalarLike,
     bottom_face_center: Tuple[float, float, float] = (0, 0, 0),
 ) -> Solid:
     """Create a box solid."""
     try:
-        if width <= 0 or height <= 0 or depth <= 0:
+        width_value = evaluate_scalar(width)
+        height_value = evaluate_scalar(height)
+        depth_value = evaluate_scalar(depth)
+
+        if width_value <= 0 or height_value <= 0 or depth_value <= 0:
             raise ValueError("宽度、高度和深度必须大于0")
 
-        cs = get_current_cs()
-        center_global = cs.transform_point(np.array(bottom_face_center))
-        pnt = center_global - np.array([width / 2, height / 2, 0])
+        if get_active_session() is not None:
+            profile = make_rectangle_rface(
+                width,
+                height,
+                center=bottom_face_center,
+                normal=(0.0, 0.0, 1.0),
+            )
+            solid = extrude_rsolid(profile, (0.0, 0.0, 1.0), depth)
+            solid.auto_tag_faces("box")
+            solid.apply_tag("geom.primitive.box", propagate=False)
+            solid.add_tag("box")
+            solid.add_tag(f"bottom center: {bottom_face_center}")
+            solid.add_tag(f"size: {width_value}x{height_value}x{depth_value}")
+            solid.set_metadata(
+                "geo",
+                {
+                    "type": "box",
+                    "size": {"x": width_value, "y": height_value, "z": depth_value},
+                    "bottom_face_center": bottom_face_center,
+                },
+            )
+            return solid
 
-        # 创建立方体
-        cq_solid = cq.Solid.makeBox(width, height, depth, Vector(*pnt))
-        solid = Solid(cq_solid)
+        cs = get_current_cs()
+        center_value = cast(
+            Tuple[float, float, float], evaluate_value(bottom_face_center)
+        )
+        center_global = cs.transform_point(np.array(center_value))
+        pnt = center_global - np.array([width_value / 2, height_value / 2, 0])
+
+        solid = Solid(
+            make_box_solid(
+                (float(pnt[0]), float(pnt[1]), float(pnt[2])),
+                width_value,
+                height_value,
+                depth_value,
+            )
+        )
 
         # 自动标记面
         solid.auto_tag_faces("box")
         solid.apply_tag("geom.primitive.box", propagate=False)
         solid.add_tag("box")
         solid.add_tag(f"bottom center: {bottom_face_center}")
-        solid.add_tag(f"size: {width}x{height}x{depth}")
+        solid.add_tag(f"size: {width_value}x{height_value}x{depth_value}")
         solid.set_metadata(
             "geo",
             {
                 "type": "box",
-                "size": {"x": width, "y": height, "z": depth},
+                "size": {"x": width_value, "y": height_value, "z": depth_value},
                 "bottom_face_center": bottom_face_center,
             },
         )
 
-        return solid
+        return _finalize_primitive_solid(
+            solid,
+            op="make_box",
+            params={
+                "w": width,
+                "h": height,
+                "d": depth,
+                "bottom_face_center": bottom_face_center,
+            },
+            tags={"primitive", "solid"},
+        )
     except Exception as e:
-        raise ValueError(f"创建立方体失败: {e}. 请检查尺寸和中心点坐标是否有效。")
+        _wrap_public_api_error(
+            operation="make_box_rsolid",
+            what_happened="Failed to create a box solid.",
+            possible_causes=[
+                "Width, height, or depth is not a positive finite scalar.",
+                "The bottom face center is not a valid finite 3D point.",
+                "The kernel rejected the box dimensions or placement.",
+            ],
+            how_to_fix=[
+                "Use width, height, and depth values greater than zero.",
+                "Pass bottom_face_center as a finite 3D tuple.",
+                "If dimensions come from expressions, inspect the evaluated numeric values.",
+            ],
+            error=e,
+        )
 
 
 def make_cylinder_rsolid(
-    radius: float,
-    height: float,
+    radius: ScalarLike,
+    height: ScalarLike,
     bottom_face_center: Tuple[float, float, float] = (0, 0, 0),
     axis: Tuple[float, float, float] = (0, 0, 1),
 ) -> Solid:
     """Create a cylinder solid."""
     try:
-        if radius <= 0 or height <= 0:
+        radius_value = evaluate_scalar(radius)
+        height_value = evaluate_scalar(height)
+        if radius_value <= 0 or height_value <= 0:
             raise ValueError("半径和高度必须大于0")
 
+        if get_active_session() is not None:
+            profile = make_circle_rface(
+                bottom_face_center,
+                radius,
+                normal=axis,
+            )
+            solid = extrude_rsolid(profile, axis, height)
+            solid.auto_tag_faces("cylinder")
+            solid.apply_tag("geom.primitive.cylinder", propagate=False)
+            solid.add_tag("cylinder")
+            solid.add_tag(f"bottom center: {bottom_face_center}")
+            solid.add_tag(f"size: {radius_value}x{height_value}")
+            solid.set_metadata(
+                "geo",
+                {
+                    "type": "cylinder",
+                    "radius": radius_value,
+                    "height": height_value,
+                    "bottom_face_center": bottom_face_center,
+                    "axis": axis,
+                },
+            )
+            return solid
+
         cs = get_current_cs()
-        center_global = cs.transform_point(np.array(bottom_face_center))
-        axis_global = cs.transform_vector(np.array(axis))
+        center_value = cast(
+            Tuple[float, float, float], evaluate_value(bottom_face_center)
+        )
+        axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
+        center_global = cs.transform_point(np.array(center_value))
+        axis_global = cs.transform_vector(np.array(axis_value))
 
-        center_vec = Vector(*center_global)
-        axis_vec = Vector(*axis_global)
-
-        cq_solid = cq.Solid.makeCylinder(radius, height, center_vec, axis_vec)
-        solid = Solid(cq_solid)
+        solid = Solid(
+            make_cylinder_solid(
+                (
+                    float(center_global[0]),
+                    float(center_global[1]),
+                    float(center_global[2]),
+                ),
+                (float(axis_global[0]), float(axis_global[1]), float(axis_global[2])),
+                radius_value,
+                height_value,
+            )
+        )
 
         # 自动标记面
         solid.auto_tag_faces("cylinder")
         solid.apply_tag("geom.primitive.cylinder", propagate=False)
         solid.add_tag("cylinder")
         solid.add_tag(f"bottom center: {bottom_face_center}")
-        solid.add_tag(f"size: {radius}x{height}")
+        solid.add_tag(f"size: {radius_value}x{height_value}")
         solid.set_metadata(
             "geo",
             {
                 "type": "cylinder",
-                "radius": radius,
-                "height": height,
+                "radius": radius_value,
+                "height": height_value,
                 "bottom_face_center": bottom_face_center,
                 "axis": axis,
             },
         )
 
-        return solid
+        return _finalize_primitive_solid(
+            solid,
+            op="make_cylinder",
+            params={
+                "radius": radius,
+                "height": height,
+                "bottom_face_center": bottom_face_center,
+                "axis": axis,
+            },
+            tags={"primitive", "solid"},
+        )
     except Exception as e:
-        raise ValueError(
-            f"创建圆柱体失败: {e}. 请检查半径、高度、中心点和轴向是否有效。"
+        _wrap_public_api_error(
+            operation="make_cylinder_rsolid",
+            what_happened="Failed to create a cylinder solid.",
+            possible_causes=[
+                "Radius or height is not a positive finite scalar.",
+                "The bottom face center or axis is not a valid finite 3D vector.",
+                "The axis is degenerate or rejected by the kernel.",
+            ],
+            how_to_fix=[
+                "Use radius and height values greater than zero.",
+                "Pass a valid bottom_face_center and a non-zero axis vector.",
+                "If the axis is computed dynamically, inspect its evaluated numeric value.",
+            ],
+            error=e,
         )
 
 
 def make_cone_rsolid(
-    bottom_radius: float,
-    height: float,
-    top_radius: float = 0.0,
+    bottom_radius: ScalarLike,
+    height: ScalarLike,
+    top_radius: ScalarLike = 0.0,
     bottom_face_center: Tuple[float, float, float] = (0, 0, 0),
     axis: Tuple[float, float, float] = (0, 0, 1),
 ) -> Solid:
     """Create a cone or truncated cone solid."""
     try:
-        if bottom_radius <= 0 or height <= 0:
+        bottom_radius_value = evaluate_scalar(bottom_radius)
+        height_value = evaluate_scalar(height)
+        top_radius_value = evaluate_scalar(top_radius)
+        if bottom_radius_value <= 0 or height_value <= 0:
             raise ValueError("底面半径和高度必须大于0")
 
+        if get_active_session() is not None:
+            axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
+            center_value = cast(
+                Tuple[float, float, float], evaluate_value(bottom_face_center)
+            )
+            radial = _pick_perpendicular_unit(axis_value)
+            axis_unit = np.array(axis_value, dtype=float)
+            axis_unit = axis_unit / float(np.linalg.norm(axis_unit))
+            top_center = (
+                center_value[0] + float(axis_unit[0]) * height,
+                center_value[1] + float(axis_unit[1]) * height,
+                center_value[2] + float(axis_unit[2]) * height,
+            )
+            profile = _make_closed_profile_rface(
+                [
+                    center_value,
+                    (
+                        center_value[0] + bottom_radius * float(radial[0]),
+                        center_value[1] + bottom_radius * float(radial[1]),
+                        center_value[2] + bottom_radius * float(radial[2]),
+                    ),
+                    (
+                        top_center[0] + top_radius * float(radial[0]),
+                        top_center[1] + top_radius * float(radial[1]),
+                        top_center[2] + top_radius * float(radial[2]),
+                    ),
+                    top_center,
+                ],
+                normal=axis_value,
+            )
+            solid = revolve_rsolid(
+                profile,
+                axis=axis,
+                angle=360.0,
+                origin=bottom_face_center,
+            )
+            solid.apply_tag("geom.primitive.cone", propagate=False)
+            solid.add_tag("cone")
+            solid.add_tag(f"bottom center: {bottom_face_center}")
+            solid.add_tag(
+                f"size: bottom_radius: {bottom_radius_value}, top_radius: {top_radius_value}, height: {height_value}"
+            )
+            solid.set_metadata(
+                "geo",
+                {
+                    "type": "cone",
+                    "bottom_radius": bottom_radius_value,
+                    "top_radius": top_radius_value,
+                    "height": height_value,
+                    "bottom_face_center": bottom_face_center,
+                    "axis": axis,
+                },
+            )
+            return solid
+
         cs = get_current_cs()
-        center_global = cs.transform_point(np.array(bottom_face_center))
-        axis_global = cs.transform_vector(np.array(axis))
-
-        center_vec = Vector(*center_global)
-        axis_vec = Vector(*axis_global)
-
-        # 使用正确的makeCone参数：bottom_radius, top_radius, height, center, direction
-        cq_solid = cq.Solid.makeCone(
-            bottom_radius, top_radius, height, center_vec, axis_vec
+        center_value = cast(
+            Tuple[float, float, float], evaluate_value(bottom_face_center)
         )
-        solid = Solid(cq_solid)
+        axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
+        center_global = cs.transform_point(np.array(center_value))
+        axis_global = cs.transform_vector(np.array(axis_value))
+
+        solid = Solid(
+            make_cone_solid(
+                (
+                    float(center_global[0]),
+                    float(center_global[1]),
+                    float(center_global[2]),
+                ),
+                (float(axis_global[0]), float(axis_global[1]), float(axis_global[2])),
+                bottom_radius_value,
+                top_radius_value,
+                height_value,
+            )
+        )
 
         # 自动标记面
         solid.apply_tag("geom.primitive.cone", propagate=False)
         solid.add_tag("cone")
         solid.add_tag(f"bottom center: {bottom_face_center}")
         solid.add_tag(
-            f"size: bottom_radius: {bottom_radius}, top_radius: {top_radius}, height: {height}"
+            f"size: bottom_radius: {bottom_radius_value}, top_radius: {top_radius_value}, height: {height_value}"
         )
         solid.set_metadata(
             "geo",
             {
                 "type": "cone",
+                "bottom_radius": bottom_radius_value,
+                "top_radius": top_radius_value,
+                "height": height_value,
+                "bottom_face_center": bottom_face_center,
+                "axis": axis,
+            },
+        )
+
+        return _finalize_primitive_solid(
+            solid,
+            op="make_cone",
+            params={
                 "bottom_radius": bottom_radius,
                 "top_radius": top_radius,
                 "height": height,
                 "bottom_face_center": bottom_face_center,
                 "axis": axis,
             },
+            tags={"primitive", "solid"},
         )
-
-        return solid
     except Exception as e:
-        raise ValueError(
-            f"创建圆锥体失败: {e}. 请检查半径、高度、中心点和轴向是否有效。"
+        _wrap_public_api_error(
+            operation="make_cone_rsolid",
+            what_happened="Failed to create a cone or truncated cone solid.",
+            possible_causes=[
+                "Bottom radius or height is not a positive finite scalar.",
+                "The bottom face center or axis is not a valid finite 3D vector.",
+                "The kernel rejected the cone dimensions or orientation.",
+            ],
+            how_to_fix=[
+                "Use a positive bottom radius and a positive height.",
+                "Pass a valid center point and non-zero axis vector.",
+                "If top_radius is used, make sure it is a finite scalar.",
+            ],
+            error=e,
         )
 
 
 def make_sphere_rsolid(
-    radius: float, center: Tuple[float, float, float] = (0, 0, 0)
+    radius: ScalarLike, center: Tuple[float, float, float] = (0, 0, 0)
 ) -> Solid:
     """Create a sphere solid."""
     try:
-        if radius <= 0:
+        radius_value = evaluate_scalar(radius)
+        if radius_value <= 0:
             raise ValueError("半径必须大于0")
 
-        cs = get_current_cs()
-        center_global = cs.transform_point(np.array(center))
-
-        # 使用Workplane.sphere方法创建球体，然后移动到正确位置
-        if center_global[0] != 0 or center_global[1] != 0 or center_global[2] != 0:
-            cq_solid = (
-                cq.Workplane("XY")
-                .center(center_global[0], center_global[1])
-                .workplane(offset=center_global[2])
-                .sphere(radius)
-                .val()
+        if get_active_session() is not None:
+            center_value = cast(Tuple[float, float, float], evaluate_value(center))
+            profile = _make_closed_profile_rface(
+                [
+                    (center_value[0], center_value[1], center_value[2] - radius),
+                    (center_value[0] + radius, center_value[1], center_value[2]),
+                    (center_value[0], center_value[1], center_value[2] + radius),
+                ],
+                normal=(0.0, 0.0, 1.0),
             )
-        else:
-            cq_solid = cq.Workplane("XY").sphere(radius).val()
+            solid = revolve_rsolid(
+                profile,
+                axis=(0.0, 0.0, 1.0),
+                angle=360.0,
+                origin=center,
+            )
+            solid.auto_tag_faces("sphere")
+            solid.apply_tag("geom.primitive.sphere", propagate=False)
+            solid.add_tag("sphere")
+            solid.add_tag(f"center: {center}")
+            solid.add_tag(f"radius: {radius_value}")
+            solid.set_metadata(
+                "geo",
+                {
+                    "type": "sphere",
+                    "radius": radius_value,
+                    "center": center,
+                },
+            )
+            return solid
 
-        solid = Solid(cq_solid)
+        cs = get_current_cs()
+        center_value = cast(Tuple[float, float, float], evaluate_value(center))
+        center_global = cs.transform_point(np.array(center_value))
+
+        solid = Solid(
+            make_sphere_solid(
+                (
+                    float(center_global[0]),
+                    float(center_global[1]),
+                    float(center_global[2]),
+                ),
+                radius_value,
+            )
+        )
 
         # 自动标记面
         solid.auto_tag_faces("sphere")
         solid.apply_tag("geom.primitive.sphere", propagate=False)
         solid.add_tag("sphere")
         solid.add_tag(f"center: {center}")
-        solid.add_tag(f"radius: {radius}")
+        solid.add_tag(f"radius: {radius_value}")
         solid.set_metadata(
             "geo",
             {
                 "type": "sphere",
-                "radius": radius,
+                "radius": radius_value,
                 "center": center,
             },
         )
 
-        return solid
+        return _finalize_primitive_solid(
+            solid,
+            op="make_sphere",
+            params={
+                "radius": radius,
+                "center": center,
+            },
+            tags={"primitive", "solid"},
+        )
     except Exception as e:
-        raise ValueError(f"创建球体失败: {e}. 请检查半径和中心点坐标是否有效。")
+        _wrap_public_api_error(
+            operation="make_sphere_rsolid",
+            what_happened="Failed to create a sphere solid.",
+            possible_causes=[
+                "The radius is not a positive finite scalar.",
+                "The center is not a valid finite 3D point.",
+                "The kernel rejected the sphere definition.",
+            ],
+            how_to_fix=[
+                "Use a radius greater than zero.",
+                "Pass center as a finite 3D tuple.",
+                "If the center is expression-driven, inspect the evaluated coordinates.",
+            ],
+            error=e,
+        )
 
 
 def make_three_point_arc_redge(
@@ -785,18 +1921,40 @@ def make_three_point_arc_redge(
     """Create an arc edge from three points."""
     try:
         cs = get_current_cs()
-        start_global = cs.transform_point(np.array(start))
-        middle_global = cs.transform_point(np.array(middle))
-        end_global = cs.transform_point(np.array(end))
+        start_value = cast(Tuple[float, float, float], evaluate_value(start))
+        middle_value = cast(Tuple[float, float, float], evaluate_value(middle))
+        end_value = cast(Tuple[float, float, float], evaluate_value(end))
+        start_global = cs.transform_point(np.array(start_value))
+        middle_global = cs.transform_point(np.array(middle_value))
+        end_global = cs.transform_point(np.array(end_value))
 
-        start_vec = Vector(*start_global)
-        middle_vec = Vector(*middle_global)
-        end_vec = Vector(*end_global)
 
-        cq_edge = cq.Edge.makeThreePointArc(start_vec, middle_vec, end_vec)
-        return Edge(cq_edge)
+        edge_shape = make_arc_three_point_edge(start_global, middle_global, end_global)
+        return cast(
+            Edge,
+            _finalize_primitive_shape(
+                Edge(edge_shape),
+                op=_OP_MAKE_THREE_POINT_ARC_REDGE,
+                params={"start": start, "middle": middle, "end": end},
+                tags={"primitive", "edge"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建三点圆弧失败: {e}. 请检查三个点的坐标是否有效且不共线。")
+        _wrap_public_api_error(
+            operation="make_three_point_arc_redge",
+            what_happened="Failed to create a three-point arc edge.",
+            possible_causes=[
+                "One or more points are invalid.",
+                "The three points are collinear or nearly collinear.",
+                "The kernel rejected the derived arc geometry.",
+            ],
+            how_to_fix=[
+                "Pass three finite 3D points.",
+                "Make sure the three points do not lie on the same straight line.",
+                "If points are computed dynamically, log them before retrying.",
+            ],
+            error=e,
+        )
 
 
 def make_three_point_arc_rwire(
@@ -806,30 +1964,60 @@ def make_three_point_arc_rwire(
 ) -> Wire:
     """Create a wire containing an arc defined by three points."""
     try:
-        edge = make_three_point_arc_redge(start, middle, end)
-        cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
-        return Wire(cq_wire)
+        if get_active_session() is not None:
+            edge = make_three_point_arc_redge(start, middle, end)
+            return make_wire_from_edges_rwire([edge])
+
+        with suspend_graph_recording():
+            edge = make_three_point_arc_redge(start, middle, end)
+        wire_shape = make_wire_from_edges_ocp([edge.wrapped])
+        return cast(
+            Wire,
+            _finalize_primitive_shape(
+                Wire(wire_shape),
+                op="make_three_point_arc_wire",
+                params={"start": start, "middle": middle, "end": end},
+                tags={"primitive", "wire"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建三点圆弧线失败: {e}")
+        _wrap_public_api_error(
+            operation="make_three_point_arc_rwire",
+            what_happened="Failed to create a wire from the three-point arc.",
+            possible_causes=[
+                "The arc edge could not be created.",
+                "The wire assembly step rejected the generated edge.",
+            ],
+            how_to_fix=[
+                "Verify the three arc points first.",
+                "If the edge is valid but the wire still fails, inspect the generated arc geometry.",
+            ],
+            error=e,
+        )
 
 
 def make_angle_arc_redge(
     center: Tuple[float, float, float],
-    radius: float,
-    start_angle: float,
-    end_angle: float,
+    radius: ScalarLike,
+    start_angle: ScalarLike,
+    end_angle: ScalarLike,
     normal: Tuple[float, float, float] = (0, 0, 1),
 ) -> Edge:
     """Create an arc edge from a center, radius, and angle range."""
     try:
-        if radius <= 0:
+        radius_value = evaluate_scalar(radius)
+        start_angle_value = evaluate_scalar(start_angle)
+        end_angle_value = evaluate_scalar(end_angle)
+        if radius_value <= 0:
             raise ValueError("半径必须大于0")
-        if start_angle == end_angle:
+        if start_angle_value == end_angle_value:
             raise ValueError("起始角度和结束角度不能相同")
 
         cs = get_current_cs()
-        center_global = cs.transform_point(np.array(center))
-        normal_global = cs.transform_point(np.array(normal)) - cs.origin
+        center_value = cast(Tuple[float, float, float], evaluate_value(center))
+        normal_value = cast(Tuple[float, float, float], evaluate_value(normal))
+        center_global = cs.transform_point(np.array(center_value))
+        normal_global = cs.transform_point(np.array(normal_value)) - cs.origin
 
         # 标准化法向量
         normal_vec = normal_global / np.linalg.norm(normal_global)
@@ -849,14 +2037,22 @@ def make_angle_arc_redge(
 
         # 在本地坐标系中计算起始、结束和中间点
         start_local = np.array(
-            [radius * np.cos(start_angle), radius * np.sin(start_angle), 0]
+            [
+                radius_value * np.cos(start_angle_value),
+                radius_value * np.sin(start_angle_value),
+                0,
+            ]
         )
         end_local = np.array(
-            [radius * np.cos(end_angle), radius * np.sin(end_angle), 0]
+            [
+                radius_value * np.cos(end_angle_value),
+                radius_value * np.sin(end_angle_value),
+                0,
+            ]
         )
-        mid_angle = (start_angle + end_angle) / 2
+        mid_angle = (start_angle_value + end_angle_value) / 2
         mid_local = np.array(
-            [radius * np.cos(mid_angle), radius * np.sin(mid_angle), 0]
+            [radius_value * np.cos(mid_angle), radius_value * np.sin(mid_angle), 0]
         )
 
         # 转换到全局坐标系
@@ -866,15 +2062,44 @@ def make_angle_arc_redge(
         end_global = center_global + end_local[0] * local_x + end_local[1] * local_y
         mid_global = center_global + mid_local[0] * local_x + mid_local[1] * local_y
 
-        start_vec = Vector(*start_global)
-        end_vec = Vector(*end_global)
-        mid_vec = Vector(*mid_global)
-
-        # 使用三点圆弧方法
-        cq_edge = cq.Edge.makeThreePointArc(start_vec, mid_vec, end_vec)
-        return Edge(cq_edge)
+        edge_shape = make_arc_angle_edge(
+            center_global,
+            radius_value,
+            start_angle_value,
+            end_angle_value,
+            normal_global,
+        )
+        return cast(
+            Edge,
+            _finalize_primitive_shape(
+                Edge(edge_shape),
+                op=_OP_MAKE_ANGLE_ARC_REDGE,
+                params={
+                    "center": center,
+                    "radius": radius,
+                    "start_angle": start_angle,
+                    "end_angle": end_angle,
+                    "normal": normal,
+                },
+                tags={"primitive", "edge"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建角度圆弧失败: {e}. 请检查参数是否有效。")
+        _wrap_public_api_error(
+            operation="make_angle_arc_redge",
+            what_happened="Failed to create an angle-defined arc edge.",
+            possible_causes=[
+                "The radius is not positive.",
+                "The start and end angles collapse to the same value.",
+                "The center or normal is invalid, or the kernel rejected the arc.",
+            ],
+            how_to_fix=[
+                "Use a positive radius.",
+                "Make sure start_angle and end_angle are different.",
+                "Pass a valid finite center and a non-zero normal vector.",
+            ],
+            error=e,
+        )
 
 
 def make_angle_arc_rwire(
@@ -887,11 +2112,42 @@ def make_angle_arc_rwire(
     """Create a wire containing an arc defined by a center, radius, and angle range."""
 
     try:
-        edge = make_angle_arc_redge(center, radius, start_angle, end_angle, normal)
-        cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
-        return Wire(cq_wire)
+        if get_active_session() is not None:
+            edge = make_angle_arc_redge(center, radius, start_angle, end_angle, normal)
+            return make_wire_from_edges_rwire([edge])
+
+        with suspend_graph_recording():
+            edge = make_angle_arc_redge(center, radius, start_angle, end_angle, normal)
+        wire_shape = make_wire_from_edges_ocp([edge.wrapped])
+        return cast(
+            Wire,
+            _finalize_primitive_shape(
+                Wire(wire_shape),
+                op="make_angle_arc_wire",
+                params={
+                    "center": center,
+                    "radius": radius,
+                    "start_angle": start_angle,
+                    "end_angle": end_angle,
+                    "normal": normal,
+                },
+                tags={"primitive", "wire"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建角度圆弧线失败: {e}")
+        _wrap_public_api_error(
+            operation="make_angle_arc_rwire",
+            what_happened="Failed to create a wire from the angle-defined arc.",
+            possible_causes=[
+                "The underlying arc edge could not be created.",
+                "The wire assembly step rejected the generated edge.",
+            ],
+            how_to_fix=[
+                "Check the center, radius, angle range, and normal.",
+                "Retry after validating the arc edge input values.",
+            ],
+            error=e,
+        )
 
 
 def make_spline_redge(
@@ -908,8 +2164,9 @@ def make_spline_redge(
         # 转换控制点到全局坐标系
         global_points = []
         for point in points:
-            global_point = cs.transform_point(np.array(point))
-            global_points.append(Vector(*global_point))
+            point_value = cast(Tuple[float, float, float], evaluate_value(point))
+            global_point = cs.transform_point(np.array(point_value))
+            global_points.append(tuple(float(v) for v in global_point))
 
         # 转换切线向量（如果提供）
         global_tangents = None
@@ -918,18 +2175,43 @@ def make_spline_redge(
                 raise ValueError("切线向量数量必须与控制点数量一致")
             global_tangents = []
             for tangent in tangents:
-                global_tangent = cs.transform_point(np.array(tangent)) - cs.origin
-                global_tangents.append(Vector(*global_tangent))
+                tangent_value = cast(
+                    Tuple[float, float, float], evaluate_value(tangent)
+                )
+                global_tangent = cs.transform_point(np.array(tangent_value)) - cs.origin
+                global_tangents.append(tuple(float(v) for v in global_tangent))
 
-        if global_tangents:
-            # CADQuery的makeSpline不支持tangents参数，使用makeSplineApprox
-            cq_edge = cq.Edge.makeSplineApprox(global_points)
-        else:
-            cq_edge = cq.Edge.makeSpline(global_points)
+        point_tuples = [(float(point[0]), float(point[1]), float(point[2])) for point in global_points]
+        tangent_tuples = (
+            [(float(t[0]), float(t[1]), float(t[2])) for t in global_tangents] if global_tangents else None
+        )
+        edge_shape = make_bspline_edge(point_tuples, tangent_tuples)
 
-        return Edge(cq_edge)
+        return cast(
+            Edge,
+            _finalize_primitive_shape(
+                Edge(edge_shape),
+                op=_OP_MAKE_SPLINE_REDGE,
+                params={"points": points, "tangents": tangents},
+                tags={"primitive", "edge"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建样条曲线失败: {e}. 请检查控制点和切线向量是否有效。")
+        _wrap_public_api_error(
+            operation="make_spline_redge",
+            what_happened="Failed to create a spline edge.",
+            possible_causes=[
+                "Fewer than two control points were provided.",
+                "One or more control points or tangents are invalid.",
+                "The tangent list length does not match the point count.",
+            ],
+            how_to_fix=[
+                "Pass at least two finite 3D control points.",
+                "If tangents are provided, make sure there is exactly one tangent per point.",
+                "Log the evaluated control points and tangents before retrying.",
+            ],
+            error=e,
+        )
 
 
 def make_spline_rwire(
@@ -939,89 +2221,171 @@ def make_spline_rwire(
 ) -> Wire:
     """Create a spline wire through control points."""
     try:
-        edge = make_spline_redge(points, tangents)
-        cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
-        if closed:
-            cq_wire = cq_wire.close()  # 确保线是闭合的
-        rv = Wire(cq_wire)
-        return rv
+        if get_active_session() is not None and not closed:
+            edge = make_spline_redge(points, tangents)
+            return make_wire_from_edges_rwire([edge])
+
+        with suspend_graph_recording():
+            edge = make_spline_redge(points, tangents)
+        cs = get_current_cs()
+        wire_points = []
+        for point in points:
+            point_value = cast(Tuple[float, float, float], evaluate_value(point))
+            global_point = cs.transform_point(np.array(point_value))
+            wire_points.append(tuple(float(v) for v in global_point))
+        wire_shape = (
+            make_polyline_wire(wire_points, closed=closed)
+            if closed
+            else make_wire_from_edges_ocp([edge.wrapped])
+        )
+        rv = Wire(wire_shape)
+        return cast(
+            Wire,
+            _finalize_primitive_shape(
+                rv,
+                op="make_spline_wire",
+                params={"points": points, "tangents": tangents, "closed": closed},
+                tags={"primitive", "wire"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建样条曲线线失败: {e}")
+        _wrap_public_api_error(
+            operation="make_spline_rwire",
+            what_happened="Failed to create a spline wire.",
+            possible_causes=[
+                "The spline edge could not be created.",
+                "The closed-wire fallback received invalid points.",
+                "The kernel rejected the resulting wire geometry.",
+            ],
+            how_to_fix=[
+                "Validate the spline control points first.",
+                "If closed=True, ensure the point sequence forms a valid loop.",
+                "Retry after inspecting the evaluated spline inputs.",
+            ],
+            error=e,
+        )
 
 
 def make_polyline_rwire(
-    points: List[Tuple[float, float, float]], closed: bool = False
+    points: List[Tuple[ScalarLike, ScalarLike, ScalarLike]], closed: bool = False
 ) -> Wire:
     """Create a polyline wire from a point list."""
     try:
         if len(points) < 2:
             raise ValueError("至少需要2个点")
 
+        if get_active_session() is not None:
+            edges = [
+                make_line_redge(points[idx], points[idx + 1])
+                for idx in range(len(points) - 1)
+            ]
+            if closed and len(points) > 2:
+                edges.append(make_line_redge(points[-1], points[0]))
+            return make_wire_from_edges_rwire(edges)
+
         cs = get_current_cs()
 
         # 转换所有点到全局坐标系
         global_points = []
         for point in points:
-            global_point = cs.transform_point(np.array(point))
-            global_points.append(Vector(*global_point))
+            point_value = cast(Tuple[float, float, float], evaluate_value(point))
+            global_point = cs.transform_point(np.array(point_value))
+            global_points.append(tuple(float(v) for v in global_point))
 
-        # 创建边列表
-        edges = []
-        num_points = len(global_points)
-
-        # 创建连接相邻点的边
-        for i in range(num_points - 1):
-            start_vec = global_points[i]
-            end_vec = global_points[i + 1]
-            edge = cq.Edge.makeLine(start_vec, end_vec)
-            edges.append(edge)
-
-        # 如果闭合，添加最后一条边
-        if closed and num_points > 2:
-            start_vec = global_points[-1]
-            end_vec = global_points[0]
-            edge = cq.Edge.makeLine(start_vec, end_vec)
-            edges.append(edge)
-
-        cq_wire = cq.Wire.assembleEdges(edges)
-        return Wire(cq_wire.close() if closed else cq_wire)
+        wire_shape = make_polyline_wire(
+            [(float(point[0]), float(point[1]), float(point[2])) for point in global_points], closed=closed
+        )
+        return cast(
+            Wire,
+            _finalize_primitive_shape(
+                Wire(wire_shape),
+                op="make_polyline_wire",
+                params={"points": points, "closed": closed},
+                tags={"primitive", "wire"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建多段线失败: {e}. 请检查点坐标是否有效。")
+        _wrap_public_api_error(
+            operation="make_polyline_rwire",
+            what_happened="Failed to create a polyline wire.",
+            possible_causes=[
+                "Fewer than two points were provided.",
+                "One or more points are invalid or non-finite.",
+                "The kernel rejected the resulting polyline geometry.",
+            ],
+            how_to_fix=[
+                "Pass at least two finite 3D points.",
+                "If closed=True, ensure the sequence describes a valid loop.",
+                "Inspect the evaluated points before retrying.",
+            ],
+            error=e,
+        )
 
 
 def make_helix_redge(
-    pitch: float,
-    height: float,
-    radius: float,
+    pitch: ScalarLike,
+    height: ScalarLike,
+    radius: ScalarLike,
     center: Tuple[float, float, float] = (0, 0, 0),
     dir: Tuple[float, float, float] = (0, 0, 1),
 ) -> Edge:
     """Create a helix edge."""
     try:
-        if pitch <= 0:
+        pitch_value = evaluate_scalar(pitch)
+        height_value = evaluate_scalar(height)
+        radius_value = evaluate_scalar(radius)
+        if pitch_value <= 0:
             raise ValueError("螺距必须大于0")
-        if height <= 0:
+        if height_value <= 0:
             raise ValueError("高度必须大于0")
-        if radius <= 0:
+        if radius_value <= 0:
             raise ValueError("半径必须大于0")
 
         cs = get_current_cs()
-        global_center = cs.transform_point(np.array(center))
-        global_dir = cs.transform_point(np.array(dir)) - cs.origin
+        center_value = cast(Tuple[float, float, float], evaluate_value(center))
+        dir_value = cast(Tuple[float, float, float], evaluate_value(dir))
+        global_center = cs.transform_point(np.array(center_value))
+        global_dir = cs.transform_point(np.array(dir_value)) - cs.origin
 
-        center_vec = Vector(*global_center)
-        dir_vec = Vector(*global_dir)
-
-        # 使用CADQuery的Wire.makeHelix方法创建螺旋线，然后提取边
-        cq_wire = cq.Wire.makeHelix(pitch, height, radius, center_vec, dir_vec)
-        # 螺旋线通常是连续的，所以我们取第一个边
-        edges = cq_wire.Edges()
-        if edges:
-            return Edge(edges[0])
-        else:
+        wire_shape = make_helix_wire(
+            pitch_value, height_value, radius_value, global_center, global_dir
+        )
+        wire = Wire(wire_shape)
+        edges = wire.get_edges()
+        if not edges:
             raise ValueError("无法从螺旋线中提取边")
+        helix_edge = edges[0]
+        return cast(
+            Edge,
+            _finalize_primitive_shape(
+                helix_edge,
+                op=_OP_MAKE_HELIX_REDGE,
+                params={
+                    "pitch": pitch,
+                    "height": height,
+                    "radius": radius,
+                    "center": center,
+                    "dir": dir,
+                },
+                tags={"primitive", "edge"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建螺旋线边失败: {e}. 请检查参数是否有效。")
+        _wrap_public_api_error(
+            operation="make_helix_redge",
+            what_happened="Failed to create a helix edge.",
+            possible_causes=[
+                "Pitch, height, or radius is not positive.",
+                "The center or direction vector is invalid.",
+                "The kernel rejected the helix definition.",
+            ],
+            how_to_fix=[
+                "Use positive pitch, height, and radius values.",
+                "Pass a valid center and a non-zero direction vector.",
+                "Inspect the evaluated helix parameters before retrying.",
+            ],
+            error=e,
+        )
 
 
 def make_helix_rwire(
@@ -1033,18 +2397,46 @@ def make_helix_rwire(
 ) -> Wire:
     """Create a helix wire."""
     try:
+        if get_active_session() is not None:
+            edge = make_helix_redge(pitch, height, radius, center=center, dir=dir)
+            return make_wire_from_edges_rwire([edge])
+
         cs = get_current_cs()
         global_center = cs.transform_point(np.array(center))
         global_dir = cs.transform_point(np.array(dir)) - cs.origin
 
-        center_vec = Vector(*global_center)
-        dir_vec = Vector(*global_dir)
-
-        # 使用CADQuery的Wire.makeHelix方法
-        cq_wire = cq.Wire.makeHelix(pitch, height, radius, center_vec, dir_vec)
-        return Wire(cq_wire)
+        wire_shape = make_helix_wire(pitch, height, radius, global_center, global_dir)
+        return cast(
+            Wire,
+            _finalize_primitive_shape(
+                Wire(wire_shape),
+                op="make_helix_wire",
+                params={
+                    "pitch": pitch,
+                    "height": height,
+                    "radius": radius,
+                    "center": center,
+                    "dir": dir,
+                },
+                tags={"primitive", "wire"},
+            ),
+        )
     except Exception as e:
-        raise ValueError(f"创建螺旋线失败: {e}. 请检查参数是否有效。")
+        _wrap_public_api_error(
+            operation="make_helix_rwire",
+            what_happened="Failed to create a helix wire.",
+            possible_causes=[
+                "The helix parameters are invalid.",
+                "The direction vector is zero or malformed.",
+                "The kernel rejected the wire geometry.",
+            ],
+            how_to_fix=[
+                "Use positive pitch, height, and radius values.",
+                "Pass a valid center and a non-zero direction vector.",
+                "Retry after logging the evaluated helix parameters.",
+            ],
+            error=e,
+        )
 
 
 # =============================================================================
@@ -1055,80 +2447,142 @@ def make_helix_rwire(
 def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyShape:
     """Translate a shape by an offset vector."""
     try:
+        if isinstance(shape, Solid):
+            vector_value = cast(Tuple[float, float, float], evaluate_value(vector))
+            tracked = tracked_translate(shape, vector_value)
+            translated = cast(Solid, tracked.shape)
+            translated._tags = shape._tags.copy()
+            translated._metadata = shape._metadata.copy()
+            return _finalize_tracked_solid(
+                translated,
+                op=_OP_MAKE_TRANSLATE_RSHAPE,
+                params={"vector": vector},
+                source_solid=shape,
+                delta=tracked.delta,
+                delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
+                input_shapes=[shape],
+            )
+
         cs = get_current_cs()
-        global_vector = cs.transform_point(np.array(vector)) - cs.origin
-
-        translation_vec = Vector(*global_vector)
-
-        if isinstance(shape, Vertex):
-            new_cq_shape = shape.cq_vertex.translate(translation_vec)
-            new_shape = Vertex(new_cq_shape)
-        elif isinstance(shape, Edge):
-            new_cq_shape = shape.cq_edge.translate(translation_vec)
-            new_shape = Edge(new_cq_shape)
-        elif isinstance(shape, Wire):
-            new_cq_shape = shape.cq_wire.translate(translation_vec)
-            new_shape = Wire(new_cq_shape)
-        elif isinstance(shape, Face):
-            new_cq_shape = shape.cq_face.translate(translation_vec)
-            new_shape = Face(new_cq_shape)
-        elif isinstance(shape, Solid):
-            new_cq_shape = shape.cq_solid.translate(translation_vec)
-            new_shape = Solid(new_cq_shape)
+        vector_value = cast(Tuple[float, float, float], evaluate_value(vector))
+        global_vector = cs.transform_point(np.array(vector_value)) - cs.origin
+        new_shape = translate_shape_ocp(
+            shape,
+            (
+                float(global_vector[0]),
+                float(global_vector[1]),
+                float(global_vector[2]),
+            ),
+        )
 
         # 复制标签和元数据
         new_shape._tags = shape._tags.copy()
         new_shape._metadata = shape._metadata.copy()
+        _copy_runtime_state(shape, new_shape)
+        record_operation_if_active(
+            op=_OP_MAKE_TRANSLATE_RSHAPE,
+            params={"vector": vector},
+            outputs=new_shape,
+            input_shapes=[shape],
+            context=_current_context_metadata(),
+        )
 
         return new_shape
     except Exception as e:
-        raise ValueError(f"平移几何体失败: {e}. 请检查几何体和平移向量是否有效。")
+        _wrap_public_api_error(
+            operation="translate_shape",
+            what_happened="Failed to translate the shape.",
+            possible_causes=[
+                "The shape is invalid or has been corrupted by an earlier operation.",
+                "The translation vector is not a valid finite 3D vector.",
+                "The kernel rejected the transform.",
+            ],
+            how_to_fix=[
+                "Pass a valid SimpleCAD shape object.",
+                "Pass vector as a finite 3-element tuple or expression-backed vector.",
+                "Inspect the shape and vector values before retrying.",
+            ],
+            error=e,
+        )
 
 
 def rotate_shape(
     shape: AnyShape,
-    angle: float,
+    angle: ScalarLike,
     axis: Tuple[float, float, float] = (0, 0, 1),
     origin: Tuple[float, float, float] = (0, 0, 0),
 ) -> AnyShape:
     """Rotate a shape around an axis."""
-    if angle == 0:
+    angle_value = evaluate_scalar(angle)
+    if angle_value == 0:
         return shape
     else:
         try:
+            if isinstance(shape, Solid):
+                axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
+                origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
+                tracked = tracked_rotate(
+                    shape, angle_value, axis=axis_value, origin=origin_value
+                )
+                rotated = cast(Solid, tracked.shape)
+                rotated._tags = shape._tags.copy()
+                rotated._metadata = shape._metadata.copy()
+                return _finalize_tracked_solid(
+                    rotated,
+                    op=_OP_MAKE_ROTATE_RSHAPE,
+                    params={"angle": angle, "axis": axis, "origin": origin},
+                    source_solid=shape,
+                    delta=tracked.delta,
+                    delta_entries=cast(
+                        Dict[str, Dict[str, object]], tracked.delta_entries
+                    ),
+                    input_shapes=[shape],
+                )
+
             cs = get_current_cs()
-            global_axis = cs.transform_point(np.array(axis)) - cs.origin
-            global_origin = cs.transform_point(np.array(origin))
-
-            origin_vec = Vector(*global_origin)
-            axis_vec = Vector(*global_axis).normalized() + origin_vec
-
-            if isinstance(shape, Vertex):
-                new_cq_shape = shape.cq_vertex.rotate(origin_vec, axis_vec, angle)
-                new_shape = Vertex(new_cq_shape)
-            elif isinstance(shape, Edge):
-                new_cq_shape = shape.cq_edge.rotate(origin_vec, axis_vec, angle)
-                new_shape = Edge(new_cq_shape)
-            elif isinstance(shape, Wire):
-                new_cq_shape = shape.cq_wire.rotate(origin_vec, axis_vec, angle)
-                new_shape = Wire(new_cq_shape)
-            elif isinstance(shape, Face):
-                new_cq_shape = shape.cq_face.rotate(origin_vec, axis_vec, angle)
-                new_shape = Face(new_cq_shape)
-            elif isinstance(shape, Solid):
-                new_cq_shape = shape.cq_solid.rotate(origin_vec, axis_vec, angle)
-                new_shape = Solid(new_cq_shape)
-            else:
-                raise ValueError(f"不支持的几何体类型: {type(shape)}")  # type: ignore[unreachable]
+            axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
+            origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
+            global_axis = cs.transform_point(np.array(axis_value)) - cs.origin
+            global_origin = cs.transform_point(np.array(origin_value))
+            new_shape = rotate_shape_ocp(
+                shape,
+                angle_value,
+                (float(global_axis[0]), float(global_axis[1]), float(global_axis[2])),
+                (
+                    float(global_origin[0]),
+                    float(global_origin[1]),
+                    float(global_origin[2]),
+                ),
+            )
 
             # 复制标签和元数据
             new_shape._tags = shape._tags.copy()
             new_shape._metadata = shape._metadata.copy()
+            _copy_runtime_state(shape, new_shape)
+            record_operation_if_active(
+                op=_OP_MAKE_ROTATE_RSHAPE,
+                params={"angle": angle, "axis": axis, "origin": origin},
+                outputs=new_shape,
+                input_shapes=[shape],
+                context=_current_context_metadata(),
+            )
 
             return new_shape
         except Exception as e:
-            raise ValueError(
-                f"旋转几何体失败: {e}. 请检查几何体、角度、轴向和中心点是否有效。"
+            _wrap_public_api_error(
+                operation="rotate_shape",
+                what_happened="Failed to rotate the shape.",
+                possible_causes=[
+                    "The shape is invalid.",
+                    "The rotation angle is invalid or non-finite.",
+                    "The axis or origin is not a valid finite 3D vector.",
+                ],
+                how_to_fix=[
+                    "Pass a valid shape and a finite rotation angle.",
+                    "Use a non-zero axis vector and a valid origin point.",
+                    "Log the evaluated angle, axis, and origin before retrying.",
+                ],
+                error=e,
             )
 
 
@@ -1138,22 +2592,29 @@ def rotate_shape(
 
 
 def extrude_rsolid(
-    profile: Union[Wire, Face], direction: Tuple[float, float, float], distance: float
+    profile: Union[Wire, Face],
+    direction: Tuple[float, float, float],
+    distance: ScalarLike,
 ) -> Solid:
     """Create a solid by extruding a profile."""
     try:
-        if distance <= 0:
+        distance_value = evaluate_scalar(distance)
+        if distance_value <= 0:
             raise ValueError("拉伸距离必须大于0")
 
         cs = get_current_cs()
-        global_direction = cs.transform_point(np.array(direction)) - cs.origin
+        direction_value = cast(Tuple[float, float, float], evaluate_value(direction))
+        global_direction = cs.transform_point(np.array(direction_value)) - cs.origin
 
-        direction_vec = Vector(*global_direction).normalized() * distance
+        direction_norm = float(np.linalg.norm(global_direction))
+        if direction_norm <= 1e-15:
+            raise ValueError("拉伸方向不能是零向量")
+        direction_vec = tuple((global_direction / direction_norm * distance_value).tolist())
 
         if isinstance(profile, Wire):
             # 如果是线，先转换为面
             if profile.is_closed():
-                face = Face(cq.Face.makeFromWires(profile.cq_wire))
+                face = Face(make_face_from_wire_ocp(profile.wrapped))
             else:
                 raise ValueError(
                     "如果传入线框作为拉伸对象，那么线框必须是闭合的, 而你的线框没有闭合，请检查构成线框的点是否正确"
@@ -1163,31 +2624,34 @@ def extrude_rsolid(
         else:
             raise ValueError("只能拉伸线或面")  # type: ignore[unreachable]
 
-        # 使用CADQuery的Solid.extrudeLinear方法
-        cq_solid = cq.Solid.extrudeLinear(face.cq_face, direction_vec)
-        solid = Solid(cq_solid)
+        tracked = tracked_extrude(
+            face,
+            (
+                float(global_direction[0]),
+                float(global_direction[1]),
+                float(global_direction[2]),
+            ),
+            distance_value,
+        )
+        solid = cast(Solid, tracked.shape)
 
         side_face_count = 0
         profile_face_normal = None
         for face_after_extrusion in solid.get_faces():
-            if face_after_extrusion.cq_face.Center() == face.cq_face.Center():
+            if face_after_extrusion.get_center() == face.get_center():
                 face_after_extrusion._tags = profile._tags.copy()
                 face_after_extrusion.add_tag("extrusion start face")
                 face_after_extrusion._metadata = profile._metadata.copy()
-                profile_face_normal = face_after_extrusion.cq_face.normalAt(
-                    face.cq_face.Center().x, face.cq_face.Center().y
-                )[0]
+                profile_face_normal = face_after_extrusion.get_normal_at()
 
         if profile_face_normal is None:
             raise ValueError("没有找到和Profile一致的面对象")
 
         for face_after_extrusion in solid.get_faces():
             # 开始根据法向量判断顶面底面和侧面
-            face_center = face_after_extrusion.cq_face.Center()
+            face_center = face_after_extrusion.get_center()
             # 如果法向量和dir正交，认为是侧面
-            face_normal, _ = face_after_extrusion.cq_face.normalAt(
-                face_center.x, face_center.y
-            )
+            face_normal = face_after_extrusion.get_normal_at()
             if face_normal.dot(direction_vec) == 0:
                 face_after_extrusion._tags = profile._tags.copy()
                 face_after_extrusion.add_tag("extrusion side face")
@@ -1204,31 +2668,60 @@ def extrude_rsolid(
         solid.add_tag("extrusion solid")
         solid._metadata = profile._metadata.copy()
 
-        return solid
+        return _finalize_tracked_solid(
+            solid,
+            op=_OP_MAKE_EXTRUDE_RSOLID,
+            params={
+                "direction": direction,
+                "distance": distance,
+            },
+            delta=tracked.delta,
+            delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
+            input_shapes=[profile],
+        )
     except Exception as e:
-        raise ValueError(f"拉伸失败: {e}. 请检查轮廓、方向和距离是否有效。")
+        _wrap_public_api_error(
+            operation="extrude_rsolid",
+            what_happened="Failed to extrude the profile into a solid.",
+            possible_causes=[
+                "The distance is not a positive finite scalar.",
+                "The direction vector is invalid.",
+                "A wire profile was provided but it is not closed.",
+                "The kernel rejected the profile or the extrusion direction.",
+            ],
+            how_to_fix=[
+                "Use a distance greater than zero.",
+                "Pass a valid finite direction vector.",
+                "If you extrude a wire, make sure the wire is closed or convert it to a face first.",
+                "Inspect the evaluated profile and direction before retrying.",
+            ],
+            error=e,
+        )
 
 
 def revolve_rsolid(
     profile: Union[Wire, Face],
     axis: Tuple[float, float, float] = (0, 0, 1),
-    angle: float = 360,
+    angle: ScalarLike = 360,
     origin: Tuple[float, float, float] = (0, 0, 0),
 ) -> Solid:
     """Create a solid by revolving a profile around an axis."""
     try:
-        if angle <= 0:
+        angle_value = evaluate_scalar(angle)
+        if angle_value <= 0:
             raise ValueError("旋转角度必须大于0")
 
         cs = get_current_cs()
-        global_axis = cs.transform_point(np.array(axis)) - cs.origin
-        global_origin = cs.transform_point(np.array(origin))
+        axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
+        origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
+        global_axis = cs.transform_point(np.array(axis_value)) - cs.origin
+        global_origin = cs.transform_point(np.array(origin_value))
 
         # 获取轮廓对应的面
         if isinstance(profile, Wire):
             # 如果是线，先转换为面
             if profile.is_closed():
-                face = Face(cq.Face.makeFromWires(profile.cq_wire))
+                face = Face(make_face_from_wire_ocp(profile.wrapped))
             else:
                 raise ValueError("旋转的线必须是闭合的")
         elif isinstance(profile, Face):
@@ -1236,40 +2729,56 @@ def revolve_rsolid(
         else:
             raise ValueError("只能旋转线或面")
 
-        print(f"revolve_rsolid: profile type: {type(profile)}, face type: {type(face)}")
-        print(
-            f"with parameters: axis={global_axis}, angle={angle}, origin={global_origin}"
+        tracked = tracked_revolve(
+            face,
+            (
+                float(global_axis[0]),
+                float(global_axis[1]),
+                float(global_axis[2]),
+            ),
+            (
+                float(global_origin[0]),
+                float(global_origin[1]),
+                float(global_origin[2]),
+            ),
+            angle_value,
         )
-
-        rv = revolve(
-            face.cq_face,
-            p=Vector((global_origin[0], global_origin[1], global_origin[2])),
-            d=Vector(
-                (
-                    global_axis[0],
-                    global_axis[1],
-                    global_axis[2],
-                )
-            ).normalized(),
-            a=angle,
-        )
-
-        print(f"Revolve result type: {type(rv)}")
-
-        if hasattr(rv, "Solids") and rv.Solids():
-            cq_solid = rv.Solids()[0]
-        else:
-            cq_solid = rv
-
-        solid = Solid(cq_solid)
+        solid = cast(Solid, tracked.shape)
 
         # 复制标签和元数据
         solid._tags = profile._tags.copy()
         solid._metadata = profile._metadata.copy()
 
-        return solid
+        return _finalize_tracked_solid(
+            solid,
+            op=_OP_MAKE_REVOLVE_RSOLID,
+            params={
+                "axis": axis,
+                "angle": angle,
+                "origin": origin,
+            },
+            delta=tracked.delta,
+            delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
+            input_shapes=[profile],
+        )
     except Exception as e:
-        raise ValueError(f"旋转失败: {e}. 请检查轮廓、轴向、角度和中心点是否有效。")
+        _wrap_public_api_error(
+            operation="revolve_rsolid",
+            what_happened="Failed to revolve the profile into a solid.",
+            possible_causes=[
+                "The angle is not a positive finite scalar.",
+                "The axis or origin is invalid.",
+                "A wire profile was provided but it is not closed.",
+                "The kernel rejected the revolve definition.",
+            ],
+            how_to_fix=[
+                "Use an angle greater than zero.",
+                "Pass a valid non-zero axis vector and a valid origin point.",
+                "If you revolve a wire, ensure it is closed or convert it to a face first.",
+                "Inspect the evaluated axis, origin, and profile before retrying.",
+            ],
+            error=e,
+        )
 
 
 # =============================================================================
@@ -1283,7 +2792,19 @@ def set_tag(shape: AnyShape, tag: str) -> AnyShape:
         shape.add_tag(tag)
         return shape
     except Exception as e:
-        raise ValueError(f"设置标签失败: {e}. 请检查几何体和标签名称是否有效。")
+        _wrap_public_api_error(
+            operation="set_tag",
+            what_happened="Failed to attach the tag to the shape.",
+            possible_causes=[
+                "The shape is invalid.",
+                "The tag value is empty or malformed.",
+            ],
+            how_to_fix=[
+                "Pass a valid shape object.",
+                "Use a non-empty tag string.",
+            ],
+            error=e,
+        )
 
 
 def select_faces_by_tag(solid: Solid, tag: str) -> List[Face]:
@@ -1292,14 +2813,26 @@ def select_faces_by_tag(solid: Solid, tag: str) -> List[Face]:
         faces = solid.get_faces()
         return [face for face in faces if face.has_tag(tag)]
     except Exception as e:
-        raise ValueError(f"选择面失败: {e}. 请检查实体和标签名称是否有效。")
+        _wrap_public_api_error(
+            operation="select_faces_by_tag",
+            what_happened="Failed to select faces by tag.",
+            possible_causes=[
+                "The solid is invalid.",
+                "The tag string is invalid.",
+            ],
+            how_to_fix=[
+                "Pass a valid Solid object.",
+                "Use the exact face tag that was previously assigned.",
+            ],
+            error=e,
+        )
 
 
 def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]:
     """Select edges by tag."""
     try:
         if isinstance(shape, Face):
-            edges = [Edge(edge) for edge in shape.cq_face.Edges()]
+            edges = [Edge(edge) for edge in shape.wrapped.Edges()]
         elif isinstance(shape, Solid):
             edges = shape.get_edges()
         else:
@@ -1307,7 +2840,21 @@ def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]:
 
         return [edge for edge in edges if edge.has_tag(tag)]
     except Exception as e:
-        raise ValueError(f"选择边失败: {e}. 请检查几何体和标签名称是否有效。")
+        _wrap_public_api_error(
+            operation="select_edges_by_tag",
+            what_happened="Failed to select edges by tag.",
+            possible_causes=[
+                "The input shape is neither a Face nor a Solid.",
+                "The shape is invalid.",
+                "The tag string is invalid.",
+            ],
+            how_to_fix=[
+                "Pass a Face or Solid object.",
+                "Use the exact edge tag that was previously assigned.",
+                "If selection is empty unexpectedly, inspect the available edge tags first.",
+            ],
+            error=e,
+        )
 
 
 # =============================================================================
@@ -1320,7 +2867,7 @@ def union_rsolidlist(
     clean: bool = True,
     glue: bool = _DEFAULT_UNION_GLUE,
     tol: Optional[float] = None,
-) -> List[Solid]:
+) -> Solid:
     """Compute the boolean union of one or more solids.
 
     Args:
@@ -1334,101 +2881,49 @@ def union_rsolidlist(
             omitted, SimpleCAD chooses a conservative scale-aware tolerance.
 
     Returns:
-        List[Solid]: Resulting solids after union attempts. Solids that can be fused
-        are merged; disjoint or tangent-only contacts remain separate, so the
-        list may contain multiple solids.
+        Solid: The merged union result.
 
     Usage:
         All boolean operations (union/cut/intersect) accept a mix of Solid and
-        sequences; results are always returned as a list of Solid.
-        Keep the list result unless you have explicitly verified `len(result) == 1`.
-        SimpleCAD enables glue mode by default and applies a conservative internal
-        fuzzy tolerance so normal code does not need to tune boolean parameters.
-        Touching-but-not-intersecting inputs can legitimately return multiple solids.
-        If that happens, keep using the list: pass it directly into later union calls,
-        or iterate over the solids for later cut/intersect steps. When returned
-        solids remain separated by more than the active tolerance, SimpleCAD prints
-        a stdout warning describing the detected gap. If you truly need exactly one
-        merged solid, you must check the list length before using `result[0]`.
+        nested sequences of Solid, but now return a single `Solid`.
+        If the kernel cannot produce exactly one solid result, the API raises a
+        clear error instead of returning a list.
 
     Examples:
-        # Rounded-bar style input: end caps only touch the center body.
-        main_body = make_box_rsolid(10, 4, 4, bottom_face_center=(0, 0, 0))
-        left_cap = make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0))
-        right_cap = make_sphere_rsolid(2.0, center=(12.0, 2.0, 2.0))
-
-        body_parts = union_rsolidlist(main_body, [left_cap, right_cap])
-        print(f"Union result count: {len(body_parts)}")
-        # This is acceptable: tangent-only contact can stay as multiple solids.
-        for solid in body_parts:
-            print(f"- volume: {solid.get_volume():.6f}")
-
-        # Keep using the returned list in later boolean steps.
+        body = make_box_rsolid(10, 4, 4, bottom_face_center=(0, 0, 0))
         rib = make_box_rsolid(2, 4, 4, bottom_face_center=(4, 0, 0))
-        combined_parts = union_rsolidlist(body_parts, rib)
-        print(f"Combined result count: {len(combined_parts)}")
-
-        # Only unwrap to one solid after an explicit length check.
-        left_cap_embedded = make_sphere_rsolid(2.0, center=(-1.8, 2.0, 2.0))
-        right_cap_embedded = make_sphere_rsolid(2.0, center=(11.8, 2.0, 2.0))
-        merged = union_rsolidlist(main_body, [left_cap_embedded, right_cap_embedded])
-        if len(merged) != 1:
-            raise ValueError(
-                "Adjust part placement so each cap overlaps the body slightly before "
-                "using merged[0]."
-            )
-        final_body = merged[0]
+        merged = union_rsolidlist(body, rib)
+        print(merged.get_volume())
     """
 
     try:
-        # 递归展开所有参数：将Solid直接添加，将序列展开
-        def _flatten_solids(args):
-            result = []
-            for arg in args:
-                if isinstance(arg, Solid):
-                    result.append(arg)
-                elif isinstance(arg, Sequence) and not isinstance(arg, (str, bytes)):
-                    result.extend(_flatten_solids(arg))
-                else:
-                    result.append(arg)  # 保留非Solid对象，后续会进行类型检查
-            return result
-
-        remaining = _flatten_solids(solids)
+        remaining = _flatten_boolean_solids(solids, "union_rsolidlist")
 
         if not remaining:
-            return []
+            raise ValueError("union_rsolidlist 至少需要一个Solid输入")
 
         for solid in remaining:
-            if not isinstance(solid, Solid):
-                raise ValueError("union_rsolidlist函数只接受Solid类型的对象")
-            if solid.cq_solid.isNull():
+            if solid.wrapped.IsNull():
                 raise ValueError("输入实体无效，无法进行并集运算。")
 
         if len(remaining) == 1 and not clean:
-            return [remaining[0]]
+            return remaining[0]
 
         effective_tol = _resolve_union_tol(remaining, tol)
-        cq_shapes = [solid.cq_solid for solid in remaining]
+        fused_shape = fuse_shapes(
+            [solid.wrapped for solid in remaining], glue=glue, tol=effective_tol, clean=clean
+        )
+        result_shapes = solids_of(fused_shape)
 
-        if len(cq_shapes) == 1:
-            fused_shape = cq_shapes[0]
-        else:
-            fused_shape = cq_shapes[0].fuse(
-                *cq_shapes[1:], glue=glue, tol=effective_tol
+        if len(result_shapes) != 1:
+            _warn_if_union_results_remain_separated(
+                [Solid(result_shape) for result_shape in result_shapes], effective_tol
             )
-
-        if clean:
-            fused_shape = fused_shape.clean()
-
-        if hasattr(fused_shape, "Solids"):
-            cq_results = list(fused_shape.Solids())
-        elif hasattr(fused_shape, "ShapeType") and fused_shape.ShapeType() == "Solid":
-            cq_results = [fused_shape]
-        else:
-            cq_results = []
-
-        if not cq_results:
-            raise ValueError("并集结果中未找到有效实体。")
+        fused_solid = _require_single_boolean_solid(
+            result_shapes,
+            operation="union_rsolidlist",
+            failure_reason="并集结果中未找到有效实体。",
+        )
 
         all_tags = set()
         all_metadata = {}
@@ -1436,21 +2931,74 @@ def union_rsolidlist(
             all_tags.update(solid._tags)
             all_metadata.update(solid._metadata)
 
-        result: List[Solid] = []
-        for cq_result in cq_results:
-            fused_solid = Solid(cq_result)
-            fused_solid._tags = all_tags.copy()
-            fused_solid._metadata = all_metadata.copy()
-            result.append(fused_solid)
+        fused_solid._tags = all_tags.copy()
+        fused_solid._metadata = all_metadata.copy()
 
-        _warn_if_union_results_remain_separated(result, effective_tol)
+        tracked_union_result: Optional[TrackedBooleanResult] = None
+        if len(remaining) == 2:
+            try:
+                tracked_union_result = tracked_union(
+                    remaining[0],
+                    remaining[1],
+                    glue=glue,
+                    tol=float(effective_tol or 0.0),
+                )
+            except Exception:
+                tracked_union_result = None
 
-        return result
+        if tracked_union_result is not None:
+            fused_solid = _finalize_tracked_solid(
+                fused_solid,
+                op=_OP_MAKE_UNION_RSOLIDLIST,
+                params={
+                    "input_count": len(remaining),
+                    "clean": clean,
+                    "glue": glue,
+                    "tol": effective_tol,
+                },
+                source_solid=remaining[0],
+                delta=tracked_union_result.delta,
+                delta_entries=cast(
+                    Dict[str, Dict[str, object]],
+                    tracked_union_result.delta_entries,
+                ),
+                input_shapes=remaining,
+            )
+        else:
+            _attach_track_summary(fused_solid, op=_OP_MAKE_UNION_RSOLIDLIST)
+            record_operation_if_active(
+                op=_OP_MAKE_UNION_RSOLIDLIST,
+                params={
+                    "input_count": len(remaining),
+                    "clean": clean,
+                    "glue": glue,
+                    "tol": effective_tol,
+                },
+                outputs=fused_solid,
+                input_shapes=remaining,
+                context=_current_context_metadata(),
+            )
+
+        return fused_solid
     except Exception as e:
-        raise ValueError(f"并集运算失败: {e}. 请检查实体列表是否有效。")
+        _wrap_public_api_error(
+            operation="union_rsolidlist",
+            what_happened="Failed to compute the boolean union.",
+            possible_causes=[
+                "One or more inputs are not Solid objects.",
+                "At least one input solid is null or invalid.",
+                "The kernel could not fuse the solids into exactly one solid with the current geometry or tolerance.",
+            ],
+            how_to_fix=[
+                "Pass only Solid objects or sequences of Solid objects.",
+                "Validate each input solid before union.",
+                "If the solids still remain disconnected, move them so they overlap or increase tol intentionally.",
+            ],
+            error=e,
+        )
 
 
-def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
+def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
     """Compute the boolean difference of solids.
 
     Args:
@@ -1459,112 +3007,106 @@ def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
             subtracted in order.
 
     Returns:
-        List[Solid]: A list containing the cut result solid, or an empty list when
-            there is no valid input. The result is returned as a list for consistency
-            with other boolean operations.
+        Solid: The cut result solid.
 
     Usage:
-        All boolean operations (union/cut/intersect) accept a mix of Solid and
-        sequences; results are always returned as a list of Solid.
-        `cut_rsolidlist(base, [tool_a, tool_b])` is valid input.
-        If an earlier union returned multiple solids, keep that list and process each
-        solid intentionally instead of collapsing it to `result[0]` without proof.
-        If a later step truly requires one solid, first verify `len(results) == 1`.
-        When a preceding union produced multiple tangent-only solids, adjust the part
-        placement so the intended bodies overlap slightly, re-run the union, and only
-        then unwrap the single result.
-
-    Examples:
-        body = make_box_rsolid(12, 4, 4, bottom_face_center=(0, 0, 0))
-        slot = make_box_rsolid(2, 2, 6, bottom_face_center=(2, 1, -1))
-        relief = make_cylinder_rsolid(radius=0.8, height=6, center=(8, 2, 2))
-
-        results = cut_rsolidlist(body, [slot, relief])
-        print(f"Cut result count: {len(results)}")
-
-        # If a previous union returned multiple solids, keep the list and cut each part.
-        tangent_parts = union_rsolidlist(
-            body,
-            [
-                make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0)),
-                make_sphere_rsolid(2.0, center=(14.0, 2.0, 2.0)),
-            ],
-        )
-        trimmed_parts = []
-        for part in tangent_parts:
-            trimmed_parts.extend(cut_rsolidlist(part, [slot, relief]))
+        Accepts a base solid followed by one or more tool solids, including nested
+        sequences, and returns a single `Solid`.
     """
     try:
-        # 递归展开所有参数：将Solid直接添加，将序列展开
-        def _flatten_solids(args):
-            result = []
-            for arg in args:
-                if isinstance(arg, Solid):
-                    result.append(arg)
-                elif isinstance(arg, Sequence) and not isinstance(arg, (str, bytes)):
-                    result.extend(_flatten_solids(arg))
-                else:
-                    result.append(arg)  # 保留非Solid对象，后续会进行类型检查
-            return result
-
-        remaining = _flatten_solids(solids)
+        remaining = _flatten_boolean_solids(solids, "cut_rsolidlist")
 
         if not remaining:
-            return []
+            raise ValueError("cut_rsolidlist 至少需要一个Solid输入")
 
         if len(remaining) == 1:
-            return [remaining[0]]
-
-        for solid in remaining:
-            if not isinstance(solid, Solid):
-                raise ValueError("cut_rsolidlist函数只接受Solid类型的对象")
+            return remaining[0]
 
         # 从第一个实体开始，依次减去其他实体
         result_solid = remaining[0]
+        last_delta: Optional[TopoDelta] = None
+        last_delta_entries: Optional[Dict[str, Dict[str, object]]] = None
+        cut_performed = False
 
         for i in range(1, len(remaining)):
             candidate = remaining[i]
 
-            s1 = result_solid.cq_solid
-            s2 = candidate.cq_solid
+            s1 = result_solid.wrapped
+            s2 = candidate.wrapped
 
-            if s1.isNull() or s2.isNull():
+            if s1.IsNull() or s2.IsNull():
                 raise ValueError("输入实体无效，无法进行差集运算。")
 
             # 检查是否有交集
-            intersection = intersect(s1, s2)
-            if hasattr(intersection, "Solids") and intersection.Solids():
-                intersection_solid = intersection.Solids()[0]
-            else:
-                intersection_solid = intersection
-
-            intersection_obj = Solid(intersection_solid)
+            intersection = common_shapes([s1, s2])
+            intersection_solids = solids_of(intersection)
+            if not intersection_solids:
+                continue
+            intersection_obj = Solid(intersection_solids[0])
 
             if intersection_obj.get_volume() < 1e-12:
                 # 没有有效的交集，跳过此次切割
                 continue
 
-            # 执行差集操作
-            rv = cut(s1, s2)
+            tracked = tracked_cut(result_solid, candidate)
+            if tracked.solid is None:
+                raise ValueError("差集运算失败: OCC 未返回有效实体")
 
-            if hasattr(rv, "Solids") and rv.Solids():
-                cq_result = rv.Solids()[0]
-            else:
-                cq_result = rv
-
-            result_solid = Solid(cq_result)
+            new_result = tracked.solid
+            new_result._tags = result_solid._tags.copy()
+            new_result._metadata = result_solid._metadata.copy()
+            result_solid = new_result
+            last_delta = tracked.delta
+            last_delta_entries = cast(
+                Dict[str, Dict[str, object]], tracked.delta_entries
+            )
+            cut_performed = True
 
         # 保留第一个实体的标签和元数据
         result_solid._tags = remaining[0]._tags.copy()
         result_solid._metadata = remaining[0]._metadata.copy()
         result_solid.add_tag("cut_result")
 
-        return [result_solid]
+        if cut_performed and last_delta is not None:
+            result_solid = _finalize_tracked_solid(
+                result_solid,
+                op=_OP_MAKE_CUT_RSOLIDLIST,
+                params={"tool_count": len(remaining) - 1},
+                source_solid=remaining[0],
+                delta=last_delta,
+                delta_entries=last_delta_entries,
+                input_shapes=remaining,
+            )
+        else:
+            _attach_track_summary(result_solid, op=_OP_MAKE_CUT_RSOLIDLIST)
+            record_operation_if_active(
+                op=_OP_MAKE_CUT_RSOLIDLIST,
+                params={"tool_count": len(remaining) - 1},
+                outputs=result_solid,
+                input_shapes=remaining,
+                context=_current_context_metadata(),
+            )
+
+        return result_solid
     except Exception as e:
-        raise ValueError(f"差集运算失败: {e}. 请检查实体列表是否有效。")
+        _wrap_public_api_error(
+            operation="cut_rsolidlist",
+            what_happened="Failed to compute the boolean cut.",
+            possible_causes=[
+                "One or more inputs are not Solid objects.",
+                "The base solid or tool solids are invalid.",
+                "The kernel could not compute a valid cut result for the current geometry.",
+            ],
+            how_to_fix=[
+                "Pass a valid base solid followed by valid tool solids.",
+                "Check whether the tool geometry actually intersects the base solid.",
+                "If the cut depends on earlier union results, verify those results first.",
+            ],
+            error=e,
+        )
 
 
-def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
+def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
     """Compute the boolean intersection of solids.
 
     Args:
@@ -1572,92 +3114,51 @@ def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
             flattened before processing.
 
     Returns:
-        List[Solid]: A list containing the intersection result, or an empty list if
-            the solids do not overlap. The result is returned as a list for
-            consistency with other boolean operations.
+        Solid: The overlap region as a single solid.
 
     Usage:
-        All boolean operations (union/cut/intersect) accept a mix of Solid and
-        sequences; results are always returned as a list of Solid.
-        `intersect_rsolidlist(body, [clip_a, clip_b])` is valid input.
-        If an earlier union returned multiple solids, keep that list and intersect
-        each solid intentionally instead of collapsing it to `result[0]`.
-        If a later step truly requires one solid, first verify `len(results) == 1`.
-        When a preceding union produced multiple tangent-only solids, adjust the part
-        placement so the intended bodies overlap slightly, re-run the union, and only
-        then unwrap the single result.
-
-    Examples:
-        body = make_box_rsolid(12, 4, 4, bottom_face_center=(0, 0, 0))
-        clip_a = make_box_rsolid(8, 4, 4, bottom_face_center=(2, 0, 0))
-        clip_b = make_box_rsolid(6, 6, 6, bottom_face_center=(3, -1, -1))
-
-        results = intersect_rsolidlist(body, [clip_a, clip_b])
-        print(f"Intersect result count: {len(results)}")
-
-        # A previous union may return multiple solids; keep the list and intersect each part.
-        tangent_parts = union_rsolidlist(
-            body,
-            [
-                make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0)),
-                make_sphere_rsolid(2.0, center=(14.0, 2.0, 2.0)),
-            ],
-        )
-        clipped_parts = []
-        for part in tangent_parts:
-            clipped_parts.extend(intersect_rsolidlist(part, clip_a))
+        Accepts one or more solids, including nested sequences, and returns a single
+        `Solid`. If the inputs do not overlap meaningfully, the API raises a clear
+        error instead of returning an empty list.
     """
     try:
-        # 递归展开所有参数：将Solid直接添加，将序列展开
-        def _flatten_solids(args):
-            result = []
-            for arg in args:
-                if isinstance(arg, Solid):
-                    result.append(arg)
-                elif isinstance(arg, Sequence) and not isinstance(arg, (str, bytes)):
-                    result.extend(_flatten_solids(arg))
-                else:
-                    result.append(arg)  # 保留非Solid对象，后续会进行类型检查
-            return result
-
-        remaining = _flatten_solids(solids)
+        remaining = _flatten_boolean_solids(solids, "intersect_rsolidlist")
 
         if not remaining:
-            return []
-
-        for solid in remaining:
-            if not isinstance(solid, Solid):
-                raise ValueError("intersect_rsolidlist函数只接受Solid类型的对象")
+            raise ValueError("intersect_rsolidlist 至少需要一个Solid输入")
 
         if len(remaining) == 1:
-            # 只有一个实体，直接返回
-            return [remaining[0]]
+            return remaining[0]
 
         # 从第一个实体开始，依次与后续实体进行交集运算
         result_solid = remaining[0]
+        last_delta: Optional[TopoDelta] = None
+        last_delta_entries: Optional[Dict[str, Dict[str, object]]] = None
+        intersect_performed = False
 
         for i in range(1, len(remaining)):
             candidate = remaining[i]
 
-            s1 = result_solid.cq_solid
-            s2 = candidate.cq_solid
+            s1 = result_solid.wrapped
+            s2 = candidate.wrapped
 
-            if s1.isNull() or s2.isNull():
+            if s1.IsNull() or s2.IsNull():
                 raise ValueError("输入实体无效，无法进行交集运算。")
 
-            rv = intersect(s1, s2)
+            tracked = tracked_intersect(result_solid, candidate)
+            if tracked.solid is None:
+                raise ValueError("交集结果为空或 OCC 未返回有效实体")
 
-            if hasattr(rv, "Solids") and rv.Solids():
-                cq_result = rv.Solids()[0]
-            else:
-                cq_result = rv
-
-            result_solid = Solid(cq_result)
+            result_solid = tracked.solid
+            last_delta = tracked.delta
+            last_delta_entries = cast(
+                Dict[str, Dict[str, object]], tracked.delta_entries
+            )
+            intersect_performed = True
 
             # 检查交集是否为空
             if result_solid.get_volume() < 1e-12:
-                # 交集体积太小，视为无交集
-                return []
+                raise ValueError("交集结果为空或体积过小")
 
         # 合并所有输入实体的标签和元数据
         all_tags: set = set()
@@ -1672,9 +3173,44 @@ def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
         result_solid._metadata = all_metadata
         result_solid.add_tag("intersect_result")
 
-        return [result_solid]
+        if intersect_performed and last_delta is not None:
+            result_solid = _finalize_tracked_solid(
+                result_solid,
+                op=_OP_MAKE_INTERSECT_RSOLIDLIST,
+                params={"input_count": len(remaining)},
+                source_solid=remaining[0],
+                delta=last_delta,
+                delta_entries=last_delta_entries,
+                input_shapes=remaining,
+            )
+        else:
+            _attach_track_summary(result_solid, op=_OP_MAKE_INTERSECT_RSOLIDLIST)
+            record_operation_if_active(
+                op=_OP_MAKE_INTERSECT_RSOLIDLIST,
+                params={"input_count": len(remaining)},
+                outputs=result_solid,
+                input_shapes=remaining,
+                context=_current_context_metadata(),
+            )
+
+        return result_solid
     except Exception as e:
-        raise ValueError(f"交集运算失败: {e}. 请检查实体列表是否有效。")
+        _wrap_public_api_error(
+            operation="intersect_rsolidlist",
+            what_happened="Failed to compute the boolean intersection.",
+            possible_causes=[
+                "One or more inputs are not Solid objects.",
+                "At least one input solid is invalid.",
+                "The solids do not overlap enough to produce a non-empty single solid.",
+                "The kernel could not compute a stable overlap region.",
+            ],
+            how_to_fix=[
+                "Pass only valid Solid objects.",
+                "Verify that the solids truly overlap in space.",
+                "Move the solids so they share a meaningful overlap volume before intersecting.",
+            ],
+            error=e,
+        )
 
 
 # =============================================================================
@@ -1733,28 +3269,23 @@ def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> N
     try:
         shape_list = _normalize_shape_input(shapes)
 
-        # 创建CADQuery的Workplane并添加所有几何体
-        wp = cq.Workplane()
-        for shape in shape_list:
-            if isinstance(shape, Solid):
-                wp = wp.add(shape.cq_solid)
-            elif isinstance(shape, Face):
-                wp = wp.add(shape.cq_face)
-            elif isinstance(shape, Wire):
-                wp = wp.add(shape.cq_wire)
-            elif isinstance(shape, Edge):
-                wp = wp.add(shape.cq_edge)
-            elif isinstance(shape, Vertex):
-                wp = wp.add(shape.cq_vertex)
-            else:
-                raise ValueError(
-                    "export_step函数只支持Solid、Face、Wire、Edge和Vertex类型的几何体"
-                )
-
-        # 导出到STEP文件
-        cq.exporters.export(wp, filename)
+        export_step_shapes([shape.wrapped for shape in shape_list], filename)
     except Exception as e:
-        raise ValueError(f"导出STEP文件失败: {e}. 请检查几何体和文件名是否有效。")
+        _wrap_public_api_error(
+            operation="export_step",
+            what_happened="Failed to export the shape set to STEP.",
+            possible_causes=[
+                "One or more inputs are not exportable SimpleCAD shapes.",
+                "The output path is invalid or not writable.",
+                "The exporter rejected the provided geometry.",
+            ],
+            how_to_fix=[
+                "Pass Solid, Face, Wire, Edge, Vertex, or sequences of those types.",
+                "Use a writable file path ending in .step or .stp.",
+                "If export still fails, inspect each input shape individually.",
+            ],
+            error=e,
+        )
 
 
 def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> None:
@@ -1786,20 +3317,26 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
     try:
         shape_list = _normalize_shape_input(shapes)
 
-        # 创建CADQuery的Workplane并添加所有几何体
-        wp = cq.Workplane()
         for shape in shape_list:
-            if isinstance(shape, Solid):
-                wp = wp.add(shape.cq_solid)
-            elif isinstance(shape, Face):
-                wp = wp.add(shape.cq_face)
-            else:
+            if not isinstance(shape, (Solid, Face)):
                 raise ValueError("export_stl函数只支持Solid和Face类型的几何体")
-
-        # 导出到STL文件
-        cq.exporters.export(wp, filename)
+        export_stl_shape(make_compound([shape.wrapped for shape in shape_list]), filename)
     except Exception as e:
-        raise ValueError(f"导出STL文件失败: {e}. 请检查几何体和文件名是否有效。")
+        _wrap_public_api_error(
+            operation="export_stl",
+            what_happened="Failed to export the shape set to STL.",
+            possible_causes=[
+                "One or more inputs are not Solid or Face objects.",
+                "The output path is invalid or not writable.",
+                "The exporter rejected the provided geometry.",
+            ],
+            how_to_fix=[
+                "Pass Solid or Face objects, or sequences of them.",
+                "Use a writable file path ending in .stl.",
+                "If export still fails, isolate which shape triggers the exporter error.",
+            ],
+            error=e,
+        )
 
 
 def render_screenshot_rpath(
@@ -1891,7 +3428,7 @@ def render_screenshot_rpath(
             return np.hstack([shaded, alpha])
 
         for solid in solids:
-            bb = solid.cq_solid.BoundingBox()
+            bb = bounding_box(solid.wrapped)
             bbox_min = np.minimum(bbox_min, np.array([bb.xmin, bb.ymin, bb.zmin]))
             bbox_max = np.maximum(bbox_max, np.array([bb.xmax, bb.ymax, bb.zmax]))
 
@@ -1936,7 +3473,7 @@ def render_screenshot_rpath(
                     bottom_face_center=tuple(np.array(axis) * shaft_len),
                     axis=axis,
                 )
-                merged = union_rsolidlist(shaft, cone)[0]
+                merged = union_rsolidlist(shaft, cone)
                 return merged
 
             axis_x = _axis_solid((1.0, 0.0, 0.0), axis_len_x)
@@ -1956,7 +3493,7 @@ def render_screenshot_rpath(
         render_solids = solids + axis_solids
 
         for solid in render_solids:
-            bb = solid.cq_solid.BoundingBox()
+            bb = bounding_box(solid.wrapped)
             if solid not in solids and fit_mode == "axes":
                 bbox_min = np.minimum(bbox_min, np.array([bb.xmin, bb.ymin, bb.zmin]))
                 bbox_max = np.maximum(bbox_max, np.array([bb.xmax, bb.ymax, bb.zmax]))
@@ -1981,13 +3518,13 @@ def render_screenshot_rpath(
                     center = face.get_center()
                     label_points[face_tag] = (center.x, center.y, center.z)
 
-                verts, tri_indices = face.cq_face.tessellate(
-                    mesh_tolerance, mesh_angular_tolerance
+                verts, tri_indices = tessellate_face(
+                    face.wrapped, mesh_tolerance, mesh_angular_tolerance
                 )
                 if not tri_indices:
                     continue
 
-                vertices = np.array([[v.x, v.y, v.z] for v in verts], dtype=float)
+                vertices = np.array(verts, dtype=float)
                 tris = np.array(tri_indices, dtype=int)
                 tri_pts = vertices[tris]
                 normals = np.cross(
@@ -2304,7 +3841,21 @@ def render_screenshot_rpath(
         plt.close(fig)
         return output_path
     except Exception as e:
-        raise ValueError(f"渲染截图失败: {e}.")
+        _wrap_public_api_error(
+            operation="render_screenshot_rpath",
+            what_happened="Failed to render the screenshot.",
+            possible_causes=[
+                "The input does not contain any valid Solid objects.",
+                "The rendering view or zoom configuration is invalid.",
+                "The output path is invalid or not writable.",
+            ],
+            how_to_fix=[
+                "Pass a Solid or a sequence of Solid objects.",
+                "Use a supported view preset or a valid (elev, azim) tuple.",
+                "Check that the output path is writable.",
+            ],
+            error=e,
+        )
 
 
 # =============================================================================
@@ -2312,72 +3863,186 @@ def render_screenshot_rpath(
 # =============================================================================
 
 
-def fillet_rsolid(solid: Solid, edges: List[Edge], radius: float) -> Solid:
+def fillet_rsolid(
+    solid: Solid, edges: Union[Sequence[Edge], ShapeSelector], radius: ScalarLike
+) -> Solid:
     """Apply fillets to selected solid edges."""
     try:
-        if radius <= 0:
+        radius_value = evaluate_scalar(radius)
+        if radius_value <= 0:
             raise ValueError("圆角半径必须大于0")
 
-        # 转换为CADQuery边对象
-        cq_edges = [edge.cq_edge for edge in edges]
+        selected_edges = cast(List[Edge], _resolve_selector_or_shapes(solid, edges))
+        if not selected_edges:
+            raise ValueError("圆角操作至少需要一条边")
 
-        # 执行圆角操作
-        cq_result = solid.cq_solid.fillet(radius, cq_edges)
-        result = Solid(cq_result)
-
-        # 复制标签和元数据
-        result._tags = solid._tags.copy()
-        result._metadata = solid._metadata.copy()
-
-        return result
-    except Exception as e:
-        raise ValueError(f"圆角操作失败: {e}. 请检查实体、边和半径是否有效。")
-
-
-def chamfer_rsolid(solid: Solid, edges: List[Edge], distance: float) -> Solid:
-    """Apply chamfers to selected solid edges."""
-    try:
-        if distance <= 0:
-            raise ValueError("倒角距离必须大于0")
-
-        # 转换为CADQuery边对象
-        cq_edges = [edge.cq_edge for edge in edges]
-
-        # 执行倒角操作
-        cq_result = solid.cq_solid.chamfer(distance, None, cq_edges)
-        result = Solid(cq_result)
+        tracked = tracked_fillet(solid, selected_edges, radius_value)
+        result = cast(Solid, tracked.shape)
 
         # 复制标签和元数据
         result._tags = solid._tags.copy()
         result._metadata = solid._metadata.copy()
 
-        return result
+        return _finalize_tracked_solid(
+            result,
+            op=_OP_MAKE_FILLET_RSOLID,
+            params={
+                "radius": radius,
+                "edge_count": len(selected_edges),
+                "selected_edges": _serialize_shape_refs(selected_edges),
+                "selected_edge_indices": _serialize_selection_indices(
+                    selected_edges, solid.get_edges()
+                ),
+                **(
+                    {"selection_query": _serialize_selection_query(edges)}
+                    if _serialize_selection_query(edges) is not None
+                    else {}
+                ),
+            },
+            source_solid=solid,
+            delta=tracked.delta,
+            delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
+            input_shapes=[solid],
+        )
     except Exception as e:
-        raise ValueError(f"倒角操作失败: {e}. 请检查实体、边和距离是否有效。")
-
-
-def shell_rsolid(solid: Solid, faces_to_remove: List[Face], thickness: float) -> Solid:
-    """Shell a solid to create a hollow part."""
-    try:
-        if thickness <= 0:
-            raise ValueError("壁厚必须大于0")
-
-        # 转换为CADQuery面对象
-        cq_faces = (
-            [face.cq_face for face in faces_to_remove] if faces_to_remove else None
+        _wrap_public_api_error(
+            operation="fillet_rsolid",
+            what_happened="Failed to apply the fillet operation.",
+            possible_causes=[
+                "The radius is not a positive finite scalar.",
+                "No valid edges were selected.",
+                "The selected edges are incompatible with the requested fillet radius.",
+            ],
+            how_to_fix=[
+                "Use a positive fillet radius.",
+                "Select at least one valid edge or use a selector that resolves to edges.",
+                "If the kernel rejects the fillet, try a smaller radius or a simpler edge set.",
+            ],
+            error=e,
         )
 
-        # 执行抽壳操作
-        cq_result = solid.cq_solid.shell(cq_faces, thickness)
-        result = Solid(cq_result)
+
+def chamfer_rsolid(
+    solid: Solid, edges: Union[Sequence[Edge], ShapeSelector], distance: ScalarLike
+) -> Solid:
+    """Apply chamfers to selected solid edges."""
+    try:
+        distance_value = evaluate_scalar(distance)
+        if distance_value <= 0:
+            raise ValueError("倒角距离必须大于0")
+
+        selected_edges = cast(List[Edge], _resolve_selector_or_shapes(solid, edges))
+        if not selected_edges:
+            raise ValueError("倒角操作至少需要一条边")
+
+        tracked = tracked_chamfer(solid, selected_edges, distance_value)
+        result = cast(Solid, tracked.shape)
 
         # 复制标签和元数据
         result._tags = solid._tags.copy()
         result._metadata = solid._metadata.copy()
 
-        return result
+        return _finalize_tracked_solid(
+            result,
+            op=_OP_MAKE_CHAMFER_RSOLID,
+            params={
+                "distance": distance,
+                "edge_count": len(selected_edges),
+                "selected_edges": _serialize_shape_refs(selected_edges),
+                "selected_edge_indices": _serialize_selection_indices(
+                    selected_edges, solid.get_edges()
+                ),
+                **(
+                    {"selection_query": _serialize_selection_query(edges)}
+                    if _serialize_selection_query(edges) is not None
+                    else {}
+                ),
+            },
+            source_solid=solid,
+            delta=tracked.delta,
+            delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
+            input_shapes=[solid],
+        )
     except Exception as e:
-        raise ValueError(f"抽壳操作失败: {e}. 请检查实体、面和壁厚是否有效。")
+        _wrap_public_api_error(
+            operation="chamfer_rsolid",
+            what_happened="Failed to apply the chamfer operation.",
+            possible_causes=[
+                "The distance is not a positive finite scalar.",
+                "No valid edges were selected.",
+                "The selected edges are incompatible with the requested chamfer size.",
+            ],
+            how_to_fix=[
+                "Use a positive chamfer distance.",
+                "Select at least one valid edge or use a selector that resolves to edges.",
+                "If the kernel rejects the chamfer, try a smaller distance or fewer edges.",
+            ],
+            error=e,
+        )
+
+
+def shell_rsolid(
+    solid: Solid,
+    faces_to_remove: Union[Sequence[Face], ShapeSelector],
+    thickness: ScalarLike,
+) -> Solid:
+    """Shell a solid to create a hollow part."""
+    try:
+        thickness_value = evaluate_scalar(thickness)
+        if thickness_value <= 0:
+            raise ValueError("壁厚必须大于0")
+
+        selected_faces = cast(
+            List[Face], _resolve_selector_or_shapes(solid, faces_to_remove)
+        )
+        if not selected_faces:
+            raise ValueError("抽壳操作至少需要一个待移除面")
+
+        # 转换为CADQuery面对象
+        tracked = tracked_shell(solid, selected_faces, thickness_value)
+        result = cast(Solid, tracked.shape)
+
+        # 复制标签和元数据
+        result._tags = solid._tags.copy()
+        result._metadata = solid._metadata.copy()
+
+        return _finalize_tracked_solid(
+            result,
+            op=_OP_MAKE_SHELL_RSOLID,
+            params={
+                "thickness": thickness,
+                "removed_face_count": len(selected_faces),
+                "selected_faces": _serialize_shape_refs(selected_faces),
+                "selected_face_indices": _serialize_selection_indices(
+                    selected_faces, solid.get_faces()
+                ),
+                **(
+                    {"selection_query": _serialize_selection_query(faces_to_remove)}
+                    if _serialize_selection_query(faces_to_remove) is not None
+                    else {}
+                ),
+            },
+            source_solid=solid,
+            delta=tracked.delta,
+            delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
+            input_shapes=[solid],
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="shell_rsolid",
+            what_happened="Failed to apply the shell operation.",
+            possible_causes=[
+                "The thickness is not a positive finite scalar.",
+                "No valid faces were selected for removal.",
+                "The requested shell thickness is incompatible with the current solid.",
+            ],
+            how_to_fix=[
+                "Use a positive shell thickness.",
+                "Select at least one valid face to remove.",
+                "If the shell fails, try a smaller thickness or a different face selection.",
+            ],
+            error=e,
+        )
 
 
 def loft_rsolid(profiles: List[Wire], ruled: bool = False) -> Solid:
@@ -2386,12 +4051,8 @@ def loft_rsolid(profiles: List[Wire], ruled: bool = False) -> Solid:
         if len(profiles) < 2:
             raise ValueError("放样至少需要2个轮廓")
 
-        # 转换为CADQuery线对象
-        cq_wires = [profile.cq_wire for profile in profiles]
-
-        # 执行放样操作
-        cq_result = cq.Solid.makeLoft(cq_wires, ruled)
-        result = Solid(cq_result)
+        tracked = tracked_loft(profiles, ruled=ruled)
+        result = cast(Solid, tracked.shape)
 
         # 合并所有轮廓的标签和元数据
         all_tags = set()
@@ -2403,29 +4064,67 @@ def loft_rsolid(profiles: List[Wire], ruled: bool = False) -> Solid:
         result._tags = all_tags
         result._metadata = all_metadata
 
-        return result
+        return _finalize_tracked_solid(
+            result,
+            op=_OP_MAKE_LOFT_RSOLID,
+            params={"profile_count": len(profiles), "ruled": ruled},
+            delta=tracked.delta,
+            delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
+            input_shapes=profiles,
+        )
     except Exception as e:
-        raise ValueError(f"放样操作失败: {e}. 请检查轮廓是否有效。")
+        _wrap_public_api_error(
+            operation="loft_rsolid",
+            what_happened="Failed to loft the input profiles into a solid.",
+            possible_causes=[
+                "Fewer than two profiles were provided.",
+                "One or more profiles are invalid or incompatible.",
+                "The kernel rejected the loft because the section geometry is inconsistent.",
+            ],
+            how_to_fix=[
+                "Pass at least two valid Wire profiles.",
+                "Keep the profile topology compatible across sections.",
+                "If loft fails, inspect each profile individually and simplify the section geometry.",
+            ],
+            error=e,
+        )
 
 
 def sweep_rsolid(profile: Face, path: Wire, is_frenet: bool = False) -> Solid:
     """Create a solid by sweeping a profile along a path."""
     make_solid = True  # 默认创建实体
     try:
-        # 执行扫掠操作
-        cq_result = cq.Solid.sweep(
-            profile.cq_face, path.cq_wire, makeSolid=make_solid, isFrenet=is_frenet
-        )
-
-        result = Solid(cq_result)
+        tracked = tracked_sweep(profile, path, is_frenet=is_frenet)
+        result = cast(Solid, tracked.shape)
 
         # 合并轮廓和路径的标签和元数据
         result._tags = profile._tags.union(path._tags)
         result._metadata = {**profile._metadata, **path._metadata}
 
-        return result
+        return _finalize_tracked_solid(
+            result,
+            op=_OP_MAKE_SWEEP_RSOLID,
+            params={"is_frenet": bool(is_frenet)},
+            delta=tracked.delta,
+            delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
+            input_shapes=[profile, path],
+        )
     except Exception as e:
-        raise ValueError(f"扫掠操作失败: {e}. 请检查轮廓和路径是否有效。")
+        _wrap_public_api_error(
+            operation="sweep_rsolid",
+            what_happened="Failed to sweep the profile along the path.",
+            possible_causes=[
+                "The profile face is invalid.",
+                "The path wire is invalid or unsuitable for sweep.",
+                "The kernel rejected the sweep orientation or geometry.",
+            ],
+            how_to_fix=[
+                "Pass a valid Face profile and a valid Wire path.",
+                "Check that the path wire is continuous and geometrically reasonable.",
+                "If sweep fails, simplify the profile or path before retrying.",
+            ],
+            error=e,
+        )
 
 
 def linear_pattern_rsolidlist(
@@ -2440,23 +4139,68 @@ def linear_pattern_rsolidlist(
 
         cs = get_current_cs()
         global_direction = cs.transform_point(np.array(direction)) - cs.origin
-        direction_vec = Vector(*global_direction).normalized()
+        direction_norm = float(np.linalg.norm(global_direction))
+        if direction_norm <= 1e-15:
+            raise ValueError("阵列方向不能是零向量")
+        direction_vec = global_direction / direction_norm
+
+        if get_active_session() is not None:
+            rv: List[Solid] = []
+            for i in range(count):
+                offset = direction_vec * (spacing * i)
+                translated_shape = translate_shape(
+                    shape, (float(offset[0]), float(offset[1]), float(offset[2]))
+                )
+                translated_shape.add_tag(f"linear_pattern_{i + 1}")
+                _attach_track_summary(translated_shape, op="linear_pattern")
+                rv.append(cast(Solid, translated_shape))
+            return rv
 
         shapes = []
-        for i in range(count):
-            offset = direction_vec * (spacing * i)
-            translated_shape = translate_shape(shape, (offset.x, offset.y, offset.z))
-            shapes.append(translated_shape)
+        with suspend_graph_recording():
+            for i in range(count):
+                offset = direction_vec * (spacing * i)
+                translated_shape = translate_shape(
+                    shape, (float(offset[0]), float(offset[1]), float(offset[2]))
+                )
+                shapes.append(translated_shape)
 
         rv = []
         for i, s in enumerate(shapes):
             s.add_tag(f"linear_pattern_{i + 1}")
+            _attach_track_summary(s, op="linear_pattern")
             rv.append(s)
+
+        record_operation_if_active(
+            op="linear_pattern",
+            params={
+                "direction": direction,
+                "count": count,
+                "spacing": spacing,
+            },
+            outputs=rv,
+            input_shapes=[shape],
+            context=_current_context_metadata(),
+        )
 
         return rv
 
     except Exception as e:
-        raise ValueError(f"线性阵列失败: {e}. 请检查参数是否有效。")
+        _wrap_public_api_error(
+            operation="linear_pattern_rsolidlist",
+            what_happened="Failed to create the linear pattern.",
+            possible_causes=[
+                "The count is not a positive integer.",
+                "The spacing is not positive.",
+                "The direction vector is invalid.",
+            ],
+            how_to_fix=[
+                "Use count >= 1.",
+                "Use spacing > 0.",
+                "Pass a valid finite direction vector.",
+            ],
+            error=e,
+        )
 
 
 def radial_pattern_rsolidlist(
@@ -2476,19 +4220,62 @@ def radial_pattern_rsolidlist(
         shapes = []
         angle_step = total_rotation_angle / count  # 修正角度计算，均匀分布
 
-        for i in range(count):
-            rotation_angle = angle_step * i
-            rotated_shape = rotate_shape(shape, rotation_angle, axis, center)
-            shapes.append(rotated_shape)
+        if get_active_session() is not None:
+            rv: List[Solid] = []
+            for i in range(count):
+                rotation_angle = angle_step * i
+                rotated_shape = (
+                    cast(Solid, translate_shape(shape, (0.0, 0.0, 0.0)))
+                    if i == 0
+                    else cast(Solid, rotate_shape(shape, rotation_angle, axis, center))
+                )
+                rotated_shape.add_tag(f"radial_pattern_{i + 1}")
+                _attach_track_summary(rotated_shape, op="radial_pattern")
+                rv.append(cast(Solid, rotated_shape))
+            return rv
+
+        with suspend_graph_recording():
+            for i in range(count):
+                rotation_angle = angle_step * i
+                rotated_shape = rotate_shape(shape, rotation_angle, axis, center)
+                shapes.append(rotated_shape)
 
         rv = []
         for i, s in enumerate(shapes):
             s.add_tag(f"radial_pattern_{i + 1}")
+            _attach_track_summary(s, op="radial_pattern")
             rv.append(s)
+
+        record_operation_if_active(
+            op="radial_pattern",
+            params={
+                "center": center,
+                "axis": axis,
+                "count": count,
+                "total_rotation_angle": total_rotation_angle,
+            },
+            outputs=rv,
+            input_shapes=[shape],
+            context=_current_context_metadata(),
+        )
 
         return rv
     except Exception as e:
-        raise ValueError(f"径向阵列失败: {e}. 请检查参数是否有效。")
+        _wrap_public_api_error(
+            operation="radial_pattern_rsolidlist",
+            what_happened="Failed to create the radial pattern.",
+            possible_causes=[
+                "The count is not a positive integer.",
+                "The total rotation angle is not positive.",
+                "The center or axis is invalid.",
+            ],
+            how_to_fix=[
+                "Use count >= 1.",
+                "Use a total rotation angle greater than zero.",
+                "Pass a valid center point and a non-zero axis vector.",
+            ],
+            error=e,
+        )
 
 
 def mirror_shape(
@@ -2499,39 +4286,99 @@ def mirror_shape(
     """Mirror a shape across a plane."""
     try:
         cs = get_current_cs()
-        global_origin = cs.transform_point(np.array(plane_origin))
-        global_normal = cs.transform_vector(np.array(plane_normal))
+        plane_origin_value = cast(
+            Tuple[float, float, float], evaluate_value(plane_origin)
+        )
+        plane_normal_value = cast(
+            Tuple[float, float, float], evaluate_value(plane_normal)
+        )
+        global_origin = cs.transform_point(np.array(plane_origin_value))
+        global_normal = cs.transform_vector(np.array(plane_normal_value))
 
         # 确保法向量不是零向量
         if np.linalg.norm(global_normal) < 1e-10:
             raise ValueError("镜像平面法向量不能是零向量")
 
-        cq_origin = Vector(global_origin[0], global_origin[1], global_origin[2])
-        cq_normal = Vector(global_normal[0], global_normal[1], global_normal[2])
-
         if isinstance(shape, Solid):
-            # 对于Solid，创建一个包含该Solid的Workplane
-            wp = cq.Workplane().add(shape.cq_solid)
-
-            # 执行镜像
-            mirrored_wp = wp.mirror(cq_normal, basePointVector=cq_origin.toTuple())
-
-            # 获取镜像后的Solid
-            mirrored_solid = mirrored_wp.val()
-            new_shape = Solid(mirrored_solid)
+            tracked = tracked_mirror(
+                shape,
+                (
+                    float(global_origin[0]),
+                    float(global_origin[1]),
+                    float(global_origin[2]),
+                ),
+                (
+                    float(global_normal[0]),
+                    float(global_normal[1]),
+                    float(global_normal[2]),
+                ),
+            )
+            new_shape = cast(Solid, tracked.shape)
+            new_shape._tags = shape._tags.copy()
+            new_shape._metadata = shape._metadata.copy()
+            new_shape.add_tag("mirrored")
+            return _finalize_tracked_solid(
+                new_shape,
+                op=_OP_MAKE_MIRROR_RSHAPE,
+                params={
+                    "plane_origin": plane_origin,
+                    "plane_normal": plane_normal,
+                },
+                source_solid=shape,
+                delta=tracked.delta,
+                delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
+                input_shapes=[shape],
+            )
 
         else:
-            # 对于其他类型的几何体，暂时不支持
-            raise ValueError(f"暂不支持镜像 {type(shape).__name__} 类型的几何体")
+            new_shape = mirror_shape_ocp(
+                shape,
+                (
+                    float(global_origin[0]),
+                    float(global_origin[1]),
+                    float(global_origin[2]),
+                ),
+                (
+                    float(global_normal[0]),
+                    float(global_normal[1]),
+                    float(global_normal[2]),
+                ),
+            )
 
         # 复制标签和元数据
         new_shape._tags = shape._tags.copy()
         new_shape._metadata = shape._metadata.copy()
         new_shape.add_tag("mirrored")
 
+        _attach_track_summary(new_shape, op=_OP_MAKE_MIRROR_RSHAPE)
+        record_operation_if_active(
+            op=_OP_MAKE_MIRROR_RSHAPE,
+            params={
+                "plane_origin": plane_origin,
+                "plane_normal": plane_normal,
+            },
+            outputs=new_shape,
+            input_shapes=[shape],
+            context=_current_context_metadata(),
+        )
+
         return new_shape
     except Exception as e:
-        raise ValueError(f"镜像操作失败: {e}. 请检查几何体和镜像平面是否有效。")
+        _wrap_public_api_error(
+            operation="mirror_shape",
+            what_happened="Failed to mirror the shape across the plane.",
+            possible_causes=[
+                "The plane origin or plane normal is invalid.",
+                "The plane normal is zero-length.",
+                "The kernel rejected the mirror transform.",
+            ],
+            how_to_fix=[
+                "Pass a valid plane origin and a non-zero plane normal.",
+                "Validate the shape before mirroring.",
+                "If the plane is computed dynamically, inspect the evaluated values first.",
+            ],
+            error=e,
+        )
 
 
 def helical_sweep_rsolid(
@@ -2544,6 +4391,12 @@ def helical_sweep_rsolid(
 ) -> Solid:
     """Create a solid by sweeping a profile along a helical path."""
     try:
+        if get_active_session() is not None:
+            helix = make_helix_rwire(pitch, height, radius, center=center, dir=dir)
+            return sweep_rsolid(
+                make_face_from_wire_rface(profile), helix, is_frenet=True
+            )
+
         if pitch <= 0:
             raise ValueError("螺距必须大于0")
         if height <= 0:
@@ -2555,101 +4408,15 @@ def helical_sweep_rsolid(
         global_center = cs.transform_point(np.array(center))
         global_dir = cs.transform_point(np.array(dir)) - cs.origin
 
-        center_vec = Vector(*global_center)
-        dir_vec = Vector(*global_dir).normalized()
-
-        # 复制profile以避免修改原始轮廓
-        corrected_profile = Wire(profile.cq_wire.copy())
-
-        # 将Wire转换为Face用于扫掠
-        try:
-            profile_face = cq.Face.makeFromWires(corrected_profile.cq_wire)
-        except Exception as _:
-            raise ValueError("螺旋扫掠轮廓必须是闭合的")
-
-        # 1. 矫正profile的法向量：确保法向量朝向X轴正方向
-        # 获取profile的法向量（在面的中心点）
-        try:
-            # 获取face的法向量，normalAt返回(Vector, Vector)，取第一个
-            profile_normal = profile_face.normalAt(0.5, 0.5)[0]
-        except Exception as _:
-            try:
-                profile_normal = profile_face.normalAt(0, 0)[0]
-            except Exception as _:
-                # 最后的fallback，假设法向量为Z轴方向
-                profile_normal = Vector(0, 0, 1)
-
-        # 定义目标法向量：Y轴正方向
-        target_normal = Vector(0, 1, 0)
-
-        # 检查当前法向量与目标法向量的夹角
-        dot_product = profile_normal.dot(target_normal)
-
-        # 如果法向量不朝向X轴正方向，需要旋转
-        if abs(dot_product) < 0.99:  # 容差，允许约8度的偏差
-            # 计算旋转轴（叉积）
-            rotation_axis = profile_normal.cross(target_normal)
-
-            # 如果法向量与X轴相反（dot_product < 0），需要180度旋转
-            if dot_product < -0.99:
-                # 使用Y轴或Z轴作为旋转轴
-                rotation_axis = Vector(0, 1, 0)
-                rotation_angle = math.pi
-            elif rotation_axis.Length > 1e-6:
-                # 计算旋转角度
-                rotation_angle = math.acos(max(-1, min(1, abs(dot_product))))
-                rotation_axis = rotation_axis.normalized()
-            else:
-                # 如果叉积为零向量，说明已经平行，不需要旋转
-                rotation_angle = 0
-                rotation_axis = Vector(0, 0, 1)
-
-            # 如果需要旋转
-            if rotation_angle > 1e-6:
-                # 获取profile的中心点作为旋转中心
-                profile_center = profile_face.Center()
-                rotation_center = Vector(
-                    profile_center.x, profile_center.y, profile_center.z
-                )
-
-                # 应用旋转
-                profile_face = profile_face.rotate(
-                    rotation_center, rotation_axis, math.degrees(rotation_angle)
-                )
-
-        # 2. 矫正profile的位置：将profile移动到指定半径的位置
-        # 获取旋转后的profile中心点
-        profile_center = profile_face.Center()
-
-        # 计算当前profile中心到旋转中心的距离
-        current_center = Vector(profile_center.x, profile_center.y, profile_center.z)
-        spiral_center = center_vec
-
-        # 计算在垂直于旋转轴的平面上的投影
-        to_profile = current_center - spiral_center
-        projection_on_axis = to_profile.dot(dir_vec) * dir_vec
-        radial_vector = to_profile - projection_on_axis
-
-        # 如果radial_vector太小，默认使用X轴方向
-        if radial_vector.Length < 1e-6:
-            radial_vector = Vector(1, 0, 0)
-
-        # 归一化径向向量并缩放到目标半径
-        radial_direction = radial_vector.normalized()
-        target_position = spiral_center + radial_direction * radius + projection_on_axis
-
-        # 计算平移向量
-        translation = target_position - current_center
-
-        # 应用平移
-        profile_face = profile_face.translate(translation)
-
-        # 创建螺旋路径
-        helix = cq.Wire.makeHelix(pitch, height, radius, center_vec, dir_vec)
-
-        # 沿螺旋路径扫掠
-        cq_result = cq.Solid.sweep(profile_face, helix, makeSolid=True, isFrenet=True)
-        result = Solid(cq_result)
+        result_shape = make_helical_sweep_solid(
+            profile.wrapped,
+            pitch,
+            height,
+            radius,
+            global_center,
+            global_dir,
+        )
+        result = Solid(result_shape)
 
         # 复制轮廓的标签和元数据
         result._tags = profile._tags.copy()
@@ -2658,4 +4425,20 @@ def helical_sweep_rsolid(
 
         return result
     except Exception as e:
-        raise ValueError(f"螺旋扫掠失败: {e}. 请检查参数是否有效。")
+        _wrap_public_api_error(
+            operation="helical_sweep_rsolid",
+            what_happened="Failed to create the helical sweep solid.",
+            possible_causes=[
+                "Pitch, height, or radius is not positive.",
+                "The input profile wire is invalid or cannot form a face.",
+                "The center or direction vector is invalid.",
+                "The underlying helix or sweep construction failed.",
+            ],
+            how_to_fix=[
+                "Use positive pitch, height, and radius values.",
+                "Pass a valid profile wire that can be turned into a face.",
+                "Validate the center and direction inputs before retrying.",
+                "If the sweep still fails, try the explicit macro path: helix wire -> face from profile -> sweep.",
+            ],
+            error=e,
+        )

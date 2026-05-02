@@ -69,7 +69,7 @@ class TestFieldSurface(unittest.TestCase):
         for x, y, z in points:
             vertex = scad.make_point_rvertex(x, y, z)
             dist = BRepExtrema_DistShapeShape(
-                vertex.cq_vertex.wrapped, field_solid.cq_solid.wrapped
+                vertex.wrapped, field_solid.wrapped
             )
             distances.append(float(dist.Value()))
 
