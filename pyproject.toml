@@ -1,6 +1,6 @@
 [project]
 name = "simplecadapi"
-version = "2.0.9"
+version = "2.0.0b1"
 description = "A simplified OCP-native CAD modeling Python API"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -50,6 +50,27 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/simplecadapi", "docs"]
 include = ["src/**/*", "docs/**"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/README.md",
+  "/LICENSE",
+  "/pyproject.toml",
+  "/MANIFEST.in",
+  "/src",
+  "/docs",
+]
+exclude = [
+  "/.python-version",
+  "/uv.lock",
+  "/test",
+  "/tests",
+  "/skills",
+  "/sandbox",
+  "/examples",
+  "/refactor-plan",
+  "/scripts",
+]
 
 [dependency-groups]
 dev = [

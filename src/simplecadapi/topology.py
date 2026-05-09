@@ -353,7 +353,7 @@ def _node_display_category(op: str) -> str:
         "union",
         "intersect",
         "make_cut_rsolidlist",
-        "make_union_rsolidlist",
+        "make_union_rsolid",
         "make_intersect_rsolidlist",
     }:
         return "boolean"

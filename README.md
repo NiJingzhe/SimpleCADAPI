@@ -1,6 +1,6 @@
 # SimpleCADAPI
 
-SimpleCADAPI is an imperative CAD modeling Python package based on CADQuery. Its goal is to encapsulate common modeling operations into a clear, composable, testable functional API, and to support distributing "documentation + scripts + runtime installation" workflows via Skills.
+SimpleCADAPI is an OCP-native imperative CAD modeling Python package. It keeps the 1.x-style functional API while adding v2 graph recording, expression parameters, and replayable model JSON workflows.
 
 ## README Scope
 
@@ -9,7 +9,7 @@ Experimental scripts and temporary modeling examples are not included as formal 
 
 ## Package Installation (Python Package Managers)
 
-Current package name: `simplecadapi`, version: `2.0.9` (see `pyproject.toml`).
+Current package name: `simplecadapi` (see `pyproject.toml` for the version).
 
 ### Method A: Install from package repository with pip
 
@@ -39,13 +39,7 @@ uv add simplecadapi
 
 ### Method C: Install from local build artifacts
 
-The repository already contains example build artifacts (`dist/`):
-
-```bash
-pip install dist/simplecadapi-2.0.9-py3-none-any.whl
-```
-
-If you need to rebuild:
+Build a local wheel/sdist first if you want to install from local artifacts:
 
 ```bash
 uv build
@@ -61,16 +55,16 @@ scad.export_stl(box, "example_box.stl")
 scad.export_step(box, "example_box.step")
 ```
 
-## How to Package and Use Skills
+## How to Package SDK Skills
 
-This project provides the `skill-pack` CLI for generating lightweight skill packages (thin mode): **No built-in SDK source code**, runtime installs `simplecadapi` from the package repository.
+This project provides the `skill-pack` CLI for generating lightweight SDK reference skills: **No built-in SDK source code**, focused on API and architecture descriptions.
 
 ### 1) Packaging Command
 
 Execute in the repository root directory:
 
 ```bash
-uv run skill-pack --refresh-docs --archive --skill-name simplecad-self-evolve
+uv run skill-pack --refresh-docs --archive --skill-name simplecadapi
 ```
 
 Common parameters:
@@ -85,58 +79,48 @@ Common parameters:
 
 After packaging, you will get a directory similar to:
 
-- `skills/simplecad-self-evolve/SKILL.md`
-- `skills/simplecad-self-evolve/scripts/`
-- `skills/simplecad-self-evolve/references/`
-- `skills/simplecad-self-evolve/cases/simplecad_self_evolve_cases/`
+- `skills/simplecadapi/SKILL.md`
+- `skills/simplecadapi/references/`
+- `skills/simplecadapi/references/docs/api/`
+- `skills/simplecadapi/references/docs/core/`
 
-### 3) Install and Verify Runtime in the Skill Directory
-
-```bash
-cd skills/simplecad-self-evolve
-PYTHON_BIN=.venv/bin/python scripts/install.sh
-PYTHON_BIN=.venv/bin/python scripts/with_skill.sh --check
-```
-
-### 4) Run Your Program with the Wrapper Script
+### 3) Read the SDK skill
 
 ```bash
-PYTHON_BIN=.venv/bin/python scripts/with_skill.sh -- .venv/bin/python your_script.py
+cd skills/simplecadapi
 ```
 
-### 5) Activate skill-local Case Module Path
+Key entry points:
 
-```bash
-eval "$(scripts/with_skill.sh --print-env)"
-```
+- `skills/simplecadapi/SKILL.md`
+- `skills/simplecadapi/references/SDK_OVERVIEW.md`
+- `skills/simplecadapi/references/SDK_SURFACES.md`
+- `skills/simplecadapi/references/V2_MODELING_WORKFLOWS.md`
+- `skills/simplecadapi/references/SDK_PACKAGE_SUMMARY.md`
+- `skills/simplecadapi/references/docs/api/README.md`
+- `skills/simplecadapi/references/docs/core/README.md`
 
-After activation, you can directly import:
+### 4) Preferred v2 replay workflow
 
 ```python
-from simplecad_self_evolve_cases.evolve import make_involute_spur_gear_rsolid
-```
+from simplecadapi import GraphSession, export_model_json, replay_model_json
 
-### 6) Add New Functions to the Skill-local evolve Module
+with GraphSession() as session:
+    ...
 
-```bash
-scripts/add_new_case.sh path/to/new_case.py
-```
-
-### 7) Jupyter and Structure Validation
-
-```bash
-scripts/jupyter_with_skill.sh lab
-scripts/validate_skill.sh
+model_json = export_model_json(session)
+rebuilt = replay_model_json(model_json)
+print(len(rebuilt))
 ```
 
 ## Auto Tools
 
 The project includes 4 main CLIs:
 
-- `auto-docs-gen`: Generate `docs/api/` documentation from API source code
+- `auto-docs-gen`: Generate `docs/api/` documentation from the public API source surface
 - `make-export`: Update imports/exports in `src/simplecadapi/__init__.py`
-- `evolve`: Extract functions from scripts and append to the evolve module
-- `skill-pack`: Package thin skill (documentation + scripts + cases)
+- `evolve`: Extract functions from scripts for repository-managed evolve modules
+- `skill-pack`: Package thin SDK skill (documentation only)
 
 Examples:
 
@@ -196,13 +180,19 @@ uv run python -m unittest test/test_all_features.py
 Run examples:
 
 ```bash
-uv run python examples.py
+uv run python examples/01_basic_modeling.py
+uv run python examples/02_graph_replay.py
+uv run python examples/03_expressions.py
+uv run python examples/04_assembly_constraints.py
+uv run python examples/05_loft_sweep_revolve.py
+uv run python examples/06_parametric_gear_model.py
+uv run python examples/06_parametric_gear_model.py
 ```
 
 ## Core Design Constraints (Brief)
 
 - API functions uniformly use `snake_case` and reflect return types in function names (e.g., `*_rsolid`, `*_rwire`).
-- Core types are kept as stable as possible; functionality is extended by adding new functions (Open-Closed Principle).
+- Core types are OCP-native wrappers and are kept as stable as possible; functionality is extended by adding new functions (Open-Closed Principle).
 - Support `SimpleWorkplane` context for local coordinate modeling.
 - Export interfaces support single entities, multiple entities, and nested list inputs.
 

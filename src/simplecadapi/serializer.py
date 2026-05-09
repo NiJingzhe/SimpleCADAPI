@@ -125,7 +125,7 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "op": "make_sweep_rsolid",
         "reason": "Recorded as make_helix_wire + sweep macro instead of a dedicated core IR node.",
     },
-    "union_rsolidlist": {"status": "replayable", "op": "make_union_rsolidlist"},
+    "union_rsolid": {"status": "replayable", "op": "make_union_rsolid"},
     "cut_rsolidlist": {"status": "replayable", "op": "make_cut_rsolidlist"},
     "intersect_rsolidlist": {"status": "replayable", "op": "make_intersect_rsolidlist"},
     "fillet_rsolid": {"status": "replayable", "op": "make_fillet_rsolid"},
@@ -187,7 +187,7 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_rotate_rshape",
     "make_mirror_rshape",
     "make_cut_rsolidlist",
-    "make_union_rsolidlist",
+    "make_union_rsolid",
     "make_intersect_rsolidlist",
     "make_fillet_rsolid",
     "make_chamfer_rsolid",
@@ -800,7 +800,7 @@ _OP_REGISTRY: Dict[str, Any] = {
         dir=tuple(p.get("dir", (0, 0, 1))),
     ),
     "make_cut_rsolidlist": lambda p: None,  # handled specially below
-    "make_union_rsolidlist": lambda p: None,  # handled specially below
+    "make_union_rsolid": lambda p: None,  # handled specially below
     "make_intersect_rsolidlist": lambda p: None,  # handled specially below
 }
 
@@ -1026,12 +1026,12 @@ def _execute_graph(
                     _store_outputs(node, result)
                 continue
 
-            if op_name == "make_union_rsolidlist":
+            if op_name == "make_union_rsolid":
                 all_solids: List[Solid] = []
                 for inp in node.inputs:
                     all_solids.extend(cast(List[Solid], outputs.get(inp.node_id, [])))
                 if len(all_solids) >= 2:
-                    result = ops.union_rsolidlist(all_solids)
+                    result = ops.union_rsolid(all_solids)
                     _store_outputs(node, result)
                 elif all_solids:
                     _store_outputs(node, all_solids[0])

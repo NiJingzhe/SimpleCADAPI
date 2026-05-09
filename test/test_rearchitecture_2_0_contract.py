@@ -34,7 +34,7 @@ REQUIRED_RSTYLE_APIS = (
     "chamfer_rsolid",
     "shell_rsolid",
     "cut_rsolidlist",
-    "union_rsolidlist",
+    "union_rsolid",
     "intersect_rsolidlist",
 )
 

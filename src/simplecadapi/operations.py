@@ -121,7 +121,7 @@ _OP_MAKE_EXTRUDE_RSOLID = "make_extrude_rsolid"
 _OP_MAKE_REVOLVE_RSOLID = "make_revolve_rsolid"
 _OP_MAKE_LOFT_RSOLID = "make_loft_rsolid"
 _OP_MAKE_SWEEP_RSOLID = "make_sweep_rsolid"
-_OP_MAKE_UNION_RSOLIDLIST = "make_union_rsolidlist"
+_OP_MAKE_UNION_RSOLID = "make_union_rsolid"
 _OP_MAKE_CUT_RSOLIDLIST = "make_cut_rsolidlist"
 _OP_MAKE_INTERSECT_RSOLIDLIST = "make_intersect_rsolidlist"
 _OP_MAKE_FILLET_RSOLID = "make_fillet_rsolid"
@@ -249,13 +249,13 @@ def _resolve_union_tol(
     )
 
 
-def _warn_if_union_results_remain_separated(
+def _union_separation_diagnostic(
     results: Sequence[Solid], tol: Optional[float]
-) -> None:
-    """Print a clear stdout warning when union results remain separated beyond tol."""
+) -> Optional[str]:
+    """Return a short diagnostic for multi-solid union results."""
 
     if len(results) < 2:
-        return
+        return None
 
     effective_tol = float(tol or 0.0)
     nearest_gap_above_tol: Optional[float] = None
@@ -268,23 +268,12 @@ def _warn_if_union_results_remain_separated(
                     nearest_gap_above_tol = gap
 
     if nearest_gap_above_tol is None:
-        return
+        return None
 
-    if len(results) == 2:
-        print(
-            "[WARNING] union_rsolidlist returned 2 separated solids: the two objects do not touch, "
-            f"and the gap between them is about {nearest_gap_above_tol:.6g}, which exceeds tol={effective_tol:.6g}. "
-            "Please check the relationship between the two objects and decide whether to adjust them so they connect, "
-            "or accept them as two separate solids."
-        )
-        return
-
-    print(
-        f"[WARNING] union_rsolidlist returned {len(results)} separated solids: "
-        "at least one pair of objects does not touch, "
-        f"and the smallest detected separation gap is about {nearest_gap_above_tol:.6g}, which exceeds tol={effective_tol:.6g}. "
-        "Please check the relationship between these objects and decide whether to adjust them so they connect, "
-        "or accept them as separate solids."
+    return (
+        f"union produced {len(results)} separated solids; "
+        f"nearest detected gap is about {nearest_gap_above_tol:.6g}, "
+        f"which exceeds tol={effective_tol:.6g}"
     )
 
 
@@ -557,7 +546,7 @@ def _semantic_delta_for_output(
             _OP_MAKE_CHAMFER_RSOLID,
             _OP_MAKE_SHELL_RSOLID,
             _OP_MAKE_CUT_RSOLIDLIST,
-            _OP_MAKE_UNION_RSOLIDLIST,
+            _OP_MAKE_UNION_RSOLID,
             _OP_MAKE_INTERSECT_RSOLIDLIST,
             _OP_MAKE_TRANSLATE_RSHAPE,
             _OP_MAKE_ROTATE_RSHAPE,
@@ -583,7 +572,7 @@ def _semantic_delta_for_output(
                 _OP_MAKE_CHAMFER_RSOLID,
                 _OP_MAKE_SHELL_RSOLID,
                 _OP_MAKE_CUT_RSOLIDLIST,
-                _OP_MAKE_UNION_RSOLIDLIST,
+                _OP_MAKE_UNION_RSOLID,
                 _OP_MAKE_INTERSECT_RSOLIDLIST,
                 _OP_MAKE_FIELD_SURFACE_RSOLID,
             }:
@@ -1122,7 +1111,7 @@ def make_face_from_wire_rface(
 
         if dot_product < 0:
             # 反向面（通过反向Wire的方向）
-            # CADQuery的Wire没有直接的reverse方法，我们需要重新构建
+            # OCP Wire 没有直接的 reverse 包装方法，这里重新构建
             # 简单的方法是使用makeFromWires的orientation参数
             # 或者我们接受当前面的方向，添加一个警告
             print(f"警告: 创建的面的法向量与期望方向相反 (点积: {dot_product:.3f})")
@@ -2862,19 +2851,18 @@ def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]:
 # =============================================================================
 
 
-def union_rsolidlist(
+def union_rsolid(
     *solids: Union[Solid, Sequence[Solid]],
     clean: bool = True,
     glue: bool = _DEFAULT_UNION_GLUE,
     tol: Optional[float] = None,
 ) -> Solid:
-    """Compute the boolean union of one or more solids.
+    """Compute the boolean union and return one solid.
 
     Args:
         solids: One or more Solid objects or sequences of Solid. Nested sequences are
             flattened before processing.
-        clean: Call CadQuery's `clean()` after the union to unify same-domain faces
-            and remove splitter edges when possible.
+        clean: Unify same-domain faces and remove splitter edges when possible.
         glue: Enable OCC glue mode for touching or partially overlapping inputs.
             Defaults to True for SimpleCAD's standard union behavior.
         tol: Optional fuzzy-boolean tolerance used by the OCC union kernel. When
@@ -2884,23 +2872,23 @@ def union_rsolidlist(
         Solid: The merged union result.
 
     Usage:
-        All boolean operations (union/cut/intersect) accept a mix of Solid and
-        nested sequences of Solid, but now return a single `Solid`.
-        If the kernel cannot produce exactly one solid result, the API raises a
-        clear error instead of returning a list.
+        Accepts standalone `Solid` objects, lists of `Solid`, and nested sequences,
+        but always returns exactly one `Solid`. If the kernel cannot produce
+        exactly one solid result, the API raises a clear error instead of
+        returning multiple pieces.
 
     Examples:
         body = make_box_rsolid(10, 4, 4, bottom_face_center=(0, 0, 0))
         rib = make_box_rsolid(2, 4, 4, bottom_face_center=(4, 0, 0))
-        merged = union_rsolidlist(body, rib)
+        merged = union_rsolid(body, rib)
         print(merged.get_volume())
     """
 
     try:
-        remaining = _flatten_boolean_solids(solids, "union_rsolidlist")
+        remaining = _flatten_boolean_solids(solids, "union_rsolid")
 
         if not remaining:
-            raise ValueError("union_rsolidlist 至少需要一个Solid输入")
+            raise ValueError("union_rsolid 至少需要一个Solid输入")
 
         for solid in remaining:
             if solid.wrapped.IsNull():
@@ -2915,14 +2903,17 @@ def union_rsolidlist(
         )
         result_shapes = solids_of(fused_shape)
 
+        failure_reason = "并集结果中未找到有效实体。"
         if len(result_shapes) != 1:
-            _warn_if_union_results_remain_separated(
+            diagnostic = _union_separation_diagnostic(
                 [Solid(result_shape) for result_shape in result_shapes], effective_tol
             )
+            if diagnostic:
+                failure_reason = diagnostic
         fused_solid = _require_single_boolean_solid(
             result_shapes,
-            operation="union_rsolidlist",
-            failure_reason="并集结果中未找到有效实体。",
+            operation="union_rsolid",
+            failure_reason=failure_reason,
         )
 
         all_tags = set()
@@ -2949,7 +2940,7 @@ def union_rsolidlist(
         if tracked_union_result is not None:
             fused_solid = _finalize_tracked_solid(
                 fused_solid,
-                op=_OP_MAKE_UNION_RSOLIDLIST,
+                op=_OP_MAKE_UNION_RSOLID,
                 params={
                     "input_count": len(remaining),
                     "clean": clean,
@@ -2965,9 +2956,9 @@ def union_rsolidlist(
                 input_shapes=remaining,
             )
         else:
-            _attach_track_summary(fused_solid, op=_OP_MAKE_UNION_RSOLIDLIST)
+            _attach_track_summary(fused_solid, op=_OP_MAKE_UNION_RSOLID)
             record_operation_if_active(
-                op=_OP_MAKE_UNION_RSOLIDLIST,
+                op=_OP_MAKE_UNION_RSOLID,
                 params={
                     "input_count": len(remaining),
                     "clean": clean,
@@ -2982,7 +2973,7 @@ def union_rsolidlist(
         return fused_solid
     except Exception as e:
         _wrap_public_api_error(
-            operation="union_rsolidlist",
+            operation="union_rsolid",
             what_happened="Failed to compute the boolean union.",
             possible_causes=[
                 "One or more inputs are not Solid objects.",
@@ -3261,7 +3252,7 @@ def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> N
         main_body = make_box_rsolid(10, 4, 4, bottom_face_center=(0, 0, 0))
         left_cap = make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0))
         right_cap = make_sphere_rsolid(2.0, center=(12.0, 2.0, 2.0))
-        body_parts = union_rsolidlist(main_body, [left_cap, right_cap])
+        body_parts = union_rsolid(main_body, [left_cap, right_cap])
 
         # Export the full list directly; no need to collapse to body_parts[0].
         export_step(body_parts, "rounded_bar.step")
@@ -3309,7 +3300,7 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
         main_body = make_box_rsolid(10, 4, 4, bottom_face_center=(0, 0, 0))
         left_cap = make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0))
         right_cap = make_sphere_rsolid(2.0, center=(12.0, 2.0, 2.0))
-        body_parts = union_rsolidlist(main_body, [left_cap, right_cap])
+        body_parts = union_rsolid(main_body, [left_cap, right_cap])
 
         # Export the list result directly.
         export_stl(body_parts, "rounded_bar.stl")
@@ -3473,7 +3464,7 @@ def render_screenshot_rpath(
                     bottom_face_center=tuple(np.array(axis) * shaft_len),
                     axis=axis,
                 )
-                merged = union_rsolidlist(shaft, cone)
+                merged = union_rsolid(shaft, cone)
                 return merged
 
             axis_x = _axis_solid((1.0, 0.0, 0.0), axis_len_x)
@@ -3998,7 +3989,7 @@ def shell_rsolid(
         if not selected_faces:
             raise ValueError("抽壳操作至少需要一个待移除面")
 
-        # 转换为CADQuery面对象
+        # 转换为 OCP 面对象
         tracked = tracked_shell(solid, selected_faces, thickness_value)
         result = cast(Solid, tracked.shape)
 

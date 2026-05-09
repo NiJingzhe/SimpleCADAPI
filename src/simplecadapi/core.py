@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
 import numpy as np
@@ -16,6 +17,59 @@ from .kernel.ocp_topology import edges_of, faces_of, inner_wires_of, is_wire_clo
 from .tagging import DEFAULT_TAG_POLICY, normalize_tag
 
 suppress_vendor_deprecation_warnings()
+
+
+def _safe_shape_hash(shape: Any) -> int:
+    try:
+        return int(shape.HashCode(1000000))
+    except Exception:
+        return int(hash(shape))
+
+
+@dataclass
+class _TopoEntity:
+    kind: str
+    topo_id: str
+    representative: Any
+    tags: Set[str] = field(default_factory=set)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    runtime: Dict[str, Any] = field(default_factory=dict)
+    wrappers: List[Any] = field(default_factory=list)
+    incident_face_ids: Set[str] = field(default_factory=set)
+    incident_edge_ids: Set[str] = field(default_factory=set)
+
+
+class _TopologyEntityCache:
+    def __init__(self) -> None:
+        self._buckets: Dict[Tuple[str, int], List[_TopoEntity]] = {}
+        self._counters: Dict[str, int] = {}
+        self._entities_by_id: Dict[str, _TopoEntity] = {}
+
+    def get(self, kind: str, shape: Any) -> _TopoEntity:
+        key = (kind, _safe_shape_hash(shape))
+        bucket = self._buckets.setdefault(key, [])
+        for entity in bucket:
+            try:
+                if entity.representative.IsSame(shape):
+                    return entity
+            except Exception:
+                pass
+
+        idx = self._counters.get(kind, 0)
+        self._counters[kind] = idx + 1
+        entity = _TopoEntity(kind=kind, topo_id=f"{kind}_{idx}", representative=shape)
+        bucket.append(entity)
+        self._entities_by_id[entity.topo_id] = entity
+        return entity
+
+    def wrappers_for(self, topo_id: str) -> List[Any]:
+        entity = self._entities_by_id.get(topo_id)
+        return list(entity.wrappers) if entity is not None else []
+
+    def entities(self, kind: Optional[str] = None) -> List[_TopoEntity]:
+        if kind is None:
+            return list(self._entities_by_id.values())
+        return [entity for entity in self._entities_by_id.values() if entity.kind == kind]
 
 
 class CoordinateSystem:
@@ -251,10 +305,27 @@ def get_current_cs() -> CoordinateSystem:
 class TaggedMixin:
     """Tag mixin that provides tagging support for geometry objects."""
 
-    def __init__(self):
-        self._tags: Set[str] = set()
-        self._metadata: Dict[str, Any] = {}
-        self._runtime: Dict[str, Any] = {}
+    def __init__(self, entity: Optional[_TopoEntity] = None):
+        self._entity = entity
+        if entity is None:
+            self._tags: Set[str] = set()
+            self._metadata: Dict[str, Any] = {}
+            self._runtime: Dict[str, Any] = {}
+        else:
+            self._tags = entity.tags
+            self._metadata = entity.metadata
+            self._runtime = entity.runtime
+            entity.wrappers.append(self)
+
+    @property
+    def topo_id(self) -> str:
+        entity = getattr(self, "_entity", None)
+        if entity is not None:
+            return entity.topo_id
+        return f"object_{id(self)}"
+
+    def same_topology(self, other: Any) -> bool:
+        return getattr(other, "topo_id", None) == self.topo_id
 
     def add_tag(self, tag: str) -> None:
         if not isinstance(tag, str):
@@ -323,9 +394,15 @@ class TopoMixein:
         self.self_shape_ref: AnyShape = self_shape_ref
         self.children: List[AnyShape] = []
         self.parent: Optional[AnyShape] = None
+        self.parents: List[AnyShape] = []
 
     def set_parent(self, parent: "AnyShape") -> None:
         self.parent = parent
+        if parent not in self.parents:
+            self.parents.append(parent)
+
+    def add_parent(self, parent: "AnyShape") -> None:
+        self.set_parent(parent)
 
     def add_child(self, child: "AnyShape") -> None:
         if child not in self.children:
@@ -338,14 +415,18 @@ class TopoMixein:
     def get_parent(self) -> Optional["AnyShape"]:
         return self.parent
 
+    def get_parents(self) -> List["AnyShape"]:
+        return list(self.parents)
+
 
 class Vertex(TaggedMixin, TopoMixein):
     """OCP-native vertex wrapper with tag support."""
 
-    def __init__(self, vertex: Any):
+    def __init__(self, vertex: Any, cache: Optional[_TopologyEntityCache] = None):
         try:
             self.wrapped = as_vertex(vertex)
-            TaggedMixin.__init__(self)
+            self._topology_cache = cache or _TopologyEntityCache()
+            TaggedMixin.__init__(self, self._topology_cache.get("vertex", self.wrapped))
             TopoMixein.__init__(self, level=0, self_shape_ref=self)
         except Exception as e:
             raise ValueError(f"初始化顶点失败: {e}. 请检查输入的顶点对象是否有效。")
@@ -355,6 +436,15 @@ class Vertex(TaggedMixin, TopoMixein):
             return vertex_point(self.wrapped)
         except Exception as e:
             raise ValueError(f"获取顶点坐标失败: {e}")
+
+    def get_incident_edges(self) -> List["Edge"]:
+        edges: List[Edge] = []
+        for edge_id in getattr(self._entity, "incident_edge_ids", set()):
+            for wrapper in self._topology_cache.wrappers_for(edge_id):
+                if isinstance(wrapper, Edge) and wrapper.topo_id == edge_id:
+                    edges.append(wrapper)
+                    break
+        return edges
 
     def __str__(self) -> str:
         return self._format_string(indent=0)
@@ -375,13 +465,16 @@ class Vertex(TaggedMixin, TopoMixein):
 class Edge(TaggedMixin, TopoMixein):
     """OCP-native edge wrapper with tag support."""
 
-    def __init__(self, edge: Any):
+    def __init__(self, edge: Any, cache: Optional[_TopologyEntityCache] = None):
         try:
             self.wrapped = as_edge(edge)
-            TaggedMixin.__init__(self)
+            self._topology_cache = cache or _TopologyEntityCache()
+            TaggedMixin.__init__(self, self._topology_cache.get("edge", self.wrapped))
             TopoMixein.__init__(self, level=1, self_shape_ref=self)
             for vertex in vertices_of(self.wrapped):
-                self.add_child(Vertex(vertex))
+                child_vertex = Vertex(vertex, cache=self._topology_cache)
+                self.add_child(child_vertex)
+                child_vertex._entity.incident_edge_ids.add(self.topo_id)
         except Exception as e:
             raise ValueError(f"初始化边失败: {e}. 请检查输入的边对象是否有效。")
 
@@ -409,6 +502,15 @@ class Edge(TaggedMixin, TopoMixein):
 
     def get_center(self) -> Vec3:
         return center_of_mass(self.wrapped)
+
+    def get_incident_faces(self) -> List["Face"]:
+        faces: List[Face] = []
+        for face_id in getattr(self._entity, "incident_face_ids", set()):
+            for wrapper in self._topology_cache.wrappers_for(face_id):
+                if isinstance(wrapper, Face) and wrapper.topo_id == face_id:
+                    faces.append(wrapper)
+                    break
+        return faces
 
     def __str__(self) -> str:
         return self._format_string(indent=0)
@@ -439,13 +541,14 @@ class Edge(TaggedMixin, TopoMixein):
 class Wire(TaggedMixin, TopoMixein):
     """OCP-native wire wrapper with tag support."""
 
-    def __init__(self, wire: Any):
+    def __init__(self, wire: Any, cache: Optional[_TopologyEntityCache] = None):
         try:
             self.wrapped = as_wire(wire)
-            TaggedMixin.__init__(self)
+            self._topology_cache = cache or _TopologyEntityCache()
+            TaggedMixin.__init__(self, self._topology_cache.get("wire", self.wrapped))
             TopoMixein.__init__(self, level=2, self_shape_ref=self)
             for edge in edges_of(self.wrapped):
-                self.add_child(Edge(edge))
+                self.add_child(Edge(edge, cache=self._topology_cache))
         except Exception as e:
             raise ValueError(f"初始化线失败: {e}. 请检查输入的线对象是否有效。")
 
@@ -494,20 +597,25 @@ class Wire(TaggedMixin, TopoMixein):
 class Face(TaggedMixin, TopoMixein):
     """OCP-native face wrapper with tag support."""
 
-    def __init__(self, face: Any):
+    def __init__(self, face: Any, cache: Optional[_TopologyEntityCache] = None):
         try:
             self.wrapped = as_face(face)
-            TaggedMixin.__init__(self)
+            self._topology_cache = cache or _TopologyEntityCache()
+            TaggedMixin.__init__(self, self._topology_cache.get("face", self.wrapped))
             TopoMixein.__init__(self, level=3, self_shape_ref=self)
-            outer_wire = Wire(outer_wire_of(self.wrapped))
+            outer_wire = Wire(outer_wire_of(self.wrapped), cache=self._topology_cache)
             outer_wire.add_tag("outer_wire")
             outer_wire.apply_tag("wire.outer", propagate=False)
             self.add_child(outer_wire)
+            for edge in outer_wire.get_edges():
+                edge._entity.incident_face_ids.add(self.topo_id)
             for wire in inner_wires_of(self.wrapped):
-                inner = Wire(wire)
+                inner = Wire(wire, cache=self._topology_cache)
                 inner.add_tag("inner_wire")
                 inner.apply_tag("wire.inner", propagate=False)
                 self.add_child(inner)
+                for edge in inner.get_edges():
+                    edge._entity.incident_face_ids.add(self.topo_id)
         except Exception as e:
             raise ValueError(f"初始化面失败: {e}. 请检查输入的面对象是否有效。")
 
@@ -556,6 +664,21 @@ class Face(TaggedMixin, TopoMixein):
     def get_center(self) -> Vec3:
         return center_of_mass(self.wrapped)
 
+    def get_edges(self) -> List[Edge]:
+        edges: List[Edge] = []
+        edges.extend(self.get_outer_wire().get_edges())
+        for inner in self.get_inner_wires():
+            edges.extend(inner.get_edges())
+        return edges
+
+    def get_adjacent_faces(self) -> List["Face"]:
+        adjacent: Dict[str, Face] = {}
+        for edge in self.get_edges():
+            for face in edge.get_incident_faces():
+                if face.topo_id != self.topo_id:
+                    adjacent.setdefault(face.topo_id, face)
+        return list(adjacent.values())
+
     def __str__(self) -> str:
         return self._format_string(indent=0)
 
@@ -590,13 +713,14 @@ class Face(TaggedMixin, TopoMixein):
 class Solid(TaggedMixin, TopoMixein):
     """OCP-native solid wrapper with tag support."""
 
-    def __init__(self, solid: Any):
+    def __init__(self, solid: Any, cache: Optional[_TopologyEntityCache] = None):
         try:
             self.wrapped = as_solid(solid)
-            TaggedMixin.__init__(self)
+            self._topology_cache = cache or _TopologyEntityCache()
+            TaggedMixin.__init__(self, self._topology_cache.get("solid", self.wrapped))
             TopoMixein.__init__(self, level=4, self_shape_ref=self)
             for face in faces_of(self.wrapped):
-                self.add_child(Face(face))
+                self.add_child(Face(face, cache=self._topology_cache))
         except Exception as e:
             raise ValueError(f"初始化实体失败: {e}. 请检查输入的实体对象是否有效。")
 
@@ -614,14 +738,22 @@ class Solid(TaggedMixin, TopoMixein):
 
     def get_edges(self) -> List[Edge]:
         try:
-            edges: List[Edge] = []
+            unique: Dict[str, Edge] = {}
             for face in self.get_faces():
-                edges.extend(face.get_outer_wire().get_edges())
-                for inner in face.get_inner_wires():
-                    edges.extend(inner.get_edges())
-            return edges
+                for edge in face.get_edges():
+                    unique.setdefault(edge.topo_id, edge)
+            return list(unique.values())
         except Exception as e:
             raise ValueError(f"获取边列表失败: {e}")
+
+    def get_edge_occurrences(self) -> List[Edge]:
+        try:
+            edges: List[Edge] = []
+            for face in self.get_faces():
+                edges.extend(face.get_edges())
+            return edges
+        except Exception as e:
+            raise ValueError(f"获取边实例列表失败: {e}")
 
     def auto_tag_faces(self, geometry_type: str = "unknown") -> None:
         try:

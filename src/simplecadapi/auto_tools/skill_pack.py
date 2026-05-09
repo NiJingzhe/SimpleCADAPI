@@ -480,20 +480,19 @@ class SkillPackager:
             7. Use tags consistently.
             8. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
             9. For inspection/debugging, query geometry with QL and print only the queried facts you need; do not print whole solids, assemblies, or full model objects.
-            10. Boolean operations always return `List[Solid]`. You MUST check `len(results)` before using `results[0]`.
-            11. `union_rsolidlist(...)` already uses SimpleCAD's tuned default boolean settings internally. Do not add manual boolean tuning unless you are debugging a stubborn edge case.
-            12. If tangent-only contact leaves multiple solids after `union_rsolidlist(...)`, that is often acceptable. Keep the list and continue operating on the list or iterate over its solids.
-            13. If the design explicitly requires exactly one merged solid and `len(results) != 1`, you MUST NOT silently pick one item. Instead, slightly adjust part placement so the intended bodies overlap/embed, run the union again, and only then unwrap the single result.
-            14. If a task depends on model replay or interchange, prefer `export_model_json()` output over hand-written payloads.
+            10. Boolean operations return a single `Solid`.
+            11. Use `union_rsolid(...)` for boolean union.
+            12. For automated example/test harnesses, prefer the repo-local examples in `examples/` and avoid scratch scripts in `sandbox/`.
+            13. If union cannot produce exactly one merged solid, it fails explicitly; do not silently pick one piece.
+            14. If a single merged solid is required and union fails, slightly adjust part placement so intended bodies overlap/embed, then recompute.
+            15. If a task depends on model replay or interchange, prefer `export_model_json()` output over hand-written payloads.
 
             ## Boolean result discipline
-            - `union_rsolidlist(...)`, `cut_rsolidlist(...)`, and `intersect_rsolidlist(...)` accept mixed inputs: standalone `Solid`, lists of `Solid`, and nested sequences.
-            - They always return `List[Solid]`.
-            - `union_rsolidlist(...)` already applies the package's default glue mode and a conservative internal tolerance.
-            - If a union still returns multiple solids that remain separated beyond tolerance, the API prints a stdout warning automatically.
-            - Default behavior: keep the list result and pass it forward or iterate over it.
-            - Only unwrap to a single solid after an explicit `len(results) == 1` check.
-            - If a single merged solid is required but a union still returns multiple solids, slightly move the parts so they overlap instead of merely touching, then recompute the union.
+            - `union_rsolid(...)`, `cut_rsolidlist(...)`, and `intersect_rsolidlist(...)` accept mixed inputs: standalone `Solid`, lists of `Solid`, and nested sequences.
+            - They return a single `Solid`.
+            - `union_rsolid(...)` already applies the package's default glue mode and a conservative internal tolerance.
+            - If a union cannot produce exactly one merged solid, it fails explicitly instead of returning multiple pieces.
+            - If a single merged solid is required but union fails, slightly move the parts so they overlap instead of merely touching, then recompute the union.
 
             ## SDK Focus
             - This skill is intended to describe the public CAD Python SDK surface.
@@ -659,7 +658,7 @@ class SkillPackager:
 
             ## Scope
 
-            - Public CAD Python SDK for geometry, assemblies, and v2 replayable modeling.
+            - OCP-native public CAD Python SDK for geometry, assemblies, and v2 replayable modeling.
             - Includes generated API and core type references under `references/docs/`.
             - Emphasizes public surfaces rather than repository operations.
 

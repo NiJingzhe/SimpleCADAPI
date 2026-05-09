@@ -257,7 +257,7 @@ class TestBooleanOperations(unittest.TestCase):
 
     def test_union(self):
         """Test union."""
-        result = scad.union_rsolidlist([self.box1, self.box2])
+        result = scad.union_rsolid([self.box1, self.box2])
         self.assertIsInstance(result, scad.Solid)
         # 并集体积应该大于任一单独体积
         self.assertGreater(result.get_volume(), self.box1.get_volume())
@@ -272,10 +272,10 @@ class TestBooleanOperations(unittest.TestCase):
 
         solids = [box_far_1, box_far_2, box_far_3]
         with self.assertRaises(scad.SimpleCADError) as ctx:
-            scad.union_rsolidlist(solids)
+            scad.union_rsolid(solids)
 
         message = str(ctx.exception)
-        self.assertIn("union_rsolidlist", message)
+        self.assertIn("union_rsolid", message)
         self.assertIn("单个Solid结果", message)
 
     def test_union_touching_boxes_cleans_splitter_faces(self):
@@ -286,7 +286,7 @@ class TestBooleanOperations(unittest.TestCase):
 
         stdout_buffer = io.StringIO()
         with redirect_stdout(stdout_buffer):
-            result = scad.union_rsolidlist(box_left, box_right)
+            result = scad.union_rsolid(box_left, box_right)
 
         self.assertAlmostEqual(result.get_volume(), 2.0, places=6)
         self.assertEqual(len(result.get_faces()), 6)
@@ -301,8 +301,8 @@ class TestBooleanOperations(unittest.TestCase):
         )
 
         with self.assertRaises(scad.SimpleCADError):
-            scad.union_rsolidlist(box_left, box_right)
-        with_tol = scad.union_rsolidlist(box_left, box_right, tol=1e-3)
+            scad.union_rsolid(box_left, box_right)
+        with_tol = scad.union_rsolid(box_left, box_right, tol=1e-3)
 
         self.assertIsInstance(with_tol, scad.Solid)
         self.assertGreater(with_tol.get_volume(), 2.0)
@@ -325,7 +325,7 @@ class TestBooleanOperations(unittest.TestCase):
 
     def test_legacy_boolean_api_removed(self):
         """Test legacy boolean API removed."""
-        self.assertFalse(hasattr(scad, "union_rsolid"))
+        self.assertTrue(hasattr(scad, "union_rsolid"))
         self.assertFalse(hasattr(scad, "cut_rsolid"))
         self.assertFalse(hasattr(scad, "intersect_rsolid"))
 
@@ -631,7 +631,7 @@ class TestComplexExamples(unittest.TestCase):
         tooth = scad.extrude_rsolid(tooth_profile, (0, 0, 1), 1.2)
 
         # 合并一个齿到基础上
-        gear = scad.union_rsolidlist([gear_base, tooth])
+        gear = scad.union_rsolid([gear_base, tooth])
 
         # 验证
         self.assertIsInstance(gear, scad.Solid)
@@ -646,7 +646,7 @@ class TestComplexExamples(unittest.TestCase):
         cone_top = scad.make_cone_rsolid(2.0, 2.0, 0.5, bottom_face_center=(0, 0, 3.0))
 
         # 合并圆柱体和圆锥体
-        combined_shape = scad.union_rsolidlist([base_cylinder, cone_top])
+        combined_shape = scad.union_rsolid([base_cylinder, cone_top])
 
         # 验证
         self.assertIsInstance(combined_shape, scad.Solid)
@@ -668,7 +668,7 @@ class TestComplexExamples(unittest.TestCase):
         box3 = scad.make_box_rsolid(2, 2, 2, bottom_face_center=(0, 1, 0))
 
         # 复合布尔运算：(box1 ∪ box2) ∩ box3
-        union_result = scad.union_rsolidlist([box1, box2])
+        union_result = scad.union_rsolid([box1, box2])
         final_result = scad.intersect_rsolidlist(union_result, box3)
 
         # 验证

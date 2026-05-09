@@ -60,7 +60,7 @@ from .operations import (
     # 布尔运算
     cut_rsolidlist,
     intersect_rsolidlist,
-    union_rsolidlist,
+    union_rsolid,
     # 导出
     export_step,
     export_stl,
@@ -182,7 +182,7 @@ revolve = revolve_rsolid
 # 布尔运算别名
 cut = cut_rsolidlist
 intersect = intersect_rsolidlist
-union = union_rsolidlist
+union = union_rsolid
 
 # 导出别名
 to_step = export_step
@@ -246,7 +246,7 @@ __all__ = [
     # 布尔运算
     "cut_rsolidlist",
     "intersect_rsolidlist",
-    "union_rsolidlist",
+    "union_rsolid",
     # 导出
     "export_step",
     "export_stl",

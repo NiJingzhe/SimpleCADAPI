@@ -85,7 +85,7 @@ _OP_EXPRESSION_BINDINGS: Dict[str, Tuple[Tuple[str, Tuple[Any, ...]], ...]] = {
     "make_loft_rsolid": (("Ruled", ("ruled",)),),
     "make_sweep_rsolid": (("Frenet", ("is_frenet",)),),
     "make_cut_rsolidlist": (),
-    "make_union_rsolidlist": (),
+    "make_union_rsolid": (),
     "make_intersect_rsolidlist": (),
     "make_fillet_rsolid": (),
     "make_chamfer_rsolid": (),
@@ -2265,7 +2265,7 @@ def _joint_reference_from_anchor(anchor):
             lines.extend(finish())
             return lines
 
-        if node.op == "make_union_rsolidlist" and len(inputs) >= 2:
+        if node.op == "make_union_rsolid" and len(inputs) >= 2:
             if len(inputs) == 2:
                 lines = [
                     f"{var_name} = doc.addObject('Part::Fuse', {_json_ascii(object_name)})",

@@ -92,7 +92,7 @@ def make_n_hole_flange_rsolid(
         print("    凸起圆环内孔切割完成，形成环形凸起")
 
         # 合并法兰主体和凸起圆环
-        flange_with_boss = union_rsolidlist([flange_body, boss_ring])
+        flange_with_boss = union_rsolid([flange_body, boss_ring])
         boss_volume = flange_with_boss.get_volume()
         print(f"    法兰主体与凸起圆环合并完成，体积: {boss_volume:.2f} mm³")
 

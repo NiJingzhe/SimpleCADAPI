@@ -109,7 +109,7 @@ class TestSkillPackPathResolution(unittest.TestCase):
             packager = skill_pack.SkillPackager(
                 project_root=site_packages,
                 output_root=output_root,
-                skill_name="simplecad-self-evolve",
+                skill_name="simplecadapi",
                 license_name="MIT",
                 package_name="simplecadapi",
                 package_version="2.0.2",
@@ -123,18 +123,56 @@ class TestSkillPackPathResolution(unittest.TestCase):
             self.assertTrue(
                 (result.skill_root / "references/docs/api/README.md").exists()
             )
-            self.assertEqual(
-                (result.skill_root / "references/PROJECT_README.md").read_text(
-                    encoding="utf-8"
-                ),
-                "# Demo README\n\nInstalled package readme body.",
-            )
+            package_summary = (
+                result.skill_root / "references/SDK_PACKAGE_SUMMARY.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("# SDK Package Summary", package_summary)
+            self.assertIn("Installed package readme body.", package_summary)
             self.assertEqual(
                 (result.skill_root / "references/LICENSE.txt").read_text(
                     encoding="utf-8"
                 ),
                 "MIT License\n",
             )
+            self.assertFalse((result.skill_root / "scripts").exists())
+
+    def test_build_skill_markdown_mentions_v2_graph_and_model_workflow(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            project_root = tmp_path / "project"
+            docs_api = project_root / "docs/api"
+            docs_core = project_root / "docs/core"
+            docs_api.mkdir(parents=True, exist_ok=True)
+            docs_core.mkdir(parents=True, exist_ok=True)
+            (docs_api / "README.md").write_text("# API Docs\n", encoding="utf-8")
+            (docs_core / "README.md").write_text("# Core Docs\n", encoding="utf-8")
+            (project_root / "README.md").write_text("# Demo\n", encoding="utf-8")
+            (project_root / "LICENSE").write_text("MIT\n", encoding="utf-8")
+            (project_root / "pyproject.toml").write_text(
+                "[project]\nname = 'simplecadapi'\nversion = '2.0.9'\ndescription = 'Demo package'\n",
+                encoding="utf-8",
+            )
+            (project_root / "src/simplecadapi").mkdir(parents=True, exist_ok=True)
+
+            packager = skill_pack.SkillPackager(
+                project_root=project_root,
+                output_root=tmp_path / "skills",
+                skill_name="simplecadapi",
+                license_name="MIT",
+                quiet=True,
+            )
+
+            content = packager._build_skill_markdown()
+
+            self.assertIn("GraphSession", content)
+            self.assertIn("export_model_json", content)
+            self.assertIn("replay_model_json", content)
+            self.assertIn("Use the graph/model JSON workflow", content)
+            self.assertIn("SDK_OVERVIEW.md", content)
+            self.assertIn("SDK_SURFACES.md", content)
+            self.assertIn("V2_MODELING_WORKFLOWS.md", content)
+            self.assertIn("SDK_PACKAGE_SUMMARY.md", content)
+            self.assertNotIn("scripts/", content)
 
 
 if __name__ == "__main__":

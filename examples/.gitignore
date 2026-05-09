@@ -1,0 +1,6 @@
+out/
+*.step
+*.stl
+*.json
+*.FCStd
+*.FCBak

@@ -172,12 +172,20 @@ def _wrapped_shape(shape: Any) -> Any:
 
 
 def _shape_topo_id(shape: Any) -> str:
+    topo_id = getattr(shape, "topo_id", None)
+    if topo_id is not None:
+        kind = _shape_kind(shape)
+        prefix = kind.name.lower() if kind is not None else "shape"
+        return f"{prefix}_{topo_id}"
     wrapped = _wrapped_shape(shape)
-    if wrapped is None or not hasattr(wrapped, "HashCode"):
+    if wrapped is None:
         return f"obj_{id(shape)}"
     kind = _shape_kind(shape)
     prefix = kind.name.lower() if kind is not None else "shape"
-    return f"{prefix}_{wrapped.HashCode(1000000)}"
+    try:
+        return f"{prefix}_{wrapped.HashCode(1000000)}"
+    except AttributeError:
+        return f"{prefix}_{hash(wrapped)}"
 
 
 def _attach_topo_refs_recursive(

@@ -564,6 +564,10 @@ class ShapeSelector:
 
 
 def _shape_identity(obj: Any) -> Any:
+    topo_id = getattr(obj, "topo_id", None)
+    if topo_id is not None:
+        return (obj.__class__.__name__, topo_id)
+
     topo_ref = None
     if hasattr(obj, "get_metadata"):
         try:
@@ -571,22 +575,10 @@ def _shape_identity(obj: Any) -> Any:
         except Exception:
             topo_ref = None
     if isinstance(topo_ref, dict):
-        topo_id = topo_ref.get("topo_id")
+        ref_topo_id = topo_ref.get("topo_id")
         kind = topo_ref.get("kind")
-        if topo_id is not None:
-            return (kind, topo_id)
-
-    try:
-        from .tracking import _topo_id
-    except Exception:
-        _topo_id = None
-
-    wrapped = getattr(obj, "wrapped", None)
-    if wrapped is not None and _topo_id is not None:
-        try:
-            return (obj.__class__.__name__, _topo_id(wrapped))
-        except Exception:
-            pass
+        if ref_topo_id is not None:
+            return (kind, ref_topo_id)
 
     return id(obj)
 
