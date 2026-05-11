@@ -113,6 +113,14 @@ rebuilt = replay_model_json(model_json)
 print(len(rebuilt))
 ```
 
+## Serialization and Replay Docs
+
+For detailed operation-by-operation JSON formats and replay behavior, see:
+
+- [`docs/core/serialization/README.md`](docs/core/serialization/README.md)
+- [`docs/core/operation_graph_json_spec.md`](docs/core/operation_graph_json_spec.md)
+- [`examples/07_serialization_operation_tree.py`](examples/07_serialization_operation_tree.py)
+
 ## Auto Tools
 
 The project includes 4 main CLIs:

@@ -11,3 +11,4 @@ Generated STEP/STL/JSON files are written to `examples/out/`, which is ignored b
 - `04_assembly_constraints.py` — rigid assembly constraints with bbox anchors.
 - `05_loft_sweep_revolve.py` — profile operations: revolve, loft, and sweep.
 - `06_parametric_gear_model.py` — lightweight involute spur gear model JSON example for replay/export tests.
+- `07_serialization_operation_tree.py` — compact v2 serialization demo showing how source calls map to canonical operation-tree nodes, including expressions, primitive lowering, features, booleans, transforms, patterns, and detail operations.
