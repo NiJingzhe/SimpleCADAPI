@@ -8,6 +8,10 @@ def radial_pattern_rsolidlist(shape: AnyShape, center: Tuple[float, float, float
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import radial_pattern_rsolidlist`
+
 ## Description
 
 Create a radial pattern of solids.

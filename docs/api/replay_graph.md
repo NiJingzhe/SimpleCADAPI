@@ -3,10 +3,14 @@
 ## API Definition
 
 ```python
-def replay_graph(graph: OperationGraph) -> List[AnyShape]
+def replay_graph(graph: OperationGraph, *, strict: bool = True) -> List[AnyShape]
 ```
 
 *Source: serializer.py*
+
+## Import Surface
+
+- top-level: `from simplecadapi import replay_graph`
 
 ## Description
 

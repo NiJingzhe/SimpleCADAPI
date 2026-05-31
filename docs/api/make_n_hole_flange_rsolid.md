@@ -8,6 +8,10 @@ def make_n_hole_flange_rsolid(flange_outer_diameter = 120.0, flange_inner_diamet
 
 *Source: evolve.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import make_n_hole_flange_rsolid`
+
 ## Description
 
 Create an n-hole flange with a raised boss ring and optional chamfers. The center of the bottom face is placed at the origin.

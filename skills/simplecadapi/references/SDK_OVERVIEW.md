@@ -22,6 +22,7 @@
 - Core shape/type semantics in `docs/core/`.
 - v2 graph/model serialization and replay APIs.
 - Expression, parameter, and semantic reference types.
+- Functional tagging with `apply_tag(shape, tag)`, `list_tags(shape)`, and QL tag predicates.
 
 ## Preferred v2 workflow
 

@@ -8,6 +8,10 @@ class Sketch(curves: Iterable[Edge | Wire] | None = None)
 
 *Source: sketch.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import Sketch`
+
 ## Description
 
 A lightweight first-class sketch container.

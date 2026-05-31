@@ -8,6 +8,10 @@ def make_helix_redge(pitch: ScalarLike, height: ScalarLike, radius: ScalarLike, 
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import make_helix_redge`
+
 ## Description
 
 Create a helix edge.

@@ -3,10 +3,14 @@
 ## API Definition
 
 ```python
-def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid
+def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]], skip_non_intersecting: bool = True) -> Solid
 ```
 
 *Source: operations.py*
+
+## Import Surface
+
+- top-level: `from simplecadapi import cut_rsolidlist`
 
 ## Description
 
@@ -20,6 +24,10 @@ sequences, and returns a single `Solid`.
 ### solids
 
 - **Description**: One or more Solid objects or sequences of Solid. Nested sequences are flattened before processing; the first solid is the base, the rest are subtracted in order.
+
+### skip_non_intersecting
+
+- **Description**: When True, tools with no meaningful intersection are ignored for interactive convenience. Graph replay records this flag and should use False for strict diagnostic workflows.
 
 ## Returns
 

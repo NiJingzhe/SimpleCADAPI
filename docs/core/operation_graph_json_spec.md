@@ -17,13 +17,13 @@
 1. `graph JSON`
    - 由 `export_graph_json(graph)` 导出
    - 表示 API 级操作图
-   - `schema_version` 当前为 `1.0`
+   - `schema_version` 当前为 `2.0`
    - 适合轻量 roundtrip、节点级检查、简单 replay
 
 2. `model JSON`
    - 由 `export_model_json(session)` 导出
    - 表示完整 2.0 interchange payload
-   - `schema_version` 当前为 `2.0-draft`
+   - `schema_version` 当前为 `2.0`
    - 包含 `graph`、`leaf_ids`、`expression_graph`、`frame_graph`、registry/log 等附加信息
    - 是当前对外推荐的 interchange / replay 边界
 
@@ -31,17 +31,29 @@
 
 ### 2.1 graph JSON
 
-- 导出版本：`schema_version = "1.0"`
-- 导入兼容规则：`import_graph_json()` 仅接受 `1.x`
-- 也就是说，适配器应把 graph payload 视为 `1.x` 系列 schema
+- 导出版本：`schema_version = "2.0"`
+- 导入兼容规则：`import_graph_json()` 仅接受 `2.x`
+- 也就是说，适配器应把 graph payload 视为 `2.x` 系列 schema
 
 ### 2.2 model JSON
 
-- 导出版本：`schema_version = "2.0-draft"`
-- 导入兼容规则：`import_model_json()` 接受任何 `2.0*` 前缀
-- 当前 canonical contract 版本：`canonical_contract.contract_version = "2.0-final-state"`
+- 导出版本：`schema_version = "2.0"`
+- 导入兼容规则：`import_model_json()` 仅接受 exactly `2.0`
+- 当前 canonical contract 版本：`canonical_contract.contract_version = "2.0"`
 
-### 2.3 Producer Version
+### 2.3 Contract Layers
+
+SimpleCADAPI v2 明确区分三层契约：
+
+| Layer | Boundary | Stability Rule |
+| --- | --- | --- |
+| source API | Python public functions such as `make_box_rsolid(...)`, `union_rsolid(...)`, `fillet_rsolid(...)` | 用户调用层；可以是 convenience API 或 macro API |
+| canonical graph op | `graph.nodes[].op` values inside graph/model JSON | interchange/replay 层；必须来自 frozen canonical op set |
+| model JSON schema | top-level model payload with `schema_version = "2.0"` and `canonical_contract.contract_version = "2.0"` | payload envelope 层；不得混用 draft/final-state version strings |
+
+source API 名字不等于 canonical graph op 名字。Composite source API 可以展开为多个 canonical graph ops，例如 `make_box_rsolid(...)` 展开为 rectangle/face/extrude chain；model JSON schema 只规定 payload envelope 和 contract metadata。
+
+### 2.4 Producer Version
 
 - `producer_version` 是 Python package 版本号
 - 它用于调试和排查，不应用作 schema 判断依据
@@ -61,7 +73,7 @@
 典型结果：
 
 - `make_box` -> rectangle face chain + `extrude`
-- `make_circle_face` -> `make_circle_edge` + `make_wire_from_edges` + `make_face_from_wire`
+- `make_circle_rface` -> `make_circle_redge` + `make_wire_from_edges_rwire` + `make_face_from_wire_rface`
 - `linear_pattern` -> 多个显式 `translate`
 - `radial_pattern` -> 多个显式 `rotate`
 - `helical_sweep` 不会作为独立 core node 出现
@@ -103,15 +115,16 @@
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "producer_version": "2.0.0b1",
   "capabilities": {
     "selection_ref_strategies": true,
+    "geo_select_nodes": true,
     "selector_hint_fallback": true,
     "display_payload": true,
     "topology_delta_summary": false,
     "assembly_graph": false,
-    "scalar_field_graph": true,
+    "scalar_field_graph": false,
     "expression_graph": true
   },
   "graph_id": "graph_xxxxxxxx",
@@ -124,7 +137,7 @@
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `schema_version` | `string` | yes | graph schema version, current `1.0` |
+| `schema_version` | `string` | yes | graph schema version, current `2.0` |
 | `producer_version` | `string` | yes | package version of exporter |
 | `capabilities` | `object` | yes | feature flags for downstream consumers |
 | `graph_id` | `string` | yes | unique graph instance id |
@@ -138,11 +151,12 @@
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `selection_ref_strategies` | `bool` | detail feature 支持显式 topo refs / index / query 等多种选择策略 |
+| `geo_select_nodes` | `bool` | QL-derived detail selections can be serialized as `make_select_*` geo selector nodes |
 | `selector_hint_fallback` | `bool` | replay 时支持 selector hint 近似匹配回退 |
 | `display_payload` | `bool` | node 中包含 `display` 字段 |
 | `topology_delta_summary` | `bool` | 当前为 `false`，表示没有额外 summary-only delta schema |
 | `assembly_graph` | `bool` | 当前 graph JSON 本身不承载 assembly graph |
-| `scalar_field_graph` | `bool` | `make_field_surface` 支持记录 scalar field tree |
+| `scalar_field_graph` | `bool` | 当前为 `false`；SDF / scalar field graph 暂时不在支持范围内 |
 | `expression_graph` | `bool` | session/model payload 支持 expression graph |
 
 ## 5. Operation Node Schema
@@ -176,7 +190,7 @@
 | `params` | `object` | yes | replay / interchange parameter payload |
 | `inputs` | `array<string>` | yes | upstream node ids in data-flow order |
 | `output_count` | `int` | yes | number of shape outputs produced by this node |
-| `tags` | `array<string>` | yes | free-form labels attached at record time |
+| `tags` | `array<string>` | yes | normalized semantic labels attached at record time |
 | `display` | `object` | yes | UI-friendly derived summary; advisory only |
 | `param_exprs` | `object` | no | mapping from param name to expression references |
 | `context` | `object` | no | workplane / coordinate system snapshot |
@@ -298,14 +312,14 @@
 | --- | --- | --- |
 | `graph_id` | `string` | 所属 graph id |
 | `node_id` | `string` | 产生该语义实体的 node id |
-| `entity_type` | `string` | 语义实体类型，如 `Body` / `Feature` / `Sketch` / `Profile` / `Point` / `ShapeOutput` / `AssemblyConstraint` |
+| `entity_type` | `string` | 语义实体类型，如 `Body` / `Feature` / `Sketch` / `Profile` / `Point` / `ShapeOutput` |
 | `entity_id` | `string` | 在 node 内部稳定的实体 id，通常是 `<op>:<slot>` |
 
 ### 6.2 Current Entity Type Mapping
 
 当前实现的默认映射如下：
 
-- `make_point` -> `Point`
+- `make_point_rvertex` -> `Point`
 - 草图/轮廓类节点 -> `Profile` 或 `Sketch`
 - primitive solid / transform body -> `Body`
 - feature / detail / boolean 类节点 -> `Feature`
@@ -315,7 +329,7 @@
 
 - `make_*_face` 与 `make_face_from_wire` -> `Sketch`
 - `make_*_edge` / `make_*_wire` -> `Profile`
-- `extrude` / `revolve` / `loft` / `sweep` / `fillet` / `chamfer` / `shell` / `cut` / `union` / `intersect` -> `Feature`
+- `make_extrude_rsolid` / `make_revolve_rsolid` / `make_loft_rsolid` / `make_sweep_rsolid` / `make_fillet_rsolid` / `make_chamfer_rsolid` / `make_shell_rsolid` / `make_cut_rsolidlist` / `make_union_rsolid` / `make_intersect_rsolidlist` -> `Feature`
 
 ## 7. Topology Delta Schema
 
@@ -406,11 +420,12 @@ detail feature 使用显式选择引用来稳定 replay。
     "kind",
     "topo_id"
   ],
-  "optional_fields": ["selector_hint"],
+  "optional_fields": ["selector_hint", "geo_selector", "selected_*_node_ids"],
   "replay_resolution_order": [
+    "geo_select_nodes",
+    "selection_query",
     "explicit_topo_refs",
     "stable_indices",
-    "selection_query",
     "selector_hint"
   ]
 }
@@ -451,11 +466,51 @@ detail feature 使用显式选择引用来稳定 replay。
 | `vertex` | `kind`, `tags`, `coordinates` |
 | `solid` | `kind`, `tags`, `volume`, `bbox` |
 
-### 8.4 selection_query
+### 8.4 Geo Select Nodes
 
-当 detail feature 使用 QL selector 而不是显式 shape list 时，当前实现会额外记录 `selection_query`。
+当 detail feature 使用 QL selector 时，新 graph 不把 QL 文本作为主要事实来源。运行时先解析 QL，读取每个被选中子形状的几何事实，并为每一项生成一个 canonical select 节点：
 
-这是 `ShapeSelector.to_dict()` 的结果，示例：
+- `make_select_redge`
+- `make_select_rface`
+- `make_select_rwire`
+- `make_select_rvertex`
+- `make_select_rsolid`
+
+如果 QL 结果是 list，则每个元素对应一个独立 select 节点。feature node 通过 `selected_edge_node_ids` 或 `selected_face_node_ids` 指向这些节点。
+
+select node 示例：
+
+```json
+{
+  "op": "make_select_redge",
+  "params": {
+    "target_kind": "edge",
+    "geo_selector": {
+      "mode": "geo_exact",
+      "kind": "edge",
+      "source_index": 1,
+      "geom_type": "CIRCLE",
+      "length": 6.283185307179586,
+      "center": [0.0, 0.0, 0.0],
+      "start": [1.0, 0.0, 0.0],
+      "end": [1.0, 0.0, 0.0],
+      "bbox": {
+        "min": [-1.0, -1.0, 0.0],
+        "max": [1.0, 1.0, 0.0]
+      },
+      "metadata_geo": {"edge_index": 2}
+    }
+  },
+  "inputs": ["node_for_source_solid"],
+  "output_count": 1
+}
+```
+
+`geo_selector` 不包含 tags，也不通过 tag 搜索。它固定到运行时选中对象的完整可见几何事实；`source_index` 用来保证在同一运行位置的 FreeCAD/OCP 子形状序列中直接命中绝对对应项，完整几何数据用于 fallback、审计和外部 adapter 校验。
+
+### 8.5 selection_query fallback
+
+旧 payload 或手写 payload 仍可携带 `selection_query`。这是 `ShapeSelector.to_dict()` 的结果，示例：
 
 ```json
 {
@@ -481,6 +536,22 @@ detail feature 使用显式选择引用来稳定 replay。
   "limit": 1
 }
 ```
+
+可选 source scope 字段：
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `source_node_id` | `string` | replay 时先定位该 graph node 的输出作为 selector scope |
+| `source_output_slot` | `int` | graph node 输出槽位，默认 `0` |
+| `order_keys` | `array<object>` | 多 key 排序，按声明顺序做 lexicographic ordering |
+
+`cardinality` 支持：
+
+| Field | Meaning |
+| --- | --- |
+| `exactly` | selector 必须解析出准确数量 |
+| `at_least` | selector 必须解析出至少该数量 |
+| `at_most` | selector 必须解析出至多该数量 |
 
 更复杂的 traversal selector 会出现：
 
@@ -514,18 +585,74 @@ detail feature 使用显式选择引用来稳定 replay。
 }
 ```
 
-### 8.5 Replay Resolution Order
+### 8.6 Replay Resolution Order
 
 detail feature replay 的固定解析顺序为：
 
-1. `selected_edges` / `selected_faces` 中的显式 topo refs
-2. `selected_edge_indices` / `selected_face_indices`
-3. `selection_query`
-4. `selector_hint`
+1. `selected_edge_node_ids` / `selected_face_node_ids` 指向的 geo select nodes
+2. `selection_query` fallback
+3. `selected_edges` / `selected_faces` 中的显式 topo refs
+4. `selected_edge_indices` / `selected_face_indices`
+5. `selector_hint`
 
 适配器若要实现等价行为，必须保持这个顺序。
 
-## 9. Expression Graph Schema
+## 9. Tag Schema
+
+normalized tags 是默认 tag schema。`tags[]` 应只承载满足以下 grammar 的语义标签：
+
+```text
+[a-z][a-z0-9_-]*(.[a-z][a-z0-9_-]*)*
+```
+
+常用 namespace：
+
+| Prefix | Meaning |
+| --- | --- |
+| `role.*` | user/domain role, anchor lookup highest priority |
+| `anchor.*` | explicit anchor alias |
+| `face.*` | face-level semantic tag |
+| `edge.*` | edge-level semantic tag |
+| `wire.*` | wire-level semantic tag |
+| `vertex.*` | vertex-level semantic tag |
+| `solid.*` | solid-level semantic tag |
+| `geom.*` | primitive/geometry classification tag, e.g. `geom.primitive.box` |
+| `op.*` | operation lineage tags |
+| `origin.*` | boolean/tracking origin role tags |
+
+Legacy numeric or descriptive tags such as `"0"`, `"size: 1x2x3"`, or `"bottom center: ..."` must not be emitted into `tags[]` by new code. Store that data under `metadata["geo"]` instead, for example:
+
+```json
+{
+  "tags": ["geom.primitive.box", "solid.primitive"],
+  "metadata": {
+    "geo": {
+      "type": "box",
+      "size": {"x": 1.0, "y": 2.0, "z": 3.0},
+      "bottom_face_center": [0.0, 0.0, 0.0]
+    }
+  }
+}
+```
+
+Anchor lookup priority is explicit and stable:
+
+1. `role.<name>`
+2. `anchor.<name>`
+3. `<topology-kind>.<name>`, such as `face.top`, `edge.left`, `wire.outer`
+4. legacy aliases, including bare names such as `top` or legacy-prefixed names
+
+QL examples should use normalized tags:
+
+```python
+from simplecadapi import ql as Q
+
+top = Q.faces().where(Q.tag("face.top")).take(1).exactly(1)
+mount = Q.faces().where(Q.tag("role.mounting_surface")).take(1).exactly(1)
+outer_edges = Q.faces().where(Q.tag("face.top")).boundary("wire").where(Q.tag("wire.outer")).boundary("edge")
+```
+
+## 10. Expression Graph Schema
 
 `expression_graph` 结构：
 
@@ -542,7 +669,7 @@ detail feature replay 的固定解析顺序为：
 }
 ```
 
-### 9.1 Node Variants
+### 10.1 Node Variants
 
 #### const
 
@@ -576,7 +703,7 @@ detail feature replay 的固定解析顺序为：
 }
 ```
 
-### 9.2 Supported Expression Ops
+### 10.2 Supported Expression Ops
 
 当前实现支持：
 
@@ -592,7 +719,7 @@ detail feature replay 的固定解析顺序为：
 - `tan`
 - `sqrt`
 
-## 10. Frame Graph Schema
+## 11. Frame Graph Schema
 
 `frame_graph` 结构：
 
@@ -624,13 +751,13 @@ detail feature replay 的固定解析顺序为：
 | `parent_frame_id` | `string|null` | 父 frame；当前 node frames 通常为 `null` |
 | `metadata` | `object` | 当前至少包含 `node_id` |
 
-## 11. model JSON Schema
+## 12. model JSON Schema
 
 `export_model_json()` 的顶层结构：
 
 ```json
 {
-  "schema_version": "2.0-draft",
+  "schema_version": "2.0",
   "canonical_contract": {...},
   "graph": {...},
   "expression_graph": {...},
@@ -638,20 +765,17 @@ detail feature replay 的固定解析顺序为：
   "geometry_registry": [...],
   "semantic_entity_registry": [...],
   "sketch_profile_registry": [...],
-  "assembly_registry": [...],
-  "constraint_registry": [...],
   "semantic_delta_log": [...],
   "topology_delta_log": [...],
-  "leaf_ids": [...],
-  "assembly": {...}
+  "leaf_ids": [...]
 }
 ```
 
-### 11.1 Top-Level Fields
+### 12.1 Top-Level Fields
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `schema_version` | `string` | yes | current `2.0-draft` |
+| `schema_version` | `string` | yes | current `2.0` |
 | `canonical_contract` | `object` | yes | machine-readable interchange contract |
 | `graph` | `graph object` | yes | canonical low-level graph and only source of truth |
 | `leaf_ids` | `array<string>` | yes | explicit result set for multi-output graph replay/export |
@@ -660,25 +784,24 @@ detail feature replay 的固定解析顺序为：
 | `geometry_registry` | `array<object>` | yes | output geometry registry |
 | `semantic_entity_registry` | `array<object>` | yes | semantic entity registry |
 | `sketch_profile_registry` | `array<object>` | yes | sketch/profile node registry |
-| `assembly_registry` | `array<object>` | yes | assembly summary registry |
-| `constraint_registry` | `array<object>` | yes | assembly constraint registry |
 | `semantic_delta_log` | `array<object>` | yes | semantic delta log |
 | `topology_delta_log` | `array<object>` | yes | topology delta log |
-| `assembly` | `object` | no | raw assembly payload when export provided `assembly=` |
 
-### 11.2 canonical_contract
+### 12.2 canonical_contract
 
 当前固定结构：
 
 ```json
 {
-  "contract_version": "2.0-final-state",
+  "contract_version": "2.0",
   "graph_roles": {
     "graph": "canonical_low_level_graph",
     "leaf_ids": "explicit_result_set"
   },
   "replay_policy": {
-    "preferred_graph": "graph"
+    "preferred_graph": "graph",
+    "default_mode": "strict",
+    "permissive_mode": "explicit_opt_in"
   },
   "core_op_set": [...],
   "selection_ref_schema": {...}
@@ -689,8 +812,9 @@ detail feature replay 的固定解析顺序为：
 
 - `replay_model_json()` 直接使用 `graph`
 - 多输出 graph 的最终结果集由 `leaf_ids` 显式声明
+- replay 默认 strict；permissive 仅通过 API 参数显式 opt-in
 
-### 11.3 geometry_registry
+### 12.3 geometry_registry
 
 每条记录结构：
 
@@ -709,23 +833,11 @@ detail feature replay 的固定解析顺序为：
 - 若 node 有 `semantic_delta.created`，则按其 created refs 写入 registry
 - 若 node 没有 semantic delta，则按 `output_count` fallback 生成 `ShapeOutput`
 
-### 11.4 semantic_entity_registry
+### 12.4 semantic_entity_registry
 
-当前内容与 `geometry_registry` 高度重叠，但语义上强调 semantic entity 视角。
+当前内容与 `geometry_registry` 高度重叠，但语义上强调 semantic entity 视角。Assembly/constraint semantic entities are not emitted while the assembly system is redesigned.
 
-此外，当导出 assembly 约束时，也会追加：
-
-```json
-{
-  "graph_id": "graph_xxx",
-  "node_id": "assembly-constraint:0",
-  "entity_type": "AssemblyConstraint",
-  "entity_id": "constraint:0",
-  "source_op": "offset"
-}
-```
-
-### 11.5 sketch_profile_registry
+### 12.5 sketch_profile_registry
 
 仅收录草图/轮廓相关 op，当前集合包括：
 
@@ -749,6 +861,8 @@ detail feature replay 的固定解析顺序为：
 - `make_wire_from_edges`
 - `make_face_from_wire`
 
+New canonical profile nodes use the `make_*_r*` names listed in `canonical_contract.core_op_set`; legacy short names are only tolerated here as older registry metadata, not as canonical model graph ops.
+
 记录结构：
 
 ```json
@@ -760,13 +874,7 @@ detail feature replay 的固定解析顺序为：
 }
 ```
 
-### 11.6 assembly_registry / constraint_registry
-
-只有在 `export_model_json(session, assembly=...)` 时才会包含有效内容。
-
-当前是轻量摘要，不是完整 assembly interchange schema。
-
-### 11.7 semantic_delta_log / topology_delta_log
+### 12.6 semantic_delta_log / topology_delta_log
 
 两者都按 graph 的拓扑顺序记录。
 
@@ -780,10 +888,39 @@ detail feature replay 的固定解析顺序为：
 }
 ```
 
-## 12. graph Canonical Op Set
+## 13. graph Canonical Op Set
 
-当前 canonical low-level graph op set 固定为：
+当前 canonical low-level graph op set 固定为下面的 source-API-like op names。注意这些是 graph/model JSON 的 canonical op names，不是旧版短 op names：
 
+- `make_point_rvertex`
+- `make_line_redge`
+- `make_circle_redge`
+- `make_three_point_arc_redge`
+- `make_angle_arc_redge`
+- `make_spline_redge`
+- `make_helix_redge`
+- `make_wire_from_edges_rwire`
+- `make_face_from_wire_rface`
+- `make_extrude_rsolid`
+- `make_revolve_rsolid`
+- `make_loft_rsolid`
+- `make_sweep_rsolid`
+- `make_translate_rshape`
+- `make_rotate_rshape`
+- `make_mirror_rshape`
+- `make_cut_rsolidlist`
+- `make_union_rsolid`
+- `make_intersect_rsolidlist`
+- `make_fillet_rsolid`
+- `make_chamfer_rsolid`
+- `make_shell_rsolid`
+
+下列 node 不允许出现在 canonical `graph`：
+
+- `make_box`
+- `make_cylinder`
+- `make_sphere`
+- `make_cone`
 - `make_point`
 - `make_line`
 - `make_circle_edge`
@@ -793,7 +930,6 @@ detail feature replay 的固定解析顺序为：
 - `make_helix`
 - `make_wire_from_edges`
 - `make_face_from_wire`
-- `make_field_surface`
 - `extrude`
 - `revolve`
 - `loft`
@@ -807,13 +943,6 @@ detail feature replay 的固定解析顺序为：
 - `fillet`
 - `chamfer`
 - `shell`
-
-下列 node 不允许出现在 canonical `graph`：
-
-- `make_box`
-- `make_cylinder`
-- `make_sphere`
-- `make_cone`
 - `make_circle_face`
 - `make_rectangle_face`
 - `make_circle_wire`
@@ -828,7 +957,9 @@ detail feature replay 的固定解析顺序为：
 - `radial_pattern`
 - `helical_sweep`
 
-## 13. Recorded Operation Catalog
+Tests must treat this list as a hard constraint: every exported model graph op must be a subset of `canonical_contract.core_op_set`, and legacy op names must be rejected or isolated outside canonical model JSON.
+
+## 14. Recorded Operation Catalog
 
 本节定义当前会出现在 graph/model JSON 中的 operation node 格式。
 
@@ -839,9 +970,9 @@ detail feature replay 的固定解析顺序为：
 - `Params` 只写当前真正落盘的键，不写 Python API 的全部形参名
 - 如果某个 Python API 会被宏展开而不是单独记录，会单独说明
 
-### 13.1 Primitive And Profile Ops
+### 14.1 Primitive And Profile Ops
 
-#### `make_point`
+#### `make_point_rvertex`
 
 - Inputs: none
 - Outputs: 1 `Vertex`
@@ -853,7 +984,7 @@ detail feature replay 的固定解析顺序为：
 | `y` | scalar | Y coordinate |
 | `z` | scalar | Z coordinate |
 
-#### `make_line`
+#### `make_line_redge`
 
 - Inputs: none
 - Outputs: 1 `Edge`
@@ -866,45 +997,45 @@ detail feature replay 的固定解析顺序为：
 
 Notes:
 
-- `make_segment_redge()` 是别名 API，但记录成 `make_line`
+- `make_segment_redge()` 是别名 API，但记录成 `make_line_redge`
 
-#### `make_segment_wire`
+#### `make_segment_rwire`
 
 - Inputs: none
 - Outputs: 1 `Wire`
 - Params: `start`, `end`
 
-#### `make_circle_edge`
+#### `make_circle_redge`
 
 - Inputs: none
 - Outputs: 1 `Edge`
 - Params: `center`, `radius`, `normal`
 
-#### `make_circle_wire`
+#### `make_circle_rwire`
 
 - Inputs: none
 - Outputs: 1 `Wire`
 - Params: `center`, `radius`, `normal`
 
-#### `make_circle_face`
+#### `make_circle_rface`
 
 - Inputs: none
 - Outputs: 1 `Face`
 - Params: `center`, `radius`, `normal`
 
-#### `make_rectangle_wire`
+#### `make_rectangle_rwire`
 
 - Inputs: none
 - Outputs: 1 `Wire`
 - Params: `width`, `height`, `center`, `normal`
 
-#### `make_rectangle_face`
+#### `make_rectangle_rface`
 
 - Inputs: none
 - Outputs: 1 `Face`
 - Params: `width`, `height`, `center`, `normal`
 
-#### `make_face_from_wire`
+#### `make_face_from_wire_rface`
 
 - Inputs: 1 `Wire`
 - Outputs: 1 `Face`
@@ -914,7 +1045,7 @@ Notes:
 | --- | --- | --- |
 | `normal` | `vec3` | desired normal hint |
 
-#### `make_wire_from_edges`
+#### `make_wire_from_edges_rwire`
 
 - Inputs: N `Edge`
 - Outputs: 1 `Wire`
@@ -924,31 +1055,31 @@ Notes:
 | --- | --- | --- |
 | `edge_count` | `int` | number of consumed edges |
 
-#### `make_three_point_arc`
+#### `make_three_point_arc_redge`
 
 - Inputs: none
 - Outputs: 1 `Edge`
 - Params: `start`, `middle`, `end`
 
-#### `make_three_point_arc_wire`
+#### `make_three_point_arc_rwire`
 
 - Inputs: none
 - Outputs: 1 `Wire`
 - Params: `start`, `middle`, `end`
 
-#### `make_angle_arc`
+#### `make_angle_arc_redge`
 
 - Inputs: none
 - Outputs: 1 `Edge`
 - Params: `center`, `radius`, `start_angle`, `end_angle`, `normal`
 
-#### `make_angle_arc_wire`
+#### `make_angle_arc_rwire`
 
 - Inputs: none
 - Outputs: 1 `Wire`
 - Params: `center`, `radius`, `start_angle`, `end_angle`, `normal`
 
-#### `make_spline`
+#### `make_spline_redge`
 
 - Inputs: none
 - Outputs: 1 `Edge`
@@ -959,33 +1090,33 @@ Notes:
 | `points` | `array<vec3>` | control points |
 | `tangents` | `array<vec3> | null` | optional per-point tangents |
 
-#### `make_spline_wire`
+#### `make_spline_rwire`
 
 - Inputs: none
 - Outputs: 1 `Wire`
 - Params: `points`, `tangents`, `closed`
 
-#### `make_polyline_wire`
+#### `make_polyline_rwire`
 
 - Inputs: none
 - Outputs: 1 `Wire`
 - Params: `points`, `closed`
 
-#### `make_helix`
+#### `make_helix_redge`
 
 - Inputs: none
 - Outputs: 1 `Edge`
 - Params: `pitch`, `height`, `radius`, `center`, `dir`
 
-#### `make_helix_wire`
+#### `make_helix_rwire`
 
 - Inputs: none
 - Outputs: 1 `Wire`
 - Params: `pitch`, `height`, `radius`, `center`, `dir`
 
-### 13.2 Primitive Solid Ops
+### 14.2 Primitive Solid Source APIs
 
-#### `make_box`
+#### `make_box_rsolid`
 
 - Inputs: none
 - Outputs: 1 `Solid`
@@ -1000,97 +1131,62 @@ Notes:
 
 Important:
 
-- 当前 graph JSON 使用 `w/h/d`，不是 `width/height/depth`
+- 该 source API 在 active `GraphSession` 中展开为 canonical low-level graph ops，不作为 `make_box` node 落入 canonical model JSON
+- geometry details such as size and bottom anchor belong in `metadata["geo"]`, not legacy descriptive tags
 
-#### `make_cylinder`
+#### `make_cylinder_rsolid`
 
 - Inputs: none
 - Outputs: 1 `Solid`
 - Params: `radius`, `height`, `bottom_face_center`, `axis`
 
-#### `make_cone`
+#### `make_cone_rsolid`
 
 - Inputs: none
 - Outputs: 1 `Solid`
 - Params: `bottom_radius`, `top_radius`, `height`, `bottom_face_center`, `axis`
 
-#### `make_sphere`
+#### `make_sphere_rsolid`
 
 - Inputs: none
 - Outputs: 1 `Solid`
 - Params: `radius`, `center`
 
-#### `make_field_surface`
+### 14.3 Transform Ops
 
-- Inputs: none
-- Outputs: 1 `Solid`
-- Params base fields:
-
-| Key | Type | Meaning |
-| --- | --- | --- |
-| `bounds` | object | bounding box used for sampling |
-| `resolution` | `array<int>` | sampling resolution `(nx, ny, nz)` |
-| `iso` | number | iso value |
-| `cap_bounds` | bool | whether the field was clipped to bounds |
-| `field_serialization_mode` | string | `scalar_field` or `opaque_callable` |
-
-`bounds` 结构：
-
-```json
-{
-  "min": [xmin, ymin, zmin],
-  "max": [xmax, ymax, zmax]
-}
-```
-
-若 `field_serialization_mode == "scalar_field"`，则还会包含：
-
-- `field_tree`
-
-若 `field_serialization_mode == "opaque_callable"`，则还会包含：
-
-- `field_callable_repr`
-
-Replay note:
-
-- 只有 `scalar_field` 模式可 replay
-- `opaque_callable` 会在 replay 时抛错
-
-### 13.3 Transform Ops
-
-#### `translate`
+#### `make_translate_rshape`
 
 - Inputs: 1 shape
 - Outputs: 1 shape
 - Params: `vector`
 
-#### `rotate`
+#### `make_rotate_rshape`
 
 - Inputs: 1 shape
 - Outputs: 1 shape
 - Params: `angle`, `axis`, `origin`
 
-#### `mirror`
+#### `make_mirror_rshape`
 
 - Inputs: 1 shape
 - Outputs: 1 shape
 - Params: `plane_origin`, `plane_normal`
 
-### 13.4 Feature Ops
+### 14.4 Feature Ops
 
-#### `extrude`
+#### `make_extrude_rsolid`
 
 - Inputs: 1 `Wire` or `Face`
 - Outputs: 1 `Solid`
 - Params: `direction`, `distance`
 
-#### `revolve`
+#### `make_revolve_rsolid`
 
 - Inputs: 1 `Wire` or `Face`
 - Outputs: 1 `Solid`
 - Params: `axis`, `angle`, `origin`
 
-#### `loft`
+#### `make_loft_rsolid`
 
 - Inputs: N `Wire`
 - Outputs: 1 `Solid`
@@ -1101,7 +1197,7 @@ Replay note:
 | `profile_count` | `int` | number of profiles |
 | `ruled` | `bool` | whether ruled loft mode was requested |
 
-#### `sweep`
+#### `make_sweep_rsolid`
 
 - Inputs: 1 profile + 1 path
 - Outputs: 1 `Solid`
@@ -1111,14 +1207,12 @@ Replay note:
 | --- | --- | --- |
 | `is_frenet` | `bool` | sweep orientation mode |
 
-### 13.5 Boolean Ops
+### 14.5 Boolean Ops
 
-#### `union`
+#### `make_union_rsolid`
 
 - Inputs: N `Solid`
-- Outputs:
-  - 1 `Solid`, or
-  - multiple `Solid` outputs when union result stays disconnected
+- Outputs: 1 `Solid`
 - Params base fields:
 
 | Key | Type | Meaning |
@@ -1128,18 +1222,13 @@ Replay note:
 | `glue` | `bool` | OCC glue mode flag |
 | `tol` | `number | null` | effective fuzzy tolerance |
 
-Optional field:
-
-| Key | Type | Meaning |
-| --- | --- | --- |
-| `result_count` | `int` | only present when union produced multiple solids |
-
 Notes:
 
-- `output_count` is the authoritative output multiplicity
-- when `output_count > 1`, output slot order matches the returned result list order
+- `output_count` is always 1 for `union_rsolid(...)`.
+- If the kernel cannot produce exactly one merged solid, the API raises instead of returning disconnected pieces.
+- replay passes recorded `clean`, `glue`, and `tol` back to `union_rsolid(...)`; the tracking builder uses the same `glue` and fuzzy tolerance as the actual boolean builder.
 
-#### `cut`
+#### `make_cut_rsolidlist`
 
 - Inputs: base solid + tool solids
 - Outputs: 1 `Solid` (wrapped in a single-output node)
@@ -1148,8 +1237,15 @@ Notes:
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `tool_count` | `int` | number of subtractive tool solids |
+| `skip_non_intersecting` | `bool` | whether non-intersecting tools are skipped |
 
-#### `intersect`
+Notes:
+
+- Public `cut_rsolidlist(...)` defaults this flag to `true` for interactive convenience.
+- Graph replay defaults missing `skip_non_intersecting` to `false` so malformed or drifting graphs fail diagnostically instead of silently skipping tools.
+- Multi-tool cut preserves the full topology delta chain across all performed tool cuts.
+
+#### `make_intersect_rsolidlist`
 
 - Inputs: N `Solid`
 - Outputs: 1 `Solid` when overlap exists
@@ -1159,11 +1255,15 @@ Notes:
 | --- | --- | --- |
 | `input_count` | `int` | number of intersected solids |
 
-### 13.6 Detail Feature Ops
+Notes:
 
-#### `fillet`
+- Multi-tool intersect preserves the full topology delta chain across all performed intersection steps.
 
-- Inputs: 1 `Solid`
+### 14.6 Detail Feature Ops
+
+#### `make_fillet_rsolid`
+
+- Inputs: 1 source `Solid` plus optional `make_select_redge` nodes
 - Outputs: 1 `Solid`
 - Params:
 
@@ -1172,12 +1272,13 @@ Notes:
 | `radius` | scalar | fillet radius |
 | `edge_count` | `int` | number of targeted edges |
 | `selected_edges` | `array<TopoRefWithHint>` | explicit edge refs |
+| `selected_edge_node_ids` | `array<string>` | primary geo select node refs for QL-derived selections |
 | `selected_edge_indices` | `array<int>` | stable index fallback against `solid.get_edges()` |
-| `selection_query` | `ShapeSelector object` | optional serialized QL selector |
+| `selection_query` | `ShapeSelector object` | legacy/fallback serialized QL selector |
 
-#### `chamfer`
+#### `make_chamfer_rsolid`
 
-- Inputs: 1 `Solid`
+- Inputs: 1 source `Solid` plus optional `make_select_redge` nodes
 - Outputs: 1 `Solid`
 - Params:
 
@@ -1186,12 +1287,13 @@ Notes:
 | `distance` | scalar | chamfer distance |
 | `edge_count` | `int` | number of targeted edges |
 | `selected_edges` | `array<TopoRefWithHint>` | explicit edge refs |
+| `selected_edge_node_ids` | `array<string>` | primary geo select node refs for QL-derived selections |
 | `selected_edge_indices` | `array<int>` | stable index fallback |
-| `selection_query` | `ShapeSelector object` | optional serialized QL selector |
+| `selection_query` | `ShapeSelector object` | legacy/fallback serialized QL selector |
 
-#### `shell`
+#### `make_shell_rsolid`
 
-- Inputs: 1 `Solid`
+- Inputs: 1 source `Solid` plus optional `make_select_rface` nodes
 - Outputs: 1 `Solid`
 - Params:
 
@@ -1200,10 +1302,11 @@ Notes:
 | `thickness` | scalar | shell thickness |
 | `removed_face_count` | `int` | number of faces removed |
 | `selected_faces` | `array<TopoRefWithHint>` | explicit face refs |
+| `selected_face_node_ids` | `array<string>` | primary geo select node refs for QL-derived selections |
 | `selected_face_indices` | `array<int>` | stable index fallback against `solid.get_faces()` |
-| `selection_query` | `ShapeSelector object` | optional serialized QL selector |
+| `selection_query` | `ShapeSelector object` | legacy/fallback serialized QL selector |
 
-### 13.7 Pattern Ops
+### 14.7 Pattern Ops
 
 #### `linear_pattern`
 
@@ -1240,7 +1343,7 @@ Notes:
 - canonical graph does not keep a single `radial_pattern` node
 - the pattern must expand into explicit `make_rotate_rshape` / `make_translate_rshape` instance nodes and declare final outputs via `leaf_ids`
 
-### 13.8 Macro / Non-Node Cases
+### 14.8 Macro / Non-Node Cases
 
 #### `helical_sweep_rsolid`
 
@@ -1261,71 +1364,29 @@ Notes:
 - 这是 `make_line_redge()` 的别名 API
 - 记录时仍然是 `op == "make_line"`
 
-## 14. Scalar Field Tree Schema
+## 15. SDF / Scalar Field Status
 
-`make_field_surface.params.field_tree` 使用如下递归结构：
+SDF / scalar field modeling is temporarily removed from the supported public surface.
 
-```json
-{
-  "op": "smooth_subtract",
-  "params": {
-    "k": 0.12
-  },
-  "children": [
-    {...},
-    {...}
-  ]
-}
-```
+- `simplecadapi.field` is not exported.
+- `make_field_surface_rsolid` is not exported.
+- `make_field_surface_rsolid` is not part of `CANONICAL_CORE_OP_SET`.
+- New graph/model JSON payloads must not contain `op == "make_field_surface_rsolid"`.
+- Historical payloads that contain scalar field nodes should be treated as unsupported until a new SDF contract is designed.
 
-### 14.1 Node Shape
+## 16. Replay Semantics
 
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `op` | `string` | yes | scalar field op |
-| `params` | `object` | yes | op-local params |
-| `children` | `array<object>` | yes | child field nodes |
-
-### 14.2 Supported field_tree Ops
-
-#### Leaf field ops
-
-| `op` | Params |
-| --- | --- |
-| `sphere` | `center`, `radius` |
-| `ellipsoid` | `center`, `radii` |
-| `box` | `center`, `size` |
-| `capsule` | `p0`, `p1`, `radius` |
-
-#### CSG field ops
-
-| `op` | Params | Children |
-| --- | --- | --- |
-| `union` | `{}` | 1+ |
-| `intersect` | `{}` | 1+ |
-| `subtract` | `{}` | 2 |
-| `smooth_union` | `k` | 2 |
-| `smooth_subtract` | `k` | 2 |
-
-#### Transform field ops
-
-| `op` | Params | Children |
-| --- | --- | --- |
-| `translate` | `offset` | 1 |
-| `scale` | `factors` | 1 |
-| `rotate` | `axis`, `angle` | 1 |
-
-## 15. Replay Semantics
-
-### 15.1 graph replay
+### 16.1 graph replay
 
 `replay_graph(graph)`：
 
 - 逐节点按拓扑序执行
 - 使用节点 `op + params + inputs` 恢复几何
+- 默认 strict，缺参数、缺输入、未知 op、leaf 无 output、selection cardinality mismatch 都会失败
+- 只有调用 `replay_graph(graph, strict=False)` 时才启用 permissive fallback
 - 返回 leaf node outputs
 
-### 15.2 model replay
+### 16.2 model replay
 
 `replay_model_json(json_str)`：
 
@@ -1334,22 +1395,24 @@ Notes:
 3. 若存在 `leaf_ids`，返回这些显式 leaf ids 对应的 outputs
 4. 否则返回 graph leaf outputs
 
-### 15.3 Output Collection Rule
+默认 strict，只有调用 `replay_model_json(json_str, strict=False)` 时才启用 permissive fallback。
+
+### 16.3 Output Collection Rule
 
 - 如果未显式指定 leaf ids，最终结果等于 graph 的 leaf node outputs 拼接
 - 多输出 node 会把其所有 output slots 依序加入结果
 
-## 16. Adapter Guidance
+## 17. Adapter Guidance
 
-### 16.1 Strong Recommendations
+### 17.1 Strong Recommendations
 
 1. 优先消费 `model.json`
 2. 若要做工业 interchange，请直接消费 canonical low-level `graph`
 3. 若要恢复参数化，请同时读取 `params`、`param_exprs`、`expression_graph`
-4. detail feature 必须按声明顺序解析选择：explicit refs -> indices -> query -> hint
+4. detail feature 必须按声明顺序解析选择：geo select nodes -> query fallback -> explicit refs -> indices -> hint
 5. 不要依赖 `display.summary` 解析业务语义
 
-### 16.2 Tolerances For Consumers
+### 17.2 Tolerances For Consumers
 
 消费端应对以下实现细节保持宽容：
 
@@ -1357,9 +1420,9 @@ Notes:
 - `output_slot` 在深层 param 对象中可能是 `0.0`
 - `tags` 可能为空
 - `semantic_delta` / `topo_delta` 可能缺失
-- `selection_query` 只在调用方用 QL selector 时出现
+- `selection_query` 是旧 payload / 手写 payload fallback；新 QL detail selections 应优先产生 geo select nodes
 
-### 16.3 Recommended Minimal Interchange Subset
+### 17.3 Recommended Minimal Interchange Subset
 
 如果外部系统只需做几何重建，最小可消费集合是：
 
@@ -1370,22 +1433,23 @@ Notes:
 
 如果需要稳定 detail feature 选择，还必须消费：
 
+- `selected_edge_node_ids` / `selected_face_node_ids` and their `make_select_*` nodes
 - `selected_edges` / `selected_faces`
 - `selected_edge_indices` / `selected_face_indices`
-- `selection_query`
+- `selection_query` fallback, when present
 - `selector_hint`
 
-## 17. Known Limitations
+## 18. Known Limitations
 
 1. `helical_sweep` 不是独立 stable node，而是宏展开
 2. `opaque_callable` field surface 不可 replay
-3. `assembly_registry` / `constraint_registry` 当前是摘要，不是完整装配 IR
+3. `assembly_graph` capability is false; assembly/constraint model JSON fields are currently not emitted
 4. `display` 是派生字段，不保证长期稳定
 5. composite builtins may expand into multiple low-level nodes, so node count/granularity should not be assumed from public API call count
 
-## 18. Worked Examples
+## 19. Worked Examples
 
-### 18.1 fillet Node Example
+### 19.1 fillet Node Example
 
 ```json
 {
@@ -1403,7 +1467,7 @@ Notes:
         "topo_id": "edge_640974",
         "selector_hint": {
           "kind": "edge",
-          "tags": ["0", "edge", "left"],
+          "tags": ["edge.left", "role.mounting_edge"],
           "length": 4.0,
           "start": [-2.0, -2.0, 4.0],
           "end": [-2.0, -2.0, 0.0]
@@ -1417,7 +1481,7 @@ Notes:
 }
 ```
 
-### 18.2 extrude Node With Expression Reference
+### 19.2 extrude Node With Expression Reference
 
 ```json
 {
@@ -1435,7 +1499,7 @@ Notes:
 }
 ```
 
-## 19. Summary
+## 20. Summary
 
 可以把当前 JSON interchange 简化理解为：
 

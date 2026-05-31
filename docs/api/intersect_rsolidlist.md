@@ -8,6 +8,10 @@ def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import intersect_rsolidlist`
+
 ## Description
 
 Compute the boolean intersection of solids.

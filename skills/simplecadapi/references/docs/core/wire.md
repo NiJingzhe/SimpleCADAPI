@@ -101,14 +101,9 @@ polyline = make_polyline_rwire(points=[(0, 0, 0), (1, 1, 0), (2, 0, 0)])
 print(f"折线是否闭合: {polyline.is_closed()}")  # False
 ```
 
-### Tag Management Methods
+### Tagging and Metadata
 
-Methods inherited from `TaggedMixin`:
-
-#### `add_tag(tag)`, `has_tag(tag)`, `get_tags()`, `remove_tag(tag)`
-#### `set_metadata(key, value)`, `get_metadata(key, default=None)`
-
-Usage is similar to Vertex; see [Vertex documentation](vertex.md) for details.
+Use the functional public API `apply_tag(shape, tag)` and `list_tags(shape)` for tags. Use `set_metadata(key, value)` and `get_metadata(key, default=None)` for structured metadata.
 
 ## Usage Examples
 
@@ -124,34 +119,34 @@ from simplecadapi import (
 
 # 矩形线
 rectangle = make_rectangle_rwire(width=10, height=6)
-rectangle.add_tag("rectangle")
-rectangle.add_tag("closed")
+apply_tag(rectangle, "rectangle")
+apply_tag(rectangle, "closed")
 
 # 圆形线
 circle = make_circle_rwire(center=(0, 0, 0), radius=3.0)
-circle.add_tag("circle")
-circle.add_tag("closed")
+apply_tag(circle, "circle")
+apply_tag(circle, "closed")
 
 # 折线
 polyline = make_polyline_rwire(points=[
     (0, 0, 0), (2, 0, 0), (2, 2, 0), (1, 3, 0), (0, 2, 0)
 ])
-polyline.add_tag("polyline")
-polyline.add_tag("open")
+apply_tag(polyline, "polyline")
+apply_tag(polyline, "open")
 
 # 样条线
 spline = make_spline_rwire(points=[
     (0, 0, 0), (1, 2, 0), (3, 2, 0), (4, 0, 0)
 ])
-spline.add_tag("spline")
-spline.add_tag("smooth")
+apply_tag(spline, "spline")
+apply_tag(spline, "smooth")
 
 # 分析线的属性
 wires = [rectangle, circle, polyline, spline]
 for wire in wires:
     edges = wire.get_edges()
     closed = wire.is_closed()
-    tags = wire.get_tags()
+    tags = list_tags(wire)
     
     print(f"线类型: {tags}, 边数: {len(edges)}, 闭合: {closed}")
 ```
@@ -182,8 +177,8 @@ def create_complex_profile():
     ]
     
     profile = make_polyline_rwire(points=points)
-    profile.add_tag("complex_profile")
-    profile.add_tag("symmetric")
+    apply_tag(profile, "complex_profile")
+    apply_tag(profile, "symmetric")
     
     # 添加几何信息
     edges = profile.get_edges()
@@ -196,7 +191,7 @@ def create_complex_profile():
     return profile
 
 profile = create_complex_profile()
-print(f"复杂轮廓: {profile.get_tags()}")
+print(f"复杂轮廓: {list_tags(profile)}")
 print(f"总长度: {profile.get_metadata('total_length'):.3f}")
 print(f"边数: {profile.get_metadata('edge_count')}")
 ```
@@ -230,13 +225,13 @@ def analyze_wire_properties():
         avg_edge_length = sum(edge_lengths) / len(edge_lengths)
         
         # 添加标签和元数据
-        wire.add_tag(f"wire_{i}")
-        wire.add_tag("analyzed")
+        apply_tag(wire, f"wire_{i}")
+        apply_tag(wire, "analyzed")
         
         if is_closed:
-            wire.add_tag("closed")
+            apply_tag(wire, "closed")
         else:
-            wire.add_tag("open")
+            apply_tag(wire, "open")
         
         wire.set_metadata("total_length", total_length)
         wire.set_metadata("edge_count", len(edges))
@@ -246,7 +241,7 @@ def analyze_wire_properties():
         
         # 分类边
         for j, edge in enumerate(edges):
-            edge.add_tag(f"wire_{i}_edge_{j}")
+            apply_tag(edge, f"wire_{i}_edge_{j}")
             edge.set_metadata("parent_wire", i)
             edge.set_metadata("position_in_wire", j)
         
@@ -272,15 +267,15 @@ def transform_wires():
     
     # 创建基础矩形
     base_rect = make_rectangle_rwire(width=4, height=2)
-    base_rect.add_tag("base")
-    base_rect.add_tag("original")
+    apply_tag(base_rect, "base")
+    apply_tag(base_rect, "original")
     
     # 创建变换后的线
     translated_rect = translate_shape(base_rect, offset=(5, 0, 0))
-    translated_rect.add_tag("translated")
+    apply_tag(translated_rect, "translated")
     
     rotated_rect = rotate_shape(base_rect, axis=(0, 0, 1), angle=45)
-    rotated_rect.add_tag("rotated")
+    apply_tag(rotated_rect, "rotated")
     
     # 收集所有线
     all_wires = [base_rect, translated_rect, rotated_rect]
@@ -310,7 +305,7 @@ def transform_wires():
         
         wire.set_metadata("total_length", total_length)
         
-        print(f"线标签: {wire.get_tags()}")
+        print(f"线标签: {list_tags(wire)}")
         print(f"  总长度: {total_length:.3f}")
         if wire.get_metadata("bbox_min"):
             print(f"  边界框: {wire.get_metadata('bbox_min')} 到 {wire.get_metadata('bbox_max')}")
@@ -348,8 +343,8 @@ def create_wire_sequence():
         end = waypoints[i + 1]
         
         segment = make_segment_rwire(start=start, end=end)
-        segment.add_tag(f"segment_{i}")
-        segment.add_tag("path_segment")
+        apply_tag(segment, f"segment_{i}")
+        apply_tag(segment, "path_segment")
         
         # 添加方向信息
         direction = (
@@ -359,14 +354,14 @@ def create_wire_sequence():
         )
         
         if direction[0] > 0:
-            segment.add_tag("eastward")
+            apply_tag(segment, "eastward")
         elif direction[0] < 0:
-            segment.add_tag("westward")
+            apply_tag(segment, "westward")
         
         if direction[1] > 0:
-            segment.add_tag("northward")
+            apply_tag(segment, "northward")
         elif direction[1] < 0:
-            segment.add_tag("southward")
+            apply_tag(segment, "southward")
         
         segment.set_metadata("start_point", start)
         segment.set_metadata("end_point", end)
@@ -382,8 +377,8 @@ def create_wire_sequence():
     print(f"总路径长度: {total_path_length:.3f}")
     
     # 按方向分类
-    eastward = [s for s in segments if s.has_tag("eastward")]
-    northward = [s for s in segments if s.has_tag("northward")]
+    eastward = [s for s in segments if "eastward" in list_tags(s)]
+    northward = [s for s in segments if "northward" in list_tags(s)]
     
     print(f"向东段数: {len(eastward)}")
     print(f"向北段数: {len(northward)}")
@@ -399,7 +394,7 @@ sequence = create_wire_sequence()
 from simplecadapi import make_rectangle_rwire
 
 wire = make_rectangle_rwire(width=5, height=3)
-wire.add_tag("example_rectangle")
+apply_tag(wire, "example_rectangle")
 wire.set_metadata("area", 15.0)
 
 print(wire)

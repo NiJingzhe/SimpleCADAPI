@@ -8,6 +8,10 @@ def make_naca_propeller_blade_rsolid(blade_length = 5.0, root_chord = 1.5, tip_c
 
 *Source: evolve.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import make_naca_propeller_blade_rsolid`
+
 ## Description
 
 Create a single propeller blade solid from a twisted NACA 0016 profile. The blade root starts at the origin and extends along +Z.

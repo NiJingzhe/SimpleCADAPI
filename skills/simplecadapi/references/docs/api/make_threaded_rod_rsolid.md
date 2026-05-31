@@ -8,6 +8,10 @@ def make_threaded_rod_rsolid(thread_diameter = 8.0, thread_length = 20.0, total_
 
 *Source: evolve.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import make_threaded_rod_rsolid`
+
 ## Description
 
 Create a threaded rod with configurable rod length, thread span, and pitch. The top center is placed at the origin and the rod extends in -Z.
