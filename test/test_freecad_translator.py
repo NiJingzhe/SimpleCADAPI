@@ -141,15 +141,13 @@ class TestFreeCADTranslator(unittest.TestCase):
 
     def test_translate_model_json_requires_graph(self):
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "expression_graph": {"nodes": []},
             "frame_graph": {"nodes": []},
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -245,8 +243,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             inputs=[seed],
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": [leaf.node_id for leaf in graph.leaf_nodes()],
             "expression_graph": {
@@ -263,8 +261,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -383,8 +379,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             inputs=[a, b],
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": ["union_out"],
             "expression_graph": {"nodes": []},
@@ -392,8 +388,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -431,8 +425,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             inputs=[base, tool_a, tool_b, tool_c],
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": ["cut_out"],
             "expression_graph": {"nodes": []},
@@ -440,8 +434,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -817,8 +809,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             ],
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": [wire_line.node_id, face_circle.node_id],
             "expression_graph": {
@@ -857,8 +849,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -941,8 +931,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             inputs=[line, arc],
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": [wire.node_id],
             "expression_graph": {
@@ -954,8 +944,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -1010,8 +998,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             inputs=[line, arc],
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": [wire.node_id],
             "expression_graph": {
@@ -1032,8 +1020,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -1140,8 +1126,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             inputs=[arc],
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": [wire.node_id],
             "expression_graph": {
@@ -1162,8 +1148,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -1242,8 +1226,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             inputs=[spline],
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": [wire.node_id],
             "expression_graph": {
@@ -1255,8 +1239,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -1351,8 +1333,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             inputs=[e1, e2, e3],
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": [wire.node_id],
             "expression_graph": {"nodes": []},
@@ -1360,8 +1342,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -1414,8 +1394,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             inputs=[line, arc],
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": [wire.node_id],
             "expression_graph": {
@@ -1431,8 +1411,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -1501,8 +1479,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             inputs=[line, arc],
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": [wire.node_id],
             "expression_graph": {
@@ -1519,8 +1497,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -1604,8 +1580,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             inputs=[arc],
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": [wire.node_id],
             "expression_graph": {
@@ -1622,8 +1598,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }
@@ -1698,37 +1672,19 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn("selected_edge_indices", script)
         self.assertIn("selected_face_indices", script)
 
-    def test_translate_model_json_preserves_constraint_metadata(self):
-        a = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        b = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        asm = scad.make_assembly_rassembly([("a", a), ("b", b)])
-        asm = scad.constrain_offset_rassembly(
-            asm,
-            asm.part("a").anchor("bbox.top"),
-            asm.part("b").anchor("bbox.bottom"),
-            scad.var("gap", 2.0),
-            axis="z",
+    def test_translate_model_json_does_not_emit_assembly_scaffold(self):
+        with GraphSession() as session:
+            scad.make_box_rsolid(1.0, 1.0, 1.0)
+
+        script = scad.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
         )
 
-        with GraphSession() as session:
-            face = scad.make_circle_rface((0.0, 0.0, 0.0), 1.0)
-            scad.extrude_rsolid(face, (0.0, 0.0, 1.0), 2.0)
-
-        payload = json.loads(scad.export_model_json(session, assembly=asm))
-        self.assertIn("constraints", payload["assembly"])
-        self.assertEqual(payload["assembly"]["constraints"][0]["type"], "offset")
-
-        script = scad.translate_model_json_to_freecad_script(json.dumps(payload))
-
-        self.assertIn("SimpleCAD Constraint", script)
-        self.assertIn("'type': 'offset'", script)
-        self.assertIn("'reference'", script)
-        self.assertIn("'moving'", script)
-        self.assertIn("'distance_expr'", script)
-        self.assertIn("Assembly::AssemblyObject", script)
-        self.assertIn("Assembly::JointGroup", script)
-        self.assertIn("JointObject.Joint", script)
-        self.assertIn("_bind_expression(joint, 'Distance'", script)
+        self.assertNotIn("Assembly::AssemblyObject", script)
+        self.assertNotIn("Assembly::JointGroup", script)
+        self.assertNotIn("PART_REGISTRY", script)
+        self.assertNotIn("CONSTRAINT_REGISTRY", script)
+        self.assertNotIn("SimpleCAD Constraint", script)
 
     def test_translate_model_json_preserves_pattern_multi_output_structure(self):
         with GraphSession() as session:
@@ -1775,8 +1731,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             },
         )
         payload = {
-            "schema_version": "2.0-draft",
-            "canonical_contract": {"contract_version": "2.0-final-state"},
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
             "graph": graph.to_dict(),
             "leaf_ids": [graph.leaf_nodes()[0].node_id],
             "expression_graph": {"nodes": []},
@@ -1784,8 +1740,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "geometry_registry": [],
             "semantic_entity_registry": [],
             "sketch_profile_registry": [],
-            "assembly_registry": [],
-            "constraint_registry": [],
             "semantic_delta_log": [],
             "topology_delta_log": [],
         }

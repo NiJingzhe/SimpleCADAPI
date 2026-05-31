@@ -23,7 +23,7 @@ class TestAutoTagCut(unittest.TestCase):
         faces = tagged_solid.get_faces()
         # At least some faces should have operation event tags
         has_op_tag = any(
-            f.has_tag("op.cut.modified") or f.has_tag("op.cut.generated") for f in faces
+            "op.cut.modified" in scad.list_tags(f) or "op.cut.generated" in scad.list_tags(f) for f in faces
         )
         self.assertTrue(has_op_tag)
 
@@ -33,7 +33,7 @@ class TestAutoTagCut(unittest.TestCase):
             result.solid, result.delta, result.delta_entries, op="cut"
         )
         faces = tagged_solid.get_faces()
-        preserved = [f for f in faces if f.has_tag("op.cut.preserved")]
+        preserved = [f for f in faces if "op.cut.preserved" in scad.list_tags(f)]
         self.assertGreater(len(preserved), 0)
 
     def test_cut_all_faces_tagged(self):
@@ -44,9 +44,9 @@ class TestAutoTagCut(unittest.TestCase):
         faces = tagged_solid.get_faces()
         # All result faces should have some operation event tag
         all_tagged = all(
-            f.has_tag("op.cut.modified")
-            or f.has_tag("op.cut.preserved")
-            or f.has_tag("op.cut.generated")
+            "op.cut.modified" in scad.list_tags(f)
+            or "op.cut.preserved" in scad.list_tags(f)
+            or "op.cut.generated" in scad.list_tags(f)
             for f in faces
         )
         self.assertTrue(all_tagged)
@@ -57,8 +57,8 @@ class TestAutoTagCut(unittest.TestCase):
             result.solid, result.delta, result.delta_entries, op="cut"
         )
         faces = tagged_solid.get_faces()
-        has_body = any(f.has_tag("origin.body") for f in faces)
-        has_tool = any(f.has_tag("origin.tool") for f in faces)
+        has_body = any("origin.body" in scad.list_tags(f) for f in faces)
+        has_tool = any("origin.tool" in scad.list_tags(f) for f in faces)
         self.assertTrue(has_body)
         self.assertTrue(has_tool)
 
@@ -76,7 +76,7 @@ class TestAutoTagUnion(unittest.TestCase):
         faces = tagged_solid.get_faces()
         # Union creates modified faces at the intersection
         has_union_tag = any(
-            f.has_tag("op.union.modified") or f.has_tag("op.union.preserved")
+            "op.union.modified" in scad.list_tags(f) or "op.union.preserved" in scad.list_tags(f)
             for f in faces
         )
         self.assertTrue(has_union_tag)
@@ -94,7 +94,7 @@ class TestAutoTagExtrude(unittest.TestCase):
         faces = tagged_solid.get_faces()
         # Extrude produces new faces; any operation tag is sufficient
         has_tag = any(
-            f.has_tag("op.extrude.generated") or f.has_tag("op.extrude.modified")
+            "op.extrude.generated" in scad.list_tags(f) or "op.extrude.modified" in scad.list_tags(f)
             for f in faces
         )
         self.assertTrue(has_tag)
@@ -117,7 +117,7 @@ class TestAutoTagPreservesExisting(unittest.TestCase):
         faces = tagged_solid.get_faces()
         # Preserved and modified faces from body should carry body's tags
         has_original = any(
-            f.has_tag("face.top") or f.has_tag("face.bottom") for f in faces
+            "face.top" in scad.list_tags(f) or "face.bottom" in scad.list_tags(f) for f in faces
         )
         self.assertTrue(has_original)
 

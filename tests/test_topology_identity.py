@@ -29,10 +29,10 @@ def test_shared_edge_occurrences_share_tags_and_metadata():
     shared = next(group for group in groups.values() if len(group) >= 2)
     edge_a, edge_b = shared[0], shared[1]
 
-    edge_a.add_tag("shared.edge")
+    scad.apply_tag(edge_a, "shared.edge")
     edge_a.set_metadata("name", "same-topological-edge")
 
-    assert edge_b.has_tag("shared.edge")
+    assert "shared.edge" in scad.list_tags(edge_b)
     assert edge_b.get_metadata("name") == "same-topological-edge"
 
 

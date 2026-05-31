@@ -54,7 +54,7 @@ with scad.GraphSession() as session:
     # make_box_rsolid -> rectangle face -> four line edges -> wire -> face -> extrude
     source_step("01 make_box_rsolid(expr dimensions) -> lowered profile + extrude")
     plate = scad.make_box_rsolid(plate_w, plate_h, plate_t)
-    plate = scad.set_tag(plate, "demo.main_plate")
+    plate = scad.apply_tag(plate, "demo.main_plate")
 
     # make_cylinder_rsolid is also serializable via lowering:
     # circle edge -> wire -> face -> extrude

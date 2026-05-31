@@ -24,32 +24,40 @@ class TestMakeExportInventory(unittest.TestCase):
         inventory = make_export.collect_api_inventory()
 
         self.assertIn("make_box_rsolid", inventory["operations"].functions)
+        self.assertIn("apply_tag", inventory["operations"].functions)
+        self.assertIn("list_tags", inventory["operations"].functions)
+        self.assertNotIn("set_tag", inventory["operations"].functions)
         self.assertIn("make_n_hole_flange_rsolid", inventory["evolve"].functions)
-        self.assertIn("make_assembly_rassembly", inventory["constraints"].functions)
-        self.assertIn("Assembly", inventory["constraints"].classes)
-        self.assertIn("make_box_rscalarfield", inventory["field"].functions)
+        self.assertNotIn("constraints", inventory)
+        self.assertNotIn("field", inventory)
         self.assertIn("select", inventory["ql"].functions)
 
-    def test_generate_init_file_includes_constraints_and_modules(self):
+    def test_generate_init_file_excludes_removed_modules(self):
         inventory = make_export.collect_api_inventory()
 
         content = make_export.generate_init_file(inventory)
 
-        self.assertIn("from .constraints import (", content)
-        self.assertIn("from . import field", content)
+        self.assertNotIn("from .constraints import (", content)
         self.assertIn("from . import ql", content)
-        self.assertIn("create_field_surface = make_field_surface_rsolid", content)
-        self.assertIn('"field",', content)
+        self.assertNotIn("create_field_surface", content)
+        self.assertNotIn("make_assembly_rassembly", content)
+        self.assertIn("apply_tag", content)
+        self.assertIn("list_tags", content)
+        self.assertNotIn("set_tag", content)
+        self.assertNotIn('"field",', content)
         self.assertIn('"ql",', content)
 
-    def test_target_symbols_include_constraints_and_module_exports(self):
+    def test_target_symbols_exclude_removed_module_exports(self):
         inventory = make_export.collect_api_inventory()
 
         symbols = make_export._target_symbols(inventory)
 
-        self.assertIn("make_assembly_rassembly", symbols)
-        self.assertIn("Assembly", symbols)
-        self.assertIn("field", symbols)
+        self.assertNotIn("make_assembly_rassembly", symbols)
+        self.assertNotIn("Assembly", symbols)
+        self.assertIn("apply_tag", symbols)
+        self.assertIn("list_tags", symbols)
+        self.assertNotIn("set_tag", symbols)
+        self.assertNotIn("field", symbols)
         self.assertIn("ql", symbols)
 
 

@@ -122,17 +122,34 @@ def resolve_anchor_tag_candidates(tag: str) -> List[str]:
     if not token:
         return []
 
+    topology_prefixes = ("face.", "edge.", "wire.", "vertex.", "solid.")
     if is_normalized_tag(token) and "." in token:
-        candidates = [token]
-        for prefix in ("role.", "anchor.", "face.", "legacy."):
-            if token.startswith(prefix):
-                candidates.append(token[len(prefix) :])
-        return candidates
+        if token.startswith("role."):
+            bare = token[len("role.") :]
+        elif token.startswith("anchor."):
+            bare = token[len("anchor.") :]
+        elif any(token.startswith(prefix) for prefix in topology_prefixes):
+            bare = token.split(".", 1)[1]
+        elif token.startswith("legacy."):
+            bare = token[len("legacy.") :]
+        else:
+            return [token]
+        return [
+            f"role.{bare}",
+            f"anchor.{bare}",
+            *(f"{prefix}{bare}" for prefix in topology_prefixes),
+            f"legacy.{bare}",
+            bare,
+        ]
 
     return [
         f"role.{token}",
         f"anchor.{token}",
         f"face.{token}",
+        f"edge.{token}",
+        f"wire.{token}",
+        f"vertex.{token}",
+        f"solid.{token}",
         f"legacy.{token}",
         token,
     ]

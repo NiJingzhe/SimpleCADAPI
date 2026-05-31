@@ -11,9 +11,7 @@ from .errors import SimpleCADError, raise_harness_error
 
 suppress_vendor_deprecation_warnings()
 
-from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex, BRepBuilderAPI_Sewing
-from OCP.TopAbs import TopAbs_SHELL
-from OCP.TopExp import TopExp_Explorer
+from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
 from OCP.gp import gp_Pnt
 
 from .core import (
@@ -25,18 +23,12 @@ from .core import (
     AnyShape,
     get_current_cs,
 )
-from .field import (
-    ScalarField,
-    bounds_rbbox,
-    serialize_scalar_field,
-    eval_rarray,
-    make_box_rscalarfield,
-    intersect_rscalarfield,
-)
 from .autotag import apply_tracking_tags_to_delta
 from .expr import ScalarLike, evaluate_scalar, evaluate_value
 from .graph import (
+    attach_graph_node,
     get_active_session,
+    record_operation,
     record_operation_if_active,
     suspend_graph_recording,
 )
@@ -45,6 +37,7 @@ from .topology import (
     SemanticDelta,
     SemanticRef,
     TopoDelta,
+    TopoEntry,
     TopoRef,
     topo_ref_to_dict,
 )
@@ -94,7 +87,7 @@ from .kernel.ocp_transforms import (
 )
 from .kernel.ocp_booleans import common_shapes, fuse_shapes, solids_of
 from .kernel.ocp_export import export_step_shapes, export_stl_shape, make_compound
-from .kernel.ocp_mesh import make_triangle_face, shell_is_closed, shell_metric, solid_from_shell, tessellate_face
+from .kernel.ocp_mesh import tessellate_face
 from .kernel.ocp_properties import bounding_box, distance as ocp_distance
 
 
@@ -113,7 +106,6 @@ _OP_MAKE_SPLINE_REDGE = "make_spline_redge"
 _OP_MAKE_HELIX_REDGE = "make_helix_redge"
 _OP_MAKE_WIRE_FROM_EDGES_RWIRE = "make_wire_from_edges_rwire"
 _OP_MAKE_FACE_FROM_WIRE_RFACE = "make_face_from_wire_rface"
-_OP_MAKE_FIELD_SURFACE_RSOLID = "make_field_surface_rsolid"
 _OP_MAKE_TRANSLATE_RSHAPE = "make_translate_rshape"
 _OP_MAKE_ROTATE_RSHAPE = "make_rotate_rshape"
 _OP_MAKE_MIRROR_RSHAPE = "make_mirror_rshape"
@@ -127,6 +119,11 @@ _OP_MAKE_INTERSECT_RSOLIDLIST = "make_intersect_rsolidlist"
 _OP_MAKE_FILLET_RSOLID = "make_fillet_rsolid"
 _OP_MAKE_CHAMFER_RSOLID = "make_chamfer_rsolid"
 _OP_MAKE_SHELL_RSOLID = "make_shell_rsolid"
+_OP_MAKE_SELECT_RVERTEX = "make_select_rvertex"
+_OP_MAKE_SELECT_REDGE = "make_select_redge"
+_OP_MAKE_SELECT_RWIRE = "make_select_rwire"
+_OP_MAKE_SELECT_RFACE = "make_select_rface"
+_OP_MAKE_SELECT_RSOLID = "make_select_rsolid"
 
 
 def _orthonormal_plane_axes(
@@ -313,6 +310,46 @@ def _require_single_boolean_solid(
     return Solid(result_shapes[0])
 
 
+def _merge_topo_deltas(deltas: Sequence[TopoDelta]) -> Optional[TopoDelta]:
+    if not deltas:
+        return None
+    preserved: List[TopoRef] = []
+    modified: List[TopoRef] = []
+    generated: List[TopoRef] = []
+    deleted: List[TopoRef] = []
+    section_edges: List[TopoRef] = []
+    entries: List[TopoEntry] = []
+    raw_event: Dict[str, Any] = {"steps": []}
+
+    for idx, delta in enumerate(deltas):
+        preserved.extend(delta.preserved)
+        modified.extend(delta.modified)
+        generated.extend(delta.generated)
+        deleted.extend(delta.deleted)
+        section_edges.extend(delta.section_edges)
+        entries.extend(delta.entries)
+        raw_event["steps"].append(
+            {
+                "index": idx,
+                "preserved": len(delta.preserved),
+                "modified": len(delta.modified),
+                "generated": len(delta.generated),
+                "deleted": len(delta.deleted),
+                "section_edges": len(delta.section_edges),
+            }
+        )
+
+    return TopoDelta(
+        preserved=tuple(preserved),
+        modified=tuple(modified),
+        generated=tuple(generated),
+        deleted=tuple(deleted),
+        section_edges=tuple(section_edges),
+        entries=tuple(entries),
+        raw_event=raw_event,
+    )
+
+
 def _copy_runtime_state(source: AnyShape, target: AnyShape) -> AnyShape:
     runtime = getattr(source, "_runtime", None)
     if isinstance(runtime, dict):
@@ -363,7 +400,7 @@ def _vector_like_to_tuple(value: Any) -> Optional[Tuple[float, float, float]]:
 def _make_selector_hint(shape: AnyShape) -> Dict[str, object]:
     hint: Dict[str, object] = {
         "kind": type(shape).__name__.lower(),
-        "tags": sorted(shape.get_tags()),
+        "tags": shape._list_tags(),
     }
 
     if isinstance(shape, Edge):
@@ -402,6 +439,269 @@ def _make_selector_hint(shape: AnyShape) -> Dict[str, object]:
         }
 
     return hint
+
+
+def _jsonable_geo_value(value: object) -> object:
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return value
+    if hasattr(value, "to_tuple"):
+        try:
+            return [float(v) for v in value.to_tuple()]
+        except Exception:
+            pass
+    if hasattr(value, "x") and hasattr(value, "y") and hasattr(value, "z"):
+        try:
+            return [float(value.x), float(value.y), float(value.z)]
+        except Exception:
+            pass
+    if isinstance(value, dict):
+        return {str(k): _jsonable_geo_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable_geo_value(v) for v in value]
+    return str(value)
+
+
+def _bbox_selector_payload(shape: AnyShape) -> Optional[Dict[str, List[float]]]:
+    try:
+        bb = bounding_box(shape.wrapped)
+        return {
+            "min": [float(bb.xmin), float(bb.ymin), float(bb.zmin)],
+            "max": [float(bb.xmax), float(bb.ymax), float(bb.zmax)],
+        }
+    except Exception:
+        return None
+
+
+def _shape_geom_type(shape: AnyShape) -> Optional[str]:
+    try:
+        from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+        from OCP.GeomAbs import (
+            GeomAbs_BSplineCurve,
+            GeomAbs_BSplineSurface,
+            GeomAbs_BezierCurve,
+            GeomAbs_BezierSurface,
+            GeomAbs_Circle,
+            GeomAbs_Cone,
+            GeomAbs_Cylinder,
+            GeomAbs_Line,
+            GeomAbs_Plane,
+            GeomAbs_Sphere,
+            GeomAbs_Torus,
+        )
+
+        if isinstance(shape, Edge):
+            curve_type = BRepAdaptor_Curve(shape.wrapped).GetType()
+            mapping = {
+                GeomAbs_Line: "LINE",
+                GeomAbs_Circle: "CIRCLE",
+                GeomAbs_BSplineCurve: "BSPLINE",
+                GeomAbs_BezierCurve: "BEZIER",
+            }
+            return mapping.get(
+                curve_type,
+                str(curve_type).replace("GeomAbs_CurveType.GeomAbs_", "").upper(),
+            )
+        if isinstance(shape, Face):
+            surface_type = BRepAdaptor_Surface(shape.wrapped).GetType()
+            mapping = {
+                GeomAbs_Plane: "PLANE",
+                GeomAbs_Cylinder: "CYLINDER",
+                GeomAbs_Cone: "CONE",
+                GeomAbs_Sphere: "SPHERE",
+                GeomAbs_Torus: "TORUS",
+                GeomAbs_BSplineSurface: "BSPLINE",
+                GeomAbs_BezierSurface: "BEZIER",
+            }
+            return mapping.get(
+                surface_type,
+                str(surface_type)
+                .replace("GeomAbs_SurfaceType.GeomAbs_", "")
+                .upper(),
+            )
+    except Exception:
+        return None
+    return None
+
+
+def _shape_kind_token(shape: AnyShape) -> str:
+    if isinstance(shape, Vertex):
+        return "vertex"
+    if isinstance(shape, Edge):
+        return "edge"
+    if isinstance(shape, Wire):
+        return "wire"
+    if isinstance(shape, Face):
+        return "face"
+    if isinstance(shape, Solid):
+        return "solid"
+    return type(shape).__name__.lower()
+
+
+def _selection_op_for_shape(shape: AnyShape) -> Optional[str]:
+    if isinstance(shape, Vertex):
+        return _OP_MAKE_SELECT_RVERTEX
+    if isinstance(shape, Edge):
+        return _OP_MAKE_SELECT_REDGE
+    if isinstance(shape, Wire):
+        return _OP_MAKE_SELECT_RWIRE
+    if isinstance(shape, Face):
+        return _OP_MAKE_SELECT_RFACE
+    if isinstance(shape, Solid):
+        return _OP_MAKE_SELECT_RSOLID
+    return None
+
+
+def _candidate_shapes_for_selection(source: AnyShape, kind: str) -> List[AnyShape]:
+    if kind == "edge":
+        if hasattr(source, "get_edges"):
+            return list(source.get_edges())
+        return [source] if isinstance(source, Edge) else []
+    if kind == "face":
+        if isinstance(source, Solid):
+            return list(source.get_faces())
+        return [source] if isinstance(source, Face) else []
+    if kind == "wire":
+        if isinstance(source, Face):
+            return [source.get_outer_wire(), *source.get_inner_wires()]
+        if hasattr(source, "get_children"):
+            return [
+                cast(AnyShape, child)
+                for child in source.get_children()
+                if isinstance(child, Wire)
+            ]
+        return [source] if isinstance(source, Wire) else []
+    if kind == "vertex":
+        if isinstance(source, Edge):
+            return cast(List[AnyShape], source.get_children())
+        if hasattr(source, "get_children"):
+            return [
+                cast(AnyShape, child)
+                for child in source.get_children()
+                if isinstance(child, Vertex)
+            ]
+        return [source] if isinstance(source, Vertex) else []
+    if kind == "solid":
+        return [source] if isinstance(source, Solid) else []
+    return []
+
+
+def _source_selection_index(
+    source: AnyShape, selected: AnyShape, *, kind: str
+) -> Optional[int]:
+    for idx, candidate in enumerate(_candidate_shapes_for_selection(source, kind)):
+        try:
+            if candidate.same_topology(selected):
+                return idx
+        except Exception:
+            pass
+        if getattr(candidate, "topo_id", None) == getattr(selected, "topo_id", None):
+            return idx
+    return None
+
+
+def _make_geo_selector(
+    shape: AnyShape,
+    *,
+    source_shape: Optional[AnyShape] = None,
+) -> Dict[str, object]:
+    kind = _shape_kind_token(shape)
+    selector: Dict[str, object] = {
+        "mode": "geo_exact",
+        "kind": kind,
+        "metadata_geo": _jsonable_geo_value(shape.get_metadata("geo", {})),
+    }
+    if source_shape is not None:
+        source_index = _source_selection_index(source_shape, shape, kind=kind)
+        if source_index is not None:
+            selector["source_index"] = source_index
+
+    bbox_payload = _bbox_selector_payload(shape)
+    if bbox_payload is not None:
+        selector["bbox"] = bbox_payload
+
+    geom_type = _shape_geom_type(shape)
+    if geom_type is not None:
+        selector["geom_type"] = geom_type
+
+    if isinstance(shape, Vertex):
+        selector["coordinates"] = [float(v) for v in shape.get_coordinates()]
+    elif isinstance(shape, Edge):
+        selector["length"] = float(shape.get_length())
+        center = shape.get_center()
+        selector["center"] = [float(center.x), float(center.y), float(center.z)]
+        try:
+            selector["start"] = [
+                float(v) for v in shape.get_start_vertex().get_coordinates()
+            ]
+            selector["end"] = [
+                float(v) for v in shape.get_end_vertex().get_coordinates()
+            ]
+        except Exception:
+            pass
+    elif isinstance(shape, Wire):
+        selector["edge_count"] = len(shape.get_edges())
+        selector["closed"] = bool(shape.is_closed())
+    elif isinstance(shape, Face):
+        selector["area"] = float(shape.get_area())
+        center = shape.get_center()
+        normal = shape.get_normal_at()
+        selector["center"] = [float(center.x), float(center.y), float(center.z)]
+        selector["normal"] = [float(normal.x), float(normal.y), float(normal.z)]
+        selector["edge_count"] = len(shape.get_edges())
+        selector["inner_wire_count"] = len(shape.get_inner_wires())
+    elif isinstance(shape, Solid):
+        selector["volume"] = float(shape.get_volume())
+        center = shape.get_center() if hasattr(shape, "get_center") else None
+        if center is not None:
+            selector["center"] = [float(center.x), float(center.y), float(center.z)]
+    return selector
+
+
+def _record_geo_selection_nodes(
+    source_shape: AnyShape,
+    selected_shapes: Sequence[AnyShape],
+) -> List[str]:
+    session = get_active_session()
+    if session is None:
+        return []
+    source_node = source_shape._get_runtime("graph.node")
+    if source_node is None:
+        return []
+
+    node_ids: List[str] = []
+    for selected in selected_shapes:
+        op = _selection_op_for_shape(selected)
+        if op is None:
+            continue
+        kind = _shape_kind_token(selected)
+        node = record_operation(
+            op=op,
+            params={
+                "target_kind": kind,
+                "geo_selector": _make_geo_selector(
+                    selected,
+                    source_shape=source_shape,
+                ),
+            },
+            inputs=[source_node],
+            output_count=1,
+            semantic_delta=_semantic_delta_for_output(op, entity_type="Selection"),
+            context=_current_context_metadata(),
+        )
+        attach_graph_node(
+            selected,
+            node,
+            output_slot=0,
+            graph_id=session.graph.graph_id,
+        )
+        node_ids.append(node.node_id)
+    return node_ids
 
 
 def _serialize_shape_ref(shape: AnyShape) -> Optional[Dict[str, object]]:
@@ -464,14 +764,6 @@ def _resolve_selector_or_shapes(
     if isinstance(selection, ShapeSelector):
         return cast(List[AnyShape], selection.resolve(scope))
     return list(selection)
-
-
-def _serialize_selection_query(
-    selection: Union[Sequence[AnyShape], ShapeSelector],
-) -> Optional[Dict[str, object]]:
-    if isinstance(selection, ShapeSelector):
-        return cast(Dict[str, object], selection.to_dict())
-    return None
 
 
 def _semantic_delta_for_output(
@@ -551,7 +843,6 @@ def _semantic_delta_for_output(
             _OP_MAKE_TRANSLATE_RSHAPE,
             _OP_MAKE_ROTATE_RSHAPE,
             _OP_MAKE_MIRROR_RSHAPE,
-            _OP_MAKE_FIELD_SURFACE_RSOLID,
         }:
             if op in {
                 "extrude",
@@ -574,7 +865,6 @@ def _semantic_delta_for_output(
                 _OP_MAKE_CUT_RSOLIDLIST,
                 _OP_MAKE_UNION_RSOLID,
                 _OP_MAKE_INTERSECT_RSOLIDLIST,
-                _OP_MAKE_FIELD_SURFACE_RSOLID,
             }:
                 resolved_entity_type = "Feature"
             else:
@@ -1148,285 +1438,6 @@ def make_face_from_wire_rface(
         )
 
 
-_TETRAHEDRA = (
-    (0, 5, 1, 6),
-    (0, 1, 2, 6),
-    (0, 2, 3, 6),
-    (0, 3, 7, 6),
-    (0, 7, 4, 6),
-    (0, 4, 5, 6),
-)
-_TETRA_EDGES = ((0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3))
-_TETRA_TRI_TABLE = (
-    (),
-    (0, 3, 2),
-    (0, 1, 4),
-    (1, 4, 2, 2, 4, 3),
-    (1, 2, 5),
-    (0, 3, 5, 0, 5, 1),
-    (0, 2, 5, 0, 5, 4),
-    (5, 4, 3),
-    (3, 4, 5),
-    (4, 5, 0, 5, 2, 0),
-    (1, 5, 0, 5, 3, 0),
-    (5, 2, 1),
-    (3, 4, 2, 2, 4, 1),
-    (4, 1, 0),
-    (2, 3, 0),
-    (),
-)
-_CUBE_OFFSETS = np.array(
-    [
-        [0, 0, 0],
-        [1, 0, 0],
-        [1, 1, 0],
-        [0, 1, 0],
-        [0, 0, 1],
-        [1, 0, 1],
-        [1, 1, 1],
-        [0, 1, 1],
-    ],
-    dtype=float,
-)
-
-
-def _evaluate_field_values(
-    field, xs: np.ndarray, ys: np.ndarray, zs: np.ndarray
-) -> np.ndarray:
-    if isinstance(field, ScalarField):
-        return eval_rarray(field, xs, ys, zs)
-
-    if callable(field):
-        try:
-            values = field(xs, ys, zs)
-            values = np.asarray(values, dtype=float)
-            if values.shape != xs.shape:
-                raise ValueError("field 输出形状不匹配")
-            return values
-        except Exception:
-            vectorized = np.vectorize(field)
-            return vectorized(xs, ys, zs).astype(float)
-
-    raise ValueError("field 必须是 ScalarField 或可调用对象")
-
-
-def _marching_tetrahedra(
-    xs: np.ndarray,
-    ys: np.ndarray,
-    zs: np.ndarray,
-    values: np.ndarray,
-    iso: float,
-) -> List[List[Tuple[float, float, float]]]:
-    triangles: List[List[Tuple[float, float, float]]] = []
-    nx, ny, nz = values.shape
-    for i in range(nx - 1):
-        for j in range(ny - 1):
-            for k in range(nz - 1):
-                cube_vals = np.array(
-                    [
-                        values[i + int(o[0]), j + int(o[1]), k + int(o[2])]
-                        for o in _CUBE_OFFSETS
-                    ],
-                    dtype=float,
-                )
-                cube_pos = np.array(
-                    [
-                        (xs[i + int(o[0])], ys[j + int(o[1])], zs[k + int(o[2])])
-                        for o in _CUBE_OFFSETS
-                    ],
-                    dtype=float,
-                )
-                grad = np.array(
-                    [
-                        cube_vals[1] - cube_vals[0],
-                        cube_vals[3] - cube_vals[0],
-                        cube_vals[4] - cube_vals[0],
-                    ],
-                    dtype=float,
-                )
-                eps = 1e-9 * max(1.0, float(np.max(np.abs(cube_vals))))
-                for tetra in _TETRAHEDRA:
-                    idx = list(tetra)
-                    tpos = cube_pos[idx]
-                    tval = cube_vals[idx] - iso
-                    tval = np.where(np.abs(tval) < eps, -eps, tval)
-                    case_index = 0
-                    for v_index, v_val in enumerate(tval):
-                        if v_val < 0:
-                            case_index |= 1 << v_index
-
-                    table = _TETRA_TRI_TABLE[case_index]
-                    if not table:
-                        continue
-
-                    edge_points: dict[int, np.ndarray] = {}
-                    for edge_index in set(table):
-                        a, b = _TETRA_EDGES[edge_index]
-                        v0 = tval[a]
-                        v1 = tval[b]
-                        t = v0 / (v0 - v1)
-                        edge_points[edge_index] = tpos[a] + t * (tpos[b] - tpos[a])
-
-                    for tri_idx in range(0, len(table), 3):
-                        p0 = edge_points[table[tri_idx]]
-                        p1 = edge_points[table[tri_idx + 1]]
-                        p2 = edge_points[table[tri_idx + 2]]
-                        tri = [p0, p1, p2]
-                        if np.linalg.norm(grad) > 1e-9:
-                            normal = np.cross(p1 - p0, p2 - p0)
-                            if float(np.dot(normal, grad)) < 0:
-                                tri = [p0, p2, p1]
-                        triangles.append([tuple(p.tolist()) for p in tri])
-    return triangles
-
-
-def make_field_surface_rsolid(
-    field,
-    bounds: Optional[
-        Tuple[Tuple[float, float, float], Tuple[float, float, float]]
-    ] = None,
-    resolution: Tuple[int, int, int] = (24, 24, 24),
-    iso: float = 0.0,
-    cap_bounds: bool = True,
-) -> Solid:
-    """Build a closed solid from a scalar field isosurface."""
-    try:
-        original_field = field
-        if bounds is None:
-            if isinstance(field, ScalarField):
-                bounds = bounds_rbbox(field)
-            else:
-                raise ValueError("bounds 不能为空")
-
-        (xmin, ymin, zmin), (xmax, ymax, zmax) = bounds
-        if cap_bounds:
-            center = ((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, (zmin + zmax) / 2.0)
-            size = (xmax - xmin, ymax - ymin, zmax - zmin)
-            if isinstance(field, ScalarField):
-                box_field = make_box_rscalarfield(center, size)
-                field = intersect_rscalarfield(field, box_field)
-            else:
-                field_fn = field
-                cx, cy, cz = center
-                sx, sy, sz = size
-
-                def box_eval(x, y, z):
-                    dx = np.abs(x - cx) - sx / 2.0
-                    dy = np.abs(y - cy) - sy / 2.0
-                    dz = np.abs(z - cz) - sz / 2.0
-                    return np.maximum.reduce([dx, dy, dz])
-
-                def capped(x, y, z):
-                    return np.maximum(field_fn(x, y, z), box_eval(x, y, z))
-
-                field = capped
-        nx, ny, nz = resolution
-        if nx < 2 or ny < 2 or nz < 2:
-            raise ValueError("resolution 每个维度必须 >= 2")
-
-        xs = np.linspace(xmin, xmax, nx)
-        ys = np.linspace(ymin, ymax, ny)
-        zs = np.linspace(zmin, zmax, nz)
-        grid_x, grid_y, grid_z = np.meshgrid(xs, ys, zs, indexing="ij")
-        values = _evaluate_field_values(field, grid_x, grid_y, grid_z)
-        triangles = _marching_tetrahedra(xs, ys, zs, values, iso)
-        if not triangles:
-            raise ValueError("未找到等势面，请调整 bounds 或 iso")
-
-        faces = []
-        edge_count: dict[
-            Tuple[Tuple[float, float, float], Tuple[float, float, float]], int
-        ] = {}
-        for tri in triangles:
-            if len({tri[0], tri[1], tri[2]}) < 3:
-                continue
-            try:
-                faces.append(make_triangle_face(tri))
-            except Exception:
-                continue
-            pts = [tuple(np.round(p, 8)) for p in tri]
-            edges = [(pts[0], pts[1]), (pts[1], pts[2]), (pts[2], pts[0])]
-            for a, b in edges:
-                key = (a, b) if a <= b else (b, a)
-                edge_count[key] = edge_count.get(key, 0) + 1
-        sewing = BRepBuilderAPI_Sewing(1e-6)
-        for face in faces:
-            sewing.Add(face)
-        sewing.Perform()
-        sewed = sewing.SewedShape()
-        shells = []
-        if sewed.ShapeType() == TopAbs_SHELL:
-            shells.append(sewed)
-        else:
-            explorer = TopExp_Explorer(sewed, TopAbs_SHELL)
-            while explorer.More():
-                shells.append(explorer.Current())
-                explorer.Next()
-
-        if not shells:
-            raise ValueError("未能从等势面构建闭合壳体")
-
-        shell = max(shells, key=shell_metric)
-
-        solid = Solid(solid_from_shell(shell))
-
-        shell_closed_value = shell_is_closed(shell)
-
-        mesh_closed = all(count == 2 for count in edge_count.values())
-        report = {
-            "bounds": {"min": (xmin, ymin, zmin), "max": (xmax, ymax, zmax)},
-            "resolution": resolution,
-            "iso": iso,
-            "field_min": float(np.min(values)),
-            "field_max": float(np.max(values)),
-            "triangles": len(triangles),
-            "shells": len(shells),
-            "mesh_closed": mesh_closed,
-            "shell_closed": shell_closed_value,
-            "cap_bounds": bool(cap_bounds),
-        }
-        solid.set_metadata("field_report", report)
-
-        params: Dict[str, object] = {
-            "bounds": {
-                "min": (xmin, ymin, zmin),
-                "max": (xmax, ymax, zmax),
-            },
-            "resolution": resolution,
-            "iso": iso,
-            "cap_bounds": bool(cap_bounds),
-        }
-        if isinstance(original_field, ScalarField):
-            params["field_serialization_mode"] = "scalar_field"
-            params["field_tree"] = serialize_scalar_field(original_field)
-        else:
-            params["field_serialization_mode"] = "opaque_callable"
-            params["field_callable_repr"] = repr(original_field)
-
-        return _finalize_primitive_solid(
-            solid,
-            op=_OP_MAKE_FIELD_SURFACE_RSOLID,
-            params=params,
-            tags={"primitive", "solid", "field"},
-        )
-    except Exception as e:
-        _wrap_public_api_error(
-            operation="make_field_surface_rsolid",
-            what_happened="Failed to build an isosurface solid from the scalar field.",
-            possible_causes=[
-                "The field evaluation returned invalid values or a mismatched shape.",
-                "The resolution is too low or the iso value does not intersect the field range.",
-                "The marching and sewing steps could not produce a closed shell.",
-            ],
-            how_to_fix=[
-                "Check that the field callable or ScalarField returns finite numeric values.",
-                "Use bounds that actually contain the target isosurface.",
-                "Increase resolution or adjust the iso value if no surface is found.",
-            ],
-            error=e,
-        )
-
-
 def make_wire_from_edges_rwire(edges: List[Edge]) -> Wire:
     """Create a wire from a list of connected edges."""
     try:
@@ -1486,10 +1497,8 @@ def make_box_rsolid(
             )
             solid = extrude_rsolid(profile, (0.0, 0.0, 1.0), depth)
             solid.auto_tag_faces("box")
-            solid.apply_tag("geom.primitive.box", propagate=False)
-            solid.add_tag("box")
-            solid.add_tag(f"bottom center: {bottom_face_center}")
-            solid.add_tag(f"size: {width_value}x{height_value}x{depth_value}")
+            solid._apply_tag("geom.primitive.box", propagate=False)
+            solid._add_tag("box")
             solid.set_metadata(
                 "geo",
                 {
@@ -1518,10 +1527,8 @@ def make_box_rsolid(
 
         # 自动标记面
         solid.auto_tag_faces("box")
-        solid.apply_tag("geom.primitive.box", propagate=False)
-        solid.add_tag("box")
-        solid.add_tag(f"bottom center: {bottom_face_center}")
-        solid.add_tag(f"size: {width_value}x{height_value}x{depth_value}")
+        solid._apply_tag("geom.primitive.box", propagate=False)
+        solid._add_tag("box")
         solid.set_metadata(
             "geo",
             {
@@ -1581,10 +1588,8 @@ def make_cylinder_rsolid(
             )
             solid = extrude_rsolid(profile, axis, height)
             solid.auto_tag_faces("cylinder")
-            solid.apply_tag("geom.primitive.cylinder", propagate=False)
-            solid.add_tag("cylinder")
-            solid.add_tag(f"bottom center: {bottom_face_center}")
-            solid.add_tag(f"size: {radius_value}x{height_value}")
+            solid._apply_tag("geom.primitive.cylinder", propagate=False)
+            solid._add_tag("cylinder")
             solid.set_metadata(
                 "geo",
                 {
@@ -1620,10 +1625,8 @@ def make_cylinder_rsolid(
 
         # 自动标记面
         solid.auto_tag_faces("cylinder")
-        solid.apply_tag("geom.primitive.cylinder", propagate=False)
-        solid.add_tag("cylinder")
-        solid.add_tag(f"bottom center: {bottom_face_center}")
-        solid.add_tag(f"size: {radius_value}x{height_value}")
+        solid._apply_tag("geom.primitive.cylinder", propagate=False)
+        solid._add_tag("cylinder")
         solid.set_metadata(
             "geo",
             {
@@ -1715,12 +1718,8 @@ def make_cone_rsolid(
                 angle=360.0,
                 origin=bottom_face_center,
             )
-            solid.apply_tag("geom.primitive.cone", propagate=False)
-            solid.add_tag("cone")
-            solid.add_tag(f"bottom center: {bottom_face_center}")
-            solid.add_tag(
-                f"size: bottom_radius: {bottom_radius_value}, top_radius: {top_radius_value}, height: {height_value}"
-            )
+            solid._apply_tag("geom.primitive.cone", propagate=False)
+            solid._add_tag("cone")
             solid.set_metadata(
                 "geo",
                 {
@@ -1757,12 +1756,8 @@ def make_cone_rsolid(
         )
 
         # 自动标记面
-        solid.apply_tag("geom.primitive.cone", propagate=False)
-        solid.add_tag("cone")
-        solid.add_tag(f"bottom center: {bottom_face_center}")
-        solid.add_tag(
-            f"size: bottom_radius: {bottom_radius_value}, top_radius: {top_radius_value}, height: {height_value}"
-        )
+        solid._apply_tag("geom.primitive.cone", propagate=False)
+        solid._add_tag("cone")
         solid.set_metadata(
             "geo",
             {
@@ -1831,10 +1826,8 @@ def make_sphere_rsolid(
                 origin=center,
             )
             solid.auto_tag_faces("sphere")
-            solid.apply_tag("geom.primitive.sphere", propagate=False)
-            solid.add_tag("sphere")
-            solid.add_tag(f"center: {center}")
-            solid.add_tag(f"radius: {radius_value}")
+            solid._apply_tag("geom.primitive.sphere", propagate=False)
+            solid._add_tag("sphere")
             solid.set_metadata(
                 "geo",
                 {
@@ -1862,10 +1855,8 @@ def make_sphere_rsolid(
 
         # 自动标记面
         solid.auto_tag_faces("sphere")
-        solid.apply_tag("geom.primitive.sphere", propagate=False)
-        solid.add_tag("sphere")
-        solid.add_tag(f"center: {center}")
-        solid.add_tag(f"radius: {radius_value}")
+        solid._apply_tag("geom.primitive.sphere", propagate=False)
+        solid._add_tag("sphere")
         solid.set_metadata(
             "geo",
             {
@@ -2210,7 +2201,9 @@ def make_spline_rwire(
 ) -> Wire:
     """Create a spline wire through control points."""
     try:
-        if get_active_session() is not None and not closed:
+        if get_active_session() is not None:
+            if closed:
+                return make_polyline_rwire(cast(Any, points), closed=True)
             edge = make_spline_redge(points, tangents)
             return make_wire_from_edges_rwire([edge])
 
@@ -2629,7 +2622,7 @@ def extrude_rsolid(
         for face_after_extrusion in solid.get_faces():
             if face_after_extrusion.get_center() == face.get_center():
                 face_after_extrusion._tags = profile._tags.copy()
-                face_after_extrusion.add_tag("extrusion start face")
+                face_after_extrusion._apply_tag("face.extrusion.start", propagate=False)
                 face_after_extrusion._metadata = profile._metadata.copy()
                 profile_face_normal = face_after_extrusion.get_normal_at()
 
@@ -2643,18 +2636,20 @@ def extrude_rsolid(
             face_normal = face_after_extrusion.get_normal_at()
             if face_normal.dot(direction_vec) == 0:
                 face_after_extrusion._tags = profile._tags.copy()
-                face_after_extrusion.add_tag("extrusion side face")
+                face_after_extrusion._apply_tag("face.extrusion.side", propagate=False)
                 side_face_count += 1
-                face_after_extrusion.add_tag(f"{side_face_count}")
+                geo = dict(face_after_extrusion.get_metadata("geo", {}))
+                geo["side_face_index"] = side_face_count
+                face_after_extrusion.set_metadata("geo", geo)
 
             # 法向量夹角180度，是顶面
             if face_normal.getAngle(profile_face_normal) == math.pi:
                 face_after_extrusion._tags = profile._tags.copy()
-                face_after_extrusion.add_tag("extrusion end face")
+                face_after_extrusion._apply_tag("face.extrusion.end", propagate=False)
 
         # 复制标签和元数据
         solid._tags = profile._tags.copy()
-        solid.add_tag("extrusion solid")
+        solid._apply_tag("solid.extrusion", propagate=False)
         solid._metadata = profile._metadata.copy()
 
         return _finalize_tracked_solid(
@@ -2775,14 +2770,21 @@ def revolve_rsolid(
 # =============================================================================
 
 
-def set_tag(shape: AnyShape, tag: str) -> AnyShape:
-    """Attach a tag to a shape."""
+def apply_tag(shape: AnyShape, tag: str) -> AnyShape:
+    """Attach a normalized tag to a shape using the standard propagation policy.
+
+    Tags must already be normalized lowercase tokens such as
+    ``role.mounting_surface`` or ``group.fasteners``. Propagation is intentionally
+    not configurable from the public API; the default tag policy propagates
+    semantic role/anchor/group tags downward and keeps topology-specific tags
+    local.
+    """
     try:
-        shape.add_tag(tag)
+        shape._apply_tag(tag)
         return shape
     except Exception as e:
         _wrap_public_api_error(
-            operation="set_tag",
+            operation="apply_tag",
             what_happened="Failed to attach the tag to the shape.",
             possible_causes=[
                 "The shape is invalid.",
@@ -2790,7 +2792,26 @@ def set_tag(shape: AnyShape, tag: str) -> AnyShape:
             ],
             how_to_fix=[
                 "Pass a valid shape object.",
-                "Use a non-empty tag string.",
+                "Use a normalized tag string such as 'role.mounting_surface' or 'group.fasteners'.",
+            ],
+            error=e,
+        )
+
+
+def list_tags(shape: AnyShape) -> List[str]:
+    """Return shape tags in deterministic sorted order."""
+    try:
+        return shape._list_tags()
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="list_tags",
+            what_happened="Failed to list tags on the shape.",
+            possible_causes=[
+                "The shape is invalid.",
+                "The object is not a SimpleCAD shape.",
+            ],
+            how_to_fix=[
+                "Pass a valid Vertex, Edge, Wire, Face, or Solid object.",
             ],
             error=e,
         )
@@ -2800,7 +2821,7 @@ def select_faces_by_tag(solid: Solid, tag: str) -> List[Face]:
     """Select faces by tag."""
     try:
         faces = solid.get_faces()
-        return [face for face in faces if face.has_tag(tag)]
+        return [face for face in faces if face._has_tag(tag)]
     except Exception as e:
         _wrap_public_api_error(
             operation="select_faces_by_tag",
@@ -2827,7 +2848,7 @@ def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]:
         else:
             raise ValueError("只能从面或实体中选择边")
 
-        return [edge for edge in edges if edge.has_tag(tag)]
+        return [edge for edge in edges if edge._has_tag(tag)]
     except Exception as e:
         _wrap_public_api_error(
             operation="select_edges_by_tag",
@@ -2989,13 +3010,19 @@ def union_rsolid(
         )
 
 
-def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
+def cut_rsolidlist(
+    *solids: Union[Solid, Sequence[Solid]],
+    skip_non_intersecting: bool = True,
+) -> Solid:
     """Compute the boolean difference of solids.
 
     Args:
         solids: One or more Solid objects or sequences of Solid. Nested sequences are
             flattened before processing; the first solid is the base, the rest are
             subtracted in order.
+        skip_non_intersecting: When True, tools with no meaningful intersection are
+            ignored for interactive convenience. Graph replay records this flag and
+            should use False for strict diagnostic workflows.
 
     Returns:
         Solid: The cut result solid.
@@ -3015,8 +3042,8 @@ def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
 
         # 从第一个实体开始，依次减去其他实体
         result_solid = remaining[0]
-        last_delta: Optional[TopoDelta] = None
-        last_delta_entries: Optional[Dict[str, Dict[str, object]]] = None
+        deltas: List[TopoDelta] = []
+        merged_delta_entries: Dict[str, Dict[str, object]] = {}
         cut_performed = False
 
         for i in range(1, len(remaining)):
@@ -3032,12 +3059,16 @@ def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
             intersection = common_shapes([s1, s2])
             intersection_solids = solids_of(intersection)
             if not intersection_solids:
-                continue
+                if skip_non_intersecting:
+                    continue
+                raise ValueError("差集工具实体与当前实体没有交集。")
             intersection_obj = Solid(intersection_solids[0])
 
             if intersection_obj.get_volume() < 1e-12:
                 # 没有有效的交集，跳过此次切割
-                continue
+                if skip_non_intersecting:
+                    continue
+                raise ValueError("差集工具实体与当前实体交集体积过小。")
 
             tracked = tracked_cut(result_solid, candidate)
             if tracked.solid is None:
@@ -3047,32 +3078,39 @@ def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
             new_result._tags = result_solid._tags.copy()
             new_result._metadata = result_solid._metadata.copy()
             result_solid = new_result
-            last_delta = tracked.delta
-            last_delta_entries = cast(
-                Dict[str, Dict[str, object]], tracked.delta_entries
+            deltas.append(tracked.delta)
+            merged_delta_entries.update(
+                cast(Dict[str, Dict[str, object]], tracked.delta_entries)
             )
             cut_performed = True
 
         # 保留第一个实体的标签和元数据
         result_solid._tags = remaining[0]._tags.copy()
         result_solid._metadata = remaining[0]._metadata.copy()
-        result_solid.add_tag("cut_result")
+        result_solid._apply_tag("solid.boolean.cut", propagate=False)
 
-        if cut_performed and last_delta is not None:
+        merged_delta = _merge_topo_deltas(deltas)
+        if cut_performed and merged_delta is not None:
             result_solid = _finalize_tracked_solid(
                 result_solid,
                 op=_OP_MAKE_CUT_RSOLIDLIST,
-                params={"tool_count": len(remaining) - 1},
+                params={
+                    "tool_count": len(remaining) - 1,
+                    "skip_non_intersecting": bool(skip_non_intersecting),
+                },
                 source_solid=remaining[0],
-                delta=last_delta,
-                delta_entries=last_delta_entries,
+                delta=merged_delta,
+                delta_entries=merged_delta_entries or None,
                 input_shapes=remaining,
             )
         else:
             _attach_track_summary(result_solid, op=_OP_MAKE_CUT_RSOLIDLIST)
             record_operation_if_active(
                 op=_OP_MAKE_CUT_RSOLIDLIST,
-                params={"tool_count": len(remaining) - 1},
+                params={
+                    "tool_count": len(remaining) - 1,
+                    "skip_non_intersecting": bool(skip_non_intersecting),
+                },
                 outputs=result_solid,
                 input_shapes=remaining,
                 context=_current_context_metadata(),
@@ -3123,8 +3161,8 @@ def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
 
         # 从第一个实体开始，依次与后续实体进行交集运算
         result_solid = remaining[0]
-        last_delta: Optional[TopoDelta] = None
-        last_delta_entries: Optional[Dict[str, Dict[str, object]]] = None
+        deltas: List[TopoDelta] = []
+        merged_delta_entries: Dict[str, Dict[str, object]] = {}
         intersect_performed = False
 
         for i in range(1, len(remaining)):
@@ -3141,9 +3179,9 @@ def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
                 raise ValueError("交集结果为空或 OCC 未返回有效实体")
 
             result_solid = tracked.solid
-            last_delta = tracked.delta
-            last_delta_entries = cast(
-                Dict[str, Dict[str, object]], tracked.delta_entries
+            deltas.append(tracked.delta)
+            merged_delta_entries.update(
+                cast(Dict[str, Dict[str, object]], tracked.delta_entries)
             )
             intersect_performed = True
 
@@ -3162,16 +3200,17 @@ def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
 
         result_solid._tags = all_tags
         result_solid._metadata = all_metadata
-        result_solid.add_tag("intersect_result")
+        result_solid._apply_tag("solid.boolean.intersect", propagate=False)
 
-        if intersect_performed and last_delta is not None:
+        merged_delta = _merge_topo_deltas(deltas)
+        if intersect_performed and merged_delta is not None:
             result_solid = _finalize_tracked_solid(
                 result_solid,
                 op=_OP_MAKE_INTERSECT_RSOLIDLIST,
                 params={"input_count": len(remaining)},
                 source_solid=remaining[0],
-                delta=last_delta,
-                delta_entries=last_delta_entries,
+                delta=merged_delta,
+                delta_entries=merged_delta_entries or None,
                 input_shapes=remaining,
             )
         else:
@@ -3236,8 +3275,8 @@ def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> N
 
     Args:
         shapes: A single exportable shape or any nested sequence of exportable
-            shapes. Lists of Solid are supported directly, including list results
-            returned by boolean operations.
+            shapes. Lists of Solid are supported directly, including pattern or
+            explicitly collected multi-shape results.
         filename: Output STEP file path.
 
     Returns:
@@ -3245,17 +3284,16 @@ def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> N
 
     Usage:
         Use this function when you want to export one shape or many shapes into the
-        same STEP file. Passing `List[Solid]` is valid and often preferred when a
-        previous boolean operation returned multiple solids.
+        same STEP file. Passing `List[Solid]` is valid for pattern outputs or
+        explicit shape collections. Boolean operations return a single `Solid`.
 
     Examples:
         main_body = make_box_rsolid(10, 4, 4, bottom_face_center=(0, 0, 0))
         left_cap = make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0))
         right_cap = make_sphere_rsolid(2.0, center=(12.0, 2.0, 2.0))
-        body_parts = union_rsolid(main_body, [left_cap, right_cap])
+        body = union_rsolid(main_body, [left_cap, right_cap])
 
-        # Export the full list directly; no need to collapse to body_parts[0].
-        export_step(body_parts, "rounded_bar.step")
+        export_step(body, "rounded_bar.step")
     """
     try:
         shape_list = _normalize_shape_input(shapes)
@@ -3284,8 +3322,8 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
 
     Args:
         shapes: A single Solid or Face, or any nested sequence of Solid/Face.
-            Lists of Solid are supported directly, including list results returned
-            by boolean operations.
+            Lists of Solid are supported directly, including pattern or explicitly
+            collected multi-shape results.
         filename: Output STL file path.
 
     Returns:
@@ -3293,17 +3331,16 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
 
     Usage:
         Use this function when you want to export one solid or many solids/faces into
-        the same STL file. Passing `List[Solid]` is valid and often preferred when a
-        previous boolean operation returned multiple solids.
+        the same STL file. Passing `List[Solid]` is valid for pattern outputs or
+        explicit shape collections. Boolean operations return a single `Solid`.
 
     Examples:
         main_body = make_box_rsolid(10, 4, 4, bottom_face_center=(0, 0, 0))
         left_cap = make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0))
         right_cap = make_sphere_rsolid(2.0, center=(12.0, 2.0, 2.0))
-        body_parts = union_rsolid(main_body, [left_cap, right_cap])
+        body = union_rsolid(main_body, [left_cap, right_cap])
 
-        # Export the list result directly.
-        export_stl(body_parts, "rounded_bar.stl")
+        export_stl(body, "rounded_bar.stl")
     """
     try:
         shape_list = _normalize_shape_input(shapes)
@@ -3471,9 +3508,9 @@ def render_screenshot_rpath(
             axis_y = _axis_solid((0.0, 1.0, 0.0), axis_len_y)
             axis_z = _axis_solid((0.0, 0.0, 1.0), axis_len_z)
 
-            axis_x.apply_tag("axis.x")
-            axis_y.apply_tag("axis.y")
-            axis_z.apply_tag("axis.z")
+            axis_x._apply_tag("axis.x")
+            axis_y._apply_tag("axis.y")
+            axis_z._apply_tag("axis.z")
             axis_solids = [axis_x, axis_y, axis_z]
             axis_colors = {
                 "axis.x": np.array([1.0, 0.35, 0.35]),
@@ -3490,9 +3527,9 @@ def render_screenshot_rpath(
                 bbox_max = np.maximum(bbox_max, np.array([bb.xmax, bb.ymax, bb.zmax]))
 
             highlight_tag = next(
-                (tag for tag in highlight_list if solid.has_tag(tag)), None
+                (tag for tag in highlight_list if solid._has_tag(tag)), None
             )
-            axis_tag = next((tag for tag in axis_colors if solid.has_tag(tag)), None)
+            axis_tag = next((tag for tag in axis_colors if solid._has_tag(tag)), None)
             if highlight_tag and highlight_tag not in label_points:
                 label_points[highlight_tag] = (
                     0.5 * (bb.xmin + bb.xmax),
@@ -3502,7 +3539,7 @@ def render_screenshot_rpath(
 
             for face in solid.get_faces():
                 face_tag = next(
-                    (tag for tag in highlight_list if face.has_tag(tag)), None
+                    (tag for tag in highlight_list if face._has_tag(tag)), None
                 )
                 face_highlight_tag = face_tag or highlight_tag
                 if face_highlight_tag and face_tag and face_tag not in label_points:
@@ -3874,26 +3911,34 @@ def fillet_rsolid(
         result._tags = solid._tags.copy()
         result._metadata = solid._metadata.copy()
 
+        selected_edge_refs = _serialize_shape_refs(selected_edges)
+        selected_edge_indices = _serialize_selection_indices(
+            selected_edges, solid.get_edges()
+        )
+        selected_edge_node_ids = (
+            _record_geo_selection_nodes(solid, selected_edges)
+            if isinstance(edges, ShapeSelector)
+            else []
+        )
+
         return _finalize_tracked_solid(
             result,
             op=_OP_MAKE_FILLET_RSOLID,
             params={
                 "radius": radius,
                 "edge_count": len(selected_edges),
-                "selected_edges": _serialize_shape_refs(selected_edges),
-                "selected_edge_indices": _serialize_selection_indices(
-                    selected_edges, solid.get_edges()
-                ),
+                "selected_edges": selected_edge_refs,
+                "selected_edge_indices": selected_edge_indices,
                 **(
-                    {"selection_query": _serialize_selection_query(edges)}
-                    if _serialize_selection_query(edges) is not None
+                    {"selected_edge_node_ids": selected_edge_node_ids}
+                    if selected_edge_node_ids
                     else {}
                 ),
             },
             source_solid=solid,
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
-            input_shapes=[solid],
+            input_shapes=[solid, *selected_edges],
         )
     except Exception as e:
         _wrap_public_api_error(
@@ -3933,26 +3978,34 @@ def chamfer_rsolid(
         result._tags = solid._tags.copy()
         result._metadata = solid._metadata.copy()
 
+        selected_edge_refs = _serialize_shape_refs(selected_edges)
+        selected_edge_indices = _serialize_selection_indices(
+            selected_edges, solid.get_edges()
+        )
+        selected_edge_node_ids = (
+            _record_geo_selection_nodes(solid, selected_edges)
+            if isinstance(edges, ShapeSelector)
+            else []
+        )
+
         return _finalize_tracked_solid(
             result,
             op=_OP_MAKE_CHAMFER_RSOLID,
             params={
                 "distance": distance,
                 "edge_count": len(selected_edges),
-                "selected_edges": _serialize_shape_refs(selected_edges),
-                "selected_edge_indices": _serialize_selection_indices(
-                    selected_edges, solid.get_edges()
-                ),
+                "selected_edges": selected_edge_refs,
+                "selected_edge_indices": selected_edge_indices,
                 **(
-                    {"selection_query": _serialize_selection_query(edges)}
-                    if _serialize_selection_query(edges) is not None
+                    {"selected_edge_node_ids": selected_edge_node_ids}
+                    if selected_edge_node_ids
                     else {}
                 ),
             },
             source_solid=solid,
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
-            input_shapes=[solid],
+            input_shapes=[solid, *selected_edges],
         )
     except Exception as e:
         _wrap_public_api_error(
@@ -3997,26 +4050,34 @@ def shell_rsolid(
         result._tags = solid._tags.copy()
         result._metadata = solid._metadata.copy()
 
+        selected_face_refs = _serialize_shape_refs(selected_faces)
+        selected_face_indices = _serialize_selection_indices(
+            selected_faces, solid.get_faces()
+        )
+        selected_face_node_ids = (
+            _record_geo_selection_nodes(solid, selected_faces)
+            if isinstance(faces_to_remove, ShapeSelector)
+            else []
+        )
+
         return _finalize_tracked_solid(
             result,
             op=_OP_MAKE_SHELL_RSOLID,
             params={
                 "thickness": thickness,
                 "removed_face_count": len(selected_faces),
-                "selected_faces": _serialize_shape_refs(selected_faces),
-                "selected_face_indices": _serialize_selection_indices(
-                    selected_faces, solid.get_faces()
-                ),
+                "selected_faces": selected_face_refs,
+                "selected_face_indices": selected_face_indices,
                 **(
-                    {"selection_query": _serialize_selection_query(faces_to_remove)}
-                    if _serialize_selection_query(faces_to_remove) is not None
+                    {"selected_face_node_ids": selected_face_node_ids}
+                    if selected_face_node_ids
                     else {}
                 ),
             },
             source_solid=solid,
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
-            input_shapes=[solid],
+            input_shapes=[solid, *selected_faces],
         )
     except Exception as e:
         _wrap_public_api_error(
@@ -4142,7 +4203,10 @@ def linear_pattern_rsolidlist(
                 translated_shape = translate_shape(
                     shape, (float(offset[0]), float(offset[1]), float(offset[2]))
                 )
-                translated_shape.add_tag(f"linear_pattern_{i + 1}")
+                translated_shape._apply_tag("solid.pattern.linear", propagate=False)
+                geo = dict(translated_shape.get_metadata("geo", {}))
+                geo["pattern"] = {"type": "linear", "index": i + 1}
+                translated_shape.set_metadata("geo", geo)
                 _attach_track_summary(translated_shape, op="linear_pattern")
                 rv.append(cast(Solid, translated_shape))
             return rv
@@ -4158,7 +4222,10 @@ def linear_pattern_rsolidlist(
 
         rv = []
         for i, s in enumerate(shapes):
-            s.add_tag(f"linear_pattern_{i + 1}")
+            s._apply_tag("solid.pattern.linear", propagate=False)
+            geo = dict(s.get_metadata("geo", {}))
+            geo["pattern"] = {"type": "linear", "index": i + 1}
+            s.set_metadata("geo", geo)
             _attach_track_summary(s, op="linear_pattern")
             rv.append(s)
 
@@ -4220,7 +4287,10 @@ def radial_pattern_rsolidlist(
                     if i == 0
                     else cast(Solid, rotate_shape(shape, rotation_angle, axis, center))
                 )
-                rotated_shape.add_tag(f"radial_pattern_{i + 1}")
+                rotated_shape._apply_tag("solid.pattern.radial", propagate=False)
+                geo = dict(rotated_shape.get_metadata("geo", {}))
+                geo["pattern"] = {"type": "radial", "index": i + 1}
+                rotated_shape.set_metadata("geo", geo)
                 _attach_track_summary(rotated_shape, op="radial_pattern")
                 rv.append(cast(Solid, rotated_shape))
             return rv
@@ -4233,7 +4303,10 @@ def radial_pattern_rsolidlist(
 
         rv = []
         for i, s in enumerate(shapes):
-            s.add_tag(f"radial_pattern_{i + 1}")
+            s._apply_tag("solid.pattern.radial", propagate=False)
+            geo = dict(s.get_metadata("geo", {}))
+            geo["pattern"] = {"type": "radial", "index": i + 1}
+            s.set_metadata("geo", geo)
             _attach_track_summary(s, op="radial_pattern")
             rv.append(s)
 
@@ -4307,7 +4380,7 @@ def mirror_shape(
             new_shape = cast(Solid, tracked.shape)
             new_shape._tags = shape._tags.copy()
             new_shape._metadata = shape._metadata.copy()
-            new_shape.add_tag("mirrored")
+            new_shape._apply_tag("solid.transform.mirrored", propagate=False)
             return _finalize_tracked_solid(
                 new_shape,
                 op=_OP_MAKE_MIRROR_RSHAPE,
@@ -4339,7 +4412,7 @@ def mirror_shape(
         # 复制标签和元数据
         new_shape._tags = shape._tags.copy()
         new_shape._metadata = shape._metadata.copy()
-        new_shape.add_tag("mirrored")
+        new_shape._apply_tag("solid.transform.mirrored", propagate=False)
 
         _attach_track_summary(new_shape, op=_OP_MAKE_MIRROR_RSHAPE)
         record_operation_if_active(
@@ -4412,7 +4485,7 @@ def helical_sweep_rsolid(
         # 复制轮廓的标签和元数据
         result._tags = profile._tags.copy()
         result._metadata = profile._metadata.copy()
-        result.add_tag("helical_sweep")
+        result._apply_tag("solid.feature.helical_sweep", propagate=False)
 
         return result
     except Exception as e:

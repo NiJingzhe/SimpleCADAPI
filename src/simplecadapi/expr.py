@@ -383,6 +383,7 @@ def _is_discrete_param_name(key: str) -> bool:
     return key_lower.endswith("_indices") or key_lower in {
         "edge_count",
         "face_count",
+        "geo_selector",
         "removed_face_count",
         "profile_count",
         "count",

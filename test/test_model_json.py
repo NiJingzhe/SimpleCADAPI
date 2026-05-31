@@ -31,12 +31,16 @@ class TestModelJson(unittest.TestCase):
 
         self.assertIn("canonical_contract", payload)
         contract = payload["canonical_contract"]
-        self.assertEqual(contract["contract_version"], "2.0-final-state")
+        self.assertEqual(contract["contract_version"], "2.0")
         self.assertEqual(contract["graph_roles"]["graph"], "canonical_low_level_graph")
         self.assertEqual(contract["graph_roles"]["leaf_ids"], "explicit_result_set")
         self.assertEqual(contract["replay_policy"]["preferred_graph"], "graph")
         self.assertIn("core_op_set", contract)
         self.assertGreaterEqual(len(contract["core_op_set"]), 1)
+        self.assertEqual(contract["replay_policy"]["default_mode"], "strict")
+        self.assertEqual(
+            contract["replay_policy"]["permissive_mode"], "explicit_opt_in"
+        )
 
     def test_model_json_includes_geometry_and_delta_registries(self):
         with GraphSession() as session:
@@ -51,30 +55,18 @@ class TestModelJson(unittest.TestCase):
         self.assertGreaterEqual(len(payload["geometry_registry"]), 1)
         self.assertGreaterEqual(len(payload["semantic_delta_log"]), 1)
 
-    def test_model_json_includes_sketch_assembly_and_constraint_registries(self):
-        a = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        b = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        asm = scad.make_assembly_rassembly([("a", a), ("b", b)])
-        asm = scad.constrain_offset_rassembly(
-            asm,
-            asm.part("a").anchor("bbox.top"),
-            asm.part("b").anchor("bbox.bottom"),
-            scad.var("gap", 2.0),
-            axis="z",
-        )
-
+    def test_model_json_includes_sketch_registry_without_assembly_fields(self):
         with GraphSession() as session:
             face = scad.make_circle_rface((0, 0, 0), scad.var("r", 2.0))
             scad.extrude_rsolid(face, (0, 0, 1), 3.0)
 
-        payload = json.loads(scad.export_model_json(session, assembly=asm))
+        payload = json.loads(scad.export_model_json(session))
 
         self.assertIn("sketch_profile_registry", payload)
-        self.assertIn("assembly_registry", payload)
-        self.assertIn("constraint_registry", payload)
         self.assertGreaterEqual(len(payload["sketch_profile_registry"]), 1)
-        self.assertGreaterEqual(len(payload["assembly_registry"]), 1)
-        self.assertGreaterEqual(len(payload["constraint_registry"]), 1)
+        self.assertNotIn("assembly", payload)
+        self.assertNotIn("assembly_registry", payload)
+        self.assertNotIn("constraint_registry", payload)
 
     def test_model_json_import_preserves_registry_payloads(self):
         with GraphSession() as session:
@@ -89,30 +81,18 @@ class TestModelJson(unittest.TestCase):
         self.assertIn("topology_delta_log", payload)
         self.assertGreaterEqual(len(payload["geometry_registry"]), 1)
 
-    def test_model_json_import_preserves_extended_registries(self):
-        a = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        b = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        asm = scad.make_assembly_rassembly([("a", a), ("b", b)])
-        asm = scad.constrain_offset_rassembly(
-            asm,
-            asm.part("a").anchor("bbox.top"),
-            asm.part("b").anchor("bbox.bottom"),
-            2.0,
-            axis="z",
-        )
-
+    def test_model_json_import_preserves_supported_extended_registries(self):
         with GraphSession() as session:
             face = scad.make_circle_rface((0, 0, 0), 2.0)
             scad.extrude_rsolid(face, (0, 0, 1), 3.0)
 
-        payload = scad.import_model_json(scad.export_model_json(session, assembly=asm))
+        payload = scad.import_model_json(scad.export_model_json(session))
 
         self.assertIn("sketch_profile_registry", payload)
-        self.assertIn("assembly_registry", payload)
-        self.assertIn("constraint_registry", payload)
         self.assertGreaterEqual(len(payload["sketch_profile_registry"]), 1)
-        self.assertGreaterEqual(len(payload["assembly_registry"]), 1)
-        self.assertGreaterEqual(len(payload["constraint_registry"]), 1)
+        self.assertNotIn("assembly", payload)
+        self.assertNotIn("assembly_registry", payload)
+        self.assertNotIn("constraint_registry", payload)
 
     def test_model_json_graph_contains_only_low_level_ops(self):
         with GraphSession() as session:
@@ -309,6 +289,25 @@ class TestModelJson(unittest.TestCase):
         self.assertNotIn("make_spline_wire", core_ops)
         self.assertNotIn("make_helix_wire", core_ops)
 
+    def test_graph_lowers_closed_spline_wire_to_lines_plus_wire_assembly(self):
+        with GraphSession() as session:
+            scad.make_spline_rwire(
+                [
+                    (0.0, 0.0, 0.0),
+                    (1.0, 0.0, 0.0),
+                    (1.0, 1.0, 0.0),
+                    (0.0, 1.0, 0.0),
+                ],
+                closed=True,
+            )
+
+        payload = json.loads(scad.export_model_json(session))
+        core_ops = [node["op"] for node in payload["graph"]["nodes"]]
+
+        self.assertIn("make_line_redge", core_ops)
+        self.assertIn("make_wire_from_edges_rwire", core_ops)
+        self.assertNotIn("make_spline_wire", core_ops)
+
     def test_graph_preserves_explicit_selected_refs_for_detail_features(self):
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
@@ -346,6 +345,44 @@ class TestModelJson(unittest.TestCase):
         self.assertNotIn("helical_sweep", core_ops)
         self.assertNotIn("make_polyline_wire", core_ops)
 
+    def test_sketch_profile_registry_uses_canonical_op_names(self):
+        with GraphSession() as session:
+            scad.make_circle_rface((0.0, 0.0, 0.0), 1.0)
+
+        payload = json.loads(scad.export_model_json(session))
+        registry_ops = {entry["op"] for entry in payload["sketch_profile_registry"]}
+        canonical_ops = set(payload["canonical_contract"]["core_op_set"])
+
+        self.assertTrue(registry_ops)
+        self.assertTrue(registry_ops.issubset(canonical_ops))
+
+    def test_model_json_import_rejects_legacy_graph_op(self):
+        payload = {
+            "schema_version": "2.0",
+            "canonical_contract": {"contract_version": "2.0"},
+            "graph": {
+                "schema_version": "2.0",
+                "graph_id": "test",
+                "nodes": [
+                    {
+                        "node_id": "n1",
+                        "op": "make_box",
+                        "params": {"w": 1, "h": 1, "d": 1},
+                        "inputs": [],
+                        "output_count": 1,
+                        "tags": [],
+                    }
+                ],
+                "edges": [],
+            },
+            "leaf_ids": ["n1"],
+            "expression_graph": {"nodes": []},
+            "frame_graph": {"nodes": []},
+        }
+
+        with self.assertRaises(ValueError):
+            scad.import_model_json(json.dumps(payload))
+
     def test_graph_selection_refs_follow_declared_schema(self):
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
@@ -364,9 +401,10 @@ class TestModelJson(unittest.TestCase):
         self.assertEqual(
             selection_schema["replay_resolution_order"],
             [
+                "geo_select_nodes",
+                "selection_query",
                 "explicit_topo_refs",
                 "stable_indices",
-                "selection_query",
                 "selector_hint",
             ],
         )
@@ -380,10 +418,10 @@ class TestModelJson(unittest.TestCase):
         self.assertEqual(selected_edge_ref["kind"], "EDGE")
         self.assertIn("selector_hint", selected_edge_ref)
 
-    def test_model_json_replay_prefers_selected_refs_over_selection_query(self):
+    def test_model_json_replay_prefers_geo_select_nodes_over_selected_refs(self):
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            original = scad.fillet_rsolid(box, box.get_edges()[:4], 0.2)
+            original = scad.fillet_rsolid(box, scad.ql.edges().take(1).exactly(1), 0.2)
 
         payload = json.loads(scad.export_model_json(session))
         fillet_node = next(
@@ -391,9 +429,11 @@ class TestModelJson(unittest.TestCase):
             for node in payload["graph"]["nodes"]
             if node["op"] == "make_fillet_rsolid"
         )
-        fillet_node["params"]["selection_query"] = (
-            scad.ql.edges().take(1).exactly(1).to_dict()
-        )
+        self.assertNotIn("selection_query", fillet_node["params"])
+        self.assertEqual(len(fillet_node["params"]["selected_edge_node_ids"]), 1)
+        fillet_node["params"]["selected_edges"] = []
+        fillet_node["params"]["selected_edge_indices"] = []
+        fillet_node["params"]["edge_count"] = 1
 
         replayed = scad.replay_model_json(json.dumps(payload))
 
@@ -463,6 +503,42 @@ class TestOperationGraphDeltaSerialization(unittest.TestCase):
             + len(leaf.topo_delta.deleted),
             1,
         )
+
+    def test_multi_tool_cut_topology_delta_keeps_step_chain(self):
+        with GraphSession() as session:
+            body = scad.make_box_rsolid(4.0, 4.0, 4.0)
+            tool_a = scad.make_box_rsolid(
+                1.0, 1.0, 5.0, bottom_face_center=(-0.75, 0.0, -0.5)
+            )
+            tool_b = scad.make_box_rsolid(
+                1.0, 1.0, 5.0, bottom_face_center=(0.75, 0.0, -0.5)
+            )
+            scad.cut_rsolidlist(body, tool_a, tool_b)
+
+        restored = scad.import_graph_json(scad.export_graph_json(session.graph))
+        leaf = restored.leaf_nodes()[0]
+
+        self.assertEqual(leaf.op, "make_cut_rsolidlist")
+        self.assertIsNotNone(leaf.topo_delta)
+        self.assertEqual(len(leaf.topo_delta.raw_event["steps"]), 2)
+
+    def test_multi_tool_intersect_topology_delta_keeps_step_chain(self):
+        with GraphSession() as session:
+            body = scad.make_box_rsolid(4.0, 4.0, 4.0)
+            tool_a = scad.make_box_rsolid(
+                4.0, 4.0, 4.0, bottom_face_center=(1.0, 0.0, 0.0)
+            )
+            tool_b = scad.make_box_rsolid(
+                4.0, 4.0, 4.0, bottom_face_center=(0.0, 1.0, 0.0)
+            )
+            scad.intersect_rsolidlist(body, tool_a, tool_b)
+
+        restored = scad.import_graph_json(scad.export_graph_json(session.graph))
+        leaf = restored.leaf_nodes()[0]
+
+        self.assertEqual(leaf.op, "make_intersect_rsolidlist")
+        self.assertIsNotNone(leaf.topo_delta)
+        self.assertEqual(len(leaf.topo_delta.raw_event["steps"]), 2)
 
     def test_semantic_delta_created_refs_are_bound_to_real_graph_and_node_ids(self):
         with GraphSession() as session:

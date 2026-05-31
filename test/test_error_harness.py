@@ -46,27 +46,13 @@ class TestErrorHarness(unittest.TestCase):
 
     def test_import_graph_json_reports_signature_and_help(self):
         with self.assertRaises(scad.SimpleCADError) as ctx:
-            scad.import_graph_json('{"schema_version":"2.0","nodes":[],"edges":[]}')
+            scad.import_graph_json('{"schema_version":"1.0","nodes":[],"edges":[]}')
 
         message = str(ctx.exception)
         self.assertIn("Operation: import_graph_json", message)
         self.assertIn("Signature: import_graph_json(", message)
         self.assertIn(
             "Documentation: For full usage details, run help(simplecadapi.import_graph_json).",
-            message,
-        )
-
-    def test_add_part_rassembly_reports_signature_and_help(self):
-        asm = scad.make_assembly_rassembly([])
-
-        with self.assertRaises(scad.SimpleCADError) as ctx:
-            scad.add_part_rassembly(asm, "p1", "not-a-solid")
-
-        message = str(ctx.exception)
-        self.assertIn("Operation: add_part_rassembly", message)
-        self.assertIn("Signature: add_part_rassembly(", message)
-        self.assertIn(
-            "Documentation: For full usage details, run help(simplecadapi.add_part_rassembly).",
             message,
         )
 
