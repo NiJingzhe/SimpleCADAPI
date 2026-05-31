@@ -8,6 +8,10 @@ def make_helix_rwire(pitch: float, height: float, radius: float, center: Tuple[f
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import make_helix_rwire`
+
 ## Description
 
 Create a helix wire.

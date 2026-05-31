@@ -68,11 +68,11 @@ import simplecadapi as scad
 with scad.SimpleWorkplane(origin=(0, 0, 0)):
     box = scad.make_box_rsolid(width=5, height=3, depth=2)
 
-box.apply_tag("role.bracket")
+scad.apply_tag(box, "role.bracket")
 box.set_metadata("material", "6061-T6")
 box.auto_tag_faces("box")
 
-top_faces = [face for face in box.get_faces() if face.has_tag("face.top")]
+top_faces = [face for face in box.get_faces() if "face.top" in scad.list_tags(face)]
 print(len(top_faces))
 ```
 
@@ -97,6 +97,7 @@ print(len(rebuilt))
 - [Examples](../../examples/)
 - [User Guide](../../README.md)
 - [JSON Operation Graph Spec](operation_graph_json_spec.md)
+- [Serialization and Replay Operation Guides](serialization/)
 - [Declarative Constraint Layout Design Draft](declarative_constraints.md)
 - [SimpleCADAPI 2.0 Re-architecture Design](rearchitecture_2_0.md)
 - [SimpleCADAPI 2.0 Requirements and Acceptance](rearchitecture_2_0_requirements.md)

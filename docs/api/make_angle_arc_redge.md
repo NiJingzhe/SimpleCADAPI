@@ -8,6 +8,10 @@ def make_angle_arc_redge(center: Tuple[float, float, float], radius: ScalarLike,
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import make_angle_arc_redge`
+
 ## Description
 
 Create an arc edge from a center, radius, and angle range.

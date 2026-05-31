@@ -69,11 +69,10 @@ Default propagation policy by prefix
 - feature.*: do NOT propagate by default
 - state.*: never propagate
 
-Implementation sketch
-- Introduce a TagPolicy registry keyed by prefix.
-- Add propagate parameter to set_tag (none | down | custom).
-- Provide helper: apply_tag(shape, tag, propagate=None).
-- Propagation should be implemented in core (TaggedMixin) and reused in ops.
+Implementation notes
+- Use the public helper apply_tag(shape, tag) without exposing propagation controls.
+- Use list_tags(shape) for deterministic tag inspection.
+- Keep propagation policy in core (TaggedMixin internals) and reused in ops.
 
 4) Anchor Semantics (Constraint Integration)
 

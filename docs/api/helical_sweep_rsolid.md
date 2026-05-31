@@ -8,6 +8,10 @@ def helical_sweep_rsolid(profile: Wire, pitch: float, height: float, radius: flo
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import helical_sweep_rsolid`
+
 ## Description
 
 Create a solid by sweeping a profile along a helical path.

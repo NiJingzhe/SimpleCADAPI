@@ -31,13 +31,13 @@ metadata:
 ## MUST Requirements
 1. Read `SKILL.md` and `references/docs/api/README.md` before choosing APIs.
 2. Read the exact API Markdown page for every API you use.
-3. Read the needed `core/` docs when an API needs `Edge`, `Face`, `Wire`, `Solid`, `Assembly`, `GraphSession`, `Sketch`, or expression types.
+3. Read the needed `core/` or exact `api/` docs when an API needs `Edge`, `Face`, `Wire`, `Solid`, `GraphSession`, `Sketch`, or expression types.
 4. Follow the documented API signatures exactly.
 5. Use the graph/model JSON workflow for v2 tasks: `GraphSession`, `export_session_json`, `export_model_json`, `import_model_json`, and `replay_model_json`.
-6. Use geometry APIs for integrated parts and declarative constraints for final assemblies.
-7. Use tags consistently.
+6. Use geometry APIs for integrated parts; assembly and constraint APIs are temporarily not public while the assembly system is rebuilt.
+7. Use tags consistently through `apply_tag(shape, tag)` and `list_tags(shape)`; do not call shape member tag mutators.
 8. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
-9. For inspection/debugging, query geometry with QL and print only the queried facts you need; do not print whole solids, assemblies, or full model objects.
+9. For inspection/debugging, query geometry with QL and print only the queried facts you need; do not print whole solids or full model objects.
 10. Boolean operations return a single `Solid`.
 11. Use `union_rsolid(...)` for boolean union.
 12. For automated example/test harnesses, prefer the repo-local examples in `examples/` and avoid scratch scripts in `sandbox/`.
@@ -52,9 +52,19 @@ metadata:
 - If a union cannot produce exactly one merged solid, it fails explicitly instead of returning multiple pieces.
 - If a single merged solid is required but union fails, slightly move the parts so they overlap instead of merely touching, then recompute the union.
 
+## Tagging Mental Model
+- Public tag attachment is `apply_tag(shape, tag)`.
+- Public tag inspection is `list_tags(shape)`, which returns a stable sorted list.
+- Tags are normalized lowercase dot-separated semantic tokens, for example `role.mounting_surface`, `anchor.datum.primary`, `group.fasteners`, `face.top`, or `solid.boolean.cut`.
+- Do not encode numeric dimensions or descriptive geometry payloads in tags; store them in metadata such as `shape.get_metadata("geo")` or `shape.set_metadata(...)`.
+- `apply_tag(...)` does not expose propagation controls. The SDK propagates role/anchor/group-style semantic tags downward and keeps topology-specific tags such as `face.*`, `edge.*`, `wire.*`, `vertex.*`, and `solid.*` local.
+- Primitives, face auto-tagging, features, booleans, transforms, and tracking may add normalized topology/operation tags automatically.
+- Prefer QL tag predicates (`ql.tag("role.*")`, `ql.select(...).where(...)`) for inspection and grounding.
+
 ## SDK Focus
 - This skill is intended to describe the public CAD Python SDK surface.
 - Prefer the generated API and core docs over environment/bootstrap instructions.
+- API docs include an `Import Surface` section that distinguishes top-level exports from `simplecadapi.ql` submodule APIs.
 - Use `references/SDK_OVERVIEW.md` for the package-level map.
 - Use `references/SDK_SURFACES.md` for the main public surfaces.
 - Use `references/V2_MODELING_WORKFLOWS.md` for graph/model-oriented patterns.

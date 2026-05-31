@@ -8,6 +8,10 @@ def rotate_shape(shape: AnyShape, angle: ScalarLike, axis: Tuple[float, float, f
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import rotate_shape`
+
 ## Description
 
 Rotate a shape around an axis.

@@ -8,6 +8,10 @@ def make_three_point_arc_redge(start: Tuple[float, float, float], middle: Tuple[
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import make_three_point_arc_redge`
+
 ## Description
 
 Create an arc edge from three points.

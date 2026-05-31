@@ -10,7 +10,7 @@
 - 现状评估与为何必须重构
 - 目标架构与核心数据模型
 - 参数表达式图方案
-- 几何值模型、拓扑追踪、装配约束与序列化方案
+- 几何值模型、拓扑追踪与序列化方案；装配约束属于后续重做范围
 - 分阶段迁移计划、测试计划与风险控制
 
 本文档是架构设计稿，不是实现说明书。命名、模块拆分和阶段顺序可以在落地时微调，但本文档中的设计原则和兼容性约束应视为 2.0 的硬边界。
@@ -26,7 +26,7 @@
 - `Sketch` 已作为一等对象引入，但没有替代 `Vertex/Edge/Wire/Face/Solid` 主线。
 - `Vertex/Edge/Wire/Face/Solid` 已能接受 raw OCC wrapped shape，`wrapped` 已开始成为核心存储。
 - `extrude/revolve/fillet/chamfer/shell/cut/union/intersection` 等核心操作已经接入了不同程度的表达式或历史记录能力。
-- assembly 约束参数已开始复用同一套表达式系统，`model.json` 也已有 graph + expression 的初步导出能力。
+- `model.json` 已具备 graph + expression 的初步导出能力；旧 assembly / constraint 支持面已暂时移除。
 
 ### 仍未完成
 
@@ -48,7 +48,7 @@
 
 - [ ] TODO-KERNEL-001：继续把 evaluator 从 `cadquery` 构造路径迁移到 OCP-native builder 路径。
 - [ ] TODO-HIST-002：为 `shell` 等尚未完整追踪的操作补齐稳定 `TopoDelta`。
-- [ ] TODO-IR-003：继续扩展 canonical `model.json`，补齐更完整的 geometry/sketch/assembly/stable-ref registry。
+- [ ] TODO-IR-003：继续扩展 canonical `model.json`，补齐更完整的 geometry/sketch/stable-ref registry；assembly registry 等待新装配契约后再设计。
 - [ ] TODO-FRAME-001：补齐文档中要求的显式 frame / placement 基础设施，而不是只保留当前 workplane 上下文模型。
 
 ### 剩余 TODO 审计（本轮整理）
@@ -57,7 +57,7 @@
 
 - [x] TODO-HIST-003：`revolve` 仍未走 tracked history，需补齐稳定 `TopoDelta` 与 graph roundtrip 保留。
 - [x] TODO-IR-004：`model.json` 仍缺 `sketch/profile registry`。
-- [x] TODO-IR-005：`model.json` 仍缺顶层 `assembly_registry` / `constraint_registry`，当前只有嵌套 assembly payload。
+- [x] TODO-IR-005：移除旧 `assembly_registry` / `constraint_registry` 与嵌套 assembly payload，避免在新装配契约前冻结半成品 schema。
 - [x] TODO-DOC-001：把“已完成 / 可完成 / 结构性大项”在审计段落中明确区分，避免 TODO 状态失真。
 
 #### 结构性大项
@@ -72,8 +72,8 @@
 ### 新一轮剩余深化项
 
 - [x] TODO-HIST-004：为 `loft/sweep/helical_sweep` 补更完整的 tracked `TopoDelta`，目前已完成 OCP-native evaluator 替换，但历史记录仍未达到 `extrude/revolve/shell` 同等细度。
-- [x] TODO-FRAME-003：把 assembly / instance pose 进一步接入统一 frame graph，而不是仅导出建模 session frame snapshot。
-- [x] TODO-SEM-002：继续把语义实体从 `Point/Profile/Body` 扩展到更明确的 `Sketch/Feature/AssemblyConstraint` 级别。
+- [x] TODO-FRAME-003：保留建模 session frame snapshot；旧 assembly / instance pose 接入已撤回，等待新装配契约。
+- [x] TODO-SEM-002：继续把语义实体从 `Point/Profile/Body` 扩展到更明确的 `Sketch/Feature` 级别；`AssemblyConstraint` 暂不导出。
 
 注：`helical_sweep` 作为组合宏，通过 `make_helix_wire + sweep` 继承同等级 history 记录，而不是单独维护基础特征节点。
 
@@ -86,12 +86,14 @@
 - `leaf_ids` 是多输出场景的显式结果集，不允许默认依赖 `graph.leaf_nodes()` 猜测最终输出。
 - canonical `graph` 必须收敛到冻结的基础 op set；任何 convenience op 或 macro-only op 若未 lower，不得进入 `graph`。
 - `helical_sweep` 必须始终作为组合宏对待，而不是基础 canonical 节点。
-- detail feature 的 canonical 事实来源必须是 explicit selected refs，而不是 `selection_query` 文本。
+- detail feature 的 canonical 事实来源必须是 geo select nodes / explicit selected refs，而不是 `selection_query` 文本。
+- QL selector 运行时结果会编译成 `make_select_*` 节点；每个节点用 tag-free `geo_selector` 固定到被选中对象的几何事实。
 - `selection_query` 与 `selector_hint` 继续保留，但只作为回放与映射的 fallback 信息。
 - `replay_model_json()` 必须直接依赖 `graph`，并对 detail feature 按以下顺序解析选择：
+  - geo select nodes
+  - selection query fallback
   - explicit topo refs
   - stable indices
-  - selection query
   - selector hint
 
 为避免该冻结状态重新退化，本轮同时引入：
@@ -108,15 +110,15 @@
 - `Vertex -> Edge -> Wire -> Face -> Solid` 的几何对象主线
 - 操作图记录、序列化与 replay 雏形
 - 针对部分 OCP builder 的拓扑历史追踪
-- 单独的装配姿态约束系统
+- 旧装配姿态约束系统已从 public/support 面移除，等待重新设计
 
 但当前系统的事实来源仍然主要是即时构建出的 `OCP`/BRep 对象，而不是统一的参数化模型 IR。这样会导致几个根本问题：
 
 1. 模型结果主要是最终几何，而不是参数化语义对象。
 2. 大量核心类型直接持有 `cadquery` 对象，导致内核层与 `OCP` 强耦合。
-3. 虽然已经有 graph/history，但还没有覆盖完整的参数、表达式、装配约束与对象空间描述。
+3. 虽然已经有 graph/history，但还没有覆盖完整的参数、表达式与对象空间描述；装配约束需要单独重做契约。
 4. 拓扑历史目前只覆盖部分操作，且很多 API 仍然是“算完即得 shape”。
-5. 当前装配系统主要是姿态求解层，还没有和统一参数图/表达式图/重建图打通。
+5. 当前不再冻结旧装配系统语义，新装配系统需要从统一参数图/表达式图/重建图重新接入。
 
 因此，2.0 的核心任务不是“继续增强现有 CQ 包装层”，而是把系统的中心从“几何结果”切换到“参数化模型”。
 
@@ -128,7 +130,7 @@
 - 保留当前纯函数、shape-first 用户体验
 - 具备统一参数表达式图
 - 具备统一操作图与拓扑历史图
-- 具备统一空间描述与装配约束图
+- 具备统一空间描述，并为后续装配约束图预留契约空间
 - 可序列化、可重放、可增量更新
 - 能输出最终 mesh/BRep，也能输出完整参数化中间表示
 
@@ -136,7 +138,7 @@
 
 - `mesh / brep / step / stl` 只是导出结果
 - `TopoDS_Shape` 是求值缓存和内核结果
-- 真正的事实来源是模型 IR：表达式、变量、几何值、特征、装配、约束、拓扑变化
+- 真正的事实来源是模型 IR：表达式、变量、几何值、特征、拓扑变化；装配和约束需在新契约中重新纳入
 
 ## 兼容性约束
 
@@ -169,10 +171,6 @@
   - 已有 graph JSON 导出/导入/replay 思路
 - `src/simplecadapi/tracking.py`
   - 已有基于 OCP builder 的 `Modified / Generated / IsDeleted` 历史查询
-- `src/simplecadapi/constraints.py`
-  - 已有 assembly tree、anchor、constraint、solve 的雏形
-- `src/simplecadapi/field.py`
-  - 已有可序列化树状语义节点 `ScalarField(op, params, children)` 的前例
 
 ### 当前必须重构的核心问题
 
@@ -186,8 +184,8 @@
   - 操作定义和求值逻辑、记录逻辑、标签逻辑混杂
 - `src/simplecadapi/serializer.py`
   - replay 仍围绕现有 CQ 风格操作重建
-- `src/simplecadapi/constraints.py`
-  - 装配与主 graph/表达式系统分离
+- 旧装配/约束实现
+  - 已从 public/support 面移除；新实现需要先定义与主 graph/表达式系统一致的契约
 
 ### 当前的关键判断
 
@@ -701,7 +699,7 @@ canonicalization 结果至少需要包含：
 
 ### 当前判断
 
-当前 `constraints.py` 的 assembly 系统有价值，但仍是独立子系统。2.0 需要把它纳入统一模型 IR。
+旧 `constraints.py` assembly 系统已从当前 public/support 面移除。2.0 需要先定义新的 assembly IR / constraint graph 契约，再把装配能力重新纳入统一模型 IR。
 
 ### 2.0 装配目标
 

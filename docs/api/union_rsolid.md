@@ -8,6 +8,10 @@ def union_rsolid(*solids: Union[Solid, Sequence[Solid]], clean: bool = True, glu
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import union_rsolid`
+
 ## Description
 
 Compute the boolean union and return one solid.
