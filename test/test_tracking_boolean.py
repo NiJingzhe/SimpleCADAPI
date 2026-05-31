@@ -103,8 +103,8 @@ class TestTrackedUnion(unittest.TestCase):
         self.assertGreater(result_vol, original_vol)
 
     def test_tracked_union_has_section_edges(self):
-        result = tracked_union(self.body, self.tool)
-        # Two overlapping boxes should create section edges
+        # OCC may suppress SectionEdges under glue mode; disabling glue should expose them.
+        result = tracked_union(self.body, self.tool, glue=False)
         section_edges = result.delta.section_edges
         self.assertGreater(len(section_edges), 0)
 

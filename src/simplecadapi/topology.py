@@ -16,7 +16,7 @@ from importlib import metadata as importlib_metadata
 from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 
-GRAPH_SCHEMA_VERSION = "1.0"
+GRAPH_SCHEMA_VERSION = "2.0"
 
 
 def _producer_version() -> str:
@@ -29,11 +29,12 @@ def _producer_version() -> str:
 def graph_capabilities_payload() -> Dict[str, Any]:
     return {
         "selection_ref_strategies": True,
+        "geo_select_nodes": True,
         "selector_hint_fallback": True,
         "display_payload": True,
         "topology_delta_summary": False,
         "assembly_graph": False,
-        "scalar_field_graph": True,
+        "scalar_field_graph": False,
         "expression_graph": True,
     }
 
@@ -348,6 +349,8 @@ def _make_id(prefix: str = "node") -> str:
 
 
 def _node_display_category(op: str) -> str:
+    if op.startswith("make_select_"):
+        return "selection"
     if op in {
         "cut",
         "union",
@@ -407,8 +410,11 @@ def _node_display_summary(op: str, params: Dict[str, Any]) -> str:
     ignored = {
         "selected_edges",
         "selected_faces",
+        "selected_edge_node_ids",
+        "selected_face_node_ids",
         "selected_edge_indices",
         "selected_face_indices",
+        "geo_selector",
     }
     summary_parts: List[str] = []
     for key, value in params.items():
@@ -657,7 +663,7 @@ class OperationGraph:
         return json.dumps(self.to_dict(), indent=indent)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "OperationGraph":
+    def from_dict(cls, data: Dict[str, Any], *, strict: bool = True) -> "OperationGraph":
         """Reconstruct a graph from a dictionary.
 
         Nodes are added in topological order so that input references resolve.
@@ -691,16 +697,31 @@ class OperationGraph:
 
         # Wire edges
         for edge in data.get("edges", []):
+            if not isinstance(edge, (list, tuple)) or len(edge) != 2:
+                if strict:
+                    raise ValueError(f"malformed graph edge entry: {edge!r}")
+                continue
             src, dst = edge
-            if src in node_map and dst in node_map:
-                graph._edges.append((src, dst))
-                graph._adj[src].append(dst)
-                graph._radj[dst].append(src)
+            if src not in node_map or dst not in node_map:
+                if strict:
+                    raise ValueError(
+                        f"graph edge references missing node(s): {src!r} -> {dst!r}"
+                    )
+                continue
+            graph._edges.append((src, dst))
+            graph._adj[src].append(dst)
+            graph._radj[dst].append(src)
 
         # Fix up inputs references
         for nd in data.get("nodes", []):
             node = node_map.get(nd["node_id"])
             if node and nd.get("inputs"):
+                missing_inputs = [iid for iid in nd["inputs"] if iid not in node_map]
+                if missing_inputs and strict:
+                    raise ValueError(
+                        f"graph node '{node.node_id}' references missing input node(s): "
+                        + ", ".join(str(iid) for iid in missing_inputs)
+                    )
                 input_nodes = tuple(
                     node_map[iid] for iid in nd["inputs"] if iid in node_map
                 )
@@ -721,8 +742,8 @@ class OperationGraph:
         return graph
 
     @classmethod
-    def from_json(cls, json_str: str) -> "OperationGraph":
+    def from_json(cls, json_str: str, *, strict: bool = True) -> "OperationGraph":
         """Reconstruct a graph from a JSON string."""
         import json
 
-        return cls.from_dict(json.loads(json_str))
+        return cls.from_dict(json.loads(json_str), strict=strict)

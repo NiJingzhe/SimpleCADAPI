@@ -24,6 +24,7 @@ from OCP.BRepAlgoAPI import (
     BRepAlgoAPI_Common,
     BRepAlgoAPI_BooleanOperation,
 )
+from OCP.BOPAlgo import BOPAlgo_GlueOff, BOPAlgo_GlueShift
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_Transform,
     BRepBuilderAPI_MakeShape,
@@ -353,6 +354,9 @@ def tracked_union(
     fuse_op.SetRunParallel(True)
     fuse_op.SetUseOBB(True)
     fuse_op.SetToFillHistory(True)
+    fuse_op.SetGlue(BOPAlgo_GlueShift if glue else BOPAlgo_GlueOff)
+    if tol is not None:
+        fuse_op.SetFuzzyValue(float(tol))
 
     args = TopTools_ListOfShape()
     args.Append(body.wrapped)
