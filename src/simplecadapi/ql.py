@@ -11,9 +11,9 @@ _PROPERTY_RESOLVERS: Dict[str, Callable[[Any, str], Any]] = {}
 
 
 def _get_tags(obj: Any) -> List[str]:
-    if hasattr(obj, "get_tags"):
+    if hasattr(obj, "_list_tags"):
         try:
-            return list(obj.get_tags())
+            return list(obj._list_tags())
         except Exception:
             return []
     tags = getattr(obj, "_tags", None)
@@ -81,11 +81,11 @@ def _lookup_property(obj: Any, path: str) -> Any:
         return MISSING
 
     if path == "topo.loop_role":
-        if hasattr(obj, "has_tag"):
+        if hasattr(obj, "_has_tag"):
             try:
-                if obj.has_tag("wire.outer") or obj.has_tag("outer_wire"):
+                if obj._has_tag("wire.outer"):
                     return "outer"
-                if obj.has_tag("wire.inner") or obj.has_tag("inner_wire"):
+                if obj._has_tag("wire.inner"):
                     return "inner"
             except Exception:
                 return MISSING
@@ -400,9 +400,12 @@ class ShapeSelector:
     traversal: Optional[TraversalSpec] = None
     predicate: Optional[SerializablePredicate] = None
     order_key: Optional[SerializableKey] = None
+    order_keys: Tuple[Tuple[SerializableKey, bool], ...] = ()
     order_desc: bool = False
     limit_count: Optional[int] = None
     cardinality: Dict[str, int] = field(default_factory=dict)
+    source_node_id: Optional[str] = None
+    source_output_slot: Optional[int] = None
 
     def where(self, predicate: SerializablePredicate) -> "ShapeSelector":
         if not isinstance(predicate, SerializablePredicate):
@@ -421,23 +424,51 @@ class ShapeSelector:
             traversal=self.traversal,
             predicate=combined,
             order_key=self.order_key,
+            order_keys=tuple(self.order_keys),
             order_desc=self.order_desc,
             limit_count=self.limit_count,
             cardinality=dict(self.cardinality),
+            source_node_id=self.source_node_id,
+            source_output_slot=self.source_output_slot,
         )
 
     def order_by(self, key: SerializableKey, desc: bool = False) -> "ShapeSelector":
         if not isinstance(key, SerializableKey):
             raise TypeError("ShapeSelector.order_by only supports serializable QL keys")
+        order_keys = (*self.order_keys, (key, bool(desc)))
         return ShapeSelector(
             target_kind=self.target_kind,
             source_selector=self.source_selector,
             traversal=self.traversal,
             predicate=self.predicate,
             order_key=key,
+            order_keys=order_keys,
             order_desc=bool(desc),
             limit_count=self.limit_count,
             cardinality=dict(self.cardinality),
+            source_node_id=self.source_node_id,
+            source_output_slot=self.source_output_slot,
+        )
+
+    def from_source(
+        self, node_id: str, output_slot: int = 0
+    ) -> "ShapeSelector":
+        if not isinstance(node_id, str) or not node_id:
+            raise ValueError("node_id must be a non-empty string")
+        if output_slot < 0:
+            raise ValueError("output_slot must be >= 0")
+        return ShapeSelector(
+            target_kind=self.target_kind,
+            source_selector=self.source_selector,
+            traversal=self.traversal,
+            predicate=self.predicate,
+            order_key=self.order_key,
+            order_keys=tuple(self.order_keys),
+            order_desc=self.order_desc,
+            limit_count=self.limit_count,
+            cardinality=dict(self.cardinality),
+            source_node_id=node_id,
+            source_output_slot=int(output_slot),
         )
 
     def take(self, count: int) -> "ShapeSelector":
@@ -449,9 +480,12 @@ class ShapeSelector:
             traversal=self.traversal,
             predicate=self.predicate,
             order_key=self.order_key,
+            order_keys=tuple(self.order_keys),
             order_desc=self.order_desc,
             limit_count=int(count),
             cardinality=dict(self.cardinality),
+            source_node_id=self.source_node_id,
+            source_output_slot=self.source_output_slot,
         )
 
     def exactly(self, count: int) -> "ShapeSelector":
@@ -465,9 +499,50 @@ class ShapeSelector:
             traversal=self.traversal,
             predicate=self.predicate,
             order_key=self.order_key,
+            order_keys=tuple(self.order_keys),
             order_desc=self.order_desc,
             limit_count=self.limit_count,
             cardinality=card,
+            source_node_id=self.source_node_id,
+            source_output_slot=self.source_output_slot,
+        )
+
+    def at_least(self, count: int) -> "ShapeSelector":
+        if count < 0:
+            raise ValueError("count must be >= 0")
+        card = dict(self.cardinality)
+        card["at_least"] = int(count)
+        return ShapeSelector(
+            target_kind=self.target_kind,
+            source_selector=self.source_selector,
+            traversal=self.traversal,
+            predicate=self.predicate,
+            order_key=self.order_key,
+            order_keys=tuple(self.order_keys),
+            order_desc=self.order_desc,
+            limit_count=self.limit_count,
+            cardinality=card,
+            source_node_id=self.source_node_id,
+            source_output_slot=self.source_output_slot,
+        )
+
+    def at_most(self, count: int) -> "ShapeSelector":
+        if count < 0:
+            raise ValueError("count must be >= 0")
+        card = dict(self.cardinality)
+        card["at_most"] = int(count)
+        return ShapeSelector(
+            target_kind=self.target_kind,
+            source_selector=self.source_selector,
+            traversal=self.traversal,
+            predicate=self.predicate,
+            order_key=self.order_key,
+            order_keys=tuple(self.order_keys),
+            order_desc=self.order_desc,
+            limit_count=self.limit_count,
+            cardinality=card,
+            source_node_id=self.source_node_id,
+            source_output_slot=self.source_output_slot,
         )
 
     def traverse(self, relation: str, to_kind: str) -> "ShapeSelector":
@@ -481,6 +556,8 @@ class ShapeSelector:
             target_kind=to_kind,
             source_selector=self,
             traversal=TraversalSpec(relation=relation),
+            source_node_id=self.source_node_id,
+            source_output_slot=self.source_output_slot,
         )
 
     def boundary(self, to_kind: str) -> "ShapeSelector":
@@ -500,14 +577,15 @@ class ShapeSelector:
         if self.predicate is not None:
             items = [item for item in items if self.predicate(item)]
 
-        if self.order_key is not None:
-            order_key = self.order_key
-
-            def _safe_key(obj: Any):
-                value = order_key(obj)
+        order_specs = self.order_keys
+        if not order_specs and self.order_key is not None:
+            order_specs = ((self.order_key, self.order_desc),)
+        for order_key, desc in reversed(order_specs):
+            def _safe_key(obj: Any, key_fn: SerializableKey = order_key):
+                value = key_fn(obj)
                 return (value is None, value)
 
-            items = sorted(items, key=_safe_key, reverse=self.order_desc)
+            items = sorted(items, key=_safe_key, reverse=desc)
 
         if self.limit_count is not None:
             items = items[: self.limit_count]
@@ -516,6 +594,16 @@ class ShapeSelector:
         if exact is not None and len(items) != exact:
             raise ValueError(
                 f"QL selector expected exactly {exact} {self.target_kind}(s), got {len(items)}"
+            )
+        at_least = self.cardinality.get("at_least")
+        if at_least is not None and len(items) < at_least:
+            raise ValueError(
+                f"QL selector expected at least {at_least} {self.target_kind}(s), got {len(items)}"
+            )
+        at_most = self.cardinality.get("at_most")
+        if at_most is not None and len(items) > at_most:
+            raise ValueError(
+                f"QL selector expected at most {at_most} {self.target_kind}(s), got {len(items)}"
             )
         return list(items)
 
@@ -533,8 +621,16 @@ class ShapeSelector:
             payload["predicate"] = self.predicate.to_dict()
         if self.order_key is not None:
             payload["order_key"] = self.order_key.to_dict()
+        if self.order_keys:
+            payload["order_keys"] = [
+                {"key": key.to_dict(), "desc": desc}
+                for key, desc in self.order_keys
+            ]
         if self.limit_count is not None:
             payload["limit"] = self.limit_count
+        if self.source_node_id is not None:
+            payload["source_node_id"] = self.source_node_id
+            payload["source_output_slot"] = int(self.source_output_slot or 0)
         return payload
 
     @classmethod
@@ -551,15 +647,40 @@ class ShapeSelector:
         order_key = None
         if isinstance(data.get("order_key"), dict):
             order_key = SerializableKey.from_dict(data["order_key"])
+        order_keys: Tuple[Tuple[SerializableKey, bool], ...] = ()
+        if isinstance(data.get("order_keys"), list):
+            parsed_order_keys = []
+            for item in data["order_keys"]:
+                if not isinstance(item, dict) or not isinstance(item.get("key"), dict):
+                    raise ValueError("selector order_keys entries must contain a key object")
+                parsed_order_keys.append(
+                    (SerializableKey.from_dict(item["key"]), bool(item.get("desc", False)))
+                )
+            order_keys = tuple(parsed_order_keys)
+            if order_key is None and order_keys:
+                order_key = order_keys[-1][0]
+        elif order_key is not None:
+            order_keys = ((order_key, bool(data.get("order_desc", False))),)
         return cls(
             target_kind=str(data["target_kind"]),
             source_selector=source_selector,
             traversal=traversal,
             predicate=predicate,
             order_key=order_key,
+            order_keys=order_keys,
             order_desc=bool(data.get("order_desc", False)),
             limit_count=(int(data["limit"]) if data.get("limit") is not None else None),
             cardinality=dict(data.get("cardinality", {})),
+            source_node_id=(
+                str(data["source_node_id"])
+                if data.get("source_node_id") is not None
+                else None
+            ),
+            source_output_slot=(
+                int(data.get("source_output_slot", 0))
+                if data.get("source_node_id") is not None
+                else None
+            ),
         )
 
 

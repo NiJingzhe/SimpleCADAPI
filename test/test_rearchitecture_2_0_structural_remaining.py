@@ -85,47 +85,19 @@ class TestRemainingStructuralSemanticAndFrame(unittest.TestCase):
         self.assertIn("frame_graph", raw_model)
         self.assertGreaterEqual(len(raw_model["frame_graph"]["nodes"]), 1)
 
-    def test_model_export_merges_assembly_part_frames_into_frame_graph(self):
-        a = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        b = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        asm = scad.make_assembly_rassembly([("a", a), ("b", b)])
-        asm = scad.translate_part_rassembly(asm, "b", (5.0, 0.0, 0.0), frame="world")
-
-        with GraphSession() as session:
-            scad.make_circle_rface((0.0, 0.0, 0.0), 2.0)
-
-        payload = scad.import_model_json(scad.export_model_json(session, assembly=asm))
-        self.assertIn("frame_graph", payload)
-        frame_nodes = payload["frame_graph"].to_dict()["nodes"]
-        frame_ids = {node["frame_id"] for node in frame_nodes}
-        self.assertIn("assembly:assembly", frame_ids)
-        self.assertIn("assembly:assembly:part:a", frame_ids)
-        self.assertIn("assembly:assembly:part:b", frame_ids)
-
-    def test_model_export_includes_semantic_entity_registry_for_sketch_feature_and_constraints(
+    def test_model_export_includes_semantic_entity_registry_for_sketch_and_feature(
         self,
     ):
-        a = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        b = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        asm = scad.make_assembly_rassembly([("a", a), ("b", b)])
-        asm = scad.constrain_offset_rassembly(
-            asm,
-            asm.part("a").anchor("bbox.top"),
-            asm.part("b").anchor("bbox.bottom"),
-            2.0,
-            axis="z",
-        )
-
         with GraphSession() as session:
             face = scad.make_circle_rface((0.0, 0.0, 0.0), 2.0)
             scad.extrude_rsolid(face, (0.0, 0.0, 1.0), 3.0)
 
-        raw = json.loads(scad.export_model_json(session, assembly=asm))
+        raw = json.loads(scad.export_model_json(session))
         self.assertIn("semantic_entity_registry", raw)
         entity_types = {item["entity_type"] for item in raw["semantic_entity_registry"]}
         self.assertIn("Sketch", entity_types)
         self.assertIn("Feature", entity_types)
-        self.assertIn("AssemblyConstraint", entity_types)
+        self.assertNotIn("AssemblyConstraint", entity_types)
 
 
 class TestHelicalSweepMacroRecording(unittest.TestCase):

@@ -4,7 +4,7 @@ After a tracked operation (cut, union, fillet, etc.), this module can match
 result faces to their delta entries and apply semantic tags like:
 - ``op.cut.modified`` / ``op.cut.generated`` / ``op.cut.preserved``
 - ``origin.body`` / ``origin.tool``
-- ``role.section.face``
+- ``role.section_face``
 
 These tags can then be queried via the QL (``Q.tag("op.cut.generated")``).
 """
@@ -82,8 +82,8 @@ def apply_tracking_tags(
                 event = "generated"
 
         tag = f"{op_prefix}.{event}"
-        face.add_tag(tag)
-        face.apply_tag(f"face.{tag}", propagate=False)
+        face._add_tag(tag)
+        face._apply_tag(f"face.{tag}", propagate=False)
         face.set_metadata(
             "track",
             {
@@ -97,14 +97,14 @@ def apply_tracking_tags(
         entry = entries.get(fid, {})
         origin_role = entry.get("origin_role")
         if origin_role:
-            face.add_tag(f"origin.{origin_role}")
-            face.apply_tag(f"face.origin.{origin_role}", propagate=False)
+            face._add_tag(f"origin.{origin_role}")
+            face._apply_tag(f"face.origin.{origin_role}", propagate=False)
             face.get_metadata("track", {})["origin_role"] = origin_role
 
         # Section face tagging (faces at boolean intersection)
         if fid in section_ids:
-            face.add_tag("role.section.face")
-            face.apply_tag(f"face.role.section", propagate=False)
+            face._apply_tag("role.section_face", propagate=False)
+            face._apply_tag("face.role.section", propagate=False)
 
     return solid
 
@@ -162,4 +162,4 @@ def _carry_source_tags(
             for tag in source_face_tags[input_id]:
                 # Don't overwrite operation tags
                 if not tag.startswith("op.") and not tag.startswith("origin."):
-                    face.add_tag(tag)
+                    face._add_tag(tag)

@@ -8,6 +8,10 @@ def fillet_rsolid(solid: Solid, edges: Union[Sequence[Edge], ShapeSelector], rad
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import fillet_rsolid`
+
 ## Description
 
 Apply fillets to selected solid edges.

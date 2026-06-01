@@ -7,7 +7,7 @@ from simplecadapi import ql as Q
 class TestQLTagPredicates(unittest.TestCase):
     def test_tag_exact_and_wildcard(self):
         box = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        box.apply_tag("role.mounting_surface")
+        scad.apply_tag(box, "role.mounting_surface")
 
         self.assertTrue(Q.tag("role.mounting_surface")(box))
         self.assertTrue(Q.tag("role.*")(box))
@@ -16,7 +16,7 @@ class TestQLTagPredicates(unittest.TestCase):
     def test_tag_face_prefix(self):
         box = scad.make_box_rsolid(1.0, 1.0, 1.0)
         box.auto_tag_faces("box")
-        top_faces = [face for face in box.get_faces() if face.has_tag("face.top")]
+        top_faces = [face for face in box.get_faces() if "face.top" in scad.list_tags(face)]
         self.assertTrue(top_faces)
 
         top_face = top_faces[0]
@@ -47,8 +47,8 @@ class TestQLMetadataPredicates(unittest.TestCase):
     def test_where_and_not(self):
         box = scad.make_box_rsolid(1.0, 1.0, 1.0)
         cyl = scad.make_cylinder_rsolid(1.0, 1.0)
-        box.apply_tag("role.mounting_surface")
-        box.apply_tag("state.debug", propagate=False)
+        scad.apply_tag(box, "role.mounting_surface")
+        scad.apply_tag(box, "state.debug")
 
         predicate = Q.and_(
             Q.meta("geo.type", "==", "box"),
@@ -112,6 +112,26 @@ class TestSerializableGeometrySelectors(unittest.TestCase):
         self.assertEqual(payload["target_kind"], "edge")
         self.assertEqual(payload["limit"], 1)
         self.assertEqual(payload["cardinality"]["exactly"], 1)
+        self.assertEqual(restored.to_dict(), payload)
+
+    def test_selector_supports_graph_source_multi_key_and_range_cardinality(self):
+        selector = (
+            Q.faces()
+            .from_source("node_a", 0)
+            .order_by(Q.key("geom.center.z"), desc=True)
+            .order_by(Q.key("geom.center.x"))
+            .at_least(1)
+            .at_most(6)
+        )
+
+        payload = selector.to_dict()
+        restored = Q.selector_from_dict(payload)
+
+        self.assertEqual(payload["source_node_id"], "node_a")
+        self.assertEqual(payload["source_output_slot"], 0)
+        self.assertEqual(len(payload["order_keys"]), 2)
+        self.assertEqual(payload["cardinality"]["at_least"], 1)
+        self.assertEqual(payload["cardinality"]["at_most"], 6)
         self.assertEqual(restored.to_dict(), payload)
 
     def test_wire_selector_reads_loop_role_property(self):
@@ -185,18 +205,12 @@ class TestSerializableGeometrySelectors(unittest.TestCase):
         self.assertEqual(payload["traversal"]["relation"], "boundary")
         self.assertEqual(payload["source"]["traversal"]["relation"], "boundary")
 
-    def test_boundary_traversal_selects_cut_top_edges_from_field_surface(self):
-        field = scad.field.make_ellipsoid_rscalarfield((0.0, 0.0, 0.0), (1.6, 1.1, 2.0))
-        field_solid = scad.make_field_surface_rsolid(
-            field,
-            bounds=((-2.0, -2.0, -2.0), (2.0, 2.0, 2.0)),
-            resolution=(12, 12, 12),
-            iso=0.0,
-        )
+    def test_boundary_traversal_selects_cut_top_edges(self):
+        base = scad.make_cylinder_rsolid(1.5, 4.0, bottom_face_center=(0.0, 0.0, -2.0))
         tool = scad.make_box_rsolid(
             4.0, 4.0, 4.0, bottom_face_center=(-2.0, -2.0, 0.25)
         )
-        result = scad.cut_rsolidlist(field_solid, tool)
+        result = scad.cut_rsolidlist(base, tool)
 
         selector = (
             Q.faces()
@@ -222,6 +236,15 @@ class TestSerializableGeometrySelectors(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             selector.resolve(box)
+
+    def test_selector_range_cardinality_enforces_bounds(self):
+        box = scad.make_box_rsolid(1.0, 1.0, 1.0)
+
+        with self.assertRaises(ValueError):
+            Q.faces().take(0).at_least(1).resolve(box)
+
+        with self.assertRaises(ValueError):
+            Q.faces().at_most(1).resolve(box)
 
 
 if __name__ == "__main__":

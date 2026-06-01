@@ -8,6 +8,10 @@ def make_spline_redge(points: List[Tuple[float, float, float]], tangents: Option
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import make_spline_redge`
+
 ## Description
 
 Create a spline edge through control points.

@@ -8,6 +8,10 @@ class GraphSession(graph_id: Optional[str] = None)
 
 *Source: graph.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import GraphSession`
+
 ## Description
 
 Context manager that records CAD operations into a DAG.

@@ -13,7 +13,6 @@ from contextlib import redirect_stdout
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 import simplecadapi as scad
-from simplecadapi.kernel.ocp_properties import bounding_box
 
 
 class TestBasicShapes(unittest.TestCase):
@@ -84,7 +83,7 @@ class TestBasicShapes(unittest.TestCase):
         volume = cone.get_volume()
         expected_volume = (1 / 3) * np.pi * 2.0**2 * 3.0
         self.assertAlmostEqual(volume, expected_volume, places=5)
-        self.assertTrue(cone.has_tag("cone"))
+        self.assertIn("geom.primitive.cone", scad.list_tags(cone))
 
     def test_create_truncated_cone(self):
         """Test create truncated cone."""
@@ -95,21 +94,21 @@ class TestBasicShapes(unittest.TestCase):
         # 其中 R = 3.0, r = 1.0, h = 4.0
         expected_volume = (1 / 3) * np.pi * 4.0 * (3.0**2 + 3.0 * 1.0 + 1.0**2)
         self.assertAlmostEqual(volume, expected_volume, places=5)
-        self.assertTrue(truncated_cone.has_tag("cone"))
+        self.assertIn("geom.primitive.cone", scad.list_tags(truncated_cone))
 
     def test_create_cone_with_offset(self):
         """Test create cone with offset."""
         # 测试底面中心偏移的圆锥体
         offset_cone = scad.make_cone_rsolid(1.5, 2.0, bottom_face_center=(2, 2, 0))
         self.assertIsInstance(offset_cone, scad.Solid)
-        self.assertTrue(offset_cone.has_tag("cone"))
+        self.assertIn("geom.primitive.cone", scad.list_tags(offset_cone))
 
     def test_create_cone_with_axis(self):
         """Test create cone with axis."""
         # 测试水平方向的圆锥体
         horizontal_cone = scad.make_cone_rsolid(1.0, 3.0, axis=(1, 0, 0))
         self.assertIsInstance(horizontal_cone, scad.Solid)
-        self.assertTrue(horizontal_cone.has_tag("cone"))
+        self.assertIn("geom.primitive.cone", scad.list_tags(horizontal_cone))
 
     def test_create_arc(self):
         """Test create arc."""
@@ -371,7 +370,7 @@ class TestAdvancedFeatures(unittest.TestCase):
         """Test shell."""
         # 获取顶面
         faces = self.box.get_faces()
-        top_faces = [face for face in faces if face.has_tag("top")]
+        top_faces = [face for face in faces if "face.top" in scad.list_tags(face)]
 
         try:
             shelled = scad.shell_rsolid(self.box, top_faces, 0.2)
@@ -437,16 +436,16 @@ class TestTagging(unittest.TestCase):
     def setUp(self):
         self.box = scad.create_box(1.0, 1.0, 1.0)
 
-    def test_set_tag(self):
-        """Test set tag."""
-        scad.set_tag(self.box, "test_box")
-        self.assertTrue(self.box.has_tag("test_box"))
+    def test_apply_tag(self):
+        """Test apply tag."""
+        scad.apply_tag(self.box, "test_box")
+        self.assertIn("test_box", scad.list_tags(self.box))
 
     def test_multiple_tags(self):
         """Test multiple tags."""
-        scad.set_tag(self.box, "tag1")
-        scad.set_tag(self.box, "tag2")
-        tags = self.box.get_tags()
+        scad.apply_tag(self.box, "tag1")
+        scad.apply_tag(self.box, "tag2")
+        tags = scad.list_tags(self.box)
         self.assertIn("tag1", tags)
         self.assertIn("tag2", tags)
 
@@ -456,7 +455,7 @@ class TestTagging(unittest.TestCase):
         faces = self.box.get_faces()
 
         # 检查是否有标记的面
-        tagged_faces = [face for face in faces if len(face.get_tags()) > 0]
+        tagged_faces = [face for face in faces if len(scad.list_tags(face)) > 0]
         self.assertGreater(len(tagged_faces), 0)
 
     def test_auto_tag_faces_cylinder(self):
@@ -466,7 +465,7 @@ class TestTagging(unittest.TestCase):
         faces = cylinder.get_faces()
 
         # 检查是否有标记的面
-        tagged_faces = [face for face in faces if len(face.get_tags()) > 0]
+        tagged_faces = [face for face in faces if len(scad.list_tags(face)) > 0]
         self.assertGreater(len(tagged_faces), 0)
 
     def test_auto_tag_faces_sphere(self):
@@ -477,7 +476,7 @@ class TestTagging(unittest.TestCase):
 
         # 球体应该只有一个面，且被标记为surface
         self.assertEqual(len(faces), 1)
-        self.assertTrue(faces[0].has_tag("surface"))
+        self.assertIn("face.surface", scad.list_tags(faces[0]))
 
 
 class TestCoordinateSystem(unittest.TestCase):
@@ -609,11 +608,11 @@ class TestComplexExamples(unittest.TestCase):
         bracket = scad.cut_rsolidlist(bracket, hole2)
 
         # 添加标签
-        scad.set_tag(bracket, "bracket")
+        scad.apply_tag(bracket, "bracket")
 
         # 验证
         self.assertIsInstance(bracket, scad.Solid)
-        self.assertTrue(bracket.has_tag("bracket"))
+        self.assertIn("bracket", scad.list_tags(bracket))
         self.assertLess(bracket.get_volume(), base.get_volume())
 
     def test_create_gear_like_shape(self):
@@ -806,244 +805,6 @@ class TestNewFunctionIntegration(unittest.TestCase):
             self.skipTest("Alias functions not fully exported")
 
 
-class TestDeclarativeConstraints(unittest.TestCase):
-    """Tests for declarative constraints mixed with imperative assembly."""
-
-    def test_concentric_and_offset_mix_with_imperative(self):
-        sleeve = scad.make_cylinder_rsolid(5.0, 20.0, bottom_face_center=(0, 0, 0))
-        rod = scad.make_cylinder_rsolid(2.0, 12.0, bottom_face_center=(8, 1, 0))
-
-        asm = scad.Assembly("shock_like")
-        sleeve_p = asm.add_part("sleeve", sleeve)
-        rod_p = asm.add_part("rod", rod)
-
-        # 先命令式预定位，再声明式精定位
-        asm.translate_part(rod_p, (3.0, -2.0, 4.0), frame="world")
-        asm.concentric(sleeve_p.axis("z"), rod_p.axis("z"))
-        asm.offset(
-            sleeve_p.anchor("bbox.bottom"),
-            rod_p.anchor("bbox.bottom"),
-            3.0,
-            axis="z",
-        )
-
-        result = asm.solve()
-        self.assertTrue(result.report.converged)
-
-        sleeve_bb = bounding_box(result.get_solid("sleeve").wrapped)
-        rod_bb = bounding_box(result.get_solid("rod").wrapped)
-
-        sleeve_cx = 0.5 * (sleeve_bb.xmin + sleeve_bb.xmax)
-        sleeve_cy = 0.5 * (sleeve_bb.ymin + sleeve_bb.ymax)
-        rod_cx = 0.5 * (rod_bb.xmin + rod_bb.xmax)
-        rod_cy = 0.5 * (rod_bb.ymin + rod_bb.ymax)
-
-        self.assertAlmostEqual(rod_cx, sleeve_cx, places=6)
-        self.assertAlmostEqual(rod_cy, sleeve_cy, places=6)
-        self.assertAlmostEqual(rod_bb.zmin, sleeve_bb.zmin + 3.0, places=6)
-
-    def test_stack_layout(self):
-        a = scad.make_box_rsolid(4.0, 2.0, 2.0, bottom_face_center=(0, 0, 0))
-        b = scad.make_box_rsolid(3.0, 3.0, 1.0, bottom_face_center=(5, -3, 0))
-        c = scad.make_box_rsolid(2.0, 4.0, 3.0, bottom_face_center=(-4, 2, 0))
-
-        asm = scad.Assembly("stack")
-        pa = asm.add_part("a", a)
-        pb = asm.add_part("b", b)
-        pc = asm.add_part("c", c)
-
-        scad.stack(asm, [pa, pb, pc], axis="z", gap=1.5, align="center")
-        result = asm.solve()
-        self.assertTrue(result.report.converged)
-
-        bb_a = bounding_box(result.get_solid("a").wrapped)
-        bb_b = bounding_box(result.get_solid("b").wrapped)
-        bb_c = bounding_box(result.get_solid("c").wrapped)
-
-        self.assertAlmostEqual(bb_b.zmin, bb_a.zmax + 1.5, places=6)
-        self.assertAlmostEqual(bb_c.zmin, bb_b.zmax + 1.5, places=6)
-
-        cx_a = 0.5 * (bb_a.xmin + bb_a.xmax)
-        cy_a = 0.5 * (bb_a.ymin + bb_a.ymax)
-        cx_b = 0.5 * (bb_b.xmin + bb_b.xmax)
-        cy_b = 0.5 * (bb_b.ymin + bb_b.ymax)
-        cx_c = 0.5 * (bb_c.xmin + bb_c.xmax)
-        cy_c = 0.5 * (bb_c.ymin + bb_c.ymax)
-
-        self.assertAlmostEqual(cx_b, cx_a, places=6)
-        self.assertAlmostEqual(cy_b, cy_a, places=6)
-        self.assertAlmostEqual(cx_c, cx_a, places=6)
-        self.assertAlmostEqual(cy_c, cy_a, places=6)
-
-    def test_parent_child_transform_propagation(self):
-        parent_solid = scad.make_box_rsolid(2.0, 2.0, 2.0, bottom_face_center=(0, 0, 0))
-        child_solid = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 0, 0))
-
-        asm = scad.Assembly("tree")
-        parent = asm.add_part("parent", parent_solid)
-        asm.add_part(
-            "child",
-            child_solid,
-            parent=parent,
-            local_transform=np.array(
-                [
-                    [1.0, 0.0, 0.0, 3.0],
-                    [0.0, 1.0, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
-                    [0.0, 0.0, 0.0, 1.0],
-                ]
-            ),
-        )
-
-        asm.translate_part("parent", (10.0, 0.0, 0.0), frame="world")
-        result = asm.solve()
-
-        bb_parent = bounding_box(result.get_solid("parent").wrapped)
-        bb_child = bounding_box(result.get_solid("child").wrapped)
-
-        center_parent_x = 0.5 * (bb_parent.xmin + bb_parent.xmax)
-        center_child_x = 0.5 * (bb_child.xmin + bb_child.xmax)
-
-        self.assertAlmostEqual(center_parent_x, 10.0, places=6)
-        self.assertAlmostEqual(center_child_x, 13.0, places=6)
-
-    def test_stack_justify_center_with_bounds(self):
-        container = scad.make_box_rsolid(6.0, 6.0, 10.0, bottom_face_center=(0, 0, 0))
-        a = scad.make_box_rsolid(2.0, 2.0, 2.0, bottom_face_center=(4, 0, 0))
-        b = scad.make_box_rsolid(1.0, 3.0, 1.0, bottom_face_center=(-3, 1, 0))
-
-        asm = scad.Assembly("justify_center")
-        c = asm.add_part("container", container)
-        pa = asm.add_part("a", a)
-        pb = asm.add_part("b", b)
-
-        scad.stack(
-            asm,
-            [pa, pb],
-            axis="z",
-            gap=1.0,
-            align="center",
-            justify="center",
-            bounds=(c.anchor("bbox.bottom"), c.anchor("bbox.top")),
-        )
-
-        result = asm.solve()
-        self.assertTrue(result.report.converged)
-
-        bb_a = bounding_box(result.get_solid("a").wrapped)
-        bb_b = bounding_box(result.get_solid("b").wrapped)
-        bb_c = bounding_box(result.get_solid("container").wrapped)
-
-        # 容器高10，(2 + 1 + gap1)=4，居中后首件底部应在z=3
-        self.assertAlmostEqual(bb_a.zmin, bb_c.zmin + 3.0, places=6)
-        self.assertAlmostEqual(bb_b.zmin, bb_a.zmax + 1.0, places=6)
-        self.assertAlmostEqual(bb_c.zmax - bb_b.zmax, 3.0, places=6)
-
-    def test_stack_justify_space_between_with_bounds(self):
-        container = scad.make_box_rsolid(5.0, 5.0, 11.0, bottom_face_center=(0, 0, 0))
-        p1 = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(2, 0, 0))
-        p2 = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(-2, 0, 0))
-        p3 = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 2, 0))
-
-        asm = scad.Assembly("justify_space_between")
-        c = asm.add_part("container", container)
-        h1 = asm.add_part("p1", p1)
-        h2 = asm.add_part("p2", p2)
-        h3 = asm.add_part("p3", p3)
-
-        scad.stack(
-            asm,
-            [h1, h2, h3],
-            axis="z",
-            align="center",
-            justify="space-between",
-            bounds=(c.anchor("bbox.bottom"), c.anchor("bbox.top")),
-        )
-
-        result = asm.solve()
-        self.assertTrue(result.report.converged)
-
-        bb1 = bounding_box(result.get_solid("p1").wrapped)
-        bb2 = bounding_box(result.get_solid("p2").wrapped)
-        bb3 = bounding_box(result.get_solid("p3").wrapped)
-        bbc = bounding_box(result.get_solid("container").wrapped)
-
-        # 总高11，三个高度各1 => gap=(11-3)/2=4
-        self.assertAlmostEqual(bb1.zmin, bbc.zmin, places=6)
-        self.assertAlmostEqual(bb2.zmin, bb1.zmax + 4.0, places=6)
-        self.assertAlmostEqual(bb3.zmin, bb2.zmax + 4.0, places=6)
-        self.assertAlmostEqual(bb3.zmax, bbc.zmax, places=6)
-
-    def test_unconstrained_part_diagnostic(self):
-        a = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        b = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(3, 0, 0))
-        c = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(6, 0, 0))
-
-        asm = scad.Assembly("diag")
-        pa = asm.add_part("a", a)
-        pb = asm.add_part("b", b)
-        asm.add_part("c", c)
-
-        asm.offset(pa.anchor("bbox.right"), pb.anchor("bbox.left"), 0.5, axis="x")
-        result = asm.solve()
-
-        diagnostics_text = "\n".join(result.report.diagnostics)
-        self.assertIn("未被任何约束引用", diagnostics_text)
-        self.assertIn("'c'", diagnostics_text)
-
-    def test_functional_wrappers_do_not_mutate_input(self):
-        a = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 0, 0))
-        b = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 0, 0))
-
-        base = scad.make_assembly_rassembly([("a", a), ("b", b)], name="base")
-        moved = scad.translate_part_rassembly(base, "b", (5.0, 0.0, 0.0), frame="world")
-
-        base_result = scad.solve_assembly_rresult(base)
-        moved_result = scad.solve_assembly_rresult(moved)
-
-        bb_base_b = bounding_box(base_result.get_solid("b").wrapped)
-        bb_moved_b = bounding_box(moved_result.get_solid("b").wrapped)
-
-        base_cx = 0.5 * (bb_base_b.xmin + bb_base_b.xmax)
-        moved_cx = 0.5 * (bb_moved_b.xmin + bb_moved_b.xmax)
-
-        self.assertAlmostEqual(base_cx, 0.0, places=6)
-        self.assertAlmostEqual(moved_cx, 5.0, places=6)
-
-    def test_make_assembly_parent_resolution_from_params(self):
-        parent = scad.make_box_rsolid(2.0, 2.0, 2.0, bottom_face_center=(0, 0, 0))
-        child = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 0, 0))
-
-        asm = scad.make_assembly_rassembly(
-            [
-                ("child", child),
-                ("parent", parent),
-            ],
-            name="param_build",
-            parents={"child": "parent"},
-            local_transforms={
-                "child": np.array(
-                    [
-                        [1.0, 0.0, 0.0, 2.0],
-                        [0.0, 1.0, 0.0, 0.0],
-                        [0.0, 0.0, 1.0, 0.0],
-                        [0.0, 0.0, 0.0, 1.0],
-                    ]
-                )
-            },
-        )
-
-        result = scad.solve_assembly_rresult(asm)
-        bb_parent = bounding_box(result.get_solid("parent").wrapped)
-        bb_child = bounding_box(result.get_solid("child").wrapped)
-
-        center_parent_x = 0.5 * (bb_parent.xmin + bb_parent.xmax)
-        center_child_x = 0.5 * (bb_child.xmin + bb_child.xmax)
-
-        self.assertAlmostEqual(center_parent_x, 0.0, places=6)
-        self.assertAlmostEqual(center_child_x, 2.0, places=6)
-
-
 def run_comprehensive_tests():
     """Run the comprehensive test suite."""
     print("SimpleCAD API 全面单元测试")
@@ -1065,7 +826,6 @@ def run_comprehensive_tests():
         TestExport,
         TestComplexExamples,
         TestErrorHandling,
-        TestDeclarativeConstraints,
     ]
 
     for test_class in test_classes:

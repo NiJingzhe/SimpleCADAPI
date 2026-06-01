@@ -8,6 +8,10 @@ def meta(path: str, op: str, value_: Any) -> SerializablePredicate
 
 *Source: ql.py*
 
+## Import Surface
+
+- submodule: `from simplecadapi.ql import meta` or `simplecadapi.ql.meta`
+
 ## Description
 
 Build a metadata comparison predicate for QL filtering.

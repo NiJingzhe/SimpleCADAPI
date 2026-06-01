@@ -8,6 +8,10 @@ def make_rectangle_rface(width: ScalarLike, height: ScalarLike, center: Tuple[Sc
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import make_rectangle_rface`
+
 ## Description
 
 Create a rectangular face.

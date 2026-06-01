@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
@@ -272,13 +274,17 @@ class SimpleWorkplane:
             global_x_dir = np.cross(global_y_dir, global_normal)
             global_x_dir = global_x_dir / np.linalg.norm(global_x_dir)
         self.cs = CoordinateSystem(tuple(global_origin), tuple(global_x_dir), tuple(global_y_dir))
+        self._token: Optional[Token[Tuple[CoordinateSystem, ...]]] = None
 
     def __enter__(self):
-        _current_cs.append(self.cs)
+        stack = _current_cs_stack.get()
+        self._token = _current_cs_stack.set((*stack, self.cs))
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        _current_cs.pop()
+        if self._token is not None:
+            _current_cs_stack.reset(self._token)
+            self._token = None
 
     def __str__(self) -> str:
         return self._format_string(indent=0)
@@ -295,11 +301,41 @@ class SimpleWorkplane:
         return "\n".join(result)
 
 
-_current_cs = [WORLD_CS]
+_current_cs_stack: ContextVar[Tuple[CoordinateSystem, ...]] = ContextVar(
+    "simplecadapi_current_cs_stack", default=(WORLD_CS,)
+)
 
 
 def get_current_cs() -> CoordinateSystem:
-    return _current_cs[-1]
+    return _current_cs_stack.get()[-1]
+
+
+def _coordinate_system_from_context(context: Dict[str, Any]) -> CoordinateSystem:
+    origin = context.get("origin", (0.0, 0.0, 0.0))
+    x_axis = context.get("x_axis", (1.0, 0.0, 0.0))
+    y_axis = context.get("y_axis", (0.0, 1.0, 0.0))
+    return CoordinateSystem(
+        cast(Tuple[float, float, float], tuple(float(v) for v in origin)),
+        cast(Tuple[float, float, float], tuple(float(v) for v in x_axis)),
+        cast(Tuple[float, float, float], tuple(float(v) for v in y_axis)),
+    )
+
+
+@contextmanager
+def use_coordinate_system(
+    cs_or_context: Union[CoordinateSystem, Dict[str, Any]]
+):
+    cs = (
+        cs_or_context
+        if isinstance(cs_or_context, CoordinateSystem)
+        else _coordinate_system_from_context(cs_or_context)
+    )
+    stack = _current_cs_stack.get()
+    token = _current_cs_stack.set((*stack, cs))
+    try:
+        yield
+    finally:
+        _current_cs_stack.reset(token)
 
 
 class TaggedMixin:
@@ -327,12 +363,15 @@ class TaggedMixin:
     def same_topology(self, other: Any) -> bool:
         return getattr(other, "topo_id", None) == self.topo_id
 
-    def add_tag(self, tag: str) -> None:
+    def _add_tag(self, tag: str) -> None:
         if not isinstance(tag, str):
             raise TypeError("标签必须是字符串类型")
+        tag = normalize_tag(tag, strict=True)
         self._tags.add(tag)
 
-    def apply_tag(self, tag: str, *, normalize: bool = True, propagate: Optional[bool] = None) -> None:
+    def _apply_tag(
+        self, tag: str, *, normalize: bool = True, propagate: Optional[bool] = None
+    ) -> None:
         if normalize:
             tag = normalize_tag(tag, strict=True)
         self._tags.add(tag)
@@ -353,14 +392,14 @@ class TaggedMixin:
                 child._tags.add(tag)
                 child._propagate_tag_down(tag)
 
-    def remove_tag(self, tag: str) -> None:
+    def _remove_tag(self, tag: str) -> None:
         self._tags.discard(tag)
 
-    def has_tag(self, tag: str) -> bool:
+    def _has_tag(self, tag: str) -> bool:
         return tag in self._tags
 
-    def get_tags(self) -> list[str]:
-        return list(set(self._tags.copy()))
+    def _list_tags(self) -> list[str]:
+        return sorted(self._tags)
 
     def set_metadata(self, key: str, value: Any) -> None:
         self._metadata[key] = value
@@ -521,7 +560,7 @@ class Edge(TaggedMixin, TopoMixein):
             part1 = f"from: {self.get_start_vertex().get_coordinates()}, to: {self.get_end_vertex().get_coordinates()}"
         except Exception:
             part1 = "from: [unable to retrieve], to: [unable to retrieve], usually this is a closed edge"
-        return f"Edge({part1}, length={length:.3f}, tags={self.get_tags()})"
+        return f"Edge({part1}, length={length:.3f}, tags={self._list_tags()})"
 
     def _format_string(self, indent: int = 0, show_coordinate_system: bool = False) -> str:
         spaces = "  " * indent
@@ -549,6 +588,7 @@ class Wire(TaggedMixin, TopoMixein):
             TopoMixein.__init__(self, level=2, self_shape_ref=self)
             for edge in edges_of(self.wrapped):
                 self.add_child(Edge(edge, cache=self._topology_cache))
+            self._tag_edges()
         except Exception as e:
             raise ValueError(f"初始化线失败: {e}. 请检查输入的线对象是否有效。")
 
@@ -567,17 +607,19 @@ class Wire(TaggedMixin, TopoMixein):
     def _tag_edges(self) -> None:
         policy = DEFAULT_TAG_POLICY
         for i, edge in enumerate(self.get_edges()):
-            for tag in self.get_tags():
+            for tag in self._list_tags():
                 if policy.should_propagate(tag):
-                    edge.add_tag(tag)
-            edge.add_tag("edge")
-            edge.add_tag(f"{i}")
+                    edge._add_tag(tag)
+            edge._apply_tag("edge.boundary", propagate=False)
+            geo = dict(edge.get_metadata("geo", {}))
+            geo["edge_index"] = i
+            edge.set_metadata("geo", geo)
 
     def __str__(self) -> str:
         return self._format_string(indent=0)
 
     def __repr__(self) -> str:
-        return f"Wire(edge_count={len(self.get_edges())}, closed={self.is_closed()}, tags={self.get_tags()})"
+        return f"Wire(edge_count={len(self.get_edges())}, closed={self.is_closed()}, tags={self._list_tags()})"
 
     def _format_string(self, indent: int = 0, show_coordinate_system: bool = False) -> str:
         spaces = "  " * indent
@@ -604,15 +646,13 @@ class Face(TaggedMixin, TopoMixein):
             TaggedMixin.__init__(self, self._topology_cache.get("face", self.wrapped))
             TopoMixein.__init__(self, level=3, self_shape_ref=self)
             outer_wire = Wire(outer_wire_of(self.wrapped), cache=self._topology_cache)
-            outer_wire.add_tag("outer_wire")
-            outer_wire.apply_tag("wire.outer", propagate=False)
+            outer_wire._apply_tag("wire.outer", propagate=False)
             self.add_child(outer_wire)
             for edge in outer_wire.get_edges():
                 edge._entity.incident_face_ids.add(self.topo_id)
             for wire in inner_wires_of(self.wrapped):
                 inner = Wire(wire, cache=self._topology_cache)
-                inner.add_tag("inner_wire")
-                inner.apply_tag("wire.inner", propagate=False)
+                inner._apply_tag("wire.inner", propagate=False)
                 self.add_child(inner)
                 for edge in inner.get_edges():
                     edge._entity.incident_face_ids.add(self.topo_id)
@@ -634,30 +674,30 @@ class Face(TaggedMixin, TopoMixein):
     def _tag_wires(self) -> None:
         policy = DEFAULT_TAG_POLICY
         outer_wire = self.get_outer_wire()
-        for tag in self.get_tags():
+        for tag in self._list_tags():
             if policy.should_propagate(tag):
-                outer_wire.add_tag(tag)
-        outer_wire.add_tag("outer_wire")
-        outer_wire.apply_tag("wire.outer", propagate=False)
+                outer_wire._add_tag(tag)
+        outer_wire._apply_tag("wire.outer", propagate=False)
         outer_wire._tag_edges()
         for i, inner in enumerate(self.get_inner_wires()):
-            for tag in self.get_tags():
+            for tag in self._list_tags():
                 if policy.should_propagate(tag):
-                    inner.add_tag(tag)
-            inner.add_tag("inner_wire")
-            inner.apply_tag("wire.inner", propagate=False)
-            inner.add_tag(f"{i}")
+                    inner._add_tag(tag)
+            inner._apply_tag("wire.inner", propagate=False)
+            geo = dict(inner.get_metadata("geo", {}))
+            geo["inner_wire_index"] = i
+            inner.set_metadata("geo", geo)
             inner._tag_edges()
 
     def get_outer_wire(self) -> Wire:
         try:
-            return [w for w in cast(List[Wire], self.get_children()) if w.is_closed() and (w.has_tag("outer_wire") or w.has_tag("wire.outer"))][0]
+            return [w for w in cast(List[Wire], self.get_children()) if w.is_closed() and w._has_tag("wire.outer")][0]
         except Exception as e:
             raise ValueError(f"获取外边界线失败: {e}")
 
     def get_inner_wires(self) -> List[Wire]:
         try:
-            return [w for w in cast(List[Wire], self.get_children()) if w.is_closed() and (w.has_tag("inner_wire") or w.has_tag("wire.inner"))]
+            return [w for w in cast(List[Wire], self.get_children()) if w.is_closed() and w._has_tag("wire.inner")]
         except Exception as e:
             raise ValueError(f"获取内边界线失败: {e}")
 
@@ -683,7 +723,7 @@ class Face(TaggedMixin, TopoMixein):
         return self._format_string(indent=0)
 
     def __repr__(self) -> str:
-        return f"Face(area={self.get_area():.3f}, normal={self.get_normal_at()}, center={self.get_center()}, tags={self.get_tags()})"
+        return f"Face(area={self.get_area():.3f}, normal={self.get_normal_at()}, center={self.get_center()}, tags={self._list_tags()})"
 
     def _format_string(self, indent: int = 0, show_coordinate_system: bool = False) -> str:
         spaces = "  " * indent
@@ -808,15 +848,14 @@ class Solid(TaggedMixin, TopoMixein):
             print(f"警告: 自动标记圆柱体面失败: {e}")
 
     def _tag_face(self, face: Face, tag: str) -> None:
-        face.add_tag(tag)
-        face.apply_tag(f"face.{tag}", propagate=False)
+        face._apply_tag(f"face.{tag}", propagate=False)
         face._tag_wires()
 
     def __str__(self) -> str:
         return self._format_string(indent=0)
 
     def __repr__(self) -> str:
-        return f"Solid(volume={self.get_volume():.3f}, faces={len(self.get_faces())}, tags={self.get_tags()})"
+        return f"Solid(volume={self.get_volume():.3f}, faces={len(self.get_faces())}, tags={self._list_tags()})"
 
     def _format_string(self, indent: int = 0, show_coordinate_system: bool = True) -> str:
         spaces = "  " * indent

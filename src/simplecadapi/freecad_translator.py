@@ -356,14 +356,6 @@ class FreeCADScriptTranslator:
         emit("except Exception:")
         emit("    Sketcher = None")
         emit("try:")
-        emit("    import Assembly")
-        emit("except Exception:")
-        emit("    Assembly = None")
-        emit("try:")
-        emit("    import JointObject")
-        emit("except Exception:")
-        emit("    JointObject = None")
-        emit("try:")
         emit("    import Spreadsheet")
         emit("except Exception:")
         emit("    Spreadsheet = None")
@@ -375,10 +367,10 @@ class FreeCADScriptTranslator:
         emit("GRAPH_NODES = {}")
         emit("GRAPH_OUTPUTS = {}")
         emit("GRAPH_METADATA = {}")
+        emit("GRAPH_SELECTIONS = {}")
+        emit("GRAPH_SPINE_OBJECTS = {}")
         emit("GRAPH_LIMITATIONS = {}")
-        emit("PART_REGISTRY = {}")
         emit("SKETCH_REGISTRY = []")
-        emit("CONSTRAINT_REGISTRY = []")
         expression_graph_payload = payload.get("expression_graph", {})
         if hasattr(expression_graph_payload, "to_dict"):
             expression_graph_payload = expression_graph_payload.to_dict()
@@ -420,12 +412,6 @@ class FreeCADScriptTranslator:
             "    _make_metadata_note('simplecad_expression_limitations', 'SimpleCAD Expression Limitations', GRAPH_LIMITATIONS)"
         )
         emit("")
-
-        assembly_payload = payload.get("assembly")
-        if isinstance(assembly_payload, dict):
-            for line in self._emit_assembly(assembly_payload, payload):
-                emit(line)
-            emit("")
 
         emit("doc.recompute()")
         emit("")
@@ -1000,13 +986,194 @@ def _shape_from_graph_node(node_id):
     value = GRAPH_NODES.get(node_id)
     if value is None:
         raise RuntimeError(f'Missing graph node {node_id!r}')
+    if isinstance(value, dict) and 'shape' in value:
+        return value['shape']
     if hasattr(value, 'Shape'):
         shape = getattr(value, 'Shape', None)
     else:
         shape = value
+    try:
+        shape_invalid = shape is None or shape.isNull()
+    except Exception:
+        shape_invalid = shape is None
+    if shape_invalid:
+        try:
+            doc.recompute()
+        except Exception:
+            pass
+        if hasattr(value, 'Shape'):
+            shape = getattr(value, 'Shape', None)
     if shape is None or shape.isNull():
         raise RuntimeError(f'Graph node {node_id!r} has no valid shape')
     return shape
+
+
+def _subshape_candidates_for_kind(shape, kind):
+    kind = str(kind).lower()
+    if kind == 'solid':
+        return list(getattr(shape, 'Solids', []) or [shape])
+    if kind == 'face':
+        return list(getattr(shape, 'Faces', []) or [])
+    if kind == 'edge':
+        return list(getattr(shape, 'Edges', []) or [])
+    if kind == 'wire':
+        return list(getattr(shape, 'Wires', []) or [])
+    if kind == 'vertex':
+        return list(getattr(shape, 'Vertexes', []) or [])
+    return []
+
+
+def _point_tuple(point):
+    return (float(point.x), float(point.y), float(point.z))
+
+
+def _candidate_center(candidate):
+    center = getattr(candidate, 'CenterOfMass', None)
+    if center is not None:
+        return _point_tuple(center)
+    bound_box = getattr(candidate, 'BoundBox', None)
+    if bound_box is not None:
+        return (
+            (float(bound_box.XMin) + float(bound_box.XMax)) / 2.0,
+            (float(bound_box.YMin) + float(bound_box.YMax)) / 2.0,
+            (float(bound_box.ZMin) + float(bound_box.ZMax)) / 2.0,
+        )
+    return None
+
+
+def _tuple3(value):
+    if isinstance(value, (list, tuple)) and len(value) == 3:
+        return (float(value[0]), float(value[1]), float(value[2]))
+    return None
+
+
+def _dist3(a, b):
+    if a is None or b is None:
+        return 1e6
+    return math.dist(a, b)
+
+
+def _bbox_selector_score(candidate, selector):
+    bbox = selector.get('bbox') if isinstance(selector, dict) else None
+    bound_box = getattr(candidate, 'BoundBox', None)
+    if not isinstance(bbox, dict) or bound_box is None:
+        return 0.0
+    expected_min = _tuple3(bbox.get('min'))
+    expected_max = _tuple3(bbox.get('max'))
+    if expected_min is None or expected_max is None:
+        return 1e6
+    actual_min = (float(bound_box.XMin), float(bound_box.YMin), float(bound_box.ZMin))
+    actual_max = (float(bound_box.XMax), float(bound_box.YMax), float(bound_box.ZMax))
+    return _dist3(actual_min, expected_min) + _dist3(actual_max, expected_max)
+
+
+def _geo_selector_score(candidate, selector, candidate_index):
+    score = _bbox_selector_score(candidate, selector) * 10.0
+    kind = str(selector.get('kind', '')).lower()
+    if kind == 'edge':
+        if 'length' in selector and hasattr(candidate, 'Length'):
+            score += abs(float(candidate.Length) - float(selector['length'])) * 10.0
+        score += _dist3(_candidate_center(candidate), _tuple3(selector.get('center'))) * 10.0
+        vertices = list(getattr(candidate, 'Vertexes', []) or [])
+        if len(vertices) >= 2:
+            start = _point_tuple(vertices[0].Point)
+            end = _point_tuple(vertices[-1].Point)
+            expected_start = _tuple3(selector.get('start'))
+            expected_end = _tuple3(selector.get('end'))
+            if expected_start is not None and expected_end is not None:
+                direct = _dist3(start, expected_start) + _dist3(end, expected_end)
+                reverse = _dist3(start, expected_end) + _dist3(end, expected_start)
+                score += min(direct, reverse)
+    elif kind == 'face':
+        if 'area' in selector and hasattr(candidate, 'Area'):
+            score += abs(float(candidate.Area) - float(selector['area']))
+        score += _dist3(_candidate_center(candidate), _tuple3(selector.get('center'))) * 10.0
+    elif kind == 'vertex':
+        point = getattr(candidate, 'Point', None)
+        if point is not None:
+            score += _dist3(_point_tuple(point), _tuple3(selector.get('coordinates'))) * 10.0
+    elif kind == 'wire':
+        edges = list(getattr(candidate, 'Edges', []) or [])
+        if 'edge_count' in selector:
+            score += abs(len(edges) - int(selector['edge_count'])) * 10.0
+    elif kind == 'solid':
+        if 'volume' in selector and hasattr(candidate, 'Volume'):
+            score += abs(float(candidate.Volume) - float(selector['volume']))
+    if selector.get('source_index') is not None:
+        score += 0.0 if int(selector['source_index']) == int(candidate_index) else 1e-6
+    return score
+
+
+def _selection_index_for_selector(source_shape, selector):
+    kind = str(selector.get('kind') or selector.get('target_kind') or '').lower()
+    candidates = _subshape_candidates_for_kind(source_shape, kind)
+    if not candidates:
+        raise RuntimeError(f'No {kind} candidates available for geo selection')
+    if selector.get('source_index') is not None:
+        idx = int(selector['source_index'])
+        if 0 <= idx < len(candidates):
+            return idx
+    ranked = sorted(
+        enumerate(candidates),
+        key=lambda item: _geo_selector_score(item[1], selector, item[0]),
+    )
+    best_index, best_candidate = ranked[0]
+    best_score = _geo_selector_score(best_candidate, selector, best_index)
+    if best_score > 1e-4:
+        raise RuntimeError(f'Geo selector did not match a stable {kind} candidate; best score={best_score:.6g}')
+    return int(best_index)
+
+
+def _register_geo_selection_node(*, node_id, op, params, inputs, tags, context, output_count, param_exprs=None, semantic_delta=None, topo_delta=None):
+    if not inputs:
+        raise RuntimeError(f'Selection node {node_id!r} is missing its source input')
+    selector = dict(params.get('geo_selector') or {})
+    source_node_id = str(inputs[0])
+    source_shape = _shape_from_graph_node(source_node_id)
+    index = _selection_index_for_selector(source_shape, selector)
+    candidates = _subshape_candidates_for_kind(source_shape, selector.get('kind'))
+    selected_shape = candidates[index]
+    payload = {
+        'node_id': node_id,
+        'op': op,
+        'params': params,
+        'inputs': list(inputs),
+        'context': context or {},
+        'tags': list(tags or []),
+        'output_count': int(output_count),
+        'selector': selector,
+        'index': int(index),
+        'kind': str(selector.get('kind', '')),
+        'shape': selected_shape,
+    }
+    obj = doc.addObject('Part::Feature', f'{str(op)}_{str(node_id)}')
+    obj.Shape = selected_shape
+    registered = _register_graph_object(
+        obj,
+        node_id=node_id,
+        op=op,
+        params=params,
+        inputs=inputs,
+        tags=tags,
+        context=context,
+        output_count=output_count,
+        param_exprs=param_exprs,
+        semantic_delta=semantic_delta,
+        topo_delta=topo_delta,
+    )
+    GRAPH_SELECTIONS[node_id] = payload
+    return registered
+
+
+def _selected_indices_from_nodes(node_ids, fallback_indices):
+    indices = []
+    for node_id in node_ids or []:
+        payload = GRAPH_SELECTIONS.get(str(node_id)) or GRAPH_NODES.get(str(node_id))
+        if isinstance(payload, dict) and 'index' in payload:
+            indices.append(int(payload['index']))
+    if indices:
+        return indices
+    return [int(idx) for idx in (fallback_indices or [])]
 
 
 def _local_line_from_edge(obj, origin, x_axis, y_axis):
@@ -1124,6 +1291,37 @@ def _wire_shape_from_edge_objects(node_ids):
         shape = _shape_from_graph_node(node_id)
         shapes.append(shape)
     return Part.Wire(shapes)
+
+
+def _shape_is_null(shape):
+    try:
+        return shape is None or shape.isNull()
+    except Exception:
+        return shape is None
+
+
+def _spine_object(node_id):
+    node_id = str(node_id)
+    cached = GRAPH_SPINE_OBJECTS.get(node_id)
+    if cached is not None:
+        return cached
+    obj = GRAPH_NODES[node_id]
+    try:
+        shape = getattr(obj, 'Shape', None)
+    except Exception:
+        shape = None
+    if not _shape_is_null(shape):
+        return obj
+    meta = GRAPH_METADATA.get(node_id, {})
+    if str(meta.get('op', '')) == 'make_wire_from_edges_rwire':
+        edge_ids = list(meta.get('inputs') or [])
+        if edge_ids:
+            fallback = doc.addObject('Part::Feature', f'make_spine_wire_{node_id}')
+            fallback.Shape = _wire_shape_from_edge_objects(edge_ids)
+            _set_visibility(fallback, False)
+            GRAPH_SPINE_OBJECTS[node_id] = fallback
+            return fallback
+    return obj
 
 
 def _build_face_from_source(source_obj, name):
@@ -1656,72 +1854,6 @@ def _resolve_vec3_param(params, param_exprs, key):
     )
 
 
-def _make_native_assembly(name):
-    if Assembly is None:
-        return None
-    assembly = doc.addObject('Assembly::AssemblyObject', name)
-    if hasattr(assembly, 'Type'):
-        assembly.Type = 'Assembly'
-    assembly.newObject('Assembly::JointGroup', 'Joints')
-    return assembly
-
-
-def _make_native_joint(assembly, joint_name, joint_kind, payload):
-    if assembly is None or JointObject is None:
-        return None
-    joint_group = None
-    for obj in getattr(assembly, 'OutList', []):
-        if getattr(obj, 'TypeId', '') == 'Assembly::JointGroup':
-            joint_group = obj
-            break
-    if joint_group is None:
-        joint_group = assembly.newObject('Assembly::JointGroup', 'Joints')
-    joint = joint_group.newObject('App::FeaturePython', joint_name)
-    joint_type_index = {
-        'coincident': 0,
-        'concentric': 1,
-        'offset': 5,
-        'distance': 5,
-    }.get(str(joint_kind).lower(), 0)
-    JointObject.Joint(joint, joint_type_index)
-    if hasattr(joint, 'Distance') and 'distance' in payload:
-        try:
-            joint.Distance = float(payload['distance'])
-        except Exception:
-            pass
-        _bind_expression(joint, 'Distance', payload.get('distance_expr'))
-    if hasattr(joint, 'Angle') and 'angle' in payload:
-        try:
-            joint.Angle = float(payload['angle'])
-        except Exception:
-            pass
-        _bind_expression(joint, 'Angle', payload.get('angle_expr'))
-    return joint
-
-
-def _point_anchor_placement(anchor):
-    point = anchor.get('local_point', [0.0, 0.0, 0.0])
-    return App.Placement(_vec(point), App.Rotation())
-
-
-def _axis_anchor_placement(anchor):
-    point = anchor.get('local_point', [0.0, 0.0, 0.0])
-    direction = anchor.get('local_direction', [0.0, 0.0, 1.0])
-    z_axis = App.Vector(float(direction[0]), float(direction[1]), float(direction[2]))
-    rotation = App.Rotation(App.Vector(0.0, 0.0, 1.0), z_axis)
-    return App.Placement(_vec(point), rotation)
-
-
-def _joint_reference_from_anchor(anchor):
-    if not isinstance(anchor, dict):
-        return None
-    part_name = anchor.get('part')
-    if not part_name:
-        return None
-    part_obj = PART_REGISTRY.get(str(part_name))
-    if part_obj is None:
-        return None
-    return (part_obj, [])
 """.strip()
 
     def _emit_node(self, node: OperationNode) -> List[str]:
@@ -1822,6 +1954,17 @@ def _joint_reference_from_anchor(anchor):
         def finish_alias(source_node_id: str) -> List[str]:
             return [
                 f"{var_name} = _register_graph_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(source_node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+            ]
+
+        if node.op in {
+            "make_select_rvertex",
+            "make_select_redge",
+            "make_select_rwire",
+            "make_select_rface",
+            "make_select_rsolid",
+        } and len(inputs) == 1:
+            return [
+                f"{var_name} = _register_geo_selection_node(node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
 
         if node.op == "make_line_redge":
@@ -2234,7 +2377,7 @@ def _joint_reference_from_anchor(anchor):
             lines = [
                 f"{var_name} = doc.addObject('Part::Sweep', {_json_ascii(object_name)})",
                 f"{var_name}.Sections = [GRAPH_NODES[{_json_ascii(inputs[0])}]]",
-                f"{var_name}.Spine = GRAPH_NODES[{_json_ascii(inputs[1])}]",
+                f"{var_name}.Spine = _spine_object({_json_ascii(inputs[1])})",
                 f"{var_name}.Solid = True",
                 f"{var_name}.Frenet = bool(_resolve_param_value({rp}, {re}, 'is_frenet') if 'is_frenet' in {rp} else False)",
             ]
@@ -2295,21 +2438,21 @@ def _joint_reference_from_anchor(anchor):
             lines.extend(finish())
             return lines
 
-        if node.op == "make_fillet_rsolid" and len(inputs) == 1:
+        if node.op == "make_fillet_rsolid" and len(inputs) >= 1:
             lines = [
                 f"{var_name} = doc.addObject('Part::Fillet', {_json_ascii(object_name)})",
                 f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
-                f"{var_name}.Edges = [(int(idx) + 1, float(_resolve_param_value({rp}, {re}, 'radius')), float(_resolve_param_value({rp}, {re}, 'radius'))) for idx in {rp}.get('selected_edge_indices', [])]",
+                f"{var_name}.Edges = [(int(idx) + 1, float(_resolve_param_value({rp}, {re}, 'radius')), float(_resolve_param_value({rp}, {re}, 'radius'))) for idx in _selected_indices_from_nodes({rp}.get('selected_edge_node_ids', []), {rp}.get('selected_edge_indices', []))]",
             ]
             lines.append(f"_apply_detail_feature_bindings({var_name}, {re}, 'radius')")
             lines.extend(finish())
             return lines
 
-        if node.op == "make_chamfer_rsolid" and len(inputs) == 1:
+        if node.op == "make_chamfer_rsolid" and len(inputs) >= 1:
             lines = [
                 f"{var_name} = doc.addObject('Part::Chamfer', {_json_ascii(object_name)})",
                 f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
-                f"{var_name}.Edges = [(int(idx) + 1, float(_resolve_param_value({rp}, {re}, 'distance')), float(_resolve_param_value({rp}, {re}, 'distance'))) for idx in {rp}.get('selected_edge_indices', [])]",
+                f"{var_name}.Edges = [(int(idx) + 1, float(_resolve_param_value({rp}, {re}, 'distance')), float(_resolve_param_value({rp}, {re}, 'distance'))) for idx in _selected_indices_from_nodes({rp}.get('selected_edge_node_ids', []), {rp}.get('selected_edge_indices', []))]",
             ]
             lines.append(
                 f"_apply_detail_feature_bindings({var_name}, {re}, 'distance')"
@@ -2317,7 +2460,7 @@ def _joint_reference_from_anchor(anchor):
             lines.extend(finish())
             return lines
 
-        if node.op == "make_shell_rsolid" and len(inputs) == 1:
+        if node.op == "make_shell_rsolid" and len(inputs) >= 1:
             lines = [
                 f"{var_name} = doc.addObject('Part::Thickness', {_json_ascii(object_name)})",
                 f"{var_name}.Value = float(_resolve_param_value({rp}, {re}, 'thickness'))",
@@ -2325,8 +2468,8 @@ def _joint_reference_from_anchor(anchor):
             lines.append(
                 f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
             )
-            if node.params.get("selected_face_indices"):
-                face_name_expr = f"['Face' + str(int(i) + 1) for i in {rp}.get('selected_face_indices', [])]"
+            if node.params.get("selected_face_indices") or node.params.get("selected_face_node_ids"):
+                face_name_expr = f"['Face' + str(int(i) + 1) for i in _selected_indices_from_nodes({rp}.get('selected_face_node_ids', []), {rp}.get('selected_face_indices', []))]"
                 lines.append(
                     f"{var_name}.Faces = (GRAPH_NODES[{_json_ascii(inputs[0])}], {face_name_expr})"
                 )
@@ -2418,97 +2561,6 @@ def _joint_reference_from_anchor(anchor):
         if "kind" in payload and hasattr(payload["kind"], "name"):
             payload["kind"] = payload["kind"].name
         return payload
-
-    def _emit_assembly(
-        self, assembly_payload: Dict[str, Any], payload: Dict[str, Any]
-    ) -> List[str]:
-        lines: List[str] = ["# Assembly + constraint metadata"]
-        asm_name = str(assembly_payload.get("name", "assembly"))
-        parts = assembly_payload.get("parts", [])
-        constraints = assembly_payload.get("constraints") or assembly_payload.get(
-            "constraint_param_exprs", []
-        )
-        lines.append(
-            f"native_assembly = _make_native_assembly({_json_ascii(_safe_name(f'assembly_{asm_name}', prefix='asm'))})"
-        )
-        lines.append(
-            f"assembly_meta = _make_metadata_note({_json_ascii(_safe_name(f'assembly_{asm_name}_meta', prefix='asm'))}, {_json_ascii('SimpleCAD Assembly')}, {_py_literal({'name': asm_name, 'parts': parts})})"
-        )
-        lines.append("_ensure_string_list_property(assembly_meta, 'PartNames')")
-        lines.append(
-            f"assembly_meta.PartNames = {[str(part.get('name')) for part in parts]!r}"
-        )
-
-        for idx, part in enumerate(parts):
-            part_name = str(part.get("name", f"part_{idx}"))
-            note_name = _safe_name(
-                f"assembly_part_{asm_name}_{part_name}", prefix="part"
-            )
-            lines.append(
-                f"assembly_part_{idx} = native_assembly.newObject('App::Part', {_json_ascii(_safe_name(part_name, prefix='part'))}) if native_assembly is not None else None"
-            )
-            lines.append(
-                f"PART_REGISTRY[{_json_ascii(part_name)}] = assembly_part_{idx}"
-            )
-            lines.append(
-                f"_make_metadata_note({_json_ascii(note_name)}, {_json_ascii('SimpleCAD Assembly Part')}, {_py_literal(part)})"
-            )
-
-        for idx, constraint in enumerate(
-            constraints if isinstance(constraints, list) else []
-        ):
-            note_name = _safe_name(f"constraint_{asm_name}_{idx}", prefix="constraint")
-            lines.append(
-                f"constraint_note_{idx} = _make_metadata_note({_json_ascii(note_name)}, {_json_ascii('SimpleCAD Constraint')}, {_py_literal(constraint)})"
-            )
-            lines.append(
-                "_ensure_string_property(constraint_note_{0}, 'ConstraintType')".format(
-                    idx
-                )
-            )
-            lines.append(
-                f"constraint_note_{idx}.ConstraintType = {_json_ascii(str(constraint.get('type', 'constraint')))}"
-            )
-            lines.append(
-                f"native_joint_{idx} = _make_native_joint(native_assembly, {_json_ascii(f'Joint_{idx}')}, {_json_ascii(str(constraint.get('type', 'constraint')))}, {_py_literal(constraint)})"
-            )
-            reference = (
-                constraint.get("reference") if isinstance(constraint, dict) else None
-            )
-            moving = constraint.get("moving") if isinstance(constraint, dict) else None
-            if isinstance(reference, dict):
-                lines.append(
-                    f"native_joint_{idx}.Reference1 = _joint_reference_from_anchor({_py_literal(reference)}) if native_joint_{idx} is not None and hasattr(native_joint_{idx}, 'Reference1') else None"
-                )
-                if reference.get("kind") == "axis":
-                    lines.append(
-                        f"native_joint_{idx}.Placement1 = _axis_anchor_placement({_py_literal(reference)}) if native_joint_{idx} is not None and hasattr(native_joint_{idx}, 'Placement1') else None"
-                    )
-                else:
-                    lines.append(
-                        f"native_joint_{idx}.Placement1 = _point_anchor_placement({_py_literal(reference)}) if native_joint_{idx} is not None and hasattr(native_joint_{idx}, 'Placement1') else None"
-                    )
-            if isinstance(moving, dict):
-                lines.append(
-                    f"native_joint_{idx}.Reference2 = _joint_reference_from_anchor({_py_literal(moving)}) if native_joint_{idx} is not None and hasattr(native_joint_{idx}, 'Reference2') else None"
-                )
-                if moving.get("kind") == "axis":
-                    lines.append(
-                        f"native_joint_{idx}.Placement2 = _axis_anchor_placement({_py_literal(moving)}) if native_joint_{idx} is not None and hasattr(native_joint_{idx}, 'Placement2') else None"
-                    )
-                else:
-                    lines.append(
-                        f"native_joint_{idx}.Placement2 = _point_anchor_placement({_py_literal(moving)}) if native_joint_{idx} is not None and hasattr(native_joint_{idx}, 'Placement2') else None"
-                    )
-            lines.append(f"CONSTRAINT_REGISTRY.append(constraint_note_{idx})")
-
-        expr_graph = assembly_payload.get("expression_graph")
-        if isinstance(expr_graph, dict):
-            lines.append(
-                f"_make_metadata_note({_json_ascii(_safe_name(f'assembly_expr_{asm_name}', prefix='expr'))}, {_json_ascii('SimpleCAD Assembly Expression Graph')}, {_py_literal(expr_graph)})"
-            )
-        return lines
-
 
 def translate_model_json_to_freecad_script(
     json_str: str,

@@ -8,6 +8,10 @@ def linear_pattern_rsolidlist(shape: AnyShape, direction: Tuple[float, float, fl
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import linear_pattern_rsolidlist`
+
 ## Description
 
 Create a linear pattern of solids.

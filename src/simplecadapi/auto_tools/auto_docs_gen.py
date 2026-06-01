@@ -17,9 +17,7 @@ from typing import Dict, Iterable, List, Sequence
 
 DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "operations.py",
-    "field.py",
     "evolve.py",
-    "constraints.py",
     "ql.py",
     "serializer.py",
     "expr.py",
@@ -32,9 +30,7 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
 FULL_PUBLIC_FUNCTION_MODULES = frozenset(
     {
         "operations.py",
-        "field.py",
         "evolve.py",
-        "constraints.py",
         "ql.py",
     }
 )
@@ -88,6 +84,7 @@ class ApiInfo:
     signature: str
     source_file: str
     parsed_doc: Dict[str, object]
+    import_surface: str
     doc_filename: str = ""
 
 
@@ -106,6 +103,7 @@ class APIDocumentGenerator:
         self.clean_stale = clean_stale
         self.quiet = quiet
         self.apis: List[ApiInfo] = []
+        self.exported_names = self._load_top_level_exports()
 
     def log(self, message: str) -> None:
         if not self.quiet:
@@ -116,7 +114,7 @@ class APIDocumentGenerator:
         self.log("正在分析源文件...")
 
         extracted: List[ApiInfo] = []
-        exported_names = self._load_top_level_exports()
+        exported_names = self.exported_names
         for file_path in self.source_files:
             if not file_path.exists():
                 self.log(f"警告: 找不到文件 {file_path}，跳过。")
@@ -162,6 +160,7 @@ class APIDocumentGenerator:
                     signature=api.signature,
                     source_file=api.source_file,
                     parsed_doc=api.parsed_doc,
+                    import_surface=api.import_surface,
                     doc_filename=filename,
                 )
             )
@@ -190,6 +189,7 @@ class APIDocumentGenerator:
                 signature=self._get_function_signature(node),
                 source_file=module_name,
                 parsed_doc=self._parse_docstring(docstring),
+                import_surface=self._import_surface_for(node.name, module_name),
             )
 
         if isinstance(node, ast.ClassDef):
@@ -206,6 +206,7 @@ class APIDocumentGenerator:
                 signature=self._get_class_signature(node),
                 source_file=module_name,
                 parsed_doc=self._parse_docstring(docstring),
+                import_surface=self._import_surface_for(node.name, module_name),
             )
 
         return None
@@ -263,6 +264,19 @@ class APIDocumentGenerator:
                     exported.add(item.value)
             return exported
         return set()
+
+    def _import_surface_for(self, name: str, module_name: str) -> str:
+        if name in self.exported_names:
+            return f"top-level: `from simplecadapi import {name}`"
+
+        module_stem = module_name.removesuffix(".py")
+        if module_stem in {"field", "ql"}:
+            return (
+                f"submodule: `from simplecadapi.{module_stem} import {name}` "
+                f"or `simplecadapi.{module_stem}.{name}`"
+            )
+
+        return f"submodule: `from simplecadapi.{module_stem} import {name}`"
 
     def _find_top_level_init_file(self) -> Path | None:
         for source_file in self.source_files:
@@ -327,6 +341,11 @@ class APIDocumentGenerator:
         md_lines.append("```")
         md_lines.append("")
         md_lines.append(f"*Source: {api.source_file}*")
+        md_lines.append("")
+
+        md_lines.append("## Import Surface")
+        md_lines.append("")
+        md_lines.append(f"- {api.import_surface}")
         md_lines.append("")
 
         description = str(parsed.get("description", "")).strip()
@@ -399,7 +418,6 @@ class APIDocumentGenerator:
             "Types and Errors": [],
             "Advanced Features": [],
             "Evolve": [],
-            "Assembly Constraints": [],
             "Other": [],
         }
 
@@ -408,10 +426,6 @@ class APIDocumentGenerator:
 
             if api.source_file == "evolve.py":
                 categories["Evolve"].append(api)
-                continue
-
-            if api.source_file == "constraints.py":
-                categories["Assembly Constraints"].append(api)
                 continue
 
             if api.source_file in {"serializer.py", "graph.py"}:
@@ -432,7 +446,7 @@ class APIDocumentGenerator:
                 categories["Transforms"].append(api)
             elif name.startswith(("extrude_", "revolve_", "loft_", "sweep_")):
                 categories["3D Operations"].append(api)
-            elif name.startswith(("set_tag", "select_")):
+            elif name.startswith(("apply_tag", "list_tags", "select_")):
                 categories["Tagging and Selection"].append(api)
             elif name.startswith(("union_", "cut_", "intersect_")):
                 categories["Boolean Operations"].append(api)
@@ -450,6 +464,11 @@ class APIDocumentGenerator:
             "",
             "This index includes generated docs for the public SimpleCAD API surface, including v2 graph, expression, and model JSON workflows.",
             "",
+            "## Import Surfaces",
+            "",
+            "- Entries marked `top-level` are exported from `simplecadapi` and can be imported with `from simplecadapi import <name>`.",
+            "- Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.",
+            "",
         ]
 
         for category, api_list in categories.items():
@@ -459,8 +478,15 @@ class APIDocumentGenerator:
             md_lines.append("")
             for api in sorted(api_list, key=lambda item: item.name):
                 source_info = f" *(from {api.source_file})*"
+                surface_info = (
+                    " `top-level`"
+                    if api.name in self.exported_names
+                    else f" `submodule:{api.source_file.removesuffix('.py')}`"
+                )
                 doc_filename = api.doc_filename or f"{api.name}.md"
-                md_lines.append(f"- [{api.name}]({doc_filename}){source_info}")
+                md_lines.append(
+                    f"- [{api.name}]({doc_filename}){source_info}{surface_info}"
+                )
             md_lines.append("")
 
         return "\n".join(md_lines).rstrip() + "\n"

@@ -10,8 +10,10 @@ from simplecadapi.graph import GraphSession, record_operation
 from simplecadapi.serializer import (
     export_graph_json,
     import_graph_json,
+    import_model_json,
     replay_graph,
     PUBLIC_API_COVERAGE,
+    CANONICAL_CORE_OP_SET,
 )
 
 
@@ -135,47 +137,12 @@ class TestExportImport(unittest.TestCase):
         self.assertIn("producer_version", payload)
         self.assertIn("capabilities", payload)
         self.assertTrue(payload["capabilities"]["selection_ref_strategies"])
+        self.assertTrue(payload["capabilities"]["geo_select_nodes"])
         self.assertTrue(payload["capabilities"]["display_payload"])
 
-    def test_export_graph_json_includes_scalar_field_tree(self):
-        sphere = scad.field.make_sphere_rscalarfield((0.0, 0.0, 0.0), 1.4)
-        box = scad.field.make_box_rscalarfield((0.3, 0.0, 0.0), (1.0, 0.8, 0.8))
-        field = scad.field.smooth_subtract_rscalarfield(sphere, box, 0.1)
-
-        with scad.GraphSession() as session:
-            scad.make_field_surface_rsolid(field, resolution=(12, 12, 12), iso=0.0)
-
-        payload = json.loads(export_graph_json(session.graph))
-        node = next(
-            node
-            for node in payload["nodes"]
-            if node["op"] == "make_field_surface_rsolid"
-        )
-
-        self.assertEqual(node["params"]["field_serialization_mode"], "scalar_field")
-        self.assertEqual(node["params"]["field_tree"]["op"], "smooth_subtract")
-
-    def test_export_graph_json_marks_callable_field_as_opaque(self):
-        def sphere_fn(x, y, z):
-            return (x**2 + y**2 + z**2) ** 0.5 - 1.0
-
-        with scad.GraphSession() as session:
-            scad.make_field_surface_rsolid(
-                sphere_fn,
-                bounds=((-2.0, -2.0, -2.0), (2.0, 2.0, 2.0)),
-                resolution=(10, 10, 10),
-                iso=0.0,
-            )
-
-        payload = json.loads(export_graph_json(session.graph))
-        node = next(
-            node
-            for node in payload["nodes"]
-            if node["op"] == "make_field_surface_rsolid"
-        )
-
-        self.assertEqual(node["params"]["field_serialization_mode"], "opaque_callable")
-        self.assertNotIn("field_tree", node["params"])
+    def test_sdf_field_surface_api_is_not_public(self):
+        self.assertFalse(hasattr(scad, "field"))
+        self.assertFalse(hasattr(scad, "make_field_surface_rsolid"))
 
 
 class TestCoverageMatrix(unittest.TestCase):
@@ -204,30 +171,92 @@ class TestCoverageMatrix(unittest.TestCase):
             "shell_rsolid",
             "linear_pattern_rsolidlist",
             "radial_pattern_rsolidlist",
-            "make_field_surface_rsolid",
         }
         self.assertTrue(expected.issubset(PUBLIC_API_COVERAGE.keys()))
 
-    def test_known_out_of_scope_entries_are_explicit(self):
-        self.assertEqual(
-            PUBLIC_API_COVERAGE["make_field_surface_rsolid"]["status"], "replayable"
-        )
-        self.assertIn(
-            "callable", PUBLIC_API_COVERAGE["make_field_surface_rsolid"]["reason"]
-        )
+    def test_replayable_public_api_coverage_targets_canonical_ops(self):
+        canonical = set(CANONICAL_CORE_OP_SET)
+        for api_name, coverage in PUBLIC_API_COVERAGE.items():
+            if coverage.get("status") != "replayable":
+                continue
+            with self.subTest(api_name=api_name):
+                self.assertIn(coverage.get("op"), canonical)
+
+    def test_sdf_entries_are_not_part_of_public_api_coverage(self):
+        self.assertNotIn("make_field_surface_rsolid", PUBLIC_API_COVERAGE)
 
     def test_import_graph_json(self):
-        json_str = '{"schema_version": "1.0", "graph_id": "test", "nodes": [{"node_id": "n1", "op": "make_line_redge", "params": {"start": [0, 0, 0], "end": [10, 0, 0]}, "inputs": [], "output_count": 1, "tags": []}], "edges": []}'
+        json_str = '{"schema_version": "2.0", "graph_id": "test", "nodes": [{"node_id": "n1", "op": "make_line_redge", "params": {"start": [0, 0, 0], "end": [10, 0, 0]}, "inputs": [], "output_count": 1, "tags": []}], "edges": []}'
         graph = import_graph_json(json_str)
         self.assertEqual(graph.node_count, 1)
         self.assertEqual(graph.nodes[0].op, "make_line_redge")
 
     def test_import_graph_json_rejects_unsupported_schema(self):
         json_str = (
-            '{"schema_version": "2.0", "graph_id": "test", "nodes": [], "edges": []}'
+            '{"schema_version": "1.0", "graph_id": "test", "nodes": [], "edges": []}'
         )
         with self.assertRaises(ValueError):
             import_graph_json(json_str)
+
+    def test_canonical_core_op_set_is_exact_contract(self):
+        expected = {
+            "make_point_rvertex",
+            "make_line_redge",
+            "make_circle_redge",
+            "make_three_point_arc_redge",
+            "make_angle_arc_redge",
+            "make_spline_redge",
+            "make_helix_redge",
+            "make_wire_from_edges_rwire",
+            "make_face_from_wire_rface",
+            "make_extrude_rsolid",
+            "make_revolve_rsolid",
+            "make_loft_rsolid",
+            "make_sweep_rsolid",
+            "make_translate_rshape",
+            "make_rotate_rshape",
+            "make_mirror_rshape",
+            "make_cut_rsolidlist",
+            "make_union_rsolid",
+            "make_intersect_rsolidlist",
+            "make_fillet_rsolid",
+            "make_chamfer_rsolid",
+            "make_shell_rsolid",
+            "make_select_rvertex",
+            "make_select_redge",
+            "make_select_rwire",
+            "make_select_rface",
+            "make_select_rsolid",
+        }
+
+        self.assertEqual(set(CANONICAL_CORE_OP_SET), expected)
+
+    def test_import_graph_json_rejects_legacy_op_name(self):
+        payload = {
+            "schema_version": "2.0",
+            "graph_id": "test",
+            "nodes": [
+                {
+                    "node_id": "n1",
+                    "op": "make_line",
+                    "params": {"start": [0, 0, 0], "end": [1, 0, 0]},
+                    "inputs": [],
+                    "output_count": 1,
+                    "tags": [],
+                }
+            ],
+            "edges": [],
+        }
+
+        with self.assertRaises(ValueError):
+            import_graph_json(json.dumps(payload))
+
+    def test_export_graph_json_rejects_legacy_op_name(self):
+        graph = OperationGraph()
+        graph.add_node("make_line", {"start": (0, 0, 0), "end": (1, 0, 0)})
+
+        with self.assertRaises(ValueError):
+            export_graph_json(graph)
 
 
 class TestReplay(unittest.TestCase):
@@ -254,7 +283,7 @@ class TestReplay(unittest.TestCase):
                 "make_extrude_rsolid", {"direction": (0, 0, 1), "distance": 10.0}
             )
 
-        results = replay_graph(session.graph)
+        results = replay_graph(session.graph, strict=False)
         self.assertGreaterEqual(len(results), 0)
 
     def test_replay_empty_graph(self):
@@ -433,13 +462,49 @@ class TestReplay(unittest.TestCase):
         fillet_node = next(
             node for node in payload["nodes"] if node["op"] == "make_fillet_rsolid"
         )
-        self.assertIn("selection_query", fillet_node["params"])
-        self.assertEqual(
-            fillet_node["params"]["selection_query"]["target_kind"], "edge"
+        self.assertNotIn("selection_query", fillet_node["params"])
+        selection_node_ids = fillet_node["params"]["selected_edge_node_ids"]
+        self.assertEqual(len(selection_node_ids), 1)
+        selection_node = next(
+            node for node in payload["nodes"] if node["node_id"] == selection_node_ids[0]
         )
+        self.assertEqual(selection_node["op"], "make_select_redge")
+        self.assertEqual(selection_node["params"]["target_kind"], "edge")
+        self.assertEqual(selection_node["params"]["geo_selector"]["kind"], "edge")
+        self.assertNotIn("tags", selection_node["params"]["geo_selector"])
 
         restored = import_graph_json(json.dumps(payload))
         results = replay_graph(restored)
+
+        self.assertEqual(len(results), 1)
+        self.assertIsInstance(results[0], scad.Solid)
+        self.assertAlmostEqual(results[0].get_volume(), filleted.get_volume(), places=5)
+
+    def test_ql_tag_filter_records_geo_select_node_not_tag_selector(self):
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(4.0, 4.0, 4.0)
+            scad.apply_tag(box.get_edges()[0], "role.target_edge")
+            selector = scad.ql.edges().where(scad.ql.tag("role.target_edge")).exactly(1)
+            filleted = scad.fillet_rsolid(box, selector, 0.2)
+
+        payload = json.loads(export_graph_json(session.graph))
+        fillet_node = next(
+            node for node in payload["nodes"] if node["op"] == "make_fillet_rsolid"
+        )
+        select_node = next(
+            node
+            for node in payload["nodes"]
+            if node["node_id"] == fillet_node["params"]["selected_edge_node_ids"][0]
+        )
+
+        self.assertNotIn("selection_query", fillet_node["params"])
+        self.assertNotIn("tags", select_node["params"]["geo_selector"])
+        self.assertIn("source_index", select_node["params"]["geo_selector"])
+        self.assertIsInstance(select_node["params"]["geo_selector"]["source_index"], int)
+
+        fillet_node["params"]["selected_edges"] = []
+        fillet_node["params"]["selected_edge_indices"] = []
+        results = replay_graph(import_graph_json(json.dumps(payload)))
 
         self.assertEqual(len(results), 1)
         self.assertIsInstance(results[0], scad.Solid)
@@ -467,16 +532,23 @@ class TestReplay(unittest.TestCase):
         chamfer_node = next(
             node for node in payload["nodes"] if node["op"] == "make_chamfer_rsolid"
         )
-        self.assertIn("selection_query", chamfer_node["params"])
-        self.assertEqual(
-            chamfer_node["params"]["selection_query"]["traversal"]["relation"],
-            "boundary",
+        self.assertNotIn("selection_query", chamfer_node["params"])
+        selection_node_ids = chamfer_node["params"]["selected_edge_node_ids"]
+        self.assertEqual(len(selection_node_ids), 4)
+        selection_nodes = [
+            node for node in payload["nodes"] if node["node_id"] in selection_node_ids
+        ]
+        self.assertTrue(
+            all(node["op"] == "make_select_redge" for node in selection_nodes)
         )
-        self.assertEqual(
-            chamfer_node["params"]["selection_query"]["source"]["traversal"][
-                "relation"
-            ],
-            "boundary",
+        self.assertTrue(
+            all(
+                node["params"]["geo_selector"]["kind"] == "edge"
+                for node in selection_nodes
+            )
+        )
+        self.assertTrue(
+            all("tags" not in node["params"]["geo_selector"] for node in selection_nodes)
         )
 
         restored = import_graph_json(json.dumps(payload))
@@ -512,6 +584,41 @@ class TestReplay(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertIsInstance(results[0], scad.Solid)
         self.assertAlmostEqual(results[0].get_volume(), swept.get_volume(), places=5)
+
+    def test_replay_sweep_records_ql_selected_extrude_end_face_profile(self):
+        with scad.GraphSession() as session:
+            base = scad.make_circle_rface((0, 0, 0), 0.25)
+            body = scad.extrude_rsolid(base, (0, 0, 1), 1.0)
+            profile = (
+                scad.ql.faces()
+                .where(scad.ql.tag("face.extrusion.end"))
+                .exactly(1)
+                .resolve(body)[0]
+            )
+            path = scad.make_segment_rwire((0, 0, 1.0), (0, 0, 2.0))
+            swept = scad.sweep_rsolid(profile, path)
+
+        payload = json.loads(export_graph_json(session.graph))
+        select_nodes = [
+            node for node in payload["nodes"] if node["op"] == "make_select_rface"
+        ]
+        self.assertEqual(len(select_nodes), 1)
+        select_node = select_nodes[0]
+        self.assertEqual(select_node["params"]["target_kind"], "face")
+        self.assertEqual(select_node["params"]["geo_selector"]["kind"], "face")
+        self.assertIn("source_index", select_node["params"]["geo_selector"])
+        self.assertNotIn("tags", select_node["params"]["geo_selector"])
+
+        sweep_node = next(
+            node for node in payload["nodes"] if node["op"] == "make_sweep_rsolid"
+        )
+        self.assertEqual(sweep_node["inputs"][0], select_node["node_id"])
+
+        restored = replay_graph(import_graph_json(json.dumps(payload)))
+
+        self.assertEqual(len(restored), 1)
+        self.assertIsInstance(restored[0], scad.Solid)
+        self.assertAlmostEqual(restored[0].get_volume(), swept.get_volume(), places=5)
 
     def test_replay_helical_sweep_roundtrip(self):
         with scad.GraphSession() as session:
@@ -561,46 +668,112 @@ class TestReplay(unittest.TestCase):
             places=5,
         )
 
-    def test_replay_field_surface_roundtrip_from_scalar_field_tree(self):
-        sphere = scad.field.make_sphere_rscalarfield((0.0, 0.0, 0.0), 1.4)
-        capsule = scad.field.make_capsule_rscalarfield(
-            (-0.5, 0.0, -0.8), (0.8, 0.0, 0.9), 0.35
-        )
-        box = scad.field.translate_rscalarfield(
-            scad.field.make_box_rscalarfield((0.0, 0.0, 0.0), (1.0, 0.9, 0.9)),
-            (0.45, 0.0, 0.0),
-        )
-        field = scad.field.smooth_subtract_rscalarfield(
-            scad.field.union_rscalarfield(sphere, capsule),
-            box,
-            0.12,
-        )
+    def test_replay_missing_required_param_raises_by_default(self):
+        graph = OperationGraph()
+        graph.add_node("make_point_rvertex", {"x": 1.0, "y": 2.0})
 
+        with self.assertRaises(ValueError):
+            replay_graph(graph)
+
+    def test_graph_import_missing_input_raises_by_default(self):
+        payload = {
+            "graph_id": "g_missing_input",
+            "nodes": [
+                {
+                    "node_id": "n1",
+                    "op": "make_translate_rshape",
+                    "params": {"vector": (1.0, 0.0, 0.0)},
+                    "inputs": ["missing"],
+                    "output_count": 1,
+                    "tags": [],
+                }
+            ],
+            "edges": [],
+        }
+
+        with self.assertRaises(ValueError):
+            OperationGraph.from_dict(payload)
+
+    def test_replay_leaf_without_output_raises_by_default(self):
+        graph = OperationGraph()
+        graph.add_node("make_union_rsolid", {"input_count": 0, "clean": True, "glue": True, "tol": None})
+
+        with self.assertRaises(ValueError):
+            replay_graph(graph)
+
+    def test_replay_unknown_op_raises_by_default(self):
+        graph = OperationGraph()
+        graph.add_node("make_unknown_rsolid", {})
+
+        with self.assertRaises(ValueError):
+            replay_graph(graph)
+
+    def test_replay_cut_uses_recorded_skip_non_intersecting_flag(self):
         with scad.GraphSession() as session:
-            solid = scad.make_field_surface_rsolid(
-                field, resolution=(14, 14, 14), iso=0.0
+            body = scad.make_box_rsolid(1.0, 1.0, 1.0)
+            tool = scad.make_box_rsolid(
+                1.0, 1.0, 1.0, bottom_face_center=(10.0, 10.0, 0.0)
             )
+            scad.cut_rsolidlist(body, tool, skip_non_intersecting=True)
 
-        restored = import_graph_json(export_graph_json(session.graph))
-        results = replay_graph(restored)
+        payload = json.loads(scad.export_model_json(session))
+        cut_node = next(
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_cut_rsolidlist"
+        )
+        self.assertTrue(cut_node["params"]["skip_non_intersecting"])
 
-        self.assertEqual(len(results), 1)
-        self.assertIsInstance(results[0], scad.Solid)
-        self.assertAlmostEqual(results[0].get_volume(), solid.get_volume(), places=4)
+        replayed = scad.replay_model_json(json.dumps(payload))
+        self.assertEqual(len(replayed), 1)
+        self.assertIsInstance(replayed[0], scad.Solid)
 
-    def test_replay_field_surface_from_callable_raises_clear_error(self):
-        def sphere_fn(x, y, z):
-            return (x**2 + y**2 + z**2) ** 0.5 - 1.0
-
+    def test_replay_cut_defaults_missing_skip_non_intersecting_to_false(self):
         with scad.GraphSession() as session:
-            scad.make_field_surface_rsolid(
-                sphere_fn,
-                bounds=((-2.0, -2.0, -2.0), (2.0, 2.0, 2.0)),
-                resolution=(10, 10, 10),
-                iso=0.0,
+            body = scad.make_box_rsolid(1.0, 1.0, 1.0)
+            tool = scad.make_box_rsolid(
+                1.0, 1.0, 1.0, bottom_face_center=(10.0, 10.0, 0.0)
             )
+            scad.cut_rsolidlist(body, tool, skip_non_intersecting=True)
 
-        restored = import_graph_json(export_graph_json(session.graph))
+        payload = json.loads(scad.export_model_json(session))
+        cut_node = next(
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_cut_rsolidlist"
+        )
+        del cut_node["params"]["skip_non_intersecting"]
+
+        with self.assertRaises(ValueError):
+            scad.replay_model_json(json.dumps(payload))
+
+    def test_union_replay_preserves_clean_glue_and_tol_params(self):
+        with scad.GraphSession() as session:
+            a = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0.0, 0.0, 0.0))
+            b = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(1.001, 0.0, 0.0))
+            original = scad.union_rsolid(a, b, clean=False, glue=False, tol=1e-3)
+
+        payload = json.loads(scad.export_model_json(session))
+        union_node = next(
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_union_rsolid"
+        )
+
+        self.assertFalse(union_node["params"]["clean"])
+        self.assertFalse(union_node["params"]["glue"])
+        self.assertEqual(union_node["params"]["tol"], 1e-3)
+
+        replayed = scad.replay_model_json(json.dumps(payload))
+        self.assertAlmostEqual(replayed[0].get_volume(), original.get_volume(), places=5)
+
+    def test_replay_selection_cardinality_mismatch_raises_by_default(self):
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(4.0, 4.0, 4.0)
+            scad.fillet_rsolid(box, box.get_edges()[:1], 0.2)
+
+        payload = json.loads(scad.export_model_json(session))
+        fillet_node = next(
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_fillet_rsolid"
+        )
+        fillet_node["params"]["selection_query"] = scad.ql.edges().take(2).exactly(2).to_dict()
+        fillet_node["params"]["edge_count"] = 1
+
+        restored = import_model_json(json.dumps(payload))["graph"]
         with self.assertRaises(ValueError):
             replay_graph(restored)
 

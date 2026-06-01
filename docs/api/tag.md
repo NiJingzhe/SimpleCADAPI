@@ -8,6 +8,10 @@ def tag(pattern: str) -> SerializablePredicate
 
 *Source: ql.py*
 
+## Import Surface
+
+- submodule: `from simplecadapi.ql import tag` or `simplecadapi.ql.tag`
+
 ## Description
 
 Build a tag predicate for QL filtering.

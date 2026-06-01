@@ -317,7 +317,7 @@ STEP/STL/BRep 继续保留，但只作为最终几何导出，不作为参数化
 
 1. `cut/union/intersection` 具备稳定变化记录。
 2. `fillet/chamfer/shell` 具备稳定变化记录。
-3. assembly 约束参数可复用表达式图。
+3. assembly / constraint public surface 暂时移除，避免在重做前冻结旧契约。
 4. canonical JSON export 初步稳定。
 
 ### 最终状态验收标准
@@ -333,8 +333,6 @@ STEP/STL/BRep 继续保留，但只作为最终几何导出，不作为参数化
    - `geometry_registry`
    - `semantic_entity_registry`
    - `sketch_profile_registry`
-   - `assembly_registry`
-   - `constraint_registry`
    - `semantic_delta_log`
    - `topology_delta_log`
    - `canonical_contract`

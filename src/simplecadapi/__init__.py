@@ -27,7 +27,6 @@ from .operations import (
     make_cone_rsolid,
     make_cylinder_rsolid,
     make_face_from_wire_rface,
-    make_field_surface_rsolid,
     make_helix_redge,
     make_helix_rwire,
     make_line_redge,
@@ -54,9 +53,10 @@ from .operations import (
     revolve_rsolid,
     sweep_rsolid,
     # 标签和选择
+    apply_tag,
+    list_tags,
     select_edges_by_tag,
     select_faces_by_tag,
-    set_tag,
     # 布尔运算
     cut_rsolidlist,
     intersect_rsolidlist,
@@ -81,28 +81,6 @@ from .evolve import (
     make_threaded_rod_rsolid,
 )
 
-from .constraints import (
-    # 声明式装配约束
-    add_part_rassembly,
-    clear_constraints_rassembly,
-    clone_assembly_rassembly,
-    constrain_coincident_rassembly,
-    constrain_concentric_rassembly,
-    constrain_distance_rassembly,
-    constrain_offset_rassembly,
-    make_assembly_rassembly,
-    rotate_part_rassembly,
-    solve_assembly_rresult,
-    stack_rassembly,
-    translate_part_rassembly,
-    Assembly,
-    AssemblyResult,
-    SolveReport,
-    PartHandle,
-    PointAnchor,
-    AxisAnchor,
-    stack,
-)
 from .graph import GraphSession, suspend_graph_recording
 from .serializer import export_graph_json, import_graph_json, replay_graph
 from .serializer import export_session_json, import_session_json
@@ -131,7 +109,6 @@ from .sketch import Sketch
 from .topology import SemanticDelta, SemanticRef
 from .errors import SimpleCADError
 
-from . import field
 from . import ql
 
 # Avoid advertising internal implementation submodules from the top-level package
@@ -156,7 +133,6 @@ create_circle_face = make_circle_rface
 create_circle_wire = make_circle_rwire
 create_cylinder = make_cylinder_rsolid
 create_face_from_wire = make_face_from_wire_rface
-create_field_surface = make_field_surface_rsolid
 create_helix = make_helix_redge
 create_helix_wire = make_helix_rwire
 create_line = make_line_redge
@@ -213,7 +189,6 @@ __all__ = [
     "make_cone_rsolid",
     "make_cylinder_rsolid",
     "make_face_from_wire_rface",
-    "make_field_surface_rsolid",
     "make_helix_redge",
     "make_helix_rwire",
     "make_line_redge",
@@ -240,9 +215,10 @@ __all__ = [
     "revolve_rsolid",
     "sweep_rsolid",
     # 标签和选择
+    "apply_tag",
+    "list_tags",
     "select_edges_by_tag",
     "select_faces_by_tag",
-    "set_tag",
     # 布尔运算
     "cut_rsolidlist",
     "intersect_rsolidlist",
@@ -262,27 +238,6 @@ __all__ = [
     "make_naca_propeller_blade_rsolid",
     "make_threaded_rod_rsolid",
     "radial_pattern_rsolidlist",
-    # 声明式装配约束
-    "add_part_rassembly",
-    "clear_constraints_rassembly",
-    "clone_assembly_rassembly",
-    "constrain_coincident_rassembly",
-    "constrain_concentric_rassembly",
-    "constrain_distance_rassembly",
-    "constrain_offset_rassembly",
-    "make_assembly_rassembly",
-    "rotate_part_rassembly",
-    "solve_assembly_rresult",
-    "stack_rassembly",
-    "translate_part_rassembly",
-    "Assembly",
-    "AssemblyResult",
-    "SolveReport",
-    "PartHandle",
-    "PointAnchor",
-    "AxisAnchor",
-    "stack",
-    "field",
     "ql",
     # Graph/session + serialization APIs
     "GraphSession",
@@ -325,7 +280,6 @@ __all__ = [
     "create_circle_wire",
     "create_cylinder",
     "create_face_from_wire",
-    "create_field_surface",
     "create_helix",
     "create_helix_wire",
     "create_line",
