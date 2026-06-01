@@ -20,11 +20,11 @@
 
 - Geometry and modeling operations in `docs/api/`.
 - Core shape/type semantics in `docs/core/`.
-- v2 graph/model serialization and replay APIs.
+- Graph/model serialization and replay APIs.
 - Expression, parameter, and semantic reference types.
 - Functional tagging with `apply_tag(shape, tag)`, `list_tags(shape)`, and QL tag predicates.
 
-## Preferred v2 workflow
+## Preferred replayable workflow
 
 - Record modeling steps inside `GraphSession` when you need replayable outputs.
 - Export session/model payloads with `export_session_json()` and `export_model_json()`.

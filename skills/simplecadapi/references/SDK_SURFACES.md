@@ -27,11 +27,11 @@ Use `apply_tag(shape, tag)` for user-authored semantic tags and `list_tags(shape
 
 1. `references/docs/api/README.md`
 2. `references/SDK_OVERVIEW.md`
-3. `references/V2_MODELING_WORKFLOWS.md`
+3. `references/MODELING_WORKFLOWS.md`
 4. Specific pages under `references/docs/api/`
 5. Supporting pages under `references/docs/core/`
 
-## Typical v2 surface
+## Typical replayable surface
 
 ```python
 from simplecadapi import GraphSession, export_model_json, replay_model_json
