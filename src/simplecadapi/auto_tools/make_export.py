@@ -36,12 +36,10 @@ CORE_EXPORTS = [
     "WORLD_CS",
 ]
 
-MODULE_ORDER = ("operations", "evolve", "constraints", "field", "ql")
+MODULE_ORDER = ("operations", "evolve", "ql")
 MODULE_LABELS = {
     "operations": "Operations",
     "evolve": "Evolve",
-    "constraints": "Constraints",
-    "field": "Field",
     "ql": "QL",
 }
 
@@ -63,32 +61,13 @@ FUNCTION_CATEGORIES = {
         "make_face_from_wire_",
         "make_wire_from_edges_",
         "make_cone_",
-        "make_field_surface_",
     ],
     "变换操作": ["translate_", "rotate_", "scale_", "mirror_"],
     "3D操作": ["extrude_", "revolve_", "loft_", "sweep_", "helical_sweep_"],
-    "标签和选择": ["set_tag", "select_faces_", "select_edges_", "get_tag"],
+    "标签和选择": ["apply_tag", "list_tags", "select_faces_", "select_edges_"],
     "布尔运算": ["union_", "cut_", "intersect_", "difference_"],
     "导出": ["export_", "render_"],
     "高级特征操作": ["fillet_", "chamfer_", "shell_", "pattern_", "array_"],
-}
-
-FIELD_CATEGORIES = {
-    "基础场函数": [
-        "make_sphere_",
-        "make_ellipsoid_",
-        "make_box_",
-        "make_capsule_",
-    ],
-    "布尔运算": [
-        "union_",
-        "intersect_",
-        "subtract_",
-        "smooth_union_",
-        "smooth_subtract_",
-    ],
-    "变换操作": ["translate_", "scale_", "rotate_"],
-    "评估和分析": ["eval_", "bounds_"],
 }
 
 QL_CATEGORIES = {
@@ -96,16 +75,6 @@ QL_CATEGORIES = {
     "逻辑组合": ["and_", "or_", "not_"],
     "查询与取值": ["select", "value"],
 }
-
-TAIL_CONSTRAINT_FUNCTIONS = ("stack",)
-CONSTRAINTS_CLASS_ORDER = (
-    "Assembly",
-    "AssemblyResult",
-    "SolveReport",
-    "PartHandle",
-    "PointAnchor",
-    "AxisAnchor",
-)
 
 ALIAS_RULES = {
     "make_point_rvertex": "create_point",
@@ -131,7 +100,6 @@ ALIAS_RULES = {
     "make_helix_rwire": "create_helix_wire",
     "make_face_from_wire_rface": "create_face_from_wire",
     "make_wire_from_edges_rwire": "create_wire_from_edges",
-    "make_field_surface_rsolid": "create_field_surface",
     "translate_shape": "translate",
     "rotate_shape": "rotate",
     "extrude_rsolid": "extrude",
@@ -206,11 +174,7 @@ def collect_api_inventory(
             name=module_name,
             display_name=MODULE_LABELS[module_name],
             functions=extract_public_functions(file_path),
-            classes=(
-                extract_public_classes(file_path)
-                if module_name == "constraints"
-                else []
-            ),
+            classes=[],
         )
 
     return inventory
@@ -236,26 +200,11 @@ def categorize_functions(
     return {name: sorted(funcs) for name, funcs in categorized.items() if funcs}
 
 
-def categorize_constraints(functions: Sequence[str]) -> Dict[str, List[str]]:
-    if not functions:
-        return {}
-    return {"声明式装配约束": sorted(functions)}
-
-
-def ordered_constraint_classes(classes: Sequence[str]) -> List[str]:
-    priority = {name: index for index, name in enumerate(CONSTRAINTS_CLASS_ORDER)}
-    return sorted(classes, key=lambda name: (priority.get(name, len(priority)), name))
-
-
 def categorize_module(
     module_name: str, functions: Sequence[str]
 ) -> Dict[str, List[str]]:
     if module_name in {"operations", "evolve"}:
         return categorize_functions(functions, FUNCTION_CATEGORIES)
-    if module_name == "constraints":
-        return categorize_constraints(functions)
-    if module_name == "field":
-        return categorize_functions(functions, FIELD_CATEGORIES)
     if module_name == "ql":
         return categorize_functions(functions, QL_CATEGORIES)
     return {"其他": list(functions)} if functions else {}
@@ -284,25 +233,6 @@ def _render_import_block(module_name: str, categorized: Dict[str, List[str]]) ->
 
     if lines[-1] == "":
         lines.pop()
-    lines.append(")")
-    return "\n".join(lines)
-
-
-def generate_constraints_imports(
-    functions: Sequence[str], classes: Sequence[str]
-) -> str:
-    lines = ["from .constraints import (", "    # 声明式装配约束"]
-
-    tail = sorted(name for name in functions if name in TAIL_CONSTRAINT_FUNCTIONS)
-    head = sorted(name for name in functions if name not in TAIL_CONSTRAINT_FUNCTIONS)
-
-    for name in head:
-        lines.append(f"    {name},")
-    for name in ordered_constraint_classes(classes):
-        lines.append(f"    {name},")
-    for name in tail:
-        lines.append(f"    {name},")
-
     lines.append(")")
     return "\n".join(lines)
 
@@ -345,8 +275,6 @@ def generate_aliases(functions: Sequence[str]) -> str:
 def generate_all_list(
     operations_functions: Sequence[str],
     evolve_functions: Sequence[str],
-    constraints_functions: Sequence[str],
-    constraints_classes: Sequence[str],
 ) -> str:
     all_lines = ["__all__ = [", "    # 核心类"]
 
@@ -377,19 +305,7 @@ def generate_all_list(
             all_lines.append(f'    "{func}",')
         all_lines.append("")
 
-    all_lines.append("    # 声明式装配约束")
-    tail = sorted(
-        name for name in constraints_functions if name in TAIL_CONSTRAINT_FUNCTIONS
-    )
-    head = sorted(
-        name for name in constraints_functions if name not in TAIL_CONSTRAINT_FUNCTIONS
-    )
-    for name in (
-        list(head) + ordered_constraint_classes(constraints_classes) + list(tail)
-    ):
-        all_lines.append(f'    "{name}",')
-
-    all_lines.extend(['    "field",', '    "ql",', "", "    # 别名"])
+    all_lines.extend(['    "ql",', "", "    # 别名"])
 
     aliases = sorted(
         ALIAS_RULES[func] for func in public_functions if func in ALIAS_RULES
@@ -404,8 +320,6 @@ def generate_all_list(
 def generate_init_file(inventory: Dict[str, ModuleInventory]) -> str:
     operations = inventory["operations"].functions
     evolve = inventory["evolve"].functions
-    constraints = inventory["constraints"].functions
-    constraint_classes = inventory["constraints"].classes
 
     lines = [
         '"""',
@@ -431,13 +345,8 @@ def generate_init_file(inventory: Dict[str, ModuleInventory]) -> str:
         )
         lines.append("")
 
-    if constraints or constraint_classes:
-        lines.append(generate_constraints_imports(constraints, constraint_classes))
-        lines.append("")
-
     lines.extend(
         [
-            "from . import field",
             "from . import ql",
             "",
             '__author__ = "SimpleCAD API Team"',
@@ -445,7 +354,7 @@ def generate_init_file(inventory: Dict[str, ModuleInventory]) -> str:
             "",
             generate_aliases(list(operations) + list(evolve)),
             "",
-            generate_all_list(operations, evolve, constraints, constraint_classes),
+            generate_all_list(operations, evolve),
             "",
         ]
     )
@@ -485,7 +394,7 @@ def extract_existing_auto_exports(file_path: Path = INIT_FILE) -> List[str]:
         return []
 
     symbols: List[str] = []
-    managed_modules = {"operations", "evolve", "constraints"}
+    managed_modules = {"operations", "evolve"}
 
     for node in tree.body:
         if not isinstance(node, ast.ImportFrom) or node.level != 1:
@@ -598,10 +507,10 @@ def _verbose_module_summary(module_name: str, inventory: ModuleInventory) -> Non
 
 def _target_symbols(inventory: Dict[str, ModuleInventory]) -> List[str]:
     symbols: List[str] = []
-    for module_name in ("operations", "evolve", "constraints"):
+    for module_name in ("operations", "evolve"):
         symbols.extend(inventory[module_name].functions)
         symbols.extend(inventory[module_name].classes)
-    symbols.extend(["field", "ql"])
+    symbols.append("ql")
     return symbols
 
 
@@ -650,8 +559,6 @@ def main() -> None:
             "\n📊 总计: "
             f"Operations {totals['operations']} 个函数, "
             f"Evolve {totals['evolve']} 个函数, "
-            f"Constraints {totals['constraints']} 个函数, "
-            f"Field {totals['field']} 个函数, "
             f"QL {totals['ql']} 个函数, "
             f"总计 {sum(totals.values())} 个函数"
         )
@@ -664,8 +571,6 @@ def main() -> None:
         print(f"  生成的文件大小: {len(new_content)} 字符")
         print(f"  Operations 函数数: {len(operations_functions)}")
         print(f"  Evolve 函数数: {len(evolve_functions)}")
-        print(f"  Constraints 函数数: {len(inventory['constraints'].functions)}")
-        print(f"  Field 函数数: {len(inventory['field'].functions)}")
         print(f"  QL 函数数: {len(inventory['ql'].functions)}")
         print(f"  总导出符号数: {len(target_symbols)}")
         print(
@@ -695,7 +600,6 @@ def main() -> None:
         print(
             f"  {MODULE_LABELS[module_name]} 函数数: {len(inventory[module_name].functions)}"
         )
-    print(f"  Constraints 类数: {len(inventory['constraints'].classes)}")
     print(f"  总导出符号数: {len(target_symbols)}")
     print(
         f"  别名数: {len([name for name in operations_functions + evolve_functions if name in ALIAS_RULES])}"

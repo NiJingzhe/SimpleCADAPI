@@ -8,6 +8,10 @@ def revolve_rsolid(profile: Union[Wire, Face], axis: Tuple[float, float, float] 
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import revolve_rsolid`
+
 ## Description
 
 Create a solid by revolving a profile around an axis.

@@ -23,6 +23,7 @@ Usage::
 from __future__ import annotations
 
 from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from typing import Any, Dict, Iterable, List, Optional, Set
 
 from .expr import ExpressionGraph, canonicalize_params
@@ -37,8 +38,12 @@ from .core import Edge, Face, Solid, Vertex, Wire, get_current_cs
 # Session management
 # ---------------------------------------------------------------------------
 
-_active_session: Optional[GraphSession] = None
-_recording_suspend_depth: int = 0
+_active_session_var: ContextVar[Optional["GraphSession"]] = ContextVar(
+    "simplecadapi_active_graph_session", default=None
+)
+_recording_suspend_depth_var: ContextVar[int] = ContextVar(
+    "simplecadapi_recording_suspend_depth", default=0
+)
 
 
 class GraphSession:
@@ -65,15 +70,17 @@ class GraphSession:
         self.graph = OperationGraph(graph_id=graph_id)
         self.expression_graph = ExpressionGraph()
         self.frame_graph = FrameGraph()
+        self._active_session_token: Optional[Token[Optional["GraphSession"]]] = None
 
     def start(self) -> None:
-        global _active_session
-        _active_session = self
+        if self._active_session_token is not None:
+            raise RuntimeError("GraphSession is already active")
+        self._active_session_token = _active_session_var.set(self)
 
     def stop(self) -> None:
-        global _active_session
-        if _active_session is self:
-            _active_session = None
+        if self._active_session_token is not None:
+            _active_session_var.reset(self._active_session_token)
+            self._active_session_token = None
 
     def __enter__(self) -> "GraphSession":
         self.start()
@@ -85,19 +92,18 @@ class GraphSession:
 
 def get_active_session() -> Optional[GraphSession]:
     """Return the currently active GraphSession, or None."""
-    return _active_session
+    return _active_session_var.get()
 
 
 @contextmanager
 def suspend_graph_recording():
     """Temporarily suspend automatic graph recording for internal API composition."""
 
-    global _recording_suspend_depth
-    _recording_suspend_depth += 1
+    token = _recording_suspend_depth_var.set(_recording_suspend_depth_var.get() + 1)
     try:
         yield
     finally:
-        _recording_suspend_depth -= 1
+        _recording_suspend_depth_var.reset(token)
 
 
 def _normalize_output_shapes(outputs: Any) -> List[Any]:
@@ -297,7 +303,7 @@ def record_operation_if_active(
     """
 
     session = get_active_session()
-    if session is None or _recording_suspend_depth > 0:
+    if session is None or _recording_suspend_depth_var.get() > 0:
         return None
 
     numeric_params = dict(params) if params else {}

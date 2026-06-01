@@ -8,6 +8,10 @@ def make_spline_rwire(points: List[Tuple[float, float, float]], tangents: Option
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import make_spline_rwire`
+
 ## Description
 
 Create a spline wire through control points.

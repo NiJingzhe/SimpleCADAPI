@@ -8,6 +8,10 @@ def make_circle_rwire(center: Tuple[float, float, float], radius: ScalarLike, no
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import make_circle_rwire`
+
 ## Description
 
 Create a circular wire.

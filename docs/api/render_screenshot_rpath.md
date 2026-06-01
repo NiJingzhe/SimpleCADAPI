@@ -8,6 +8,10 @@ def render_screenshot_rpath(shapes: Union[Solid, Sequence[Solid]], output_path: 
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import render_screenshot_rpath`
+
 ## Description
 
 Render a screenshot of shapes and save it to a file.

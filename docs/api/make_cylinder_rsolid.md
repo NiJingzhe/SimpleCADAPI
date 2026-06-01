@@ -8,6 +8,10 @@ def make_cylinder_rsolid(radius: ScalarLike, height: ScalarLike, bottom_face_cen
 
 *Source: operations.py*
 
+## Import Surface
+
+- top-level: `from simplecadapi import make_cylinder_rsolid`
+
 ## Description
 
 Create a cylinder solid.

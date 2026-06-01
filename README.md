@@ -191,10 +191,9 @@ Run examples:
 uv run python examples/01_basic_modeling.py
 uv run python examples/02_graph_replay.py
 uv run python examples/03_expressions.py
-uv run python examples/04_assembly_constraints.py
 uv run python examples/05_loft_sweep_revolve.py
 uv run python examples/06_parametric_gear_model.py
-uv run python examples/06_parametric_gear_model.py
+uv run python examples/07_serialization_operation_tree.py
 ```
 
 ## Core Design Constraints (Brief)

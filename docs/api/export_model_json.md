@@ -3,10 +3,14 @@
 ## API Definition
 
 ```python
-def export_model_json(session: 'GraphSession', indent: int = 2, assembly: Any | None = None) -> str
+def export_model_json(session: 'GraphSession', indent: int = 2) -> str
 ```
 
 *Source: serializer.py*
+
+## Import Surface
+
+- top-level: `from simplecadapi import export_model_json`
 
 ## Description
 

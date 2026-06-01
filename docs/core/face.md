@@ -130,14 +130,9 @@ edges = outer_wire.get_edges()
 print(f"外边界由 {len(edges)} 条边组成")
 ```
 
-### Tag Management Methods
+### Tagging and Metadata
 
-Methods inherited from `TaggedMixin`:
-
-#### `add_tag(tag)`, `has_tag(tag)`, `get_tags()`, `remove_tag(tag)`
-#### `set_metadata(key, value)`, `get_metadata(key, default=None)`
-
-Usage is similar to Vertex; see [Vertex documentation](vertex.md) for details.
+Use the functional public API `apply_tag(shape, tag)` and `list_tags(shape)` for tags. Use `set_metadata(key, value)` and `get_metadata(key, default=None)` for structured metadata.
 
 ## Usage Examples
 
@@ -153,13 +148,13 @@ from simplecadapi import (
 
 # 矩形面
 rectangle = make_rectangle_rface(width=10, height=6)
-rectangle.add_tag("rectangle")
-rectangle.add_tag("quadrilateral")
+apply_tag(rectangle, "rectangle")
+apply_tag(rectangle, "quadrilateral")
 
 # 圆形面
 circle = make_circle_rface(center=(0, 0, 0), radius=3.0)
-circle.add_tag("circle")
-circle.add_tag("curved")
+apply_tag(circle, "circle")
+apply_tag(circle, "curved")
 
 # 复杂多边形面
 points = [
@@ -167,8 +162,8 @@ points = [
 ]
 polygon_wire = make_polyline_rwire(points=points)
 polygon = make_face_from_wire_rface(polygon_wire)
-polygon.add_tag("polygon")
-polygon.add_tag("complex")
+apply_tag(polygon, "polygon")
+apply_tag(polygon, "complex")
 
 # 分析面的属性
 faces = [rectangle, circle, polygon]
@@ -177,7 +172,7 @@ for face in faces:
     normal = face.get_normal_at()
     outer_wire = face.get_outer_wire()
     edges = outer_wire.get_edges()
-    tags = face.get_tags()
+    tags = list_tags(face)
     
     print(f"面类型: {tags}")
     print(f"  面积: {area:.3f}")
@@ -223,15 +218,15 @@ def analyze_face_geometry():
         lengths.sort()
         aspect_ratio = lengths[1] / lengths[0] if lengths[0] > 0 else 1.0
         
-        rect.add_tag(f"rectangle_{i}")
+        apply_tag(rect, f"rectangle_{i}")
         rect.set_metadata("area", area)
         rect.set_metadata("perimeter", perimeter)
         rect.set_metadata("aspect_ratio", aspect_ratio)
         
         if aspect_ratio == 1.0:
-            rect.add_tag("square")
+            apply_tag(rect, "square")
         elif aspect_ratio > 2.0:
-            rect.add_tag("elongated")
+            apply_tag(rect, "elongated")
         
         print(f"矩形 {i}: 面积={area:.3f}, 周长={perimeter:.3f}, 长宽比={aspect_ratio:.3f}")
     
@@ -250,18 +245,18 @@ def analyze_face_geometry():
         # 从周长计算半径
         radius_from_perimeter = perimeter / (2 * math.pi)
         
-        circle.add_tag(f"circle_{i}")
+        apply_tag(circle, f"circle_{i}")
         circle.set_metadata("area", area)
         circle.set_metadata("perimeter", perimeter)
         circle.set_metadata("radius_from_area", radius_from_area)
         circle.set_metadata("radius_from_perimeter", radius_from_perimeter)
         
         if radius_from_area < 1.5:
-            circle.add_tag("small")
+            apply_tag(circle, "small")
         elif radius_from_area > 2.5:
-            circle.add_tag("large")
+            apply_tag(circle, "large")
         else:
-            circle.add_tag("medium")
+            apply_tag(circle, "medium")
         
         print(f"圆形 {i}: 面积={area:.3f}, 周长={perimeter:.3f}, 半径={radius_from_area:.3f}")
 
@@ -294,20 +289,20 @@ def create_face_with_holes():
     
     # 主面
     main_face = make_rectangle_rface(width=10, height=8)
-    main_face.add_tag("main_surface")
-    main_face.add_tag("with_holes")
+    apply_tag(main_face, "main_surface")
+    apply_tag(main_face, "with_holes")
     
     # 孔面（用于布尔运算）
     hole_face1 = make_circle_rface(center=(3, 2, 0), radius=1.0)
-    hole_face1.add_tag("hole")
-    hole_face1.add_tag("circular")
+    apply_tag(hole_face1, "hole")
+    apply_tag(hole_face1, "circular")
     hole_face1.set_metadata("hole_id", 1)
     hole_face1.set_metadata("center", (3, 2, 0))
     hole_face1.set_metadata("radius", 1.0)
     
     hole_face2 = make_circle_rface(center=(7, 6, 0), radius=1.5)
-    hole_face2.add_tag("hole")
-    hole_face2.add_tag("circular")
+    apply_tag(hole_face2, "hole")
+    apply_tag(hole_face2, "circular")
     hole_face2.set_metadata("hole_id", 2)
     hole_face2.set_metadata("center", (7, 6, 0))
     hole_face2.set_metadata("radius", 1.5)
@@ -345,18 +340,18 @@ def transform_faces():
     
     # 创建基础面
     base_face = make_rectangle_rface(width=4, height=3)
-    base_face.add_tag("base")
-    base_face.add_tag("original")
+    apply_tag(base_face, "base")
+    apply_tag(base_face, "original")
     
     # 应用变换
     translated_face = translate_shape(base_face, offset=(6, 0, 0))
-    translated_face.add_tag("translated")
+    apply_tag(translated_face, "translated")
     
     rotated_face = rotate_shape(base_face, axis=(0, 0, 1), angle=45)
-    rotated_face.add_tag("rotated")
+    apply_tag(rotated_face, "rotated")
     
     elevated_face = translate_shape(base_face, offset=(0, 0, 2))
-    elevated_face.add_tag("elevated")
+    apply_tag(elevated_face, "elevated")
     
     # 收集所有面
     all_faces = [base_face, translated_face, rotated_face, elevated_face]
@@ -389,7 +384,7 @@ def transform_faces():
         face.set_metadata("area", area)
         face.set_metadata("normal", (normal.x, normal.y, normal.z))
         
-        print(f"面标签: {face.get_tags()}")
+        print(f"面标签: {list_tags(face)}")
         print(f"  面积: {area:.3f}")
         print(f"  法向量: ({normal.x:.3f}, {normal.y:.3f}, {normal.z:.3f})")
         if face.get_metadata("bbox_min"):
@@ -433,39 +428,39 @@ def classify_faces():
     
     # 标记面
     for i, face in enumerate(small_rects):
-        face.add_tag("rectangle")
-        face.add_tag("small")
+        apply_tag(face, "rectangle")
+        apply_tag(face, "small")
         face.set_metadata("size_category", "small")
         face.set_metadata("shape_type", "rectangle")
         faces.append(face)
     
     for i, face in enumerate(large_rects):
-        face.add_tag("rectangle")
-        face.add_tag("large")
+        apply_tag(face, "rectangle")
+        apply_tag(face, "large")
         face.set_metadata("size_category", "large")
         face.set_metadata("shape_type", "rectangle")
         faces.append(face)
     
     for i, face in enumerate(circles):
-        face.add_tag("circle")
+        apply_tag(face, "circle")
         area = face.get_area()
         if area < 10:
-            face.add_tag("small")
+            apply_tag(face, "small")
             face.set_metadata("size_category", "small")
         elif area > 20:
-            face.add_tag("large")
+            apply_tag(face, "large")
             face.set_metadata("size_category", "large")
         else:
-            face.add_tag("medium")
+            apply_tag(face, "medium")
             face.set_metadata("size_category", "medium")
         face.set_metadata("shape_type", "circle")
         faces.append(face)
     
     # 分类统计
-    rectangles = [f for f in faces if f.has_tag("rectangle")]
-    circles = [f for f in faces if f.has_tag("circle")]
-    small_faces = [f for f in faces if f.has_tag("small")]
-    large_faces = [f for f in faces if f.has_tag("large")]
+    rectangles = [f for f in faces if "rectangle" in list_tags(f)]
+    circles = [f for f in faces if "circle" in list_tags(f)]
+    small_faces = [f for f in faces if "small" in list_tags(f)]
+    large_faces = [f for f in faces if "large" in list_tags(f)]
     
     print(f"总面数: {len(faces)}")
     print(f"矩形面: {len(rectangles)}")
@@ -491,7 +486,7 @@ classified_faces = classify_faces()
 from simplecadapi import make_rectangle_rface
 
 face = make_rectangle_rface(width=5, height=3)
-face.add_tag("example_face")
+apply_tag(face, "example_face")
 face.set_metadata("material", "steel")
 
 print(face)

@@ -212,24 +212,30 @@ class TestRearchitecture20HistoryContracts(unittest.TestCase):
 
 
 class TestRearchitecture20AssemblyContracts(unittest.TestCase):
-    def test_existing_assembly_api_still_exists_during_rearchitecture(self):
-        self.assertTrue(hasattr(scad, "Assembly"))
-        self.assertTrue(hasattr(scad, "make_assembly_rassembly"))
+    def test_assembly_public_surface_is_temporarily_removed(self):
+        self.assertFalse(hasattr(scad, "Assembly"))
+        self.assertFalse(hasattr(scad, "PartHandle"))
+        self.assertFalse(hasattr(scad, "PointAnchor"))
+        self.assertFalse(hasattr(scad, "AxisAnchor"))
+        self.assertFalse(hasattr(scad, "AssemblyResult"))
+        self.assertFalse(hasattr(scad, "SolveReport"))
+        self.assertFalse(hasattr(scad, "make_assembly_rassembly"))
+        self.assertFalse(hasattr(scad, "clone_assembly_rassembly"))
+        self.assertFalse(hasattr(scad, "add_part_rassembly"))
+        self.assertFalse(hasattr(scad, "translate_part_rassembly"))
+        self.assertFalse(hasattr(scad, "rotate_part_rassembly"))
+        self.assertFalse(hasattr(scad, "solve_assembly_rresult"))
+        self.assertFalse(hasattr(scad, "constrain_offset_rassembly"))
+        self.assertFalse(hasattr(scad, "constrain_concentric_rassembly"))
+        self.assertFalse(hasattr(scad, "constrain_distance_rassembly"))
+        self.assertFalse(hasattr(scad, "stack_rassembly"))
 
-    def test_assembly_constraint_parameters_can_use_expression_graph(self):
-        a = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        b = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        asm = scad.make_assembly_rassembly([("a", a), ("b", b)])
-        gap = scad.var("gap", 3.0)
-        asm2 = scad.constrain_offset_rassembly(
-            asm,
-            asm.part("a").anchor("bbox.top"),
-            asm.part("b").anchor("bbox.bottom"),
-            gap,
-            axis="z",
-        )
-        self.assertGreaterEqual(asm2.expression_graph().node_count, 1)
-        self.assertGreaterEqual(len(asm2.constraint_param_exprs()), 1)
+    def test_model_json_export_has_no_assembly_keyword(self):
+        with GraphSession() as session:
+            scad.make_box_rsolid(1.0, 1.0, 1.0)
+
+        with self.assertRaises(TypeError):
+            scad.export_model_json(session, assembly=object())
 
 
 class TestRearchitecture20IoContracts(unittest.TestCase):
@@ -263,10 +269,14 @@ class TestRearchitecture20IoContracts(unittest.TestCase):
 
         self.assertIn("canonical_contract", payload)
         contract = payload["canonical_contract"]
-        self.assertEqual(contract["contract_version"], "2.0-final-state")
+        self.assertEqual(contract["contract_version"], "2.0")
         self.assertEqual(contract["graph_roles"]["graph"], "canonical_low_level_graph")
         self.assertEqual(contract["graph_roles"]["leaf_ids"], "explicit_result_set")
         self.assertEqual(contract["replay_policy"]["preferred_graph"], "graph")
+        self.assertEqual(contract["replay_policy"]["default_mode"], "strict")
+        self.assertEqual(
+            contract["replay_policy"]["permissive_mode"], "explicit_opt_in"
+        )
 
     def test_model_json_declares_selection_ref_resolution_order(self):
         with GraphSession() as session:
@@ -279,9 +289,10 @@ class TestRearchitecture20IoContracts(unittest.TestCase):
         self.assertEqual(
             selection_schema["replay_resolution_order"],
             [
+                "geo_select_nodes",
+                "selection_query",
                 "explicit_topo_refs",
                 "stable_indices",
-                "selection_query",
                 "selector_hint",
             ],
         )

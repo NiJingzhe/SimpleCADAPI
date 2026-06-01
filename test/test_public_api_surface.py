@@ -35,6 +35,9 @@ print(json.dumps({
   'has_export_graph_json': hasattr(scad, 'export_graph_json'),
   'has_import_graph_json': hasattr(scad, 'import_graph_json'),
   'has_replay_graph': hasattr(scad, 'replay_graph'),
+  'has_apply_tag': hasattr(scad, 'apply_tag'),
+  'has_list_tags': hasattr(scad, 'list_tags'),
+  'has_set_tag': hasattr(scad, 'set_tag'),
 }))
 """
         proc = subprocess.run(
@@ -54,3 +57,6 @@ print(json.dumps({
         self.assertTrue(payload["has_export_graph_json"])
         self.assertTrue(payload["has_import_graph_json"])
         self.assertTrue(payload["has_replay_graph"])
+        self.assertTrue(payload["has_apply_tag"])
+        self.assertTrue(payload["has_list_tags"])
+        self.assertFalse(payload["has_set_tag"])

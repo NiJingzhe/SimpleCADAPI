@@ -69,53 +69,20 @@ coords = vertex.get_coordinates()
 print(coords)  # (1.0, 2.0, 3.0)
 ```
 
-### Tag Management Methods
+### Tagging and Metadata
 
-Methods inherited from `TaggedMixin`:
-
-#### `add_tag(tag)`
-Add a tag.
+Use the functional public API `apply_tag(shape, tag)` and `list_tags(shape)` for tags. Use `set_metadata(key, value)` and `get_metadata(key, default=None)` for structured metadata.
 
 **Example:**
 ```python
+from simplecadapi import apply_tag, list_tags, make_point_rvertex
+
 vertex = make_point_rvertex(0, 0, 0)
-vertex.add_tag("origin")
-vertex.add_tag("reference_point")
-```
+apply_tag(vertex, "role.origin")
+apply_tag(vertex, "anchor.reference_point")
 
-#### `has_tag(tag)`
-Check if a specified tag exists.
-
-**Example:**
-```python
-vertex = make_point_rvertex(0, 0, 0)
-vertex.add_tag("origin")
-
-if vertex.has_tag("origin"):
+if "role.origin" in list_tags(vertex):
     print("这是原点")
-```
-
-#### `get_tags()`
-Get all tags.
-
-**Example:**
-```python
-vertex = make_point_rvertex(0, 0, 0)
-vertex.add_tag("origin")
-vertex.add_tag("reference")
-
-tags = vertex.get_tags()
-print(tags)  # {'origin', 'reference'}
-```
-
-#### `remove_tag(tag)`
-Remove a tag.
-
-**Example:**
-```python
-vertex = make_point_rvertex(0, 0, 0)
-vertex.add_tag("temp")
-vertex.remove_tag("temp")
 ```
 
 ### Metadata Management Methods
@@ -176,21 +143,21 @@ corner2 = make_point_rvertex(10, 10, 0)
 corner3 = make_point_rvertex(0, 10, 0)
 
 # 添加标签
-origin.add_tag("origin")
-origin.add_tag("reference")
+apply_tag(origin, "origin")
+apply_tag(origin, "reference")
 
-corner1.add_tag("corner")
-corner1.add_tag("x_axis")
+apply_tag(corner1, "corner")
+apply_tag(corner1, "x_axis")
 
-corner2.add_tag("corner")
-corner2.add_tag("diagonal")
+apply_tag(corner2, "corner")
+apply_tag(corner2, "diagonal")
 
-corner3.add_tag("corner")
-corner3.add_tag("y_axis")
+apply_tag(corner3, "corner")
+apply_tag(corner3, "y_axis")
 
 # 查找所有角点
 vertices = [origin, corner1, corner2, corner3]
-corners = [v for v in vertices if v.has_tag("corner")]
+corners = [v for v in vertices if "corner" in list_tags(v)]
 
 print(f"找到 {len(corners)} 个角点")
 ```
@@ -214,20 +181,20 @@ def create_grid_vertices(width, height, spacing):
             
             # 添加位置标签
             if i == 0 and j == 0:
-                vertex.add_tag("origin")
+                apply_tag(vertex, "origin")
             elif i == 0:
-                vertex.add_tag("left_edge")
+                apply_tag(vertex, "left_edge")
             elif i == width:
-                vertex.add_tag("right_edge")
+                apply_tag(vertex, "right_edge")
             
             if j == 0:
-                vertex.add_tag("bottom_edge")
+                apply_tag(vertex, "bottom_edge")
             elif j == height:
-                vertex.add_tag("top_edge")
+                apply_tag(vertex, "top_edge")
             
             # 添加角点标签
             if (i == 0 or i == width) and (j == 0 or j == height):
-                vertex.add_tag("corner")
+                apply_tag(vertex, "corner")
             
             # 添加元数据
             vertex.set_metadata("grid_position", (i, j))
@@ -241,8 +208,8 @@ def create_grid_vertices(width, height, spacing):
 vertices = create_grid_vertices(5, 3, 1.0)
 
 # 查找特定顶点
-corners = [v for v in vertices if v.has_tag("corner")]
-origin = [v for v in vertices if v.has_tag("origin")][0]
+corners = [v for v in vertices if "corner" in list_tags(v)]
+origin = [v for v in vertices if "origin" in list_tags(v)][0]
 
 print(f"网格顶点总数: {len(vertices)}")
 print(f"角点数量: {len(corners)}")
@@ -287,7 +254,7 @@ print(f"v2 到 v3 的距离: {dist23}")  # 约 7.07
 from simplecadapi import make_point_rvertex
 
 vertex = make_point_rvertex(1.234, 5.678, 9.012)
-vertex.add_tag("test_point")
+apply_tag(vertex, "test_point")
 vertex.set_metadata("created_by", "example")
 
 print(vertex)

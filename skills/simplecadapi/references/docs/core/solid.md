@@ -154,7 +154,7 @@ box.auto_tag_faces("box")
 
 faces = box.get_faces()
 for face in faces:
-    print(f"面标签: {face.get_tags()}")
+    print(f"面标签: {list_tags(face)}")
 
 # 圆柱体面标记
 cylinder = make_cylinder_rsolid(center=(0, 0, 0), radius=2, height=4)
@@ -162,17 +162,12 @@ cylinder.auto_tag_faces("cylinder")
 
 faces = cylinder.get_faces()
 for face in faces:
-    print(f"面标签: {face.get_tags()}")
+    print(f"面标签: {list_tags(face)}")
 ```
 
-### Tag Management Methods
+### Tagging and Metadata
 
-Methods inherited from `TaggedMixin`:
-
-#### `add_tag(tag)`, `has_tag(tag)`, `get_tags()`, `remove_tag(tag)`
-#### `set_metadata(key, value)`, `get_metadata(key, default=None)`
-
-Usage is similar to Vertex; see [Vertex documentation](vertex.md) for details.
+Use the functional public API `apply_tag(shape, tag)` and `list_tags(shape)` for tags. Use `set_metadata(key, value)` and `get_metadata(key, default=None)` for structured metadata.
 
 ## Usage Examples
 
@@ -197,8 +192,8 @@ def create_basic_solids():
     
     for name, solid in solids:
         # 添加基本标签
-        solid.add_tag(name)
-        solid.add_tag("basic_geometry")
+        apply_tag(solid, name)
+        apply_tag(solid, "basic_geometry")
         
         # 自动标记面
         solid.auto_tag_faces(name)
@@ -258,25 +253,25 @@ def boolean_operations_example():
     
     # 创建基础几何体
     box = make_box_rsolid(width=6, height=4, depth=3)
-    box.add_tag("base_box")
+    apply_tag(box, "base_box")
     
     cylinder = make_cylinder_rsolid(center=(3, 2, 0), radius=1, height=5)
-    cylinder.add_tag("cutting_cylinder")
+    apply_tag(cylinder, "cutting_cylinder")
     
     # 并集运算
     union_result = union_rsolid(box, cylinder)
-    union_result.add_tag("union_result")
-    union_result.add_tag("combined_geometry")
+    apply_tag(union_result, "union_result")
+    apply_tag(union_result, "combined_geometry")
     
     # 差集运算（从盒子中减去圆柱）
     cut_result = cut_rsolidlist(box, cylinder)[0]
-    cut_result.add_tag("cut_result")
-    cut_result.add_tag("with_hole")
+    apply_tag(cut_result, "cut_result")
+    apply_tag(cut_result, "with_hole")
     
     # 交集运算
     intersect_result = intersect_rsolidlist(box, cylinder)[0]
-    intersect_result.add_tag("intersect_result")
-    intersect_result.add_tag("common_volume")
+    apply_tag(intersect_result, "intersect_result")
+    apply_tag(intersect_result, "common_volume")
     
     # 分析结果
     operations = [
@@ -300,7 +295,7 @@ def boolean_operations_example():
         print(f"  体积: {volume:.3f}")
         print(f"  表面积: {surface_area:.3f}")
         print(f"  面数: {len(faces)}")
-        print(f"  标签: {solid.get_tags()}")
+        print(f"  标签: {list_tags(solid)}")
         print()
 
 boolean_operations_example()
@@ -321,7 +316,7 @@ def feature_operations_example():
     
     # 创建基础盒子
     base_box = make_box_rsolid(width=8, height=6, depth=4)
-    base_box.add_tag("base_geometry")
+    apply_tag(base_box, "base_geometry")
     base_box.auto_tag_faces("box")
     
     # 分析原始几何体
@@ -338,8 +333,8 @@ def feature_operations_example():
     # 圆角操作
     try:
         filleted_box = fillet_rsolid(base_box, radius=0.5)
-        filleted_box.add_tag("filleted")
-        filleted_box.add_tag("rounded_edges")
+        apply_tag(filleted_box, "filleted")
+        apply_tag(filleted_box, "rounded_edges")
         
         filleted_volume = filleted_box.get_volume()
         filleted_faces = filleted_box.get_faces()
@@ -363,8 +358,8 @@ def feature_operations_example():
     # 倒角操作
     try:
         chamfered_box = chamfer_rsolid(base_box, distance=0.3)
-        chamfered_box.add_tag("chamfered")
-        chamfered_box.add_tag("beveled_edges")
+        apply_tag(chamfered_box, "chamfered")
+        apply_tag(chamfered_box, "beveled_edges")
         
         chamfered_volume = chamfered_box.get_volume()
         chamfered_faces = chamfered_box.get_faces()
@@ -396,7 +391,7 @@ def feature_operations_example():
     for name, solid in results:
         volume = solid.get_volume()
         faces = solid.get_faces()
-        tags = solid.get_tags()
+        tags = list_tags(solid)
         print(f"  {name}: 体积={volume:.3f}, 面数={len(faces)}, 标签={tags}")
 
 feature_operations_example()
@@ -420,8 +415,8 @@ def create_complex_geometry():
     
     # 创建主体
     main_body = make_box_rsolid(width=12, height=8, depth=6)
-    main_body.add_tag("main_body")
-    main_body.add_tag("base_structure")
+    apply_tag(main_body, "main_body")
+    apply_tag(main_body, "base_structure")
     
     # 创建圆柱形孔
     holes = []
@@ -429,19 +424,19 @@ def create_complex_geometry():
     
     for i, (x, y, z) in enumerate(hole_positions):
         hole = make_cylinder_rsolid(center=(x, y, z), radius=0.8, height=8)
-        hole.add_tag(f"hole_{i}")
-        hole.add_tag("mounting_hole")
+        apply_tag(hole, f"hole_{i}")
+        apply_tag(hole, "mounting_hole")
         holes.append(hole)
     
     # 创建球形特征
     sphere_feature = make_sphere_rsolid(center=(6, 4, 6), radius=2)
-    sphere_feature.add_tag("sphere_feature")
-    sphere_feature.add_tag("decorative")
+    apply_tag(sphere_feature, "sphere_feature")
+    apply_tag(sphere_feature, "decorative")
     
     # 创建圆柱形支柱
     support_cylinder = make_cylinder_rsolid(center=(6, 4, 0), radius=1, height=4)
-    support_cylinder.add_tag("support_cylinder")
-    support_cylinder.add_tag("structural")
+    apply_tag(support_cylinder, "support_cylinder")
+    apply_tag(support_cylinder, "structural")
     
     # 组合几何体
     complex_solid = union_rsolid(main_body, sphere_feature)
@@ -452,9 +447,9 @@ def create_complex_geometry():
         complex_solid = cut_rsolidlist(complex_solid, hole)[0]
     
     # 标记复杂几何体
-    complex_solid.add_tag("complex_geometry")
-    complex_solid.add_tag("multi_feature")
-    complex_solid.add_tag("machined_part")
+    apply_tag(complex_solid, "complex_geometry")
+    apply_tag(complex_solid, "multi_feature")
+    apply_tag(complex_solid, "machined_part")
     
     # 分析复杂几何体
     volume = complex_solid.get_volume()
@@ -487,11 +482,11 @@ def create_complex_geometry():
     
     # 根据复杂度添加标签
     if complexity_ratio < 5:
-        complex_solid.add_tag("simple_topology")
+        apply_tag(complex_solid, "simple_topology")
     elif complexity_ratio < 10:
-        complex_solid.add_tag("moderate_topology")
+        apply_tag(complex_solid, "moderate_topology")
     else:
-        complex_solid.add_tag("complex_topology")
+        apply_tag(complex_solid, "complex_topology")
     
     print(f"复杂几何体分析:")
     print(f"  体积: {volume:.3f}")
@@ -500,7 +495,7 @@ def create_complex_geometry():
     print(f"  边数: {edge_count}")
     print(f"  复杂度比: {complexity_ratio:.2f}")
     print(f"  面分布 - 小:{len(small_faces)}, 中:{len(medium_faces)}, 大:{len(large_faces)}")
-    print(f"  标签: {complex_solid.get_tags()}")
+    print(f"  标签: {list_tags(complex_solid)}")
     
     return complex_solid
 
@@ -525,8 +520,8 @@ def analyze_solid_quality():
     ]
     
     for name, solid in test_solids:
-        solid.add_tag(name)
-        solid.add_tag("test_geometry")
+        apply_tag(solid, name)
+        apply_tag(solid, "test_geometry")
         
         # 基本几何属性
         volume = solid.get_volume()
@@ -599,13 +594,13 @@ def analyze_solid_quality():
         
         # 质量标签
         if quality_score >= 80:
-            solid.add_tag("high_quality")
+            apply_tag(solid, "high_quality")
         elif quality_score >= 60:
-            solid.add_tag("good_quality")
+            apply_tag(solid, "good_quality")
         elif quality_score >= 40:
-            solid.add_tag("acceptable_quality")
+            apply_tag(solid, "acceptable_quality")
         else:
-            solid.add_tag("poor_quality")
+            apply_tag(solid, "poor_quality")
         
         print(f"{name.upper()} 质量分析:")
         print(f"  体积: {volume:.6f}")
@@ -617,7 +612,7 @@ def analyze_solid_quality():
         print(f"  质量分数: {quality_score}/100")
         if quality_issues:
             print(f"  质量问题: {', '.join(quality_issues)}")
-        print(f"  质量等级: {[tag for tag in solid.get_tags() if 'quality' in tag]}")
+        print(f"  质量等级: {[tag for tag in list_tags(solid) if 'quality' in tag]}")
         print()
 
 analyze_solid_quality()
@@ -629,7 +624,7 @@ analyze_solid_quality()
 from simplecadapi import make_box_rsolid
 
 box = make_box_rsolid(width=5, height=3, depth=2)
-box.add_tag("example_box")
+apply_tag(box, "example_box")
 box.auto_tag_faces("box")
 box.set_metadata("material", "aluminum")
 
