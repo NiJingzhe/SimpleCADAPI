@@ -704,6 +704,70 @@ def _record_geo_selection_nodes(
     return node_ids
 
 
+def _active_graph_node_for_shape(shape: AnyShape) -> Optional[object]:
+    session = get_active_session()
+    if session is None:
+        return None
+    node = shape._get_runtime("graph.node")
+    node_id = getattr(node, "node_id", None)
+    if node_id is None:
+        return None
+    if session.graph.get_node(str(node_id)) is None:
+        return None
+    return node
+
+
+def _parent_shapes(shape: AnyShape) -> List[AnyShape]:
+    parents: List[AnyShape] = []
+    get_parent = getattr(shape, "get_parent", None)
+    if callable(get_parent):
+        parent = get_parent()
+        if parent is not None:
+            parents.append(cast(AnyShape, parent))
+    get_parents = getattr(shape, "get_parents", None)
+    if callable(get_parents):
+        for parent in get_parents():
+            if parent is not None:
+                parents.append(cast(AnyShape, parent))
+    return parents
+
+
+def _selection_source_for_shape(shape: AnyShape) -> Optional[AnyShape]:
+    kind = _shape_kind_token(shape)
+    seen: Set[int] = set()
+    stack = _parent_shapes(shape)
+
+    while stack:
+        source = stack.pop(0)
+        marker = id(source)
+        if marker in seen or source is shape:
+            continue
+        seen.add(marker)
+
+        if _source_selection_index(source, shape, kind=kind) is not None:
+            if _active_graph_node_for_shape(source) is not None:
+                return source
+
+        stack.extend(_parent_shapes(source))
+
+    return None
+
+
+def _ensure_geo_selection_input_nodes(
+    input_shapes: Optional[Sequence[AnyShape]],
+) -> Optional[Sequence[AnyShape]]:
+    if not input_shapes:
+        return input_shapes
+
+    for shape in input_shapes:
+        if _active_graph_node_for_shape(shape) is not None:
+            continue
+        source = _selection_source_for_shape(shape)
+        if source is not None:
+            _record_geo_selection_nodes(source, [shape])
+    return input_shapes
+
+
 def _serialize_shape_ref(shape: AnyShape) -> Optional[Dict[str, object]]:
     topo_ref = shape._get_runtime("topo.ref")
     if isinstance(topo_ref, TopoRef):
@@ -929,7 +993,7 @@ def _finalize_derived_shape(
         op=op,
         params=params,
         outputs=shape,
-        input_shapes=input_shapes,
+        input_shapes=_ensure_geo_selection_input_nodes(input_shapes),
         semantic_delta=_semantic_delta_for_output(op),
         context=_current_context_metadata(),
         tags=tags,
@@ -965,7 +1029,7 @@ def _finalize_tracked_solid(
         op=op,
         params=params,
         outputs=solid,
-        input_shapes=input_shapes,
+        input_shapes=_ensure_geo_selection_input_nodes(input_shapes),
         semantic_delta=_semantic_delta_for_output(op),
         topo_delta=cast(Optional[TopoDelta], delta),
         context=_current_context_metadata(),
