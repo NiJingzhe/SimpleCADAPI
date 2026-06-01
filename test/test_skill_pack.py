@@ -136,7 +136,7 @@ class TestSkillPackPathResolution(unittest.TestCase):
             )
             self.assertFalse((result.skill_root / "scripts").exists())
 
-    def test_build_skill_markdown_mentions_v2_graph_and_model_workflow(self):
+    def test_build_skill_markdown_mentions_graph_and_model_workflow(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             project_root = tmp_path / "project"
@@ -168,11 +168,15 @@ class TestSkillPackPathResolution(unittest.TestCase):
             self.assertIn("export_model_json", content)
             self.assertIn("replay_model_json", content)
             self.assertIn("Use the graph/model JSON workflow", content)
+            self.assertIn("Modeling Mental Model", content)
+            self.assertIn("current modeling workflows", content)
             self.assertIn("SDK_OVERVIEW.md", content)
             self.assertIn("SDK_SURFACES.md", content)
-            self.assertIn("V2_MODELING_WORKFLOWS.md", content)
+            self.assertIn("MODELING_WORKFLOWS.md", content)
             self.assertIn("SDK_PACKAGE_SUMMARY.md", content)
             self.assertNotIn("scripts/", content)
+            self.assertNotIn("v1", content.lower())
+            self.assertNotIn("v2", content.lower())
 
 
 if __name__ == "__main__":

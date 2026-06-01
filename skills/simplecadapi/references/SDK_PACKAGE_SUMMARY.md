@@ -6,7 +6,7 @@
 
 ## Scope
 
-- OCP-native public CAD Python SDK for geometry and v2 replayable modeling.
+- OCP-native public CAD Python SDK for geometry and replayable modeling.
 - Includes generated API and core type references under `references/docs/`.
 - Emphasizes public surfaces rather than repository operations.
 
@@ -16,4 +16,4 @@
 - `references/docs/core/README.md`
 - `references/SDK_OVERVIEW.md`
 - `references/SDK_SURFACES.md`
-- `references/V2_MODELING_WORKFLOWS.md`
+- `references/MODELING_WORKFLOWS.md`

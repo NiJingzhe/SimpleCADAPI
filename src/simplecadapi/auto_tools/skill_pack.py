@@ -387,7 +387,7 @@ class SkillPackager:
             self._build_runtime_install_reference(),
             encoding="utf-8",
         )
-        (self.references_dir / "V2_MODELING_WORKFLOWS.md").write_text(
+        (self.references_dir / "MODELING_WORKFLOWS.md").write_text(
             self._build_evolve_workflow_reference(),
             encoding="utf-8",
         )
@@ -402,7 +402,7 @@ class SkillPackager:
             self.skill_root / "SKILL.md",
             self.references_dir / "SDK_OVERVIEW.md",
             self.references_dir / "SDK_SURFACES.md",
-            self.references_dir / "V2_MODELING_WORKFLOWS.md",
+            self.references_dir / "MODELING_WORKFLOWS.md",
             self.references_dir / "SDK_PACKAGE_SUMMARY.md",
             self.references_dir / "LICENSE.txt",
             self.docs_dir / "api" / "README.md",
@@ -442,9 +442,9 @@ class SkillPackager:
             f"""\
             ---
             name: {self.skill_name}
-            description: Thin SimpleCAD SDK reference skill focused on the public API surface, core types, and v2 modeling workflows.
+            description: Thin SimpleCAD SDK reference skill focused on the public API surface, core types, and current modeling workflows.
             license: {self.license_name}
-            compatibility: Documentation/reference bundle for SimpleCADAPI v2 surfaces.
+            compatibility: Documentation/reference bundle for current SimpleCADAPI surfaces.
             metadata:
               project: {self.metadata.name}
               version: {self.metadata.version}
@@ -468,15 +468,15 @@ class SkillPackager:
               - `<skill_root>/references/docs/core/<type_name>.md`
               - `<skill_root>/references/SDK_OVERVIEW.md`
               - `<skill_root>/references/SDK_SURFACES.md`
-              - `<skill_root>/references/V2_MODELING_WORKFLOWS.md`
+              - `<skill_root>/references/MODELING_WORKFLOWS.md`
 
             ## MUST Requirements
             1. Read `SKILL.md` and `references/docs/api/README.md` before choosing APIs.
             2. Read the exact API Markdown page for every API you use.
             3. Read the needed `core/` or exact `api/` docs when an API needs `Edge`, `Face`, `Wire`, `Solid`, `GraphSession`, `Sketch`, or expression types.
             4. Follow the documented API signatures exactly.
-            5. Use the graph/model JSON workflow for v2 tasks: `GraphSession`, `export_session_json`, `export_model_json`, `import_model_json`, and `replay_model_json`.
-            6. Use geometry APIs for integrated parts; assembly and constraint APIs are temporarily not public while the assembly system is rebuilt.
+            5. Use the graph/model JSON workflow for replayable tasks: `GraphSession`, `export_session_json`, `export_model_json`, `import_model_json`, and `replay_model_json`.
+            6. Use geometry APIs for integrated parts: profiles, features, booleans, transforms, tagging, QL inspection, serialization, and exports.
             7. Use tags consistently through `apply_tag(shape, tag)` and `list_tags(shape)`; do not call shape member tag mutators.
             8. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
             9. For inspection/debugging, query geometry with QL and print only the queried facts you need; do not print whole solids or full model objects.
@@ -494,6 +494,18 @@ class SkillPackager:
             - If a union cannot produce exactly one merged solid, it fails explicitly instead of returning multiple pieces.
             - If a single merged solid is required but union fails, slightly move the parts so they overlap instead of merely touching, then recompute the union.
 
+            ## Modeling Mental Model
+            - Start with intent: identify the part, its reference axes, critical profiles, and the features that produce the final solid.
+            - Build from lower-dimensional geometry to higher-dimensional geometry: `Vertex` / `Edge` / `Wire` / `Face` profiles first, then `Solid` features such as extrude, revolve, loft, and sweep.
+            - Keep modeling operations functional. Create new values from public functions such as `make_circle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolidlist(...)`, and `fillet_rsolid(...)`.
+            - Use `GraphSession` when the model should be replayable, inspectable, exported as model JSON, or translated to another CAD system.
+            - Treat model JSON as the interchange boundary. Prefer `export_model_json(session)` and `replay_model_json(payload)` over hand-authored operation payloads.
+            - Use QL for precise grounding. Query faces, edges, centers, normals, areas, lengths, curve types, and tags; print only the facts needed to validate the current step.
+            - Use tags for semantic intent and selection anchors, such as `role.mounting_surface`, `anchor.datum.primary`, `face.top`, or `group.fasteners`.
+            - Keep numeric and geometric facts in metadata or graph payloads, not in tags.
+            - When a QL-selected face or edge is used by a later feature, expect the graph/model workflow to preserve that selection as a stable geo select node.
+            - For FreeCAD translation, prefer canonical model JSON generated from a `GraphSession`; selected profiles and detail-feature selections should come from the graph rather than ad hoc object lookup.
+
             ## Tagging Mental Model
             - Public tag attachment is `apply_tag(shape, tag)`.
             - Public tag inspection is `list_tags(shape)`, which returns a stable sorted list.
@@ -509,7 +521,7 @@ class SkillPackager:
             - API docs include an `Import Surface` section that distinguishes top-level exports from `simplecadapi.ql` submodule APIs.
             - Use `references/SDK_OVERVIEW.md` for the package-level map.
             - Use `references/SDK_SURFACES.md` for the main public surfaces.
-            - Use `references/V2_MODELING_WORKFLOWS.md` for graph/model-oriented patterns.
+            - Use `references/MODELING_WORKFLOWS.md` for graph/model-oriented patterns.
 
             ## Example SDK usage
 
@@ -518,7 +530,7 @@ class SkillPackager:
             from simplecadapi import GraphSession, export_model_json, make_box_rsolid
             ```
 
-            Typical v2 usage in a Python script:
+            Typical replayable usage in a Python script:
 
             ```python
             import simplecadapi as scad
@@ -532,12 +544,12 @@ class SkillPackager:
             print(len(rebuilt))
             ```
 
-            Use the graph/model JSON workflow when the task needs reproducibility, interchange, or replayable v2 outputs.
+            Use the graph/model JSON workflow when the task needs reproducibility, interchange, or replayable outputs.
 
             ## References
             - `references/SDK_OVERVIEW.md`
             - `references/SDK_SURFACES.md`
-            - `references/V2_MODELING_WORKFLOWS.md`
+            - `references/MODELING_WORKFLOWS.md`
             - `references/SDK_PACKAGE_SUMMARY.md`
             - `references/docs/api/`
             - `references/docs/core/`
@@ -570,11 +582,11 @@ class SkillPackager:
             "",
             "- Geometry and modeling operations in `docs/api/`.",
             "- Core shape/type semantics in `docs/core/`.",
-            "- v2 graph/model serialization and replay APIs.",
+            "- Graph/model serialization and replay APIs.",
             "- Expression, parameter, and semantic reference types.",
             "- Functional tagging with `apply_tag(shape, tag)`, `list_tags(shape)`, and QL tag predicates.",
             "",
-            "## Preferred v2 workflow",
+            "## Preferred replayable workflow",
             "",
             "- Record modeling steps inside `GraphSession` when you need replayable outputs.",
             "- Export session/model payloads with `export_session_json()` and `export_model_json()`.",
@@ -614,11 +626,11 @@ class SkillPackager:
 
             1. `references/docs/api/README.md`
             2. `references/SDK_OVERVIEW.md`
-            3. `references/V2_MODELING_WORKFLOWS.md`
+            3. `references/MODELING_WORKFLOWS.md`
             4. Specific pages under `references/docs/api/`
             5. Supporting pages under `references/docs/core/`
 
-            ## Typical v2 surface
+            ## Typical replayable surface
 
             ```python
             from simplecadapi import GraphSession, export_model_json, replay_model_json
@@ -637,9 +649,20 @@ class SkillPackager:
     def _build_evolve_workflow_reference(self) -> str:
         body = textwrap.dedent(
             f"""\
-            # V2 Modeling Workflows
+            # Modeling Workflows
 
-            ## 1) Capture a replayable v2 modeling flow
+            ## Modeling Mental Model
+
+            - Model the part as a sequence of intentional operations, not as one opaque final shape.
+            - Start from profiles and reference geometry, then create solids with features such as extrude, revolve, loft, and sweep.
+            - Use booleans and detail features after the base form is clear: cut openings, union intended merged bodies, then apply fillets, chamfers, or shell operations.
+            - Use `GraphSession` whenever the result should be replayable, inspectable, serialized, or translated.
+            - Use QL for grounding and selection. Query the facts you need, such as face normals, centers, areas, edge lengths, curve types, and tags.
+            - Use semantic tags for design intent and anchors. Keep numeric measurements and geometry facts in metadata or model JSON payloads.
+            - Treat `export_model_json()` as the interchange boundary for replay and CAD translation.
+            - Validate incrementally: after each major step, print small QL-derived facts such as selected face count, top face center, edge count, volume, or replay result count.
+
+            ## 1) Capture a replayable modeling flow
 
             ```python
             from simplecadapi import GraphSession, export_model_json
@@ -662,6 +685,45 @@ class SkillPackager:
             - Prefer `export_model_json()` output instead of hand-written payloads.
             - Use `replay_model_json()` when you need deterministic reconstruction.
             - Use `import_model_json()` when consuming previously exported payloads.
+
+            ## 4) QL-grounded feature workflow
+
+            ```python
+            import simplecadapi as scad
+            from simplecadapi import ql
+
+            with scad.GraphSession() as session:
+                profile = scad.make_circle_rface((0, 0, 0), 1.0)
+                body = scad.extrude_rsolid(profile, (0, 0, 1), 4.0)
+                end_face = (
+                    ql.faces()
+                    .where(ql.tag("face.extrusion.end"))
+                    .exactly(1)
+                    .resolve(body)[0]
+                )
+                print("end face center", end_face.get_center())
+                path = scad.make_segment_rwire((0, 0, 4), (0, 0, 8))
+                swept = scad.sweep_rsolid(end_face, path)
+
+            payload = scad.export_model_json(session)
+            rebuilt = scad.replay_model_json(payload)
+            print("rebuilt", len(rebuilt))
+            ```
+
+            ## 5) Selection and tag discipline
+
+            - Prefer QL selectors over manual list indexing when selecting feature inputs.
+            - Attach semantic tags with `apply_tag(shape, tag)` and inspect with `list_tags(shape)`.
+            - Use tags for intent, roles, anchors, groups, and topology names.
+            - Store dimensions, positions, measured geometry, and descriptive payloads in metadata or model JSON, not in tags.
+            - Keep QL result prints concise: selected count, centers, normals, areas, lengths, or tags.
+
+            ## 6) Boolean and body discipline
+
+            - Use `union_rsolid(...)` when multiple solids should become one integrated body.
+            - Ensure bodies that should union into one solid have real geometric overlap or embedding.
+            - Use `cut_rsolidlist(...)` for subtractive features and `intersect_rsolidlist(...)` for common-volume workflows.
+            - Validate body count and volume after major boolean operations.
             """
         )
         return body.rstrip() + "\n"
@@ -684,7 +746,7 @@ class SkillPackager:
 
             ## Scope
 
-            - OCP-native public CAD Python SDK for geometry and v2 replayable modeling.
+            - OCP-native public CAD Python SDK for geometry and replayable modeling.
             - Includes generated API and core type references under `references/docs/`.
             - Emphasizes public surfaces rather than repository operations.
 
@@ -694,7 +756,7 @@ class SkillPackager:
             - `references/docs/core/README.md`
             - `references/SDK_OVERVIEW.md`
             - `references/SDK_SURFACES.md`
-            - `references/V2_MODELING_WORKFLOWS.md`
+            - `references/MODELING_WORKFLOWS.md`
             """
         )
 

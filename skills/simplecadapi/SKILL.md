@@ -1,8 +1,8 @@
 ---
 name: simplecadapi
-description: Thin SimpleCAD SDK reference skill focused on the public API surface, core types, and v2 modeling workflows.
+description: Thin SimpleCAD SDK reference skill focused on the public API surface, core types, and current modeling workflows.
 license: MIT
-compatibility: Documentation/reference bundle for SimpleCADAPI v2 surfaces.
+compatibility: Documentation/reference bundle for current SimpleCADAPI surfaces.
 metadata:
   project: simplecadapi
   version: 2.0.0b1
@@ -26,15 +26,15 @@ metadata:
   - `<skill_root>/references/docs/core/<type_name>.md`
   - `<skill_root>/references/SDK_OVERVIEW.md`
   - `<skill_root>/references/SDK_SURFACES.md`
-  - `<skill_root>/references/V2_MODELING_WORKFLOWS.md`
+  - `<skill_root>/references/MODELING_WORKFLOWS.md`
 
 ## MUST Requirements
 1. Read `SKILL.md` and `references/docs/api/README.md` before choosing APIs.
 2. Read the exact API Markdown page for every API you use.
 3. Read the needed `core/` or exact `api/` docs when an API needs `Edge`, `Face`, `Wire`, `Solid`, `GraphSession`, `Sketch`, or expression types.
 4. Follow the documented API signatures exactly.
-5. Use the graph/model JSON workflow for v2 tasks: `GraphSession`, `export_session_json`, `export_model_json`, `import_model_json`, and `replay_model_json`.
-6. Use geometry APIs for integrated parts; assembly and constraint APIs are temporarily not public while the assembly system is rebuilt.
+5. Use the graph/model JSON workflow for replayable tasks: `GraphSession`, `export_session_json`, `export_model_json`, `import_model_json`, and `replay_model_json`.
+6. Use geometry APIs for integrated parts: profiles, features, booleans, transforms, tagging, QL inspection, serialization, and exports.
 7. Use tags consistently through `apply_tag(shape, tag)` and `list_tags(shape)`; do not call shape member tag mutators.
 8. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
 9. For inspection/debugging, query geometry with QL and print only the queried facts you need; do not print whole solids or full model objects.
@@ -52,6 +52,18 @@ metadata:
 - If a union cannot produce exactly one merged solid, it fails explicitly instead of returning multiple pieces.
 - If a single merged solid is required but union fails, slightly move the parts so they overlap instead of merely touching, then recompute the union.
 
+## Modeling Mental Model
+- Start with intent: identify the part, its reference axes, critical profiles, and the features that produce the final solid.
+- Build from lower-dimensional geometry to higher-dimensional geometry: `Vertex` / `Edge` / `Wire` / `Face` profiles first, then `Solid` features such as extrude, revolve, loft, and sweep.
+- Keep modeling operations functional. Create new values from public functions such as `make_circle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolidlist(...)`, and `fillet_rsolid(...)`.
+- Use `GraphSession` when the model should be replayable, inspectable, exported as model JSON, or translated to another CAD system.
+- Treat model JSON as the interchange boundary. Prefer `export_model_json(session)` and `replay_model_json(payload)` over hand-authored operation payloads.
+- Use QL for precise grounding. Query faces, edges, centers, normals, areas, lengths, curve types, and tags; print only the facts needed to validate the current step.
+- Use tags for semantic intent and selection anchors, such as `role.mounting_surface`, `anchor.datum.primary`, `face.top`, or `group.fasteners`.
+- Keep numeric and geometric facts in metadata or graph payloads, not in tags.
+- When a QL-selected face or edge is used by a later feature, expect the graph/model workflow to preserve that selection as a stable geo select node.
+- For FreeCAD translation, prefer canonical model JSON generated from a `GraphSession`; selected profiles and detail-feature selections should come from the graph rather than ad hoc object lookup.
+
 ## Tagging Mental Model
 - Public tag attachment is `apply_tag(shape, tag)`.
 - Public tag inspection is `list_tags(shape)`, which returns a stable sorted list.
@@ -67,7 +79,7 @@ metadata:
 - API docs include an `Import Surface` section that distinguishes top-level exports from `simplecadapi.ql` submodule APIs.
 - Use `references/SDK_OVERVIEW.md` for the package-level map.
 - Use `references/SDK_SURFACES.md` for the main public surfaces.
-- Use `references/V2_MODELING_WORKFLOWS.md` for graph/model-oriented patterns.
+- Use `references/MODELING_WORKFLOWS.md` for graph/model-oriented patterns.
 
 ## Example SDK usage
 
@@ -76,7 +88,7 @@ import simplecadapi as scad
 from simplecadapi import GraphSession, export_model_json, make_box_rsolid
 ```
 
-Typical v2 usage in a Python script:
+Typical replayable usage in a Python script:
 
 ```python
 import simplecadapi as scad
@@ -90,12 +102,12 @@ rebuilt = replay_model_json(model_json)
 print(len(rebuilt))
 ```
 
-Use the graph/model JSON workflow when the task needs reproducibility, interchange, or replayable v2 outputs.
+Use the graph/model JSON workflow when the task needs reproducibility, interchange, or replayable outputs.
 
 ## References
 - `references/SDK_OVERVIEW.md`
 - `references/SDK_SURFACES.md`
-- `references/V2_MODELING_WORKFLOWS.md`
+- `references/MODELING_WORKFLOWS.md`
 - `references/SDK_PACKAGE_SUMMARY.md`
 - `references/docs/api/`
 - `references/docs/core/`
