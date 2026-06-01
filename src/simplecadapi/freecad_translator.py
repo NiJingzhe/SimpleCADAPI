@@ -367,6 +367,8 @@ class FreeCADScriptTranslator:
         emit("GRAPH_NODES = {}")
         emit("GRAPH_OUTPUTS = {}")
         emit("GRAPH_METADATA = {}")
+        emit("GRAPH_SELECTIONS = {}")
+        emit("GRAPH_SPINE_OBJECTS = {}")
         emit("GRAPH_LIMITATIONS = {}")
         emit("SKETCH_REGISTRY = []")
         expression_graph_payload = payload.get("expression_graph", {})
@@ -990,6 +992,17 @@ def _shape_from_graph_node(node_id):
         shape = getattr(value, 'Shape', None)
     else:
         shape = value
+    try:
+        shape_invalid = shape is None or shape.isNull()
+    except Exception:
+        shape_invalid = shape is None
+    if shape_invalid:
+        try:
+            doc.recompute()
+        except Exception:
+            pass
+        if hasattr(value, 'Shape'):
+            shape = getattr(value, 'Shape', None)
     if shape is None or shape.isNull():
         raise RuntimeError(f'Graph node {node_id!r} has no valid shape')
     return shape
@@ -1133,22 +1146,29 @@ def _register_geo_selection_node(*, node_id, op, params, inputs, tags, context, 
         'kind': str(selector.get('kind', '')),
         'shape': selected_shape,
     }
-    GRAPH_NODES[node_id] = payload
-    GRAPH_METADATA[node_id] = {
-        'op': op,
-        'params': params,
-        'inputs': list(inputs),
-        'context': context or {},
-        'tags': list(tags or []),
-    }
-    GRAPH_OUTPUTS[node_id] = [payload]
-    return payload
+    obj = doc.addObject('Part::Feature', f'{str(op)}_{str(node_id)}')
+    obj.Shape = selected_shape
+    registered = _register_graph_object(
+        obj,
+        node_id=node_id,
+        op=op,
+        params=params,
+        inputs=inputs,
+        tags=tags,
+        context=context,
+        output_count=output_count,
+        param_exprs=param_exprs,
+        semantic_delta=semantic_delta,
+        topo_delta=topo_delta,
+    )
+    GRAPH_SELECTIONS[node_id] = payload
+    return registered
 
 
 def _selected_indices_from_nodes(node_ids, fallback_indices):
     indices = []
     for node_id in node_ids or []:
-        payload = GRAPH_NODES.get(str(node_id))
+        payload = GRAPH_SELECTIONS.get(str(node_id)) or GRAPH_NODES.get(str(node_id))
         if isinstance(payload, dict) and 'index' in payload:
             indices.append(int(payload['index']))
     if indices:
@@ -1271,6 +1291,37 @@ def _wire_shape_from_edge_objects(node_ids):
         shape = _shape_from_graph_node(node_id)
         shapes.append(shape)
     return Part.Wire(shapes)
+
+
+def _shape_is_null(shape):
+    try:
+        return shape is None or shape.isNull()
+    except Exception:
+        return shape is None
+
+
+def _spine_object(node_id):
+    node_id = str(node_id)
+    cached = GRAPH_SPINE_OBJECTS.get(node_id)
+    if cached is not None:
+        return cached
+    obj = GRAPH_NODES[node_id]
+    try:
+        shape = getattr(obj, 'Shape', None)
+    except Exception:
+        shape = None
+    if not _shape_is_null(shape):
+        return obj
+    meta = GRAPH_METADATA.get(node_id, {})
+    if str(meta.get('op', '')) == 'make_wire_from_edges_rwire':
+        edge_ids = list(meta.get('inputs') or [])
+        if edge_ids:
+            fallback = doc.addObject('Part::Feature', f'make_spine_wire_{node_id}')
+            fallback.Shape = _wire_shape_from_edge_objects(edge_ids)
+            _set_visibility(fallback, False)
+            GRAPH_SPINE_OBJECTS[node_id] = fallback
+            return fallback
+    return obj
 
 
 def _build_face_from_source(source_obj, name):
@@ -2326,7 +2377,7 @@ def _resolve_vec3_param(params, param_exprs, key):
             lines = [
                 f"{var_name} = doc.addObject('Part::Sweep', {_json_ascii(object_name)})",
                 f"{var_name}.Sections = [GRAPH_NODES[{_json_ascii(inputs[0])}]]",
-                f"{var_name}.Spine = GRAPH_NODES[{_json_ascii(inputs[1])}]",
+                f"{var_name}.Spine = _spine_object({_json_ascii(inputs[1])})",
                 f"{var_name}.Solid = True",
                 f"{var_name}.Frenet = bool(_resolve_param_value({rp}, {re}, 'is_frenet') if 'is_frenet' in {rp} else False)",
             ]

@@ -585,6 +585,41 @@ class TestReplay(unittest.TestCase):
         self.assertIsInstance(results[0], scad.Solid)
         self.assertAlmostEqual(results[0].get_volume(), swept.get_volume(), places=5)
 
+    def test_replay_sweep_records_ql_selected_extrude_end_face_profile(self):
+        with scad.GraphSession() as session:
+            base = scad.make_circle_rface((0, 0, 0), 0.25)
+            body = scad.extrude_rsolid(base, (0, 0, 1), 1.0)
+            profile = (
+                scad.ql.faces()
+                .where(scad.ql.tag("face.extrusion.end"))
+                .exactly(1)
+                .resolve(body)[0]
+            )
+            path = scad.make_segment_rwire((0, 0, 1.0), (0, 0, 2.0))
+            swept = scad.sweep_rsolid(profile, path)
+
+        payload = json.loads(export_graph_json(session.graph))
+        select_nodes = [
+            node for node in payload["nodes"] if node["op"] == "make_select_rface"
+        ]
+        self.assertEqual(len(select_nodes), 1)
+        select_node = select_nodes[0]
+        self.assertEqual(select_node["params"]["target_kind"], "face")
+        self.assertEqual(select_node["params"]["geo_selector"]["kind"], "face")
+        self.assertIn("source_index", select_node["params"]["geo_selector"])
+        self.assertNotIn("tags", select_node["params"]["geo_selector"])
+
+        sweep_node = next(
+            node for node in payload["nodes"] if node["op"] == "make_sweep_rsolid"
+        )
+        self.assertEqual(sweep_node["inputs"][0], select_node["node_id"])
+
+        restored = replay_graph(import_graph_json(json.dumps(payload)))
+
+        self.assertEqual(len(restored), 1)
+        self.assertIsInstance(restored[0], scad.Solid)
+        self.assertAlmostEqual(restored[0].get_volume(), swept.get_volume(), places=5)
+
     def test_replay_helical_sweep_roundtrip(self):
         with scad.GraphSession() as session:
             profile = scad.make_rectangle_rwire(0.4, 0.2)
