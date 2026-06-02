@@ -5,9 +5,9 @@ license: MIT
 compatibility: Documentation/reference bundle for current SimpleCADAPI surfaces.
 metadata:
   project: simplecadapi
-  version: 2.0.0b2
+  version: 2.0.0b3
   package-name: simplecadapi
-  package-version: 2.0.0b2
+  package-version: 2.0.0b3
 ---
 
 # SimpleCAD SDK Skill
@@ -59,6 +59,7 @@ metadata:
 - Use `GraphSession` when the model should be replayable, inspectable, exported as model JSON, or translated to another CAD system.
 - Treat model JSON as the interchange boundary. Prefer `export_model_json(session)` and `replay_model_json(payload)` over hand-authored operation payloads.
 - Use QL for precise grounding. Query faces, edges, centers, normals, areas, lengths, curve types, and tags; print only the facts needed to validate the current step.
+- Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` when an indexed topology pick is intentional; these picks are preserved as geo select nodes in replayable graph workflows.
 - Use tags for semantic intent and selection anchors, such as `role.mounting_surface`, `anchor.datum.primary`, `face.top`, or `group.fasteners`.
 - Keep numeric and geometric facts in metadata or graph payloads, not in tags.
 - When a QL-selected face or edge is used by a later feature, expect the graph/model workflow to preserve that selection as a stable geo select node.

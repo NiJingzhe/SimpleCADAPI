@@ -1,6 +1,6 @@
 # Serialization and Replay Operation Guides
 
-This directory documents how SimpleCADAPI 2.x serializes replayable modeling operations into the canonical low-level `model.json` operation graph.
+This directory documents how SimpleCADAPI serializes replayable modeling operations into the canonical low-level `model.json` operation graph.
 
 The long-form schema reference remains [`../operation_graph_json_spec.md`](../operation_graph_json_spec.md). These files are more practical, operation-by-operation guides intended for people comparing source code with exported JSON.
 
@@ -51,7 +51,6 @@ Many user-facing functions are convenience APIs. During an active `GraphSession`
 
 - [Primitive and profile operations](primitives-and-profiles.md)
 - [Features, booleans, transforms, patterns, and selectors](features-booleans-transforms.md)
-- [Scalar field surfaces](scalar-fields.md)
 - [Expressions and replay behavior](expressions-and-replay.md)
 
 ## Example

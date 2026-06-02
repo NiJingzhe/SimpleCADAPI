@@ -281,7 +281,7 @@ class TestRearchitecture20IoContracts(unittest.TestCase):
     def test_model_json_declares_selection_ref_resolution_order(self):
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            scad.fillet_rsolid(box, box.get_edges()[:2], 0.2)
+            scad.fillet_rsolid(box, [box.get_edges(i) for i in range(2)], 0.2)
 
         payload = scad.import_model_json(scad.export_model_json(session))
         selection_schema = payload["canonical_contract"]["selection_ref_schema"]

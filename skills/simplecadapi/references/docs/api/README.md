@@ -1,6 +1,6 @@
 # SimpleCAD API Index
 
-This index includes generated docs for the public SimpleCAD API surface, including v2 graph, expression, and model JSON workflows.
+This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, expressions, QL, and export helpers.
 
 ## Import Surfaces
 
@@ -64,6 +64,11 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 - [export_step](export_step.md) *(from operations.py)* `top-level`
 - [export_stl](export_stl.md) *(from operations.py)* `top-level`
+
+## FreeCAD Translation
+
+- [translate_model_json_to_fcstd](translate_model_json_to_fcstd.md) *(from freecad_translator.py)* `top-level`
+- [translate_model_json_to_freecad_script](translate_model_json_to_freecad_script.md) *(from freecad_translator.py)* `top-level`
 
 ## Modeling Graph and Replay
 

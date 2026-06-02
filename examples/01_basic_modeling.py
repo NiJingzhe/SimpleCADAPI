@@ -1,4 +1,4 @@
-"""Basic shape-first modeling with the 1.x-style functional API.
+"""Basic shape-first modeling with the functional API.
 
 Run from the repository root with:
     uv run python examples/01_basic_modeling.py

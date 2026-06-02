@@ -1099,8 +1099,6 @@ def _geo_selector_score(candidate, selector, candidate_index):
     elif kind == 'solid':
         if 'volume' in selector and hasattr(candidate, 'Volume'):
             score += abs(float(candidate.Volume) - float(selector['volume']))
-    if selector.get('source_index') is not None:
-        score += 0.0 if int(selector['source_index']) == int(candidate_index) else 1e-6
     return score
 
 
@@ -1109,10 +1107,6 @@ def _selection_index_for_selector(source_shape, selector):
     candidates = _subshape_candidates_for_kind(source_shape, kind)
     if not candidates:
         raise RuntimeError(f'No {kind} candidates available for geo selection')
-    if selector.get('source_index') is not None:
-        idx = int(selector['source_index'])
-        if 0 <= idx < len(candidates):
-            return idx
     ranked = sorted(
         enumerate(candidates),
         key=lambda item: _geo_selector_score(item[1], selector, item[0]),
@@ -1165,10 +1159,17 @@ def _register_geo_selection_node(*, node_id, op, params, inputs, tags, context, 
     return registered
 
 
-def _selected_indices_from_nodes(node_ids, fallback_indices):
+def _selected_indices_from_nodes(node_ids, fallback_indices, base_shape=None, kind=None):
     indices = []
     for node_id in node_ids or []:
         payload = GRAPH_SELECTIONS.get(str(node_id)) or GRAPH_NODES.get(str(node_id))
+        if isinstance(payload, dict) and base_shape is not None:
+            selector = dict(payload.get('selector') or payload.get('params', {}).get('geo_selector') or {})
+            if kind is not None:
+                selector['kind'] = str(kind)
+            if selector:
+                indices.append(_selection_index_for_selector(base_shape, selector))
+                continue
         if isinstance(payload, dict) and 'index' in payload:
             indices.append(int(payload['index']))
     if indices:
@@ -2442,7 +2443,7 @@ def _resolve_vec3_param(params, param_exprs, key):
             lines = [
                 f"{var_name} = doc.addObject('Part::Fillet', {_json_ascii(object_name)})",
                 f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
-                f"{var_name}.Edges = [(int(idx) + 1, float(_resolve_param_value({rp}, {re}, 'radius')), float(_resolve_param_value({rp}, {re}, 'radius'))) for idx in _selected_indices_from_nodes({rp}.get('selected_edge_node_ids', []), {rp}.get('selected_edge_indices', []))]",
+                f"{var_name}.Edges = [(int(idx) + 1, float(_resolve_param_value({rp}, {re}, 'radius')), float(_resolve_param_value({rp}, {re}, 'radius'))) for idx in _selected_indices_from_nodes({rp}.get('selected_edge_node_ids', []), {rp}.get('selected_edge_indices', []), _shape_from_graph_node({_json_ascii(inputs[0])}), 'edge')]",
             ]
             lines.append(f"_apply_detail_feature_bindings({var_name}, {re}, 'radius')")
             lines.extend(finish())
@@ -2452,7 +2453,7 @@ def _resolve_vec3_param(params, param_exprs, key):
             lines = [
                 f"{var_name} = doc.addObject('Part::Chamfer', {_json_ascii(object_name)})",
                 f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
-                f"{var_name}.Edges = [(int(idx) + 1, float(_resolve_param_value({rp}, {re}, 'distance')), float(_resolve_param_value({rp}, {re}, 'distance'))) for idx in _selected_indices_from_nodes({rp}.get('selected_edge_node_ids', []), {rp}.get('selected_edge_indices', []))]",
+                f"{var_name}.Edges = [(int(idx) + 1, float(_resolve_param_value({rp}, {re}, 'distance')), float(_resolve_param_value({rp}, {re}, 'distance'))) for idx in _selected_indices_from_nodes({rp}.get('selected_edge_node_ids', []), {rp}.get('selected_edge_indices', []), _shape_from_graph_node({_json_ascii(inputs[0])}), 'edge')]",
             ]
             lines.append(
                 f"_apply_detail_feature_bindings({var_name}, {re}, 'distance')"
@@ -2469,7 +2470,7 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
             )
             if node.params.get("selected_face_indices") or node.params.get("selected_face_node_ids"):
-                face_name_expr = f"['Face' + str(int(i) + 1) for i in _selected_indices_from_nodes({rp}.get('selected_face_node_ids', []), {rp}.get('selected_face_indices', []))]"
+                face_name_expr = f"['Face' + str(int(i) + 1) for i in _selected_indices_from_nodes({rp}.get('selected_face_node_ids', []), {rp}.get('selected_face_indices', []), _shape_from_graph_node({_json_ascii(inputs[0])}), 'face')]"
                 lines.append(
                     f"{var_name}.Faces = (GRAPH_NODES[{_json_ascii(inputs[0])}], {face_name_expr})"
                 )

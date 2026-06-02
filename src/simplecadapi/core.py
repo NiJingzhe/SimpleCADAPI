@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union, cast
 
 import numpy as np
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID, TopAbs_VERTEX, TopAbs_WIRE
@@ -458,6 +458,37 @@ class TopoMixein:
         return list(self.parents)
 
 
+def _record_indexed_topology_selection(source: Any, selected_shapes: Iterable[Any]) -> None:
+    shapes = [shape for shape in selected_shapes if isinstance(shape, TaggedMixin)]
+    if not shapes:
+        return
+    try:
+        from .operations import _ensure_geo_selection_node_ids
+
+        _ensure_geo_selection_node_ids(cast(AnyShape, source), cast(List[AnyShape], shapes))
+    except Exception:
+        return
+
+
+class _TopologySelectionList(list):
+    def __init__(self, source: Any, target_kind: str, items: Iterable[Any]) -> None:
+        super().__init__(items)
+        self._source = source
+        self._target_kind = target_kind
+
+    def __getitem__(self, index: Any) -> Any:
+        selected = super().__getitem__(index)
+        if isinstance(index, slice):
+            _record_indexed_topology_selection(self._source, selected)
+            return selected
+        _record_indexed_topology_selection(self._source, [selected])
+        return selected
+
+
+def _selection_list(source: Any, target_kind: str, items: Iterable[Any]) -> List[Any]:
+    return cast(List[Any], _TopologySelectionList(source, target_kind, items))
+
+
 class Vertex(TaggedMixin, TopoMixein):
     """OCP-native vertex wrapper with tag support."""
 
@@ -551,6 +582,18 @@ class Edge(TaggedMixin, TopoMixein):
                     break
         return faces
 
+    def get_vertices(self, index: Optional[int] = None) -> Union[List[Vertex], Vertex]:
+        try:
+            vertices = [
+                child for child in self.get_children() if isinstance(child, Vertex)
+            ]
+            result = cast(List[Vertex], _selection_list(self, "vertex", vertices))
+            if index is None:
+                return result
+            return result[index]
+        except Exception as e:
+            raise ValueError(f"获取顶点失败: {e}")
+
     def __str__(self) -> str:
         return self._format_string(indent=0)
 
@@ -592,11 +635,14 @@ class Wire(TaggedMixin, TopoMixein):
         except Exception as e:
             raise ValueError(f"初始化线失败: {e}. 请检查输入的线对象是否有效。")
 
-    def get_edges(self) -> List[Edge]:
+    def get_edges(self, index: Optional[int] = None) -> Union[List[Edge], Edge]:
         try:
-            return cast(List[Edge], self.get_children())
+            result = cast(List[Edge], _selection_list(self, "edge", self.get_children()))
+            if index is None:
+                return result
+            return result[index]
         except Exception as e:
-            raise ValueError(f"获取边列表失败: {e}")
+            raise ValueError(f"获取边失败: {e}")
 
     def is_closed(self) -> bool:
         try:
@@ -695,21 +741,42 @@ class Face(TaggedMixin, TopoMixein):
         except Exception as e:
             raise ValueError(f"获取外边界线失败: {e}")
 
-    def get_inner_wires(self) -> List[Wire]:
+    def get_wires(self, index: Optional[int] = None) -> Union[List[Wire], Wire]:
         try:
-            return [w for w in cast(List[Wire], self.get_children()) if w.is_closed() and w._has_tag("wire.inner")]
+            wires = [child for child in self.get_children() if isinstance(child, Wire)]
+            result = cast(List[Wire], _selection_list(self, "wire", wires))
+            if index is None:
+                return result
+            return result[index]
+        except Exception as e:
+            raise ValueError(f"获取边界线失败: {e}")
+
+    def get_inner_wires(self, index: Optional[int] = None) -> Union[List[Wire], Wire]:
+        try:
+            wires = [
+                w
+                for w in cast(List[Wire], self.get_children())
+                if w.is_closed() and w._has_tag("wire.inner")
+            ]
+            result = cast(List[Wire], _selection_list(self, "wire", wires))
+            if index is None:
+                return result
+            return result[index]
         except Exception as e:
             raise ValueError(f"获取内边界线失败: {e}")
 
     def get_center(self) -> Vec3:
         return center_of_mass(self.wrapped)
 
-    def get_edges(self) -> List[Edge]:
+    def get_edges(self, index: Optional[int] = None) -> Union[List[Edge], Edge]:
         edges: List[Edge] = []
         edges.extend(self.get_outer_wire().get_edges())
         for inner in self.get_inner_wires():
             edges.extend(inner.get_edges())
-        return edges
+        result = cast(List[Edge], _selection_list(self, "edge", edges))
+        if index is None:
+            return result
+        return result[index]
 
     def get_adjacent_faces(self) -> List["Face"]:
         adjacent: Dict[str, Face] = {}
@@ -770,28 +837,40 @@ class Solid(TaggedMixin, TopoMixein):
         except Exception as e:
             raise ValueError(f"获取体积失败: {e}")
 
-    def get_faces(self) -> List[Face]:
+    def get_faces(self, index: Optional[int] = None) -> Union[List[Face], Face]:
         try:
-            return [f for f in cast(List[Face], self.get_children()) if isinstance(f, Face)]
+            faces = [
+                f for f in cast(List[Face], self.get_children()) if isinstance(f, Face)
+            ]
+            result = cast(List[Face], _selection_list(self, "face", faces))
+            if index is None:
+                return result
+            return result[index]
         except Exception as e:
-            raise ValueError(f"获取面列表失败: {e}")
+            raise ValueError(f"获取面失败: {e}")
 
-    def get_edges(self) -> List[Edge]:
+    def get_edges(self, index: Optional[int] = None) -> Union[List[Edge], Edge]:
         try:
             unique: Dict[str, Edge] = {}
             for face in self.get_faces():
                 for edge in face.get_edges():
                     unique.setdefault(edge.topo_id, edge)
-            return list(unique.values())
+            result = cast(List[Edge], _selection_list(self, "edge", unique.values()))
+            if index is None:
+                return result
+            return result[index]
         except Exception as e:
-            raise ValueError(f"获取边列表失败: {e}")
+            raise ValueError(f"获取边失败: {e}")
 
-    def get_edge_occurrences(self) -> List[Edge]:
+    def get_edge_occurrences(self, index: Optional[int] = None) -> Union[List[Edge], Edge]:
         try:
             edges: List[Edge] = []
             for face in self.get_faces():
                 edges.extend(face.get_edges())
-            return edges
+            result = cast(List[Edge], _selection_list(self, "edge", edges))
+            if index is None:
+                return result
+            return result[index]
         except Exception as e:
             raise ValueError(f"获取边实例列表失败: {e}")
 
@@ -803,7 +882,7 @@ class Solid(TaggedMixin, TopoMixein):
             elif geometry_type == "cylinder" and len(faces) == 3:
                 self._auto_tag_cylinder_faces(faces)
             elif geometry_type == "sphere" and len(faces) == 1:
-                self._tag_face(faces[0], "surface")
+                self._tag_face(next(iter(faces)), "surface")
             else:
                 for i, face in enumerate(faces):
                     self._tag_face(face, f"face_{i}")

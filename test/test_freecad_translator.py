@@ -219,7 +219,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         radius = scad.var("fillet_r", 0.25)
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            scad.fillet_rsolid(box, box.get_edges()[:2], radius)
+            scad.fillet_rsolid(box, [box.get_edges(i) for i in range(2)], radius)
 
         script = scad.translate_model_json_to_freecad_script(
             scad.export_model_json(session)
@@ -658,7 +658,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             scad.revolve_rsolid(rev_face, axis=(0.0, 0.0, 1.0), angle=180.0)
             scad.sweep_rsolid(face, helix, is_frenet=True)
             box = scad.make_box_rsolid(2.0, 2.0, 2.0)
-            scad.shell_rsolid(box, box.get_faces()[:1], 0.25)
+            scad.shell_rsolid(box, [box.get_faces(0)], 0.25)
 
         payload = scad.export_model_json(session)
         payload_obj = self._expression_payload(payload)
@@ -753,8 +753,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             scad.mirror_shape(
                 box, plane_origin=(0.0, 0.0, 0.0), plane_normal=(0.0, 0.0, 1.0)
             )
-            scad.fillet_rsolid(box, box.get_edges()[:1], 0.2)
-            scad.chamfer_rsolid(box, box.get_edges()[:1], 0.3)
+            scad.fillet_rsolid(box, [box.get_edges(0)], 0.2)
+            scad.chamfer_rsolid(box, [box.get_edges(0)], 0.3)
 
         payload_obj = self._expression_payload(scad.export_model_json(session))
         payload_obj["expression_graph"]["nodes"] = [
@@ -1751,8 +1751,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
     ):
         with GraphSession() as session:
             box = scad.make_box_rsolid(2.0, 2.0, 2.0)
-            scad.chamfer_rsolid(box, box.get_edges()[:1], 0.2)
-            scad.shell_rsolid(box, box.get_faces()[:1], 0.1)
+            scad.chamfer_rsolid(box, [box.get_edges(0)], 0.2)
+            scad.shell_rsolid(box, [box.get_faces(0)], 0.1)
 
         script = scad.translate_model_json_to_freecad_script(
             scad.export_model_json(session)

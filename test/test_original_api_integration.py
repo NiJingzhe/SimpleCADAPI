@@ -91,7 +91,7 @@ class TestOriginalFeatureApiIntegration(unittest.TestCase):
 
     def test_fillet_rsolid_auto_applies_semantic_tags(self):
         box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-        edges = box.get_edges()[:4]
+        edges = [box.get_edges(i) for i in range(4)]
         filleted = scad.fillet_rsolid(box, edges, 0.2)
 
         self.assertEqual(filleted.get_metadata("track")["op"], "make_fillet_rsolid")
@@ -101,7 +101,7 @@ class TestOriginalFeatureApiIntegration(unittest.TestCase):
 
     def test_shell_rsolid_auto_applies_track_metadata(self):
         box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-        faces_to_remove = [box.get_faces()[0]]
+        faces_to_remove = [box.get_faces(0)]
         shelled = scad.shell_rsolid(box, faces_to_remove, 0.2)
 
         self.assertEqual(shelled.get_metadata("track")["op"], "make_shell_rsolid")
@@ -187,8 +187,8 @@ class TestOriginalApiGraphRecording(unittest.TestCase):
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
 
-        face_ref = box.get_faces()[0].get_metadata("topo_ref")
-        edge_ref = box.get_edges()[0].get_metadata("topo_ref")
+        face_ref = box.get_faces(0).get_metadata("topo_ref")
+        edge_ref = box.get_edges(0).get_metadata("topo_ref")
 
         self.assertIsInstance(face_ref, dict)
         self.assertEqual(face_ref["kind"], "FACE")

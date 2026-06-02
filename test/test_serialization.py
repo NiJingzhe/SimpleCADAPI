@@ -117,7 +117,7 @@ class TestExportImport(unittest.TestCase):
     def test_export_graph_json_display_payload_includes_selection_counts(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            edges = box.get_edges()[:4]
+            edges = [box.get_edges(i) for i in range(4)]
             scad.fillet_rsolid(box, edges, 0.2)
 
         payload = json.loads(export_graph_json(session.graph))
@@ -351,7 +351,7 @@ class TestReplay(unittest.TestCase):
     def test_replay_fillet_roundtrip_with_selected_edges(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            edges = box.get_edges()[:4]
+            edges = [box.get_edges(i) for i in range(4)]
             filleted = scad.fillet_rsolid(box, edges, 0.2)
 
         graph_json = export_graph_json(session.graph)
@@ -362,10 +362,58 @@ class TestReplay(unittest.TestCase):
         self.assertIsInstance(results[0], scad.Solid)
         self.assertAlmostEqual(results[0].get_volume(), filleted.get_volume(), places=5)
 
+    def test_indexed_edge_access_records_geo_select_nodes(self):
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(4.0, 4.0, 4.0)
+            edge = box.get_edges(0)
+            filleted = scad.fillet_rsolid(box, [edge], 0.2)
+
+        payload = json.loads(export_graph_json(session.graph))
+        fillet_node = next(
+            node for node in payload["nodes"] if node["op"] == "make_fillet_rsolid"
+        )
+        selection_node_ids = fillet_node["params"]["selected_edge_node_ids"]
+        self.assertEqual(len(selection_node_ids), 1)
+        selection_node = next(
+            node for node in payload["nodes"] if node["node_id"] == selection_node_ids[0]
+        )
+        self.assertEqual(selection_node["op"], "make_select_redge")
+        self.assertNotIn("source_index", selection_node["params"]["geo_selector"])
+        self.assertNotIn("selected_edge_indices", fillet_node["params"])
+
+        results = replay_graph(import_graph_json(json.dumps(payload)))
+        self.assertEqual(len(results), 1)
+        self.assertIsInstance(results[0], scad.Solid)
+        self.assertAlmostEqual(results[0].get_volume(), filleted.get_volume(), places=5)
+
+    def test_indexed_edge_getter_records_multiple_geo_select_nodes(self):
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(4.0, 4.0, 4.0)
+            edges = [box.get_edges(i) for i in range(2)]
+            filleted = scad.fillet_rsolid(box, edges, 0.2)
+
+        payload = json.loads(export_graph_json(session.graph))
+        fillet_node = next(
+            node for node in payload["nodes"] if node["op"] == "make_fillet_rsolid"
+        )
+        selection_node_ids = fillet_node["params"]["selected_edge_node_ids"]
+        self.assertEqual(len(selection_node_ids), 2)
+        selection_nodes = [
+            node for node in payload["nodes"] if node["node_id"] in selection_node_ids
+        ]
+        self.assertTrue(
+            all(node["op"] == "make_select_redge" for node in selection_nodes)
+        )
+
+        results = replay_graph(import_graph_json(json.dumps(payload)))
+        self.assertEqual(len(results), 1)
+        self.assertIsInstance(results[0], scad.Solid)
+        self.assertAlmostEqual(results[0].get_volume(), filleted.get_volume(), places=5)
+
     def test_replay_chamfer_roundtrip_with_selected_edges(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            edges = box.get_edges()[:4]
+            edges = [box.get_edges(i) for i in range(4)]
             chamfered = scad.chamfer_rsolid(box, edges, 0.2)
 
         graph_json = export_graph_json(session.graph)
@@ -381,7 +429,7 @@ class TestReplay(unittest.TestCase):
     def test_replay_shell_roundtrip_with_selected_faces(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            shelled = scad.shell_rsolid(box, [box.get_faces()[0]], 0.2)
+            shelled = scad.shell_rsolid(box, [box.get_faces(0)], 0.2)
 
         graph_json = export_graph_json(session.graph)
         restored = import_graph_json(graph_json)
@@ -391,10 +439,83 @@ class TestReplay(unittest.TestCase):
         self.assertIsInstance(results[0], scad.Solid)
         self.assertAlmostEqual(results[0].get_volume(), shelled.get_volume(), places=5)
 
+    def test_indexed_face_access_records_geo_select_nodes(self):
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(4.0, 4.0, 4.0)
+            face = box.get_faces(0)
+            shelled = scad.shell_rsolid(box, [face], 0.2)
+
+        payload = json.loads(export_graph_json(session.graph))
+        shell_node = next(
+            node for node in payload["nodes"] if node["op"] == "make_shell_rsolid"
+        )
+        selection_node_ids = shell_node["params"]["selected_face_node_ids"]
+        self.assertEqual(len(selection_node_ids), 1)
+        selection_node = next(
+            node for node in payload["nodes"] if node["node_id"] == selection_node_ids[0]
+        )
+        self.assertEqual(selection_node["op"], "make_select_rface")
+        self.assertNotIn("source_index", selection_node["params"]["geo_selector"])
+        self.assertNotIn("selected_face_indices", shell_node["params"])
+
+        results = replay_graph(import_graph_json(json.dumps(payload)))
+        self.assertEqual(len(results), 1)
+        self.assertIsInstance(results[0], scad.Solid)
+        self.assertAlmostEqual(results[0].get_volume(), shelled.get_volume(), places=5)
+
+    def test_nested_indexed_edge_access_records_source_face_select_node(self):
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(4.0, 4.0, 4.0)
+            face = box.get_faces(0)
+            edge = face.get_edges(0)
+            filleted = scad.fillet_rsolid(box, [edge], 0.2)
+
+        payload = json.loads(export_graph_json(session.graph))
+        select_face_nodes = [
+            node for node in payload["nodes"] if node["op"] == "make_select_rface"
+        ]
+        self.assertEqual(len(select_face_nodes), 1)
+
+        fillet_node = next(
+            node for node in payload["nodes"] if node["op"] == "make_fillet_rsolid"
+        )
+        selection_node_id = fillet_node["params"]["selected_edge_node_ids"][0]
+        selection_node = next(
+            node for node in payload["nodes"] if node["node_id"] == selection_node_id
+        )
+        self.assertEqual(selection_node["op"], "make_select_redge")
+        self.assertEqual(selection_node["inputs"], [select_face_nodes[0]["node_id"]])
+        self.assertNotIn("source_index", selection_node["params"]["geo_selector"])
+
+        results = replay_graph(import_graph_json(json.dumps(payload)))
+        self.assertEqual(len(results), 1)
+        self.assertIsInstance(results[0], scad.Solid)
+        self.assertAlmostEqual(results[0].get_volume(), filleted.get_volume(), places=5)
+
+    def test_indexed_child_geometry_getters_record_select_nodes(self):
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(4.0, 4.0, 4.0)
+            face = box.get_faces(0)
+            wire = face.get_wires(0)
+            edge = wire.get_edges(0)
+            vertex = edge.get_vertices(0)
+
+        payload = json.loads(export_graph_json(session.graph))
+        ops = [node["op"] for node in payload["nodes"]]
+
+        self.assertIsInstance(face, scad.Face)
+        self.assertIsInstance(wire, scad.Wire)
+        self.assertIsInstance(edge, scad.Edge)
+        self.assertIsInstance(vertex, scad.Vertex)
+        self.assertIn("make_select_rface", ops)
+        self.assertIn("make_select_rwire", ops)
+        self.assertIn("make_select_redge", ops)
+        self.assertIn("make_select_rvertex", ops)
+
     def test_replay_fillet_roundtrip_with_selector_hint_fallback(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            edges = box.get_edges()[:4]
+            edges = [box.get_edges(i) for i in range(4)]
             filleted = scad.fillet_rsolid(box, edges, 0.2)
 
         payload = json.loads(export_graph_json(session.graph))
@@ -410,6 +531,7 @@ class TestReplay(unittest.TestCase):
         )
         for ref in damaged_fillet["params"]["selected_edges"]:
             ref["topo_id"] = "missing_edge_ref"
+        damaged_fillet["params"]["selected_edge_node_ids"] = []
         damaged_fillet["params"]["selected_edge_indices"] = []
 
         restored = import_graph_json(json.dumps(damaged))
@@ -422,7 +544,7 @@ class TestReplay(unittest.TestCase):
     def test_replay_shell_roundtrip_with_selector_hint_fallback(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            shelled = scad.shell_rsolid(box, [box.get_faces()[0]], 0.2)
+            shelled = scad.shell_rsolid(box, [box.get_faces(0)], 0.2)
 
         payload = json.loads(export_graph_json(session.graph))
         shell_node = next(
@@ -437,6 +559,7 @@ class TestReplay(unittest.TestCase):
         )
         for ref in damaged_shell["params"]["selected_faces"]:
             ref["topo_id"] = "missing_face_ref"
+        damaged_shell["params"]["selected_face_node_ids"] = []
         damaged_shell["params"]["selected_face_indices"] = []
 
         restored = import_graph_json(json.dumps(damaged))
@@ -483,7 +606,7 @@ class TestReplay(unittest.TestCase):
     def test_ql_tag_filter_records_geo_select_node_not_tag_selector(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            scad.apply_tag(box.get_edges()[0], "role.target_edge")
+            scad.apply_tag(box.get_edges(0), "role.target_edge")
             selector = scad.ql.edges().where(scad.ql.tag("role.target_edge")).exactly(1)
             filleted = scad.fillet_rsolid(box, selector, 0.2)
 
@@ -499,8 +622,7 @@ class TestReplay(unittest.TestCase):
 
         self.assertNotIn("selection_query", fillet_node["params"])
         self.assertNotIn("tags", select_node["params"]["geo_selector"])
-        self.assertIn("source_index", select_node["params"]["geo_selector"])
-        self.assertIsInstance(select_node["params"]["geo_selector"]["source_index"], int)
+        self.assertNotIn("source_index", select_node["params"]["geo_selector"])
 
         fillet_node["params"]["selected_edges"] = []
         fillet_node["params"]["selected_edge_indices"] = []
@@ -606,7 +728,7 @@ class TestReplay(unittest.TestCase):
         select_node = select_nodes[0]
         self.assertEqual(select_node["params"]["target_kind"], "face")
         self.assertEqual(select_node["params"]["geo_selector"]["kind"], "face")
-        self.assertIn("source_index", select_node["params"]["geo_selector"])
+        self.assertNotIn("source_index", select_node["params"]["geo_selector"])
         self.assertNotIn("tags", select_node["params"]["geo_selector"])
 
         sweep_node = next(
@@ -764,12 +886,15 @@ class TestReplay(unittest.TestCase):
     def test_replay_selection_cardinality_mismatch_raises_by_default(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            scad.fillet_rsolid(box, box.get_edges()[:1], 0.2)
+            scad.fillet_rsolid(box, [box.get_edges(0)], 0.2)
 
         payload = json.loads(scad.export_model_json(session))
         fillet_node = next(
             node for node in payload["graph"]["nodes"] if node["op"] == "make_fillet_rsolid"
         )
+        fillet_node["params"]["selected_edge_node_ids"] = []
+        fillet_node["params"]["selected_edges"] = []
+        fillet_node["params"]["selected_edge_indices"] = []
         fillet_node["params"]["selection_query"] = scad.ql.edges().take(2).exactly(2).to_dict()
         fillet_node["params"]["edge_count"] = 1
 

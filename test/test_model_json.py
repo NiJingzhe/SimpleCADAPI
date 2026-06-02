@@ -311,7 +311,7 @@ class TestModelJson(unittest.TestCase):
     def test_graph_preserves_explicit_selected_refs_for_detail_features(self):
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            scad.fillet_rsolid(box, box.get_edges()[:2], 0.3)
+            scad.fillet_rsolid(box, [box.get_edges(i) for i in range(2)], 0.3)
 
         payload = json.loads(scad.export_model_json(session))
         fillet_nodes = [
@@ -386,7 +386,7 @@ class TestModelJson(unittest.TestCase):
     def test_graph_selection_refs_follow_declared_schema(self):
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            scad.fillet_rsolid(box, box.get_edges()[:2], 0.3)
+            scad.fillet_rsolid(box, [box.get_edges(i) for i in range(2)], 0.3)
 
         payload = json.loads(scad.export_model_json(session))
         contract = payload["canonical_contract"]

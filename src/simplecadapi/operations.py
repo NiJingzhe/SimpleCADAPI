@@ -616,10 +616,8 @@ def _make_geo_selector(
         "kind": kind,
         "metadata_geo": _jsonable_geo_value(shape.get_metadata("geo", {})),
     }
-    if source_shape is not None:
-        source_index = _source_selection_index(source_shape, shape, kind=kind)
-        if source_index is not None:
-            selector["source_index"] = source_index
+    # `source_shape` is intentionally not serialized as a source index. The
+    # canonical selector is geometry-based; source lineage comes from graph inputs.
 
     bbox_payload = _bbox_selector_payload(shape)
     if bbox_payload is not None:
@@ -704,6 +702,54 @@ def _record_geo_selection_nodes(
     return node_ids
 
 
+_GEO_SELECT_OPS = {
+    _OP_MAKE_SELECT_RVERTEX,
+    _OP_MAKE_SELECT_REDGE,
+    _OP_MAKE_SELECT_RWIRE,
+    _OP_MAKE_SELECT_RFACE,
+    _OP_MAKE_SELECT_RSOLID,
+}
+
+
+def _is_geo_select_node(node: object) -> bool:
+    return getattr(node, "op", None) in _GEO_SELECT_OPS
+
+
+def _ensure_source_shape_has_own_selection_node(source_shape: AnyShape) -> Optional[object]:
+    source_node = _active_graph_node_for_shape(source_shape)
+    if source_node is None or _is_geo_select_node(source_node):
+        return source_node
+
+    parent_source = _selection_source_for_shape(source_shape)
+    if parent_source is None:
+        return source_node
+
+    _ensure_geo_selection_node_ids(parent_source, [source_shape])
+    return _active_graph_node_for_shape(source_shape)
+
+
+def _ensure_geo_selection_node_ids(
+    source_shape: AnyShape,
+    selected_shapes: Sequence[AnyShape],
+) -> List[str]:
+    session = get_active_session()
+    if session is None:
+        return []
+    source_node = _ensure_source_shape_has_own_selection_node(source_shape)
+    if source_node is None:
+        return []
+
+    node_ids: List[str] = []
+    for selected in selected_shapes:
+        existing_node = _active_graph_node_for_shape(selected)
+        existing_op = getattr(existing_node, "op", None)
+        if existing_node is not None and existing_op in _GEO_SELECT_OPS:
+            node_ids.append(str(existing_node.node_id))
+            continue
+        node_ids.extend(_record_geo_selection_nodes(source_shape, [selected]))
+    return node_ids
+
+
 def _active_graph_node_for_shape(shape: AnyShape) -> Optional[object]:
     session = get_active_session()
     if session is None:
@@ -764,7 +810,7 @@ def _ensure_geo_selection_input_nodes(
             continue
         source = _selection_source_for_shape(shape)
         if source is not None:
-            _record_geo_selection_nodes(source, [shape])
+            _ensure_geo_selection_node_ids(source, [shape])
     return input_shapes
 
 
@@ -3976,29 +4022,24 @@ def fillet_rsolid(
         result._metadata = solid._metadata.copy()
 
         selected_edge_refs = _serialize_shape_refs(selected_edges)
-        selected_edge_indices = _serialize_selection_indices(
-            selected_edges, solid.get_edges()
-        )
-        selected_edge_node_ids = (
-            _record_geo_selection_nodes(solid, selected_edges)
-            if isinstance(edges, ShapeSelector)
-            else []
-        )
+        selected_edge_node_ids = _ensure_geo_selection_node_ids(solid, selected_edges)
+
+        selection_params: Dict[str, object] = {
+            "radius": radius,
+            "edge_count": len(selected_edges),
+            "selected_edges": selected_edge_refs,
+        }
+        if selected_edge_node_ids:
+            selection_params["selected_edge_node_ids"] = selected_edge_node_ids
+        else:
+            selection_params["selected_edge_indices"] = _serialize_selection_indices(
+                selected_edges, solid.get_edges()
+            )
 
         return _finalize_tracked_solid(
             result,
             op=_OP_MAKE_FILLET_RSOLID,
-            params={
-                "radius": radius,
-                "edge_count": len(selected_edges),
-                "selected_edges": selected_edge_refs,
-                "selected_edge_indices": selected_edge_indices,
-                **(
-                    {"selected_edge_node_ids": selected_edge_node_ids}
-                    if selected_edge_node_ids
-                    else {}
-                ),
-            },
+            params=selection_params,
             source_solid=solid,
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
@@ -4043,29 +4084,24 @@ def chamfer_rsolid(
         result._metadata = solid._metadata.copy()
 
         selected_edge_refs = _serialize_shape_refs(selected_edges)
-        selected_edge_indices = _serialize_selection_indices(
-            selected_edges, solid.get_edges()
-        )
-        selected_edge_node_ids = (
-            _record_geo_selection_nodes(solid, selected_edges)
-            if isinstance(edges, ShapeSelector)
-            else []
-        )
+        selected_edge_node_ids = _ensure_geo_selection_node_ids(solid, selected_edges)
+
+        selection_params: Dict[str, object] = {
+            "distance": distance,
+            "edge_count": len(selected_edges),
+            "selected_edges": selected_edge_refs,
+        }
+        if selected_edge_node_ids:
+            selection_params["selected_edge_node_ids"] = selected_edge_node_ids
+        else:
+            selection_params["selected_edge_indices"] = _serialize_selection_indices(
+                selected_edges, solid.get_edges()
+            )
 
         return _finalize_tracked_solid(
             result,
             op=_OP_MAKE_CHAMFER_RSOLID,
-            params={
-                "distance": distance,
-                "edge_count": len(selected_edges),
-                "selected_edges": selected_edge_refs,
-                "selected_edge_indices": selected_edge_indices,
-                **(
-                    {"selected_edge_node_ids": selected_edge_node_ids}
-                    if selected_edge_node_ids
-                    else {}
-                ),
-            },
+            params=selection_params,
             source_solid=solid,
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
@@ -4115,29 +4151,24 @@ def shell_rsolid(
         result._metadata = solid._metadata.copy()
 
         selected_face_refs = _serialize_shape_refs(selected_faces)
-        selected_face_indices = _serialize_selection_indices(
-            selected_faces, solid.get_faces()
-        )
-        selected_face_node_ids = (
-            _record_geo_selection_nodes(solid, selected_faces)
-            if isinstance(faces_to_remove, ShapeSelector)
-            else []
-        )
+        selected_face_node_ids = _ensure_geo_selection_node_ids(solid, selected_faces)
+
+        selection_params: Dict[str, object] = {
+            "thickness": thickness,
+            "removed_face_count": len(selected_faces),
+            "selected_faces": selected_face_refs,
+        }
+        if selected_face_node_ids:
+            selection_params["selected_face_node_ids"] = selected_face_node_ids
+        else:
+            selection_params["selected_face_indices"] = _serialize_selection_indices(
+                selected_faces, solid.get_faces()
+            )
 
         return _finalize_tracked_solid(
             result,
             op=_OP_MAKE_SHELL_RSOLID,
-            params={
-                "thickness": thickness,
-                "removed_face_count": len(selected_faces),
-                "selected_faces": selected_face_refs,
-                "selected_face_indices": selected_face_indices,
-                **(
-                    {"selected_face_node_ids": selected_face_node_ids}
-                    if selected_face_node_ids
-                    else {}
-                ),
-            },
+            params=selection_params,
             source_solid=solid,
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),

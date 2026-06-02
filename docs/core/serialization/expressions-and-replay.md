@@ -1,6 +1,6 @@
 # Expressions and Replay Behavior
 
-SimpleCADAPI 2.x stores expression-backed parameters in two places:
+SimpleCADAPI stores expression-backed parameters in two places:
 
 1. `node.params`: numeric / JSON-compatible snapshot used by simple replay
 2. `node.param_exprs`: references into the top-level `expression_graph`
@@ -127,7 +127,6 @@ If an example creates many independent showcase shapes, `leaf_ids` may contain m
 ## Unsupported / lossy expression cases
 
 - Python callables are not serialized as expressions.
-- Scalar-field Python callables are recorded as `opaque_callable` and cannot be replayed.
 - Some discrete selector data, topology refs, and counts are intentionally treated as JSON data rather than scalar expressions.
 
 ## Practical inspection snippet

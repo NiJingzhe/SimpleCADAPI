@@ -7,6 +7,7 @@
 - Use booleans and detail features after the base form is clear: cut openings, union intended merged bodies, then apply fillets, chamfers, or shell operations.
 - Use `GraphSession` whenever the result should be replayable, inspectable, serialized, or translated.
 - Use QL for grounding and selection. Query the facts you need, such as face normals, centers, areas, edge lengths, curve types, and tags.
+- Use indexed child-geometry getters such as `get_edges(index)` and `get_faces(index)` when an indexed topology pick is intentional.
 - Use semantic tags for design intent and anchors. Keep numeric measurements and geometry facts in metadata or model JSON payloads.
 - Treat `export_model_json()` as the interchange boundary for replay and CAD translation.
 - Validate incrementally: after each major step, print small QL-derived facts such as selected face count, top face center, edge count, volume, or replay result count.
@@ -61,7 +62,8 @@ print("rebuilt", len(rebuilt))
 
 ## 5) Selection and tag discipline
 
-- Prefer QL selectors over manual list indexing when selecting feature inputs.
+- Prefer QL selectors for semantic/geometric feature input selection.
+- Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` for intentional indexed picks in examples.
 - Attach semantic tags with `apply_tag(shape, tag)` and inspect with `list_tags(shape)`.
 - Use tags for intent, roles, anchors, groups, and topology names.
 - Store dimensions, positions, measured geometry, and descriptive payloads in metadata or model JSON, not in tags.
