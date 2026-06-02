@@ -48,13 +48,13 @@ def test_solid_get_edges_returns_unique_topological_edges():
 def test_edge_incident_faces_and_face_adjacency_are_available():
     box, _ = _box_edge_occurrences()
 
-    edge = box.get_edges()[0]
+    edge = box.get_edges(0)
     incident_faces = edge.get_incident_faces()
 
     assert len(incident_faces) == 2
     assert len({face.topo_id for face in incident_faces}) == 2
 
-    face = box.get_faces()[0]
+    face = box.get_faces(0)
     adjacent_faces = face.get_adjacent_faces()
 
     assert len(adjacent_faces) == 4

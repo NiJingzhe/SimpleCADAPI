@@ -934,9 +934,6 @@ def _geo_selector_score(
         if "volume" in selector:
             score += abs(float(shape.get_volume()) - float(selector["volume"]))
 
-    source_index = selector.get("source_index")
-    if source_index is not None and candidate_index is not None:
-        score += 0.0 if int(source_index) == int(candidate_index) else 1e-6
     return score
 
 
@@ -945,12 +942,6 @@ def _resolve_shape_from_geo_selector(source: AnyShape, selector: Dict[str, Any])
     candidates = _candidate_shapes_for_geo_selection(source, kind)
     if not candidates:
         raise ValueError(f"geo selector found no {kind} candidates in source")
-
-    source_index = selector.get("source_index")
-    if source_index is not None:
-        index = int(source_index)
-        if 0 <= index < len(candidates):
-            return candidates[index]
 
     ranked = sorted(
         enumerate(candidates),

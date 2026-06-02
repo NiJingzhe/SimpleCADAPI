@@ -106,7 +106,7 @@ class TestTrackedFillet(unittest.TestCase):
     def setUp(self):
         self.box = scad.make_box_rsolid(10, 10, 10)
         # Select some edges for filleting
-        self.edges = self.box.get_edges()[:4]
+        self.edges = [self.box.get_edges(i) for i in range(4)]
 
     def test_fillet_returns_tracked_result(self):
         result = tracked_fillet(self.box, self.edges, 0.5)
@@ -128,7 +128,7 @@ class TestTrackedFillet(unittest.TestCase):
 class TestTrackedChamfer(unittest.TestCase):
     def setUp(self):
         self.box = scad.make_box_rsolid(10, 10, 10)
-        self.edges = self.box.get_edges()[:4]
+        self.edges = [self.box.get_edges(i) for i in range(4)]
 
     def test_chamfer_returns_tracked_result(self):
         result = tracked_chamfer(self.box, self.edges, 0.5)

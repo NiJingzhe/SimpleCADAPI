@@ -20,6 +20,7 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "evolve.py",
     "ql.py",
     "serializer.py",
+    "freecad_translator.py",
     "expr.py",
     "graph.py",
     "sketch.py",
@@ -36,7 +37,7 @@ FULL_PUBLIC_FUNCTION_MODULES = frozenset(
 )
 
 EXPORTED_FUNCTION_MODULES = frozenset(
-    {"serializer.py", "graph.py", "expr.py", "errors.py"}
+    {"serializer.py", "freecad_translator.py", "graph.py", "expr.py", "errors.py"}
 )
 
 EXPORTED_CALLABLE_MODULES = frozenset(
@@ -413,6 +414,7 @@ class APIDocumentGenerator:
             "Tagging and Selection": [],
             "Boolean Operations": [],
             "Export": [],
+            "FreeCAD Translation": [],
             "Modeling Graph and Replay": [],
             "Expressions and Parameters": [],
             "Types and Errors": [],
@@ -430,6 +432,10 @@ class APIDocumentGenerator:
 
             if api.source_file in {"serializer.py", "graph.py"}:
                 categories["Modeling Graph and Replay"].append(api)
+                continue
+
+            if api.source_file == "freecad_translator.py":
+                categories["FreeCAD Translation"].append(api)
                 continue
 
             if api.source_file == "expr.py":
@@ -462,7 +468,7 @@ class APIDocumentGenerator:
         md_lines: List[str] = [
             "# SimpleCAD API Index",
             "",
-            "This index includes generated docs for the public SimpleCAD API surface, including v2 graph, expression, and model JSON workflows.",
+            "This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, expressions, QL, and export helpers.",
             "",
             "## Import Surfaces",
             "",

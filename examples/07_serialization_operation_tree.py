@@ -1,4 +1,4 @@
-"""Show how source code maps to the serializable v2 operation tree.
+"""Show how source code maps to the serializable operation tree.
 
 Run from the repository root with:
     uv run python examples/07_serialization_operation_tree.py
@@ -66,7 +66,7 @@ with scad.GraphSession() as session:
     )
     drilled_plate = scad.cut_rsolidlist(plate, hole)
 
-    # Core wire/profile API: point, line, circle, arc, spline, helix, wire assembly,
+    # Core wire/profile API: point, line, circle, arc, spline, helix, wire construction,
     # face construction.  These are kept small and placed away from the plate so
     # they are easy to inspect in the graph without making the shape complicated.
     source_step("03 make_point_rvertex")
@@ -113,9 +113,8 @@ with scad.GraphSession() as session:
         [(9.0, -5.0, plate_t), (10.0, -4.0, plate_t), (11.0, -5.0, plate_t)]
     )
 
-    # Basic solid constructors that lower to replayable core operations, plus the
-    # scalar-field surface op from the canonical replayable op set.
-    source_step("06 make_sphere_rsolid, make_cone_rsolid, make_field_surface_rsolid")
+    # Basic solid constructors that lower to replayable core operations.
+    source_step("06 make_sphere_rsolid, make_cone_rsolid")
     sphere = scad.make_sphere_rsolid(1.0, center=(-7.0, 6.0, plate_t + 1.0))
     cone = scad.make_cone_rsolid(
         1.2,
@@ -123,13 +122,6 @@ with scad.GraphSession() as session:
         top_radius=0.4,
         bottom_face_center=(-3.0, 6.0, plate_t),
     )
-    field_shape = scad.make_field_surface_rsolid(
-        scad.field.make_sphere_rscalarfield((0.0, 0.0, 0.0), 0.75),
-        bounds=((-1.0, -1.0, -1.0), (1.0, 1.0, 1.0)),
-        resolution=(8, 8, 8),
-    )
-    field_shape = scad.translate_shape(field_shape, (-11.0, 6.0, plate_t + 1.0))
-
     # Feature operations.
     source_step("07 revolve_rsolid, loft_rsolid, sweep_rsolid")
     revolve_profile = scad.make_polyline_rwire(
@@ -274,8 +266,6 @@ summary += dedent(
       `make_face_from_wire_rface` + `make_extrude_rsolid`.
     - `make_cylinder_rsolid(...)` lowers to a circle face plus `make_extrude_rsolid`.
     - `make_sphere_rsolid(...)` and `make_cone_rsolid(...)` lower to revolve chains.
-- `make_field_surface_rsolid(...)` records a serialized scalar-field tree in a
-  `make_field_surface_rsolid` node.
     - `make_rectangle_rwire`, `make_circle_rwire`, `make_polyline_rwire`, and
       single-arc/spline/helix wire helpers lower to edge + wire operations.
     - `linear_pattern_rsolidlist(...)` lowers to explicit `make_translate_rshape`

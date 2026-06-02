@@ -131,7 +131,7 @@ class TestRearchitecture20CoreOps(unittest.TestCase):
         radius = scad.var("fillet_r", 0.2)
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            result = scad.fillet_rsolid(box, box.get_edges()[:4], radius)
+            result = scad.fillet_rsolid(box, [box.get_edges(i) for i in range(4)], radius)
 
         self.assertIsInstance(result, scad.Solid)
         leaf = session.graph.leaf_nodes()[0]
@@ -142,7 +142,7 @@ class TestRearchitecture20CoreOps(unittest.TestCase):
         distance = scad.var("chamfer_d", 0.2)
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            result = scad.chamfer_rsolid(box, box.get_edges()[:4], distance)
+            result = scad.chamfer_rsolid(box, [box.get_edges(i) for i in range(4)], distance)
 
         self.assertIsInstance(result, scad.Solid)
         leaf = session.graph.leaf_nodes()[0]
@@ -153,7 +153,7 @@ class TestRearchitecture20CoreOps(unittest.TestCase):
         thickness = scad.var("shell_t", 0.2)
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            result = scad.shell_rsolid(box, [box.get_faces()[0]], thickness)
+            result = scad.shell_rsolid(box, [box.get_faces(0)], thickness)
 
         self.assertIsInstance(result, scad.Solid)
         leaf = session.graph.leaf_nodes()[0]
@@ -163,7 +163,7 @@ class TestRearchitecture20CoreOps(unittest.TestCase):
     def test_shell_produces_topology_delta_at_runtime(self):
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            result = scad.shell_rsolid(box, [box.get_faces()[0]], 0.2)
+            result = scad.shell_rsolid(box, [box.get_faces(0)], 0.2)
 
         self.assertIsInstance(result, scad.Solid)
         leaf = session.graph.leaf_nodes()[0]
@@ -179,7 +179,7 @@ class TestRearchitecture20CoreOps(unittest.TestCase):
     def test_shell_topology_delta_survives_graph_json_roundtrip(self):
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
-            scad.shell_rsolid(box, [box.get_faces()[0]], 0.2)
+            scad.shell_rsolid(box, [box.get_faces(0)], 0.2)
 
         restored = scad.import_graph_json(scad.export_graph_json(session.graph))
         leaf = restored.leaf_nodes()[0]

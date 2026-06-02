@@ -342,7 +342,6 @@ Serialized node:
         "selector_hint": {...}
       }
     ],
-    "selected_edge_indices": [0, 1, 2, 3],
     "selected_edge_node_ids": ["node_select_edge_0", "node_select_edge_1", "node_select_edge_2", "node_select_edge_3"]
   },
   "inputs": ["node_for_solid", "node_select_edge_0", "node_select_edge_1", "node_select_edge_2", "node_select_edge_3"],
@@ -350,14 +349,14 @@ Serialized node:
 }
 ```
 
-Each QL-selected edge is serialized as its own `make_select_redge` node whose `geo_selector` is fixed to the runtime-selected edge geometry. `geo_selector` does not contain tags; it uses geometry facts such as `source_index`, `geom_type`, `length`, `center`, endpoints, bbox, and `metadata_geo`.
+Each QL-selected or indexed getter-selected edge is serialized as its own `make_select_redge` node whose `geo_selector` is fixed to the runtime-selected edge geometry. `geo_selector` does not contain tags or source indices; it uses geometry facts such as `geom_type`, `length`, `center`, endpoints, bbox, and `metadata_geo`.
 
 Replay edge resolution order:
 
 1. Geo select nodes from `selected_edge_node_ids`
 2. Legacy/fallback `selection_query`, when present
 3. Explicit topo refs in `selected_edges`
-4. Stable indices in `selected_edge_indices`
+4. Legacy indices in `selected_edge_indices`, when select nodes are unavailable
 5. `selector_hint` fallback
 
 Then replay calls `fillet_rsolid(solid, resolved_edges, radius)`.
@@ -380,7 +379,6 @@ Serialized node shape is the same as fillet, except:
     "distance": 0.15,
     "edge_count": 4,
     "selected_edges": [...],
-    "selected_edge_indices": [...],
     "selected_edge_node_ids": [...]
   },
   "inputs": ["node_for_solid", "node_select_edge_0", "..."]
@@ -407,7 +405,6 @@ Serialized node:
     "thickness": 0.25,
     "removed_face_count": 1,
     "selected_faces": [...],
-    "selected_face_indices": [5],
     "selected_face_node_ids": ["node_select_face_0"]
   },
   "inputs": ["node_for_solid", "node_select_face_0"],
@@ -422,7 +419,7 @@ Replay face resolution order:
 1. Geo select nodes from `selected_face_node_ids`
 2. Legacy/fallback `selection_query`, when present
 3. Explicit topo refs in `selected_faces`
-4. Stable indices in `selected_face_indices`
+4. Legacy indices in `selected_face_indices`, when select nodes are unavailable
 5. `selector_hint` fallback
 
 Then replay calls `shell_rsolid(solid, resolved_faces, thickness)`.
