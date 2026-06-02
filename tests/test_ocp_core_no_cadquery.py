@@ -8,8 +8,8 @@ from simplecadapi.core import Edge, Face, Solid, Vertex, Wire
 
 def test_core_public_shapes_do_not_expose_cq_accessors():
     box = make_box_rsolid(1, 2, 3)
-    face = box.get_faces()[0]
-    edge = face.get_outer_wire().get_edges()[0]
+    face = box.get_faces(0)
+    edge = face.get_outer_wire().get_edges(0)
     vertex = edge.get_start_vertex()
     wire = face.get_outer_wire()
 

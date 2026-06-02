@@ -371,7 +371,7 @@ def create_wire_sequence():
         segments.append(segment)
     
     # 分析序列
-    total_path_length = sum(seg.get_edges()[0].get_length() for seg in segments)
+    total_path_length = sum(seg.get_edges(0).get_length() for seg in segments)
     
     print(f"路径段数: {len(segments)}")
     print(f"总路径长度: {total_path_length:.3f}")

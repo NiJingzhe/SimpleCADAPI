@@ -2,7 +2,7 @@
 
 This directory documents the core public object model for SimpleCADAPI.
 
-SimpleCADAPI 2.x is OCP-native at runtime: public geometry objects are thin Python wrappers around OpenCascade/OCP shapes exposed through the `.wrapped` attribute. The package keeps the 1.x-style functional modeling API while adding graph recording, expression parameters, and replayable model JSON.
+SimpleCADAPI is OCP-native at runtime: public geometry objects are thin Python wrappers around OpenCascade/OCP shapes exposed through the `.wrapped` attribute. The package provides functional modeling operations, expression parameters, QL selectors, and replayable model JSON.
 
 ## Core Classes Overview
 
@@ -57,8 +57,9 @@ SimpleWorkplane  ← local modeling context
 - **Shape-first API**: users work with `Vertex`, `Edge`, `Wire`, `Face`, and `Solid`, not graph nodes.
 - **Functional modeling style**: public operations return new geometry values, e.g. `make_box_rsolid(...)`, `cut_rsolidlist(...)`, `fillet_rsolid(...)`.
 - **OCP-native runtime**: geometry construction, topology traversal, properties, booleans, transforms, and export use OCP/OpenCascade helpers.
-- **Replayable v2 workflows**: `GraphSession` can record a canonical low-level operation graph and `export_model_json()` can serialize it for `replay_model_json()`.
+- **Replayable graph workflows**: `GraphSession` can record a canonical low-level operation graph and `export_model_json()` can serialize it for `replay_model_json()`.
 - **Tags and metadata**: tags are useful for lightweight semantics; structured numeric facts should be stored in metadata such as `metadata["geo"]`.
+- **Indexed topology access**: use plural methods such as `get_edges()` and `get_faces()` for enumeration, and pass an index to the same getter, such as `get_edges(index)` or `get_faces(index)`, for intentional indexed picks that should become graph selection nodes.
 
 ## Basic Usage
 
@@ -98,6 +99,3 @@ print(len(rebuilt))
 - [User Guide](../../README.md)
 - [JSON Operation Graph Spec](operation_graph_json_spec.md)
 - [Serialization and Replay Operation Guides](serialization/)
-- [Declarative Constraint Layout Design Draft](declarative_constraints.md)
-- [SimpleCADAPI 2.0 Re-architecture Design](rearchitecture_2_0.md)
-- [SimpleCADAPI 2.0 Requirements and Acceptance](rearchitecture_2_0_requirements.md)

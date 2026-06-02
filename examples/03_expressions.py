@@ -1,4 +1,4 @@
-"""Expression parameters inside the v2 graph/model workflow.
+"""Expression parameters inside a replayable graph/model workflow.
 
 Run from the repository root with:
     uv run python examples/03_expressions.py

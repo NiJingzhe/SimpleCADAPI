@@ -1,191 +1,142 @@
 # SimpleCADAPI
 
-SimpleCADAPI is an OCP-native imperative CAD modeling Python package. It keeps the 1.x-style functional API while adding v2 graph recording, expression parameters, and replayable model JSON workflows.
+SimpleCADAPI is an OCP-native Python SDK for building CAD models with clear,
+functional operations and replayable model graphs. It wraps OpenCascade geometry
+in a compact public API for creating solids, applying features, tagging semantic
+intent, querying topology, exporting manufacturing files, and translating recorded
+models into FreeCAD workflows.
 
-## README Scope
+Current beta: `simplecadapi==2.0.0b3`.
 
-This README only covers package-level capabilities, installation methods, publishing/packaging workflows, and Skills usage instructions.
-Experimental scripts and temporary modeling examples are not included as formal documentation.
+## What It Provides
 
-## Package Installation (Python Package Managers)
+- OCP-native shape types: `Vertex`, `Edge`, `Wire`, `Face`, and `Solid`.
+- Functional modeling operations for primitives, profiles, extrude, revolve,
+  loft, sweep, booleans, transforms, patterns, fillets, chamfers, and shells.
+- Replayable modeling with `GraphSession`, `export_model_json(...)`,
+  `import_model_json(...)`, and `replay_model_json(...)`.
+- Expression parameters with `var(...)`, arithmetic expressions, and serialized
+  expression graphs.
+- QL selectors for geometry grounding, topology queries, and stable feature
+  selections.
+- Semantic tags through `apply_tag(shape, tag)` and `list_tags(shape)`.
+- STEP/STL export and FreeCAD translation helpers for script or `.FCStd` output.
 
-Current package name: `simplecadapi` (see `pyproject.toml` for the version).
-
-### Method A: Install from package repository with pip
+## Install
 
 ```bash
 pip install simplecadapi
 ```
 
-Optional development dependencies:
-
-```bash
-pip install "simplecadapi[dev]"
-```
-
-### Method B: Install with uv
-
-Install in the current virtual environment:
-
-```bash
-uv pip install simplecadapi
-```
-
-Add as a project dependency in `pyproject.toml`:
+With `uv`:
 
 ```bash
 uv add simplecadapi
 ```
 
-### Method C: Install from local build artifacts
-
-Build a local wheel/sdist first if you want to install from local artifacts:
+For local development from this repository:
 
 ```bash
-uv build
+uv sync --group dev
 ```
 
-## Quick Verification of Installation
+## Quick Start
+
+```python
+from pathlib import Path
+
+import simplecadapi as scad
+
+out = Path("out")
+out.mkdir(exist_ok=True)
+
+base = scad.make_box_rsolid(60.0, 36.0, 8.0, bottom_face_center=(0.0, 0.0, 0.0))
+hole = scad.make_cylinder_rsolid(5.0, 14.0, bottom_face_center=(0.0, 0.0, -3.0))
+slot = scad.make_box_rsolid(18.0, 8.0, 14.0, bottom_face_center=(14.0, 0.0, -3.0))
+
+part = scad.cut_rsolidlist(base, hole, slot)
+boss = scad.make_cylinder_rsolid(8.0, 7.0, bottom_face_center=(-18.0, 0.0, 8.0))
+part = scad.union_rsolid(part, boss)
+part = scad.apply_tag(part, "role.demo.bracket")
+
+print("volume", round(part.get_volume(), 3))
+print("faces", len(part.get_faces()))
+print("tags", scad.list_tags(part))
+
+scad.export_step(part, str(out / "bracket.step"))
+scad.export_stl(part, str(out / "bracket.stl"))
+```
+
+## Replayable Modeling
+
+Use `GraphSession` when a model should be inspectable, serializable, replayable,
+or translated into another CAD environment.
 
 ```python
 import simplecadapi as scad
+from simplecadapi import ql as Q
 
-box = scad.make_box_rsolid(10.0, 20.0, 30.0)
-scad.export_stl(box, "example_box.stl")
-scad.export_step(box, "example_box.step")
+with scad.GraphSession() as session:
+    body = scad.make_box_rsolid(40.0, 24.0, 10.0, bottom_face_center=(0.0, 0.0, 0.0))
+    cutter = scad.make_cylinder_rsolid(4.0, 16.0, bottom_face_center=(0.0, 0.0, -3.0))
+    drilled = scad.cut_rsolidlist(body, cutter)
+
+    bottom_circle = (
+        Q.edges()
+        .where(Q.curve_type("circle"))
+        .order_by(Q.center_axis("z"))
+        .take(1)
+        .exactly(1)
+    )
+    final = scad.chamfer_rsolid(drilled, bottom_circle, 0.6)
+
+model_json = scad.export_model_json(session)
+rebuilt = scad.replay_model_json(model_json)
+
+print("recorded_nodes", session.graph.node_count)
+print("replayed_outputs", len(rebuilt))
 ```
 
-## How to Package SDK Skills
+## Modeling Mental Model
 
-This project provides the `skill-pack` CLI for generating lightweight SDK reference skills: **No built-in SDK source code**, focused on API and architecture descriptions.
+- Start from design intent: reference axes, critical profiles, and the features
+  that produce the final solid.
+- Build from lower-dimensional geometry to higher-dimensional geometry: profile
+  wires/faces first, then solid features such as extrude, revolve, loft, and
+  sweep.
+- Keep operations functional. Create new values with public functions such as
+  `make_rectangle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolidlist(...)`, and
+  `fillet_rsolid(...)`.
+- Use tags for semantic intent and selection anchors, for example
+  `role.mounting.surface`, `anchor.datum.primary`, or `group.fasteners`.
+- Store numeric and geometric facts in metadata or graph payloads, not in tags.
+- Use QL to ground selections by geometry facts rather than relying on topology
+  iteration order.
+- When an indexed topology pick is intentional, pass the index to the plural
+  child-geometry getter, such as `get_edges(index)`, `get_faces(index)`,
+  `get_wires(index)`, or `get_vertices(index)`, so replayable graph workflows
+  preserve the pick as a geo select node.
+- Use model JSON as the interchange boundary for replay, tests, and FreeCAD
+  translation.
 
-### 1) Packaging Command
+## FreeCAD Translation
 
-Execute in the repository root directory:
-
-```bash
-uv run skill-pack --refresh-docs --archive --skill-name simplecadapi
-```
-
-Common parameters:
-
-- `--output-root <dir>`: Output directory (default `./skills`)
-- `--package-name <pkg>`: Runtime installation package name (default reads from `project.name`)
-- `--package-version <ver>`: Runtime installation version (default reads from `project.version`)
-- `--no-clean`: Do not clean existing output directory
-- `--archive`: Additionally generate `<skill-name>.tar.gz`
-
-### 2) Packaging Result Structure
-
-After packaging, you will get a directory similar to:
-
-- `skills/simplecadapi/SKILL.md`
-- `skills/simplecadapi/references/`
-- `skills/simplecadapi/references/docs/api/`
-- `skills/simplecadapi/references/docs/core/`
-
-### 3) Read the SDK skill
-
-```bash
-cd skills/simplecadapi
-```
-
-Key entry points:
-
-- `skills/simplecadapi/SKILL.md`
-- `skills/simplecadapi/references/SDK_OVERVIEW.md`
-- `skills/simplecadapi/references/SDK_SURFACES.md`
-- `skills/simplecadapi/references/V2_MODELING_WORKFLOWS.md`
-- `skills/simplecadapi/references/SDK_PACKAGE_SUMMARY.md`
-- `skills/simplecadapi/references/docs/api/README.md`
-- `skills/simplecadapi/references/docs/core/README.md`
-
-### 4) Preferred v2 replay workflow
+Recorded model JSON can be translated into a FreeCAD Python script:
 
 ```python
-from simplecadapi import GraphSession, export_model_json, replay_model_json
-
-with GraphSession() as session:
-    ...
-
-model_json = export_model_json(session)
-rebuilt = replay_model_json(model_json)
-print(len(rebuilt))
+script = scad.translate_model_json_to_freecad_script(model_json)
 ```
 
-## Serialization and Replay Docs
+If FreeCAD or FreeCADCmd is available, the same model JSON can be written as an
+`.FCStd` file:
 
-For detailed operation-by-operation JSON formats and replay behavior, see:
-
-- [`docs/core/serialization/README.md`](docs/core/serialization/README.md)
-- [`docs/core/operation_graph_json_spec.md`](docs/core/operation_graph_json_spec.md)
-- [`examples/07_serialization_operation_tree.py`](examples/07_serialization_operation_tree.py)
-
-## Auto Tools
-
-The project includes 4 main CLIs:
-
-- `auto-docs-gen`: Generate `docs/api/` documentation from the public API source surface
-- `make-export`: Update imports/exports in `src/simplecadapi/__init__.py`
-- `evolve`: Extract functions from scripts for repository-managed evolve modules
-- `skill-pack`: Package thin SDK skill (documentation only)
-
-Examples:
-
-```bash
-uv run make-export --dry-run
-uv run auto-docs-gen
-uv run evolve path/to/your_case.py
-uv run skill-pack --refresh-docs --archive
+```python
+scad.translate_model_json_to_fcstd(model_json, "bracket.FCStd")
 ```
 
-## RAGFlow Documentation Sync
+## Examples
 
-`scripts/sync_ragflow_docs.py` is used to incrementally sync Markdown files under `docs/` to the specified RAGFlow dataset, chunked by H2 headings; the document's `chunk_method` is set to `manual`.
-
-Prepare the environment:
-
-```bash
-.venv/bin/python -m pip install ragflow-sdk
-```
-
-It is recommended to use `.env` (already added to `.gitignore`):
-
-```bash
-RAGFLOW_API_KEY=your_key_here
-RAGFLOW_BASE_URL=http://localhost
-RAGFLOW_DATASET_NAME=SimpleCADAPI
-```
-
-Run the sync:
-
-```bash
-set -a && source .env && set +a
-.venv/bin/python scripts/sync_ragflow_docs.py --create-dataset
-```
-
-Common parameters:
-
-- `--dataset-id` / `RAGFLOW_DATASET_ID`: Directly specify the dataset ID (avoid name conflicts)
-- `--delete-removed`: Delete documents that have been removed locally
-- `--dry-run`: Only preview changes without executing writes
-- `--progress-interval N`: Print progress every N documents
-
-## Development and Testing
-
-Local development installation (editable):
-
-```bash
-uv pip install -e ".[dev]"
-```
-
-Run unit tests:
-
-```bash
-uv run python -m unittest test/test_all_features.py
-```
-
-Run examples:
+Run examples from the source checkout:
 
 ```bash
 uv run python examples/01_basic_modeling.py
@@ -196,18 +147,23 @@ uv run python examples/06_parametric_gear_model.py
 uv run python examples/07_serialization_operation_tree.py
 ```
 
-## Core Design Constraints (Brief)
+## Documentation
 
-- API functions uniformly use `snake_case` and reflect return types in function names (e.g., `*_rsolid`, `*_rwire`).
-- Core types are OCP-native wrappers and are kept as stable as possible; functionality is extended by adding new functions (Open-Closed Principle).
-- Support `SimpleWorkplane` context for local coordinate modeling.
-- Export interfaces support single entities, multiple entities, and nested list inputs.
+- Public API reference: [`docs/api/`](docs/api/)
+- Core type and modeling notes: [`docs/core/`](docs/core/)
+- Serialization and replay details:
+  [`docs/core/serialization/README.md`](docs/core/serialization/README.md)
+- Operation graph JSON spec:
+  [`docs/core/operation_graph_json_spec.md`](docs/core/operation_graph_json_spec.md)
 
-## Documentation Entry Points
+## Development
 
-- API documentation: `docs/api/`
-- Core documentation: `docs/core/`
+```bash
+uv sync --group dev
+uv run python -m pytest test tests
+python3 -m compileall src/simplecadapi
+```
 
 ## License
 
-MIT, see `LICENSE`.
+MIT, see [`LICENSE`](LICENSE).

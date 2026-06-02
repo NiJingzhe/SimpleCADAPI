@@ -501,6 +501,7 @@ class SkillPackager:
             - Use `GraphSession` when the model should be replayable, inspectable, exported as model JSON, or translated to another CAD system.
             - Treat model JSON as the interchange boundary. Prefer `export_model_json(session)` and `replay_model_json(payload)` over hand-authored operation payloads.
             - Use QL for precise grounding. Query faces, edges, centers, normals, areas, lengths, curve types, and tags; print only the facts needed to validate the current step.
+            - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` when an indexed topology pick is intentional; these picks are preserved as geo select nodes in replayable graph workflows.
             - Use tags for semantic intent and selection anchors, such as `role.mounting_surface`, `anchor.datum.primary`, `face.top`, or `group.fasteners`.
             - Keep numeric and geometric facts in metadata or graph payloads, not in tags.
             - When a QL-selected face or edge is used by a later feature, expect the graph/model workflow to preserve that selection as a stable geo select node.
@@ -658,6 +659,7 @@ class SkillPackager:
             - Use booleans and detail features after the base form is clear: cut openings, union intended merged bodies, then apply fillets, chamfers, or shell operations.
             - Use `GraphSession` whenever the result should be replayable, inspectable, serialized, or translated.
             - Use QL for grounding and selection. Query the facts you need, such as face normals, centers, areas, edge lengths, curve types, and tags.
+            - Use indexed child-geometry getters such as `get_edges(index)` and `get_faces(index)` when an indexed topology pick is intentional.
             - Use semantic tags for design intent and anchors. Keep numeric measurements and geometry facts in metadata or model JSON payloads.
             - Treat `export_model_json()` as the interchange boundary for replay and CAD translation.
             - Validate incrementally: after each major step, print small QL-derived facts such as selected face count, top face center, edge count, volume, or replay result count.
@@ -712,7 +714,8 @@ class SkillPackager:
 
             ## 5) Selection and tag discipline
 
-            - Prefer QL selectors over manual list indexing when selecting feature inputs.
+            - Prefer QL selectors for semantic/geometric feature input selection.
+            - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` for intentional indexed picks in examples.
             - Attach semantic tags with `apply_tag(shape, tag)` and inspect with `list_tags(shape)`.
             - Use tags for intent, roles, anchors, groups, and topology names.
             - Store dimensions, positions, measured geometry, and descriptive payloads in metadata or model JSON, not in tags.

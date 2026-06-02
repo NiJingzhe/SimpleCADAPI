@@ -116,7 +116,7 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 ```json
 {
   "schema_version": "2.0",
-  "producer_version": "2.0.0b2",
+  "producer_version": "2.0.0b3",
   "capabilities": {
     "selection_ref_strategies": true,
     "geo_select_nodes": true,
@@ -151,7 +151,7 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `selection_ref_strategies` | `bool` | detail feature 支持显式 topo refs / index / query 等多种选择策略 |
-| `geo_select_nodes` | `bool` | QL-derived detail selections can be serialized as `make_select_*` geo selector nodes |
+| `geo_select_nodes` | `bool` | detail selections from QL or indexed child-geometry getters can be serialized as `make_select_*` geo selector nodes |
 | `selector_hint_fallback` | `bool` | replay 时支持 selector hint 近似匹配回退 |
 | `display_payload` | `bool` | node 中包含 `display` 字段 |
 | `topology_delta_summary` | `bool` | 当前为 `false`，表示没有额外 summary-only delta schema |
@@ -267,7 +267,7 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 规则：
 
 - 如果某个参数没有表达式来源，则 `param_exprs` 中没有该键
-- 离散索引参数不会被表达式提升，例如：
+- 计数和 legacy fallback 索引参数不会被表达式提升，例如：
   - `selected_edge_indices`
   - `selected_face_indices`
   - `count`
@@ -425,7 +425,7 @@ detail feature 使用显式选择引用来稳定 replay。
     "geo_select_nodes",
     "selection_query",
     "explicit_topo_refs",
-    "stable_indices",
+    "legacy_indices",
     "selector_hint"
   ]
 }
@@ -468,7 +468,7 @@ detail feature 使用显式选择引用来稳定 replay。
 
 ### 8.4 Geo Select Nodes
 
-当 detail feature 使用 QL selector 时，新 graph 不把 QL 文本作为主要事实来源。运行时先解析 QL，读取每个被选中子形状的几何事实，并为每一项生成一个 canonical select 节点：
+当 detail feature 使用 QL selector 或 `get_edges(index)` / `get_faces(index)` 这类 indexed child-geometry getter 时，新 graph 不把 QL 文本或 Python list position 作为主要事实来源。运行时读取每个被选中子形状的几何事实，并为每一项生成一个 canonical select 节点：
 
 - `make_select_redge`
 - `make_select_rface`
@@ -476,7 +476,7 @@ detail feature 使用显式选择引用来稳定 replay。
 - `make_select_rvertex`
 - `make_select_rsolid`
 
-如果 QL 结果是 list，则每个元素对应一个独立 select 节点。feature node 通过 `selected_edge_node_ids` 或 `selected_face_node_ids` 指向这些节点。
+如果选择结果是 list，则每个元素对应一个独立 select 节点。feature node 通过 `selected_edge_node_ids` 或 `selected_face_node_ids` 指向这些节点。
 
 select node 示例：
 
@@ -488,7 +488,6 @@ select node 示例：
     "geo_selector": {
       "mode": "geo_exact",
       "kind": "edge",
-      "source_index": 1,
       "geom_type": "CIRCLE",
       "length": 6.283185307179586,
       "center": [0.0, 0.0, 0.0],
@@ -506,7 +505,7 @@ select node 示例：
 }
 ```
 
-`geo_selector` 不包含 tags，也不通过 tag 搜索。它固定到运行时选中对象的完整可见几何事实；`source_index` 用来保证在同一运行位置的 FreeCAD/OCP 子形状序列中直接命中绝对对应项，完整几何数据用于 fallback、审计和外部 adapter 校验。
+`geo_selector` 不包含 tags，也不通过 tag 搜索。它固定到运行时选中对象的完整可见几何事实；完整几何数据用于 replay、审计和外部 adapter 校验。
 
 ### 8.5 selection_query fallback
 
@@ -592,7 +591,7 @@ detail feature replay 的固定解析顺序为：
 1. `selected_edge_node_ids` / `selected_face_node_ids` 指向的 geo select nodes
 2. `selection_query` fallback
 3. `selected_edges` / `selected_faces` 中的显式 topo refs
-4. `selected_edge_indices` / `selected_face_indices`
+4. `selected_edge_indices` / `selected_face_indices` legacy fallback
 5. `selector_hint`
 
 适配器若要实现等价行为，必须保持这个顺序。
@@ -1272,8 +1271,8 @@ Notes:
 | `radius` | scalar | fillet radius |
 | `edge_count` | `int` | number of targeted edges |
 | `selected_edges` | `array<TopoRefWithHint>` | explicit edge refs |
-| `selected_edge_node_ids` | `array<string>` | primary geo select node refs for QL-derived selections |
-| `selected_edge_indices` | `array<int>` | stable index fallback against `solid.get_edges()` |
+| `selected_edge_node_ids` | `array<string>` | primary geo select node refs for QL/index-derived selections |
+| `selected_edge_indices` | `array<int>` | legacy index fallback when select nodes are unavailable |
 | `selection_query` | `ShapeSelector object` | legacy/fallback serialized QL selector |
 
 #### `make_chamfer_rsolid`
@@ -1287,8 +1286,8 @@ Notes:
 | `distance` | scalar | chamfer distance |
 | `edge_count` | `int` | number of targeted edges |
 | `selected_edges` | `array<TopoRefWithHint>` | explicit edge refs |
-| `selected_edge_node_ids` | `array<string>` | primary geo select node refs for QL-derived selections |
-| `selected_edge_indices` | `array<int>` | stable index fallback |
+| `selected_edge_node_ids` | `array<string>` | primary geo select node refs for QL/index-derived selections |
+| `selected_edge_indices` | `array<int>` | legacy index fallback when select nodes are unavailable |
 | `selection_query` | `ShapeSelector object` | legacy/fallback serialized QL selector |
 
 #### `make_shell_rsolid`
@@ -1302,8 +1301,8 @@ Notes:
 | `thickness` | scalar | shell thickness |
 | `removed_face_count` | `int` | number of faces removed |
 | `selected_faces` | `array<TopoRefWithHint>` | explicit face refs |
-| `selected_face_node_ids` | `array<string>` | primary geo select node refs for QL-derived selections |
-| `selected_face_indices` | `array<int>` | stable index fallback against `solid.get_faces()` |
+| `selected_face_node_ids` | `array<string>` | primary geo select node refs for QL/index-derived selections |
+| `selected_face_indices` | `array<int>` | legacy index fallback when select nodes are unavailable |
 | `selection_query` | `ShapeSelector object` | legacy/fallback serialized QL selector |
 
 ### 14.7 Pattern Ops
@@ -1409,7 +1408,7 @@ SDF / scalar field modeling is temporarily removed from the supported public sur
 1. 优先消费 `model.json`
 2. 若要做工业 interchange，请直接消费 canonical low-level `graph`
 3. 若要恢复参数化，请同时读取 `params`、`param_exprs`、`expression_graph`
-4. detail feature 必须按声明顺序解析选择：geo select nodes -> query fallback -> explicit refs -> indices -> hint
+4. detail feature 必须按声明顺序解析选择：geo select nodes -> query fallback -> explicit refs -> legacy indices -> hint
 5. 不要依赖 `display.summary` 解析业务语义
 
 ### 17.2 Tolerances For Consumers
@@ -1420,7 +1419,7 @@ SDF / scalar field modeling is temporarily removed from the supported public sur
 - `output_slot` 在深层 param 对象中可能是 `0.0`
 - `tags` 可能为空
 - `semantic_delta` / `topo_delta` 可能缺失
-- `selection_query` 是旧 payload / 手写 payload fallback；新 QL detail selections 应优先产生 geo select nodes
+- `selection_query` 是旧 payload / 手写 payload fallback；新 detail selections 应优先产生 geo select nodes
 
 ### 17.3 Recommended Minimal Interchange Subset
 
@@ -1435,7 +1434,7 @@ SDF / scalar field modeling is temporarily removed from the supported public sur
 
 - `selected_edge_node_ids` / `selected_face_node_ids` and their `make_select_*` nodes
 - `selected_edges` / `selected_faces`
-- `selected_edge_indices` / `selected_face_indices`
+- `selected_edge_indices` / `selected_face_indices` as legacy fallback
 - `selection_query` fallback, when present
 - `selector_hint`
 
@@ -1474,9 +1473,9 @@ SDF / scalar field modeling is temporarily removed from the supported public sur
         }
       }
     ],
-    "selected_edge_indices": [0, 1]
+    "selected_edge_node_ids": ["node_select_edge_0", "node_select_edge_1"]
   },
-  "inputs": ["node_f7e1ea08"],
+  "inputs": ["node_f7e1ea08", "node_select_edge_0", "node_select_edge_1"],
   "output_count": 1
 }
 ```
