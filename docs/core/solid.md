@@ -114,6 +114,23 @@ for i, face in enumerate(faces):
     print(f"面 {i}: 面积 {area:.3f}")
 ```
 
+### `get_faces(index)`
+
+Get one face by explicit index. In an active `GraphSession`, this intentional
+indexed pick is preserved as a graph geo select node.
+
+**Returns:**
+- `Face`: The selected face object
+
+**Example:**
+```python
+from simplecadapi import make_box_rsolid
+
+box = make_box_rsolid(width=4, height=3, depth=2)
+first_face = box.get_faces(0)
+print(first_face.get_area())
+```
+
 ### `get_edges()`
 
 Get all edges that make up the solid.
@@ -135,6 +152,23 @@ print(f"立方体有 {len(edges)} 条边")
 for i, edge in enumerate(edges):
     length = edge.get_length()
     print(f"边 {i}: 长度 {length:.3f}")
+```
+
+### `get_edges(index)`
+
+Get one edge by explicit index. In an active `GraphSession`, this intentional
+indexed pick is preserved as a graph geo select node.
+
+**Returns:**
+- `Edge`: The selected edge object
+
+**Example:**
+```python
+from simplecadapi import make_box_rsolid
+
+box = make_box_rsolid(width=4, height=3, depth=2)
+first_edge = box.get_edges(0)
+print(first_edge.get_length())
 ```
 
 ### `auto_tag_faces(geometry_type)`
