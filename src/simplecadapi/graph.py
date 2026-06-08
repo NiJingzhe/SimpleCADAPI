@@ -297,7 +297,7 @@ def record_operation_if_active(
     """Record an operation only when a session is active.
 
     This is the seamless bridge used by the original modeling APIs.
-    Users keep calling `make_box_rsolid(...)` or `cut_rsolidlist(...)`; when a
+    Users keep calling `make_box_rsolid(...)` or `cut_rsolid(...)`; when a
     graph session exists, the operation is recorded automatically and its
     outputs are annotated with hidden lineage state.
     """

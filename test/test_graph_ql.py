@@ -112,7 +112,7 @@ class TestGraphSession(unittest.TestCase):
             {"direction": (0, 0, 1), "distance": 15.0},
         )
         cut_node = record_operation(
-            "make_cut_rsolidlist",
+            "make_cut_rsolid",
             {},
             inputs=[body_node, tool_node],
             topo_delta=result.delta,

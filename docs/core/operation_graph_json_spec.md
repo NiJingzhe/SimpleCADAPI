@@ -329,7 +329,7 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 
 - `make_*_face` 与 `make_face_from_wire` -> `Sketch`
 - `make_*_edge` / `make_*_wire` -> `Profile`
-- `make_extrude_rsolid` / `make_revolve_rsolid` / `make_loft_rsolid` / `make_sweep_rsolid` / `make_fillet_rsolid` / `make_chamfer_rsolid` / `make_shell_rsolid` / `make_cut_rsolidlist` / `make_union_rsolid` / `make_intersect_rsolidlist` -> `Feature`
+- `make_extrude_rsolid` / `make_revolve_rsolid` / `make_loft_rsolid` / `make_sweep_rsolid` / `make_fillet_rsolid` / `make_chamfer_rsolid` / `make_shell_rsolid` / `make_cut_rsolid` / `make_union_rsolid` / `make_intersect_rsolid` -> `Feature`
 
 ## 7. Topology Delta Schema
 
@@ -907,9 +907,9 @@ New canonical profile nodes use the `make_*_r*` names listed in `canonical_contr
 - `make_translate_rshape`
 - `make_rotate_rshape`
 - `make_mirror_rshape`
-- `make_cut_rsolidlist`
+- `make_cut_rsolid`
 - `make_union_rsolid`
-- `make_intersect_rsolidlist`
+- `make_intersect_rsolid`
 - `make_fillet_rsolid`
 - `make_chamfer_rsolid`
 - `make_shell_rsolid`
@@ -1227,7 +1227,7 @@ Notes:
 - If the kernel cannot produce exactly one merged solid, the API raises instead of returning disconnected pieces.
 - replay passes recorded `clean`, `glue`, and `tol` back to `union_rsolid(...)`; the tracking builder uses the same `glue` and fuzzy tolerance as the actual boolean builder.
 
-#### `make_cut_rsolidlist`
+#### `make_cut_rsolid`
 
 - Inputs: base solid + tool solids
 - Outputs: 1 `Solid` (wrapped in a single-output node)
@@ -1240,11 +1240,11 @@ Notes:
 
 Notes:
 
-- Public `cut_rsolidlist(...)` defaults this flag to `true` for interactive convenience.
+- Public `cut_rsolid(...)` defaults this flag to `true` for interactive convenience.
 - Graph replay defaults missing `skip_non_intersecting` to `false` so malformed or drifting graphs fail diagnostically instead of silently skipping tools.
 - Multi-tool cut preserves the full topology delta chain across all performed tool cuts.
 
-#### `make_intersect_rsolidlist`
+#### `make_intersect_rsolid`
 
 - Inputs: N `Solid`
 - Outputs: 1 `Solid` when overlap exists

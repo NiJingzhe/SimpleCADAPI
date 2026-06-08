@@ -265,14 +265,14 @@ Source:
 ```python
 body = scad.make_box_rsolid(4, 4, 2)
 tool = scad.make_cylinder_rsolid(0.8, 4, bottom_face_center=(0, 0, -1))
-result = scad.cut_rsolidlist(body, tool)
+result = scad.cut_rsolid(body, tool)
 ```
 
 Serialized node:
 
 ```json
 {
-  "op": "make_cut_rsolidlist",
+  "op": "make_cut_rsolid",
   "params": {
     "tool_count": 1,
     "input_count": 2
@@ -286,7 +286,7 @@ Replay effect:
 
 1. Replay first input as the body.
 2. Replay remaining inputs as tools.
-3. Call `cut_rsolidlist(body, tools)`.
+3. Call `cut_rsolid(body, tools)`.
 
 ## Boolean intersection
 
@@ -295,14 +295,14 @@ Source:
 ```python
 a = scad.make_box_rsolid(2, 2, 2)
 b = scad.make_box_rsolid(2, 2, 2, bottom_face_center=(1, 0, 0))
-result = scad.intersect_rsolidlist(a, b)
+result = scad.intersect_rsolid(a, b)
 ```
 
 Serialized node:
 
 ```json
 {
-  "op": "make_intersect_rsolidlist",
+  "op": "make_intersect_rsolid",
   "params": {
     "input_count": 2
   },
@@ -311,7 +311,7 @@ Serialized node:
 }
 ```
 
-Replay effect: replays inputs and calls `intersect_rsolidlist(first, rest)`.
+Replay effect: replays inputs and calls `intersect_rsolid(first, rest)`.
 
 ## Fillet
 

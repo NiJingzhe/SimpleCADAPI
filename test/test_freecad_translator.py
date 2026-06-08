@@ -510,7 +510,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             params={"start": [0.0, 3.0, 0.0], "end": [1.0, 3.0, 0.0]},
         )
         graph.add_node(
-            op="make_cut_rsolidlist",
+            op="make_cut_rsolid",
             node_id="cut_out",
             params={"tool_count": 3},
             inputs=[base, tool_a, tool_b, tool_c],
@@ -598,7 +598,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             hole = scad.translate_shape(hole, (2.0, 0.0, -1.0))
             hole_b = scad.rotate_shape(hole, 120.0, axis=(0.0, 0.0, 1.0))
             hole_c = scad.rotate_shape(hole, 240.0, axis=(0.0, 0.0, 1.0))
-            scad.cut_rsolidlist(body, hole, hole_b, hole_c)
+            scad.cut_rsolid(body, hole, hole_b, hole_c)
 
         payload = scad.export_model_json(session)
         probe = """
@@ -606,10 +606,10 @@ import json
 import FreeCAD as App
 
 doc = App.openDocument(FCSTD_PATH)
-cut_objs = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_cut_rsolidlist']
+cut_objs = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_cut_rsolid']
 final_cut = cut_objs[-1]
 shape = final_cut.Shape
-tools = doc.getObject('make_cut_rsolidlist_node_' + final_cut.Name.split('_node_')[-1] + '_tools')
+tools = doc.getObject('make_cut_rsolid_node_' + final_cut.Name.split('_node_')[-1] + '_tools')
 with open(OUT_PATH, 'w', encoding='utf-8') as fh:
     json.dump({
         'cut_count': len(cut_objs),

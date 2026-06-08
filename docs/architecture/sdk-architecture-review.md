@@ -57,7 +57,7 @@ SimpleCADAPI 的顶层 API 选择是正确的：它没有把用户拖进传统 C
 
 - 顶层 API 被 aliases 稀释了。`create_box`、`create_line`、`extrude`、`union`、`to_step` 等别名降低了 canonical API 的唯一性。对用户友好，但对文档、LLM、图记录和长期兼容不友好。参考：`src/simplecadapi/__init__.py:145`、`src/simplecadapi/__init__.py:318`。
 - README 说 API 函数统一用 return type 反映命名，但公开面包含 `translate_shape`、`rotate_shape`、`export_step`、`export_stl` 和大量 aliases。这个声明过强。参考：`README.md:200`、`src/simplecadapi/__init__.py:47`、`src/simplecadapi/__init__.py:187`。
-- `rsolidlist` 命名混杂了“参数类型”和“返回类型”：`cut_rsolidlist`、`intersect_rsolidlist` 实际返回 `Solid`，而 `linear_pattern_rsolidlist` 返回 `List[Solid]`。这会伤害 API 语义一致性。参考：`src/simplecadapi/operations.py:2994`、`src/simplecadapi/operations.py:3102`、`src/simplecadapi/operations.py:4121`。
+- `rsolidlist` 命名混杂了“参数类型”和“返回类型”：`cut_rsolid`、`intersect_rsolid` 实际返回 `Solid`，而 `linear_pattern_rsolidlist` 返回 `List[Solid]`。这会伤害 API 语义一致性。参考：`src/simplecadapi/operations.py:2994`、`src/simplecadapi/operations.py:3102`、`src/simplecadapi/operations.py:4121`。
 - public op 名和 graph op 名不完全一致：`translate_shape` 记录为 `make_translate_rshape`，`extrude_rsolid` 记录为 `make_extrude_rsolid`。这种分层可以接受，但必须正式化为“source API”和“canonical IR”的稳定映射表。参考：`src/simplecadapi/operations.py:117`、`src/simplecadapi/serializer.py:116`。
 - 一些非 session 分支仍记录 legacy op 名，如 `make_box`、`make_cylinder`、`make_segment_wire`，和 canonical `make_*_r*` 命名不一致。参考：`src/simplecadapi/operations.py:785`、`src/simplecadapi/operations.py:1534`、`src/simplecadapi/operations.py:1638`。
 
@@ -186,7 +186,7 @@ QL 是架构上最应该继续投资的部分。
 
 - `tracked_union` 接收 `glue` 和 `tol`，但没有把它们设置到 `BRepAlgoAPI_Fuse`。也就是说用于结果的 union 和用于 tracking 的 union 参数可能不一致。参考：`src/simplecadapi/tracking.py:338`、`src/simplecadapi/tracking.py:352`。
 - `union_rsolid` replay 忽略记录过的 `clean`、`glue`、`tol`，只调用 `ops.union_rsolid(all_solids)`。参数不 faithful。参考：`src/simplecadapi/operations.py:2946`、`src/simplecadapi/serializer.py:1029`。
-- `cut_rsolidlist` 对无交集 tool 直接跳过，这对 modeling convenience 可能友好，但对 replay/diagnostic 来说可能隐藏错误。参考：`src/simplecadapi/operations.py:3033`。
+- `cut_rsolid` 对无交集 tool 直接跳过，这对 modeling convenience 可能友好，但对 replay/diagnostic 来说可能隐藏错误。参考：`src/simplecadapi/operations.py:3033`。
 - 多 tool cut/intersect 只保留最后一次 delta，前面 tool 的 lineage 丢失。参考：`src/simplecadapi/operations.py:3020`、`src/simplecadapi/operations.py:3127`。
 - extrude face classification 使用 center 精确相等、normal dot 精确等于 0、angle 精确等于 pi，这在 CAD 数值几何里非常脆弱。参考：`src/simplecadapi/operations.py:2631`、`src/simplecadapi/operations.py:2646`、`src/simplecadapi/operations.py:2653`。
 

@@ -28,7 +28,7 @@ Current supported workflows should model final parts as ordinary geometry:
 
 - Use `translate_shape(...)`, `rotate_shape(...)`, and `mirror_shape(...)` for explicit placement.
 - Use Python sequences of `Solid` objects plus `export_step([...], path)` / `export_stl(...)` for multi-body exports.
-- Use `union_rsolid(...)`, `cut_rsolidlist(...)`, and `intersect_rsolidlist(...)` when a single merged solid is required.
+- Use `union_rsolid(...)`, `cut_rsolid(...)`, and `intersect_rsolid(...)` when a single merged solid is required.
 
 `export_model_json(...)` no longer accepts `assembly=...`, and newly exported model JSON does not include `assembly`, `assembly_registry`, or `constraint_registry` fields.
 

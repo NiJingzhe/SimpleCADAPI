@@ -54,7 +54,7 @@ base = scad.make_box_rsolid(60.0, 36.0, 8.0, bottom_face_center=(0.0, 0.0, 0.0))
 hole = scad.make_cylinder_rsolid(5.0, 14.0, bottom_face_center=(0.0, 0.0, -3.0))
 slot = scad.make_box_rsolid(18.0, 8.0, 14.0, bottom_face_center=(14.0, 0.0, -3.0))
 
-part = scad.cut_rsolidlist(base, hole, slot)
+part = scad.cut_rsolid(base, hole, slot)
 boss = scad.make_cylinder_rsolid(8.0, 7.0, bottom_face_center=(-18.0, 0.0, 8.0))
 part = scad.union_rsolid(part, boss)
 part = scad.apply_tag(part, "role.demo.bracket")
@@ -79,7 +79,7 @@ from simplecadapi import ql as Q
 with scad.GraphSession() as session:
     body = scad.make_box_rsolid(40.0, 24.0, 10.0, bottom_face_center=(0.0, 0.0, 0.0))
     cutter = scad.make_cylinder_rsolid(4.0, 16.0, bottom_face_center=(0.0, 0.0, -3.0))
-    drilled = scad.cut_rsolidlist(body, cutter)
+    drilled = scad.cut_rsolid(body, cutter)
 
     bottom_circle = (
         Q.edges()
@@ -105,7 +105,7 @@ print("replayed_outputs", len(rebuilt))
   wires/faces first, then solid features such as extrude, revolve, loft, and
   sweep.
 - Keep operations functional. Create new values with public functions such as
-  `make_rectangle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolidlist(...)`, and
+  `make_rectangle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolid(...)`, and
   `fillet_rsolid(...)`.
 - Use tags for semantic intent and selection anchors, for example
   `role.mounting.surface`, `anchor.datum.primary`, or `group.fasteners`.

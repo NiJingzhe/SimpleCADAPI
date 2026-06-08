@@ -488,7 +488,7 @@ class SkillPackager:
             15. If a task depends on model replay or interchange, prefer `export_model_json()` output over hand-written payloads.
 
             ## Boolean result discipline
-            - `union_rsolid(...)`, `cut_rsolidlist(...)`, and `intersect_rsolidlist(...)` accept mixed inputs: standalone `Solid`, lists of `Solid`, and nested sequences.
+            - `union_rsolid(...)`, `cut_rsolid(...)`, and `intersect_rsolid(...)` accept mixed inputs: standalone `Solid`, lists of `Solid`, and nested sequences.
             - They return a single `Solid`.
             - `union_rsolid(...)` already applies the package's default glue mode and a conservative internal tolerance.
             - If a union cannot produce exactly one merged solid, it fails explicitly instead of returning multiple pieces.
@@ -497,7 +497,7 @@ class SkillPackager:
             ## Modeling Mental Model
             - Start with intent: identify the part, its reference axes, critical profiles, and the features that produce the final solid.
             - Build from lower-dimensional geometry to higher-dimensional geometry: `Vertex` / `Edge` / `Wire` / `Face` profiles first, then `Solid` features such as extrude, revolve, loft, and sweep.
-            - Keep modeling operations functional. Create new values from public functions such as `make_circle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolidlist(...)`, and `fillet_rsolid(...)`.
+            - Keep modeling operations functional. Create new values from public functions such as `make_circle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolid(...)`, and `fillet_rsolid(...)`.
             - Use `GraphSession` when the model should be replayable, inspectable, exported as model JSON, or translated to another CAD system.
             - Treat model JSON as the interchange boundary. Prefer `export_model_json(session)` and `replay_model_json(payload)` over hand-authored operation payloads.
             - Use QL for precise grounding. Query faces, edges, centers, normals, areas, lengths, curve types, and tags; print only the facts needed to validate the current step.
@@ -725,7 +725,7 @@ class SkillPackager:
 
             - Use `union_rsolid(...)` when multiple solids should become one integrated body.
             - Ensure bodies that should union into one solid have real geometric overlap or embedding.
-            - Use `cut_rsolidlist(...)` for subtractive features and `intersect_rsolidlist(...)` for common-volume workflows.
+            - Use `cut_rsolid(...)` for subtractive features and `intersect_rsolid(...)` for common-volume workflows.
             - Validate body count and volume after major boolean operations.
             """
         )
