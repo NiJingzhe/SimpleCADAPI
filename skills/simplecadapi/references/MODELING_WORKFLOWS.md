@@ -73,5 +73,5 @@ print("rebuilt", len(rebuilt))
 
 - Use `union_rsolid(...)` when multiple solids should become one integrated body.
 - Ensure bodies that should union into one solid have real geometric overlap or embedding.
-- Use `cut_rsolidlist(...)` for subtractive features and `intersect_rsolidlist(...)` for common-volume workflows.
+- Use `cut_rsolid(...)` for subtractive features and `intersect_rsolid(...)` for common-volume workflows.
 - Validate body count and volume after major boolean operations.

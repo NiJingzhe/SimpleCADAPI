@@ -1,16 +1,16 @@
-# cut_rsolidlist
+# cut_rsolid
 
 ## API Definition
 
 ```python
-def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]], skip_non_intersecting: bool = True) -> Solid
+def cut_rsolid(*solids: Union[Solid, Sequence[Solid]], skip_non_intersecting: bool = True) -> Solid
 ```
 
 *Source: operations.py*
 
 ## Import Surface
 
-- top-level: `from simplecadapi import cut_rsolidlist`
+- top-level: `from simplecadapi import cut_rsolid`
 
 ## Description
 

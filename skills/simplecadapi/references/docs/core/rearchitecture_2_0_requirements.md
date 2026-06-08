@@ -71,9 +71,9 @@
 - `fillet_rsolid`
 - `chamfer_rsolid`
 - `shell_rsolid`
-- `cut_rsolidlist`
+- `cut_rsolid`
 - `union_rsolid`
-- `intersect_rsolidlist`
+- `intersect_rsolid`
 
 #### REQ-API-003
 

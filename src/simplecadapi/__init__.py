@@ -58,8 +58,8 @@ from .operations import (
     select_edges_by_tag,
     select_faces_by_tag,
     # 布尔运算
-    cut_rsolidlist,
-    intersect_rsolidlist,
+    cut_rsolid,
+    intersect_rsolid,
     union_rsolid,
     # 导出
     export_step,
@@ -156,8 +156,8 @@ extrude = extrude_rsolid
 revolve = revolve_rsolid
 
 # 布尔运算别名
-cut = cut_rsolidlist
-intersect = intersect_rsolidlist
+cut = cut_rsolid
+intersect = intersect_rsolid
 union = union_rsolid
 
 # 导出别名
@@ -220,8 +220,8 @@ __all__ = [
     "select_edges_by_tag",
     "select_faces_by_tag",
     # 布尔运算
-    "cut_rsolidlist",
-    "intersect_rsolidlist",
+    "cut_rsolid",
+    "intersect_rsolid",
     "union_rsolid",
     # 导出
     "export_step",

@@ -17,7 +17,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 with scad.GraphSession() as session:
     body = scad.make_box_rsolid(40.0, 24.0, 10.0, bottom_face_center=(0.0, 0.0, 0.0))
     cutter = scad.make_cylinder_rsolid(4.0, 16.0, bottom_face_center=(0.0, 0.0, -3.0))
-    drilled = scad.cut_rsolidlist(body, cutter)
+    drilled = scad.cut_rsolid(body, cutter)
 
     # Use a serializable QL selector instead of relying on OCC edge iteration order.
     bottom_circle = (

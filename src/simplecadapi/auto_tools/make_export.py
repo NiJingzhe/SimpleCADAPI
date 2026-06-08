@@ -105,8 +105,8 @@ ALIAS_RULES = {
     "extrude_rsolid": "extrude",
     "revolve_rsolid": "revolve",
     "union_rsolid": "union",
-    "cut_rsolidlist": "cut",
-    "intersect_rsolidlist": "intersect",
+    "cut_rsolid": "cut",
+    "intersect_rsolid": "intersect",
     "export_step": "to_step",
     "export_stl": "to_stl",
 }

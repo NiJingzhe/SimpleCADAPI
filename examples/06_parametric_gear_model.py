@@ -155,7 +155,7 @@ def build_model(output_dir: Path) -> dict:
             thickness + 2.0,
             bottom_face_center=(0.0, 0.0, -1.0),
         )
-        gear = scad.cut_rsolidlist(gear, bore)
+        gear = scad.cut_rsolid(gear, bore)
         # Keep the final output as a single explicit leaf node.
         gear = scad.translate_shape(gear, (0.0, 0.0, 0.0))
 

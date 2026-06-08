@@ -55,7 +55,7 @@ SimpleWorkplane  ← local modeling context
 ## Design Principles
 
 - **Shape-first API**: users work with `Vertex`, `Edge`, `Wire`, `Face`, and `Solid`, not graph nodes.
-- **Functional modeling style**: public operations return new geometry values, e.g. `make_box_rsolid(...)`, `cut_rsolidlist(...)`, `fillet_rsolid(...)`.
+- **Functional modeling style**: public operations return new geometry values, e.g. `make_box_rsolid(...)`, `cut_rsolid(...)`, `fillet_rsolid(...)`.
 - **OCP-native runtime**: geometry construction, topology traversal, properties, booleans, transforms, and export use OCP/OpenCascade helpers.
 - **Replayable graph workflows**: `GraphSession` can record a canonical low-level operation graph and `export_model_json()` can serialize it for `replay_model_json()`.
 - **Tags and metadata**: tags are useful for lightweight semantics; structured numeric facts should be stored in metadata such as `metadata["geo"]`.
@@ -85,7 +85,7 @@ import simplecadapi as scad
 with scad.GraphSession() as session:
     body = scad.make_box_rsolid(10, 10, 4)
     hole = scad.make_cylinder_rsolid(1.5, 8, bottom_face_center=(0, 0, -2))
-    part = scad.cut_rsolidlist(body, hole)
+    part = scad.cut_rsolid(body, hole)
 
 payload = scad.export_model_json(session)
 rebuilt = scad.replay_model_json(payload)

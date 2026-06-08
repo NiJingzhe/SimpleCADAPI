@@ -1,16 +1,16 @@
-# intersect_rsolidlist
+# intersect_rsolid
 
 ## API Definition
 
 ```python
-def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid
+def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid
 ```
 
 *Source: operations.py*
 
 ## Import Surface
 
-- top-level: `from simplecadapi import intersect_rsolidlist`
+- top-level: `from simplecadapi import intersect_rsolid`
 
 ## Description
 

@@ -33,9 +33,9 @@ REQUIRED_RSTYLE_APIS = (
     "fillet_rsolid",
     "chamfer_rsolid",
     "shell_rsolid",
-    "cut_rsolidlist",
+    "cut_rsolid",
     "union_rsolid",
-    "intersect_rsolidlist",
+    "intersect_rsolid",
 )
 
 
@@ -74,7 +74,7 @@ class TestRearchitecture20ApiContracts(unittest.TestCase):
         body = scad.make_box_rsolid(4.0, 4.0, 4.0)
         tool = scad.make_cylinder_rsolid(0.75, 6.0, bottom_face_center=(0.0, 0.0, -1.0))
 
-        result = scad.cut_rsolidlist(body, tool)
+        result = scad.cut_rsolid(body, tool)
         self.assertIsInstance(result, scad.Solid)
 
 
@@ -181,7 +181,7 @@ class TestRearchitecture20HistoryContracts(unittest.TestCase):
             tool = scad.make_cylinder_rsolid(
                 0.75, 6.0, bottom_face_center=(0.0, 0.0, -1.0)
             )
-            result = scad.cut_rsolidlist(body, tool)
+            result = scad.cut_rsolid(body, tool)
             payload = scad.import_model_json(scad.export_model_json(session))
 
         self.assertIsInstance(result, scad.Solid)
