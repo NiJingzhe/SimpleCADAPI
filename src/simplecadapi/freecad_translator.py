@@ -84,9 +84,9 @@ _OP_EXPRESSION_BINDINGS: Dict[str, Tuple[Tuple[str, Tuple[Any, ...]], ...]] = {
     ),
     "make_loft_rsolid": (("Ruled", ("ruled",)),),
     "make_sweep_rsolid": (("Frenet", ("is_frenet",)),),
-    "make_cut_rsolidlist": (),
+    "make_cut_rsolid": (),
     "make_union_rsolid": (),
-    "make_intersect_rsolidlist": (),
+    "make_intersect_rsolid": (),
     "make_fillet_rsolid": (),
     "make_chamfer_rsolid": (),
     "make_shell_rsolid": (("Value", ("thickness",)),),
@@ -2388,7 +2388,7 @@ def _resolve_vec3_param(params, param_exprs, key):
             lines.extend(finish())
             return lines
 
-        if node.op == "make_cut_rsolidlist" and len(inputs) >= 2:
+        if node.op == "make_cut_rsolid" and len(inputs) >= 2:
             lines: List[str]
             if len(inputs) == 2:
                 lines = [
@@ -2424,7 +2424,7 @@ def _resolve_vec3_param(params, param_exprs, key):
             lines.extend(finish())
             return lines
 
-        if node.op == "make_intersect_rsolidlist" and len(inputs) >= 2:
+        if node.op == "make_intersect_rsolid" and len(inputs) >= 2:
             if len(inputs) == 2:
                 lines = [
                     f"{var_name} = doc.addObject('Part::Common', {_json_ascii(object_name)})",

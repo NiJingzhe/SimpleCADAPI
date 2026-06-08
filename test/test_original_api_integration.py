@@ -8,11 +8,11 @@ from simplecadapi import ql as Q
 
 
 class TestOriginalBooleanApiIntegration(unittest.TestCase):
-    def test_cut_rsolidlist_auto_applies_semantic_tags(self):
+    def test_cut_rsolid_auto_applies_semantic_tags(self):
         body = scad.make_box_rsolid(10, 10, 10)
         tool = scad.make_cylinder_rsolid(2.0, 15.0, bottom_face_center=(3, 3, -2.5))
 
-        result = scad.cut_rsolidlist(body, tool)
+        result = scad.cut_rsolid(body, tool)
         self.assertIsInstance(result, scad.Solid)
 
         faces = result.get_faces()
@@ -22,20 +22,20 @@ class TestOriginalBooleanApiIntegration(unittest.TestCase):
 
         self.assertGreaterEqual(len(modified), 0)
         self.assertGreater(len(tool_faces), 0)
-        self.assertEqual(result.get_metadata("track")["op"], "make_cut_rsolidlist")
+        self.assertEqual(result.get_metadata("track")["op"], "make_cut_rsolid")
 
-    def test_intersect_rsolidlist_auto_applies_semantic_tags(self):
+    def test_intersect_rsolid_auto_applies_semantic_tags(self):
         a = scad.make_box_rsolid(10, 10, 10)
         b = scad.make_cylinder_rsolid(4.0, 10.0, bottom_face_center=(3, 3, 0))
 
-        result = scad.intersect_rsolidlist(a, b)
+        result = scad.intersect_rsolid(a, b)
         self.assertIsInstance(result, scad.Solid)
 
         faces = result.get_faces()
         tagged = Q.select(faces).where(Q.op("intersect")).all()
         self.assertGreaterEqual(len(tagged), 0)
         self.assertEqual(
-            result.get_metadata("track")["op"], "make_intersect_rsolidlist"
+            result.get_metadata("track")["op"], "make_intersect_rsolid"
         )
 
     def test_union_rsolid_auto_applies_semantic_tags(self):
@@ -119,12 +119,12 @@ class TestOriginalApiGraphRecording(unittest.TestCase):
         with GraphSession() as session:
             body = scad.make_box_rsolid(10, 10, 10)
             tool = scad.make_cylinder_rsolid(2.0, 15.0, bottom_face_center=(3, 3, -2.5))
-            result = scad.cut_rsolidlist(body, tool)
+            result = scad.cut_rsolid(body, tool)
 
         graph = session.graph
         self.assertGreaterEqual(graph.node_count, 3)
-        self.assertEqual(graph.leaf_nodes()[0].op, "make_cut_rsolidlist")
-        self.assertEqual(result.get_metadata("graph")["op"], "make_cut_rsolidlist")
+        self.assertEqual(graph.leaf_nodes()[0].op, "make_cut_rsolid")
+        self.assertEqual(result.get_metadata("graph")["op"], "make_cut_rsolid")
 
     def test_original_transform_records_graph_automatically(self):
         with GraphSession() as session:

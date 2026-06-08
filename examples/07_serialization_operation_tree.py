@@ -64,7 +64,7 @@ with scad.GraphSession() as session:
         plate_t + 2.0,
         bottom_face_center=(0.0, 0.0, -1.0),
     )
-    drilled_plate = scad.cut_rsolidlist(plate, hole)
+    drilled_plate = scad.cut_rsolid(plate, hole)
 
     # Core wire/profile API: point, line, circle, arc, spline, helix, wire construction,
     # face construction.  These are kept small and placed away from the plate so
@@ -181,14 +181,14 @@ with scad.GraphSession() as session:
     # Boolean operations.  Boolean union must produce one connected solid, so
     # this tiny demo uses overlapping boxes instead of trying to merge every
     # separate showcase solid above.
-    source_step("11 union_rsolid, intersect_rsolidlist, cut_rsolidlist")
+    source_step("11 union_rsolid, intersect_rsolid, cut_rsolid")
     union_a = scad.make_box_rsolid(3.0, 2.0, 1.0, bottom_face_center=(-4.0, -7.0, 0.0))
     union_b = scad.make_box_rsolid(3.0, 2.0, 1.0, bottom_face_center=(-2.5, -7.0, 0.0))
     union_demo = scad.union_rsolid(union_a, union_b)
 
     overlap_a = scad.make_box_rsolid(2.0, 2.0, 2.0, bottom_face_center=(12.0, -2.0, plate_t))
     overlap_b = scad.make_box_rsolid(2.0, 2.0, 2.0, bottom_face_center=(13.0, -2.0, plate_t))
-    intersection_demo = scad.intersect_rsolidlist(overlap_a, overlap_b)
+    intersection_demo = scad.intersect_rsolid(overlap_a, overlap_b)
 
     # Detail operations use QL selectors so the graph contains stable, serializable
     # selection hints rather than Python object identity from source code.
