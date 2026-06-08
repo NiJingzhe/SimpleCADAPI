@@ -102,11 +102,11 @@ class TestExportImport(unittest.TestCase):
         with scad.GraphSession() as session:
             body = scad.make_box_rsolid(10, 10, 10)
             tool = scad.make_cylinder_rsolid(2.0, 15.0, bottom_face_center=(3, 3, -2.5))
-            scad.cut_rsolidlist(body, tool)
+            scad.cut_rsolid(body, tool)
 
         payload = json.loads(export_graph_json(session.graph))
         leaf = next(
-            node for node in payload["nodes"] if node["op"] == "make_cut_rsolidlist"
+            node for node in payload["nodes"] if node["op"] == "make_cut_rsolid"
         )
 
         self.assertIn("display", leaf)
@@ -164,8 +164,8 @@ class TestCoverageMatrix(unittest.TestCase):
             "sweep_rsolid",
             "helical_sweep_rsolid",
             "union_rsolid",
-            "cut_rsolidlist",
-            "intersect_rsolidlist",
+            "cut_rsolid",
+            "intersect_rsolid",
             "fillet_rsolid",
             "chamfer_rsolid",
             "shell_rsolid",
@@ -216,9 +216,9 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_translate_rshape",
             "make_rotate_rshape",
             "make_mirror_rshape",
-            "make_cut_rsolidlist",
+            "make_cut_rsolid",
             "make_union_rsolid",
-            "make_intersect_rsolidlist",
+            "make_intersect_rsolid",
             "make_fillet_rsolid",
             "make_chamfer_rsolid",
             "make_shell_rsolid",
@@ -836,11 +836,11 @@ class TestReplay(unittest.TestCase):
             tool = scad.make_box_rsolid(
                 1.0, 1.0, 1.0, bottom_face_center=(10.0, 10.0, 0.0)
             )
-            scad.cut_rsolidlist(body, tool, skip_non_intersecting=True)
+            scad.cut_rsolid(body, tool, skip_non_intersecting=True)
 
         payload = json.loads(scad.export_model_json(session))
         cut_node = next(
-            node for node in payload["graph"]["nodes"] if node["op"] == "make_cut_rsolidlist"
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_cut_rsolid"
         )
         self.assertTrue(cut_node["params"]["skip_non_intersecting"])
 
@@ -854,11 +854,11 @@ class TestReplay(unittest.TestCase):
             tool = scad.make_box_rsolid(
                 1.0, 1.0, 1.0, bottom_face_center=(10.0, 10.0, 0.0)
             )
-            scad.cut_rsolidlist(body, tool, skip_non_intersecting=True)
+            scad.cut_rsolid(body, tool, skip_non_intersecting=True)
 
         payload = json.loads(scad.export_model_json(session))
         cut_node = next(
-            node for node in payload["graph"]["nodes"] if node["op"] == "make_cut_rsolidlist"
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_cut_rsolid"
         )
         del cut_node["params"]["skip_non_intersecting"]
 

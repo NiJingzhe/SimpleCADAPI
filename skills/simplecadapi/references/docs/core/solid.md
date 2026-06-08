@@ -278,8 +278,8 @@ from simplecadapi import (
     make_box_rsolid,
     make_cylinder_rsolid,
     union_rsolid,
-    cut_rsolidlist,
-    intersect_rsolidlist
+    cut_rsolid,
+    intersect_rsolid
 )
 
 def boolean_operations_example():
@@ -298,12 +298,12 @@ def boolean_operations_example():
     apply_tag(union_result, "combined_geometry")
     
     # 差集运算（从盒子中减去圆柱）
-    cut_result = cut_rsolidlist(box, cylinder)[0]
+    cut_result = cut_rsolid(box, cylinder)[0]
     apply_tag(cut_result, "cut_result")
     apply_tag(cut_result, "with_hole")
     
     # 交集运算
-    intersect_result = intersect_rsolidlist(box, cylinder)[0]
+    intersect_result = intersect_rsolid(box, cylinder)[0]
     apply_tag(intersect_result, "intersect_result")
     apply_tag(intersect_result, "common_volume")
     
@@ -439,7 +439,7 @@ from simplecadapi import (
     make_cylinder_rsolid,
     make_sphere_rsolid,
     union_rsolid,
-    cut_rsolidlist,
+    cut_rsolid,
     translate_shape,
     rotate_shape
 )
@@ -478,7 +478,7 @@ def create_complex_geometry():
     
     # 减去孔
     for hole in holes:
-        complex_solid = cut_rsolidlist(complex_solid, hole)[0]
+        complex_solid = cut_rsolid(complex_solid, hole)[0]
     
     # 标记复杂几何体
     apply_tag(complex_solid, "complex_geometry")

@@ -322,7 +322,7 @@ class OperationNode:
 
     Attributes:
         node_id:      Unique identifier within the graph.
-        op:           Operation type (e.g. ``"make_line_redge"``, ``"make_cut_rsolidlist"``).
+        op:           Operation type (e.g. ``"make_line_redge"``, ``"make_cut_rsolid"``).
         params:       Serialisable parameters for re-creation.
         inputs:       Upstream nodes whose outputs feed into this node.
         context:      Work-plane / coordinate-system snapshot taken at creation time.
@@ -355,9 +355,9 @@ def _node_display_category(op: str) -> str:
         "cut",
         "union",
         "intersect",
-        "make_cut_rsolidlist",
+        "make_cut_rsolid",
         "make_union_rsolid",
-        "make_intersect_rsolidlist",
+        "make_intersect_rsolid",
     }:
         return "boolean"
     if op in {

@@ -13,7 +13,7 @@ import simplecadapi as scad
 with scad.GraphSession() as session:
     body = scad.make_box_rsolid(10, 6, 2)
     hole = scad.make_cylinder_rsolid(1, 4, bottom_face_center=(0, 0, -1))
-    result = scad.cut_rsolidlist(body, hole)
+    result = scad.cut_rsolid(body, hole)
 
 model_json = scad.export_model_json(session)
 payload = json.loads(model_json)

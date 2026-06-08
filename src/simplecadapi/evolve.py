@@ -45,7 +45,7 @@ def make_n_hole_flange_rsolid(
         print(f"    法兰内孔圆柱创建成功，直径: {flange_inner_diameter}mm")
 
         # 从外圆柱中减去内孔形成法兰主体
-        flange_body = cut_rsolidlist(outer_cylinder, inner_cylinder)
+        flange_body = cut_rsolid(outer_cylinder, inner_cylinder)
         body_volume = flange_body.get_volume()
         print(f"    法兰主体创建完成，体积: {body_volume:.2f} mm³")
 
@@ -88,7 +88,7 @@ def make_n_hole_flange_rsolid(
         print(f"    凸起圆环内孔创建成功，直径: {flange_inner_diameter}mm")
 
         # 从凸起圆环中减去内孔，形成环形凸起
-        boss_ring = cut_rsolidlist(boss_outer_solid, boss_inner_hole)
+        boss_ring = cut_rsolid(boss_outer_solid, boss_inner_hole)
         print("    凸起圆环内孔切割完成，形成环形凸起")
 
         # 合并法兰主体和凸起圆环
@@ -141,7 +141,7 @@ def make_n_hole_flange_rsolid(
             )
 
             # 切割孔
-            current_flange = cut_rsolidlist(current_flange, hole)
+            current_flange = cut_rsolid(current_flange, hole)
             print(f"    第{i + 1}个孔位置: ({x:.2f}, {y:.2f}), 角度: {angle:.1f}°")
 
         flange_with_holes = current_flange
@@ -506,7 +506,7 @@ def make_threaded_rod_rsolid(
         # 步骤3: 从螺杆中减去螺纹切割体形成螺纹
         print("  步骤3: 切割螺纹...")
 
-        thread_solid = cut_rsolidlist(thread_solid, helical_cut_solid)
+        thread_solid = cut_rsolid(thread_solid, helical_cut_solid)
         print("    螺纹切割完成")
 
     except Exception as e:

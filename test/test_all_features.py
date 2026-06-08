@@ -309,24 +309,24 @@ class TestBooleanOperations(unittest.TestCase):
 
     def test_cut(self):
         """Test cut."""
-        result = scad.cut_rsolidlist(self.box1, self.box2)
+        result = scad.cut_rsolid(self.box1, self.box2)
         self.assertIsInstance(result, scad.Solid)
         # 差集体积应该小于原体积
         self.assertLess(result.get_volume(), self.box1.get_volume())
 
     def test_intersect(self):
         """Test intersect."""
-        result = scad.intersect_rsolidlist(self.box1, self.box2)
+        result = scad.intersect_rsolid(self.box1, self.box2)
         self.assertIsInstance(result, scad.Solid)
         # 交集体积应该小于任一体积
         self.assertLess(result.get_volume(), self.box1.get_volume())
         self.assertLess(result.get_volume(), self.box2.get_volume())
 
-    def test_legacy_boolean_api_removed(self):
-        """Test legacy boolean API removed."""
+    def test_boolean_api_names(self):
+        """Test canonical boolean API names."""
         self.assertTrue(hasattr(scad, "union_rsolid"))
-        self.assertFalse(hasattr(scad, "cut_rsolid"))
-        self.assertFalse(hasattr(scad, "intersect_rsolid"))
+        self.assertTrue(hasattr(scad, "cut_rsolid"))
+        self.assertTrue(hasattr(scad, "intersect_rsolid"))
 
 
 class TestAdvancedFeatures(unittest.TestCase):
@@ -604,8 +604,8 @@ class TestComplexExamples(unittest.TestCase):
         hole2 = scad.make_cylinder_rsolid(1, 3, bottom_face_center=(4, 0, 0))
 
         # 组合
-        bracket = scad.cut_rsolidlist(base, hole1)
-        bracket = scad.cut_rsolidlist(bracket, hole2)
+        bracket = scad.cut_rsolid(base, hole1)
+        bracket = scad.cut_rsolid(bracket, hole2)
 
         # 添加标签
         scad.apply_tag(bracket, "bracket")
@@ -623,7 +623,7 @@ class TestComplexExamples(unittest.TestCase):
 
         # 创建中心孔
         center_hole = scad.make_cylinder_rsolid(1, 1.5, bottom_face_center=(0, 0, 0.5))
-        gear_base = scad.cut_rsolidlist(gear_base, center_hole)
+        gear_base = scad.cut_rsolid(gear_base, center_hole)
 
         # 创建齿（简化版本）
         tooth_profile = scad.make_rectangle_rface(0.5, 0.3, center=(5.0, 0, 0))
@@ -653,7 +653,7 @@ class TestComplexExamples(unittest.TestCase):
 
         # 测试从圆锥体上切割
         cut_cone = scad.make_cone_rsolid(1.0, 1.5, bottom_face_center=(0, 0, 0))
-        result = scad.cut_rsolidlist(combined_shape, cut_cone)
+        result = scad.cut_rsolid(combined_shape, cut_cone)
 
         # 验证切割后的体积小于原体积
         self.assertIsInstance(result, scad.Solid)
@@ -668,7 +668,7 @@ class TestComplexExamples(unittest.TestCase):
 
         # 复合布尔运算：(box1 ∪ box2) ∩ box3
         union_result = scad.union_rsolid([box1, box2])
-        final_result = scad.intersect_rsolidlist(union_result, box3)
+        final_result = scad.intersect_rsolid(union_result, box3)
 
         # 验证
         self.assertIsInstance(final_result, scad.Solid)

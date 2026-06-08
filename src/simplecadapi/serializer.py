@@ -131,8 +131,8 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "reason": "Recorded as make_helix_wire + sweep macro instead of a dedicated core IR node.",
     },
     "union_rsolid": {"status": "replayable", "op": "make_union_rsolid"},
-    "cut_rsolidlist": {"status": "replayable", "op": "make_cut_rsolidlist"},
-    "intersect_rsolidlist": {"status": "replayable", "op": "make_intersect_rsolidlist"},
+    "cut_rsolid": {"status": "replayable", "op": "make_cut_rsolid"},
+    "intersect_rsolid": {"status": "replayable", "op": "make_intersect_rsolid"},
     "fillet_rsolid": {"status": "replayable", "op": "make_fillet_rsolid"},
     "chamfer_rsolid": {"status": "replayable", "op": "make_chamfer_rsolid"},
     "shell_rsolid": {"status": "replayable", "op": "make_shell_rsolid"},
@@ -182,9 +182,9 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_translate_rshape",
     "make_rotate_rshape",
     "make_mirror_rshape",
-    "make_cut_rsolidlist",
+    "make_cut_rsolid",
     "make_union_rsolid",
-    "make_intersect_rsolidlist",
+    "make_intersect_rsolid",
     "make_fillet_rsolid",
     "make_chamfer_rsolid",
     "make_shell_rsolid",
@@ -623,9 +623,9 @@ def replay_model_json(json_str: str, *, strict: bool = True) -> List[AnyShape]:
 # Registry mapping op names to factory functions.
 # Each factory takes (params_dict) -> shape or list of shapes.
 _OP_REGISTRY: Dict[str, Any] = {
-    "make_cut_rsolidlist": lambda p: None,  # handled specially below
+    "make_cut_rsolid": lambda p: None,  # handled specially below
     "make_union_rsolid": lambda p: None,  # handled specially below
-    "make_intersect_rsolidlist": lambda p: None,  # handled specially below
+    "make_intersect_rsolid": lambda p: None,  # handled specially below
 }
 
 
@@ -1328,7 +1328,7 @@ def _execute_graph(
                             _store_outputs(node, result)
                         continue
 
-                    if op_name == "make_cut_rsolidlist":
+                    if op_name == "make_cut_rsolid":
                         ctx.require_params(
                             node.node_id, op_name, params, ("tool_count",)
                         )
@@ -1344,7 +1344,7 @@ def _execute_graph(
                             tool_outputs.extend(_input_outputs(ctx, outputs, node, index))
                         if not body_list or not tool_outputs:
                             continue
-                        result = ops.cut_rsolidlist(
+                        result = ops.cut_rsolid(
                             cast(Solid, body_list[0]),
                             [cast(Solid, tool) for tool in tool_outputs],
                             skip_non_intersecting=bool(
@@ -1389,7 +1389,7 @@ def _execute_graph(
                             )
                         continue
 
-                    if op_name == "make_intersect_rsolidlist":
+                    if op_name == "make_intersect_rsolid":
                         ctx.require_params(
                             node.node_id, op_name, params, ("input_count",)
                         )
@@ -1398,7 +1398,7 @@ def _execute_graph(
                             for shape in _all_input_outputs(ctx, outputs, node)
                         ]
                         if len(all_solids) >= 2:
-                            result = ops.intersect_rsolidlist(
+                            result = ops.intersect_rsolid(
                                 all_solids[0], all_solids[1:]
                             )
                             _store_outputs(node, result)

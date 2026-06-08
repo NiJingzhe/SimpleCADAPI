@@ -491,7 +491,7 @@ class TestOperationGraphDeltaSerialization(unittest.TestCase):
             tool = scad.make_cylinder_rsolid(
                 0.75, 6.0, bottom_face_center=(0.0, 0.0, -1.0)
             )
-            scad.cut_rsolidlist(body, tool)
+            scad.cut_rsolid(body, tool)
 
         restored = scad.import_graph_json(scad.export_graph_json(session.graph))
         leaf = restored.leaf_nodes()[0]
@@ -513,12 +513,12 @@ class TestOperationGraphDeltaSerialization(unittest.TestCase):
             tool_b = scad.make_box_rsolid(
                 1.0, 1.0, 5.0, bottom_face_center=(0.75, 0.0, -0.5)
             )
-            scad.cut_rsolidlist(body, tool_a, tool_b)
+            scad.cut_rsolid(body, tool_a, tool_b)
 
         restored = scad.import_graph_json(scad.export_graph_json(session.graph))
         leaf = restored.leaf_nodes()[0]
 
-        self.assertEqual(leaf.op, "make_cut_rsolidlist")
+        self.assertEqual(leaf.op, "make_cut_rsolid")
         self.assertIsNotNone(leaf.topo_delta)
         self.assertEqual(len(leaf.topo_delta.raw_event["steps"]), 2)
 
@@ -531,12 +531,12 @@ class TestOperationGraphDeltaSerialization(unittest.TestCase):
             tool_b = scad.make_box_rsolid(
                 4.0, 4.0, 4.0, bottom_face_center=(0.0, 1.0, 0.0)
             )
-            scad.intersect_rsolidlist(body, tool_a, tool_b)
+            scad.intersect_rsolid(body, tool_a, tool_b)
 
         restored = scad.import_graph_json(scad.export_graph_json(session.graph))
         leaf = restored.leaf_nodes()[0]
 
-        self.assertEqual(leaf.op, "make_intersect_rsolidlist")
+        self.assertEqual(leaf.op, "make_intersect_rsolid")
         self.assertIsNotNone(leaf.topo_delta)
         self.assertEqual(len(leaf.topo_delta.raw_event["steps"]), 2)
 
