@@ -116,7 +116,7 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 ```json
 {
   "schema_version": "2.0",
-  "producer_version": "2.0.0b3",
+  "producer_version": "2.0.0b4",
   "capabilities": {
     "selection_ref_strategies": true,
     "geo_select_nodes": true,
