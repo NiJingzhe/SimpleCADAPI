@@ -33,6 +33,7 @@ from .graph import (
     suspend_graph_recording,
 )
 from .ql import ShapeSelector
+from .sketch import Sketch, SketchRef, SketchSolveResult
 from .topology import (
     SemanticDelta,
     SemanticRef,
@@ -124,6 +125,39 @@ _OP_MAKE_SELECT_REDGE = "make_select_redge"
 _OP_MAKE_SELECT_RWIRE = "make_select_rwire"
 _OP_MAKE_SELECT_RFACE = "make_select_rface"
 _OP_MAKE_SELECT_RSOLID = "make_select_rsolid"
+_OP_MAKE_SKETCH_RSKETCH = "make_sketch_rsketch"
+_OP_MAKE_SKETCH_POINT_RSKETCHREF = "make_sketch_point_rsketchref"
+_OP_MAKE_ADD_LINE_RSKETCH = "make_add_line_rsketch"
+_OP_MAKE_ADD_CIRCLE_RSKETCH = "make_add_circle_rsketch"
+_OP_MAKE_SOLVE_SKETCH_RSKETCHRESULT = "make_solve_sketch_rsketchresult"
+_OP_MAKE_WIRE_FROM_SKETCH_RWIRE = "make_wire_from_sketch_rwire"
+_OP_MAKE_FACE_FROM_SKETCH_RFACE = "make_face_from_sketch_rface"
+
+
+_SKETCH_CONSTRAINT_OPS = {
+    "coincident": "make_constrain_coincident_rsketch",
+    "connect": "make_constrain_coincident_rsketch",
+    "point_on": "make_constrain_point_on_rsketch",
+    "horizontal": "make_constrain_horizontal_rsketch",
+    "vertical": "make_constrain_vertical_rsketch",
+    "parallel": "make_constrain_parallel_rsketch",
+    "perpendicular": "make_constrain_perpendicular_rsketch",
+    "collinear": "make_constrain_collinear_rsketch",
+    "tangent": "make_constrain_tangent_rsketch",
+    "concentric": "make_constrain_concentric_rsketch",
+    "midpoint": "make_constrain_midpoint_rsketch",
+    "symmetric": "make_constrain_symmetric_rsketch",
+    "equal_length": "make_constrain_equal_length_rsketch",
+    "equal_radius": "make_constrain_equal_radius_rsketch",
+    "distance": "make_constrain_distance_rsketch",
+    "distance_x": "make_constrain_distance_x_rsketch",
+    "distance_y": "make_constrain_distance_y_rsketch",
+    "length": "make_constrain_length_rsketch",
+    "angle": "make_constrain_angle_rsketch",
+    "radius": "make_constrain_radius_rsketch",
+    "diameter": "make_constrain_diameter_rsketch",
+    "fix": "make_constrain_fix_rsketch",
+}
 
 
 def _orthonormal_plane_axes(
@@ -886,6 +920,18 @@ def _semantic_delta_for_output(
             _OP_MAKE_POINT_RVERTEX,
         }:
             resolved_entity_type = "Point"
+        elif op == _OP_MAKE_SKETCH_POINT_RSKETCHREF:
+            resolved_entity_type = "SketchPoint"
+        elif op in {
+            _OP_MAKE_SKETCH_RSKETCH,
+            _OP_MAKE_ADD_LINE_RSKETCH,
+            _OP_MAKE_ADD_CIRCLE_RSKETCH,
+            _OP_MAKE_SOLVE_SKETCH_RSKETCHRESULT,
+            _OP_MAKE_WIRE_FROM_SKETCH_RWIRE,
+            _OP_MAKE_FACE_FROM_SKETCH_RFACE,
+            *_SKETCH_CONSTRAINT_OPS.values(),
+        }:
+            resolved_entity_type = "Sketch"
         elif op in {
             "make_line",
             "make_circle_edge",
@@ -1047,6 +1093,27 @@ def _finalize_derived_shape(
     return shape
 
 
+def _finalize_runtime_object(
+    output: object,
+    *,
+    op: str,
+    params: Dict[str, object],
+    input_objects: Optional[Sequence[object]] = None,
+    tags: Optional[Set[str]] = None,
+    entity_type: str = "Sketch",
+) -> object:
+    record_operation_if_active(
+        op=op,
+        params=params,
+        outputs=output,
+        input_shapes=input_objects,
+        semantic_delta=_semantic_delta_for_output(op, entity_type=entity_type),
+        context=_current_context_metadata(),
+        tags=tags,
+    )
+    return output
+
+
 def _finalize_tracked_solid(
     solid: Solid,
     *,
@@ -1115,6 +1182,384 @@ def make_point_rvertex(x: ScalarLike, y: ScalarLike, z: ScalarLike) -> Vertex:
             how_to_fix=[
                 "Pass numeric x, y, and z values or valid scalar expressions.",
                 "Inspect the coordinate values and the active workplane before retrying.",
+            ],
+            error=e,
+        )
+
+
+def make_sketch_rsketch(
+    name: Optional[str] = None,
+    *,
+    plane: Any = "XY",
+    sketch_id: Optional[str] = None,
+) -> Sketch:
+    """Create an empty declarative sketch document.
+
+    Use this API, not concrete edge/wire constructors, when the intent is to
+    build a sketch profile with constraints.
+    """
+    try:
+        sketch = Sketch(name=name, plane=plane, sketch_id=sketch_id)
+        return cast(
+            Sketch,
+            _finalize_runtime_object(
+                sketch,
+                op=_OP_MAKE_SKETCH_RSKETCH,
+                params={"name": name, "plane": plane, "sketch_id": sketch.sketch_id},
+                tags={"sketch"},
+                entity_type="Sketch",
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_sketch_rsketch",
+            what_happened="Failed to create a sketch document.",
+            possible_causes=["The sketch name or plane payload is invalid."],
+            how_to_fix=["Use plane='XY', 'XZ', 'YZ', or a valid plane mapping."],
+            error=e,
+        )
+
+
+def make_sketch_point_rsketchref(
+    sketch: Sketch,
+    point_id: str,
+    x: ScalarLike,
+    y: ScalarLike,
+) -> SketchRef:
+    """Add a named sketch point and return its stable sketch ref."""
+    try:
+        ref = sketch.add_point(point_id, x, y)
+        return cast(
+            SketchRef,
+            _finalize_runtime_object(
+                ref,
+                op=_OP_MAKE_SKETCH_POINT_RSKETCHREF,
+                params={
+                    "sketch_id": sketch.sketch_id,
+                    "point_id": point_id,
+                    "x": x,
+                    "y": y,
+                },
+                input_objects=[sketch],
+                tags={"sketch", "point"},
+                entity_type="SketchPoint",
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_sketch_point_rsketchref",
+            what_happened="Failed to add a point to the sketch.",
+            possible_causes=[
+                "The sketch is invalid.",
+                "The point id is duplicated.",
+                "The x or y value is not a valid scalar or expression.",
+            ],
+            how_to_fix=[
+                "Use a unique point id within the sketch.",
+                "Pass numeric x/y values or valid scalar expressions.",
+            ],
+            error=e,
+        )
+
+
+def get_sketch_entity_rsketchref(
+    sketch: Sketch,
+    entity_id: str,
+) -> SketchRef:
+    """Return a stable ref for a named sketch entity."""
+    return sketch.ref(entity_id)
+
+
+def get_sketch_point_rsketchref(
+    sketch: Sketch,
+    point_path: str,
+) -> SketchRef:
+    """Return a stable ref for a sketch point or endpoint path."""
+    return sketch.point_ref(point_path)
+
+
+def add_line_rsketch(
+    sketch: Sketch,
+    entity_id: str,
+    start: SketchRef,
+    end: SketchRef,
+    *,
+    construction: bool = False,
+) -> Sketch:
+    """Add a named line entity to a declarative sketch."""
+    try:
+        sketch.add_line(entity_id, start, end, construction=construction)
+        return cast(
+            Sketch,
+            _finalize_runtime_object(
+                sketch,
+                op=_OP_MAKE_ADD_LINE_RSKETCH,
+                params={
+                    "sketch_id": sketch.sketch_id,
+                    "entity_id": entity_id,
+                    "start": start.to_dict(),
+                    "end": end.to_dict(),
+                    "construction": construction,
+                },
+                input_objects=[sketch, start, end],
+                tags={"sketch", "line"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_line_rsketch",
+            what_happened="Failed to add a line to the sketch.",
+            possible_causes=[
+                "The line id is duplicated.",
+                "One of the endpoint refs does not belong to this sketch.",
+                "Both endpoints resolve to the same point.",
+            ],
+            how_to_fix=[
+                "Use a unique line id.",
+                "Create endpoints with make_sketch_point_rsketchref(...).",
+            ],
+            error=e,
+        )
+
+
+def add_circle_rsketch(
+    sketch: Sketch,
+    entity_id: str,
+    center: SketchRef,
+    radius: ScalarLike,
+    *,
+    construction: bool = False,
+) -> Sketch:
+    """Add a named circle entity to a declarative sketch."""
+    try:
+        sketch.add_circle(entity_id, center, radius, construction=construction)
+        return cast(
+            Sketch,
+            _finalize_runtime_object(
+                sketch,
+                op=_OP_MAKE_ADD_CIRCLE_RSKETCH,
+                params={
+                    "sketch_id": sketch.sketch_id,
+                    "entity_id": entity_id,
+                    "center": center.to_dict(),
+                    "radius": radius,
+                    "construction": construction,
+                },
+                input_objects=[sketch, center],
+                tags={"sketch", "circle"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_circle_rsketch",
+            what_happened="Failed to add a circle to the sketch.",
+            possible_causes=[
+                "The circle id is duplicated.",
+                "The center ref does not belong to this sketch.",
+                "The radius is not positive.",
+            ],
+            how_to_fix=[
+                "Use a unique circle id and a positive radius.",
+                "Create the center with make_sketch_point_rsketchref(...).",
+            ],
+            error=e,
+        )
+
+
+def _constrain_rsketch(
+    sketch: Sketch,
+    kind: str,
+    targets: Sequence[SketchRef],
+    *,
+    value: Any = None,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Sketch:
+    sketch.add_constraint(
+        kind,
+        targets,
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        metadata=metadata,
+    )
+    op = _SKETCH_CONSTRAINT_OPS[kind]
+    return cast(
+        Sketch,
+        _finalize_runtime_object(
+            sketch,
+            op=op,
+            params={
+                "sketch_id": sketch.sketch_id,
+                "kind": kind,
+                "targets": [target.to_dict() for target in targets],
+                "value": value,
+                "constraint_id": constraint_id,
+                "driving": driving,
+                "metadata": metadata or {},
+            },
+            input_objects=[sketch, *targets],
+            tags={"sketch", "constraint"},
+        ),
+    )
+
+
+def constrain_coincident_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch points to be coincident."""
+    return _constrain_rsketch(sketch, "coincident", [a, b], constraint_id=constraint_id)
+
+
+def constrain_connect_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Alias for `constrain_coincident_rsketch` using connection wording."""
+    return _constrain_rsketch(sketch, "coincident", [a, b], constraint_id=constraint_id)
+
+
+def constrain_point_on_rsketch(sketch: Sketch, point: SketchRef, entity: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain a sketch point to lie on a line or circle."""
+    return _constrain_rsketch(sketch, "point_on", [point, entity], constraint_id=constraint_id)
+
+
+def constrain_horizontal_rsketch(sketch: Sketch, line: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain a sketch line to be horizontal."""
+    return _constrain_rsketch(sketch, "horizontal", [line], constraint_id=constraint_id)
+
+
+def constrain_vertical_rsketch(sketch: Sketch, line: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain a sketch line to be vertical."""
+    return _constrain_rsketch(sketch, "vertical", [line], constraint_id=constraint_id)
+
+
+def constrain_parallel_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch lines to be parallel."""
+    return _constrain_rsketch(sketch, "parallel", [a, b], constraint_id=constraint_id)
+
+
+def constrain_perpendicular_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch lines to be perpendicular."""
+    return _constrain_rsketch(sketch, "perpendicular", [a, b], constraint_id=constraint_id)
+
+
+def constrain_collinear_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch lines to lie on the same infinite line."""
+    return _constrain_rsketch(sketch, "collinear", [a, b], constraint_id=constraint_id)
+
+
+def constrain_tangent_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain supported sketch curves to be tangent."""
+    return _constrain_rsketch(sketch, "tangent", [a, b], constraint_id=constraint_id)
+
+
+def constrain_concentric_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch circles to share a center."""
+    return _constrain_rsketch(sketch, "concentric", [a, b], constraint_id=constraint_id)
+
+
+def constrain_midpoint_rsketch(sketch: Sketch, point: SketchRef, line: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain a sketch point to the midpoint of a line."""
+    return _constrain_rsketch(sketch, "midpoint", [point, line], constraint_id=constraint_id)
+
+
+def constrain_symmetric_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, axis: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch points to be symmetric about a line axis."""
+    return _constrain_rsketch(sketch, "symmetric", [a, b, axis], constraint_id=constraint_id)
+
+
+def constrain_equal_length_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch lines to have equal length."""
+    return _constrain_rsketch(sketch, "equal_length", [a, b], constraint_id=constraint_id)
+
+
+def constrain_equal_radius_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch circles to have equal radius."""
+    return _constrain_rsketch(sketch, "equal_radius", [a, b], constraint_id=constraint_id)
+
+
+def constrain_distance_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving point-to-point distance constraint."""
+    return _constrain_rsketch(sketch, "distance", [a, b], value=value, constraint_id=constraint_id, driving=driving)
+
+
+def constrain_distance_x_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving horizontal distance constraint."""
+    return _constrain_rsketch(sketch, "distance_x", [a, b], value=value, constraint_id=constraint_id, driving=driving)
+
+
+def constrain_distance_y_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving vertical distance constraint."""
+    return _constrain_rsketch(sketch, "distance_y", [a, b], value=value, constraint_id=constraint_id, driving=driving)
+
+
+def constrain_length_rsketch(sketch: Sketch, line: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving line length constraint."""
+    return _constrain_rsketch(sketch, "length", [line], value=value, constraint_id=constraint_id, driving=driving)
+
+
+def constrain_angle_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving angle constraint between two sketch lines."""
+    return _constrain_rsketch(sketch, "angle", [a, b], value=value, constraint_id=constraint_id, driving=driving)
+
+
+def constrain_radius_rsketch(sketch: Sketch, circle: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving circle radius constraint."""
+    return _constrain_rsketch(sketch, "radius", [circle], value=value, constraint_id=constraint_id, driving=driving)
+
+
+def constrain_diameter_rsketch(sketch: Sketch, circle: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving circle diameter constraint."""
+    return _constrain_rsketch(sketch, "diameter", [circle], value=value, constraint_id=constraint_id, driving=driving)
+
+
+def constrain_fix_rsketch(sketch: Sketch, target: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+    """Fix a sketch point or entity to its initial coordinates."""
+    return _constrain_rsketch(sketch, "fix", [target], constraint_id=constraint_id)
+
+
+def solve_sketch_rsketchresult(
+    sketch: Sketch,
+    *,
+    require_fully_constrained: bool = False,
+    strict: bool = True,
+    tolerance: float = 1e-7,
+    max_iterations: int = 80,
+) -> SketchSolveResult:
+    """Solve a declarative sketch and return solver diagnostics."""
+    try:
+        result = sketch.solve(
+            require_fully_constrained=require_fully_constrained,
+            strict=strict,
+            tolerance=tolerance,
+            max_iterations=max_iterations,
+        )
+        return cast(
+            SketchSolveResult,
+            _finalize_runtime_object(
+                result,
+                op=_OP_MAKE_SOLVE_SKETCH_RSKETCHRESULT,
+                params={
+                    "sketch_id": sketch.sketch_id,
+                    "require_fully_constrained": require_fully_constrained,
+                    "strict": strict,
+                    "tolerance": tolerance,
+                    "max_iterations": max_iterations,
+                    "result": result.to_dict(),
+                },
+                input_objects=[sketch],
+                tags={"sketch", "solve"},
+                entity_type="Sketch",
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="solve_sketch_rsketchresult",
+            what_happened="Failed to solve the sketch.",
+            possible_causes=[
+                "The sketch has invalid, conflicting, or underconstrained constraints.",
+                "A constraint references a missing or wrong-kind entity.",
+            ],
+            how_to_fix=[
+                "Inspect result diagnostics with strict=False if needed.",
+                "Add fix/dimension constraints until the intended profile is fully constrained.",
             ],
             error=e,
         )
@@ -1578,6 +2023,74 @@ def make_wire_from_edges_rwire(edges: List[Edge]) -> Wire:
                 "Pass a non-empty list of Edge objects.",
                 "Ensure consecutive edges share matching endpoints.",
                 "Inspect the edge order if the wire should form a closed loop.",
+            ],
+            error=e,
+        )
+
+
+def make_wire_from_sketch_rwire(sketch: Sketch, profile: int | str = 0) -> Wire:
+    """Solve a declarative sketch profile and return a concrete wire."""
+    try:
+        if not isinstance(sketch, Sketch):
+            raise ValueError("Input must be a Sketch")
+        with suspend_graph_recording():
+            wire = sketch.make_wire(profile=profile)
+        return cast(
+            Wire,
+            _finalize_derived_shape(
+                wire,
+                op=_OP_MAKE_WIRE_FROM_SKETCH_RWIRE,
+                params={"profile": profile, "sketch": sketch.to_dict()},
+                input_shapes=cast(Sequence[AnyShape], [sketch]),
+                tags={"derived", "wire", "sketch"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_wire_from_sketch_rwire",
+            what_happened="Failed to create a wire from the sketch.",
+            possible_causes=[
+                "The sketch has no closed non-construction profile.",
+                "The sketch constraints are conflicting or invalid.",
+                "The requested profile index or id does not exist.",
+            ],
+            how_to_fix=[
+                "Build sketch profiles only through sketch APIs and close all profile loops.",
+                "Call solve_sketch_rsketchresult(..., strict=False) to inspect diagnostics.",
+            ],
+            error=e,
+        )
+
+
+def make_face_from_sketch_rface(sketch: Sketch, profile: int | str = 0) -> Face:
+    """Solve a declarative sketch profile and return a concrete face."""
+    try:
+        if not isinstance(sketch, Sketch):
+            raise ValueError("Input must be a Sketch")
+        with suspend_graph_recording():
+            face = sketch.make_face(profile=profile)
+        return cast(
+            Face,
+            _finalize_derived_shape(
+                face,
+                op=_OP_MAKE_FACE_FROM_SKETCH_RFACE,
+                params={"profile": profile, "sketch": sketch.to_dict()},
+                input_shapes=cast(Sequence[AnyShape], [sketch]),
+                tags={"derived", "face", "sketch"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_face_from_sketch_rface",
+            what_happened="Failed to create a face from the sketch.",
+            possible_causes=[
+                "The sketch has no closed non-construction profile.",
+                "The sketch constraints are conflicting or invalid.",
+                "The requested profile index or id does not exist.",
+            ],
+            how_to_fix=[
+                "Build a closed profile with add_line_rsketch(...) or add_circle_rsketch(...).",
+                "Add constraints until the profile can solve cleanly.",
             ],
             error=e,
         )

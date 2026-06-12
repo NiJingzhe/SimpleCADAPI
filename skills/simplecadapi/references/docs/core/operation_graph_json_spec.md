@@ -122,6 +122,7 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
     "geo_select_nodes": true,
     "selector_hint_fallback": true,
     "display_payload": true,
+    "sketch_constraints": true,
     "topology_delta_summary": false,
     "assembly_graph": false,
     "scalar_field_graph": false,
@@ -154,6 +155,7 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 | `geo_select_nodes` | `bool` | detail selections from QL or indexed child-geometry getters can be serialized as `make_select_*` geo selector nodes |
 | `selector_hint_fallback` | `bool` | replay 时支持 selector hint 近似匹配回退 |
 | `display_payload` | `bool` | node 中包含 `display` 字段 |
+| `sketch_constraints` | `bool` | graph/model JSON 支持声明式 constrained sketch nodes |
 | `topology_delta_summary` | `bool` | 当前为 `false`，表示没有额外 summary-only delta schema |
 | `assembly_graph` | `bool` | 当前 graph JSON 本身不承载 assembly graph |
 | `scalar_field_graph` | `bool` | 当前为 `false`；SDF / scalar field graph 暂时不在支持范围内 |
@@ -900,6 +902,34 @@ New canonical profile nodes use the `make_*_r*` names listed in `canonical_contr
 - `make_helix_redge`
 - `make_wire_from_edges_rwire`
 - `make_face_from_wire_rface`
+- `make_sketch_rsketch`
+- `make_sketch_point_rsketchref`
+- `make_add_line_rsketch`
+- `make_add_circle_rsketch`
+- `make_constrain_coincident_rsketch`
+- `make_constrain_point_on_rsketch`
+- `make_constrain_horizontal_rsketch`
+- `make_constrain_vertical_rsketch`
+- `make_constrain_parallel_rsketch`
+- `make_constrain_perpendicular_rsketch`
+- `make_constrain_collinear_rsketch`
+- `make_constrain_tangent_rsketch`
+- `make_constrain_concentric_rsketch`
+- `make_constrain_midpoint_rsketch`
+- `make_constrain_symmetric_rsketch`
+- `make_constrain_equal_length_rsketch`
+- `make_constrain_equal_radius_rsketch`
+- `make_constrain_distance_rsketch`
+- `make_constrain_distance_x_rsketch`
+- `make_constrain_distance_y_rsketch`
+- `make_constrain_length_rsketch`
+- `make_constrain_angle_rsketch`
+- `make_constrain_radius_rsketch`
+- `make_constrain_diameter_rsketch`
+- `make_constrain_fix_rsketch`
+- `make_solve_sketch_rsketchresult`
+- `make_wire_from_sketch_rwire`
+- `make_face_from_sketch_rface`
 - `make_extrude_rsolid`
 - `make_revolve_rsolid`
 - `make_loft_rsolid`
