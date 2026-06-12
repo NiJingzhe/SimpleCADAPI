@@ -17,6 +17,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_circle_rwire](make_circle_rwire.md) *(from operations.py)* `top-level`
 - [make_cone_rsolid](make_cone_rsolid.md) *(from operations.py)* `top-level`
 - [make_cylinder_rsolid](make_cylinder_rsolid.md) *(from operations.py)* `top-level`
+- [make_face_from_sketch_rface](make_face_from_sketch_rface.md) *(from operations.py)* `top-level`
 - [make_face_from_wire_rface](make_face_from_wire_rface.md) *(from operations.py)* `top-level`
 - [make_helix_redge](make_helix_redge.md) *(from operations.py)* `top-level`
 - [make_helix_rwire](make_helix_rwire.md) *(from operations.py)* `top-level`
@@ -27,12 +28,15 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_rectangle_rwire](make_rectangle_rwire.md) *(from operations.py)* `top-level`
 - [make_segment_redge](make_segment_redge.md) *(from operations.py)* `top-level`
 - [make_segment_rwire](make_segment_rwire.md) *(from operations.py)* `top-level`
+- [make_sketch_point_rsketchref](make_sketch_point_rsketchref.md) *(from operations.py)* `top-level`
+- [make_sketch_rsketch](make_sketch_rsketch.md) *(from operations.py)* `top-level`
 - [make_sphere_rsolid](make_sphere_rsolid.md) *(from operations.py)* `top-level`
 - [make_spline_redge](make_spline_redge.md) *(from operations.py)* `top-level`
 - [make_spline_rwire](make_spline_rwire.md) *(from operations.py)* `top-level`
 - [make_three_point_arc_redge](make_three_point_arc_redge.md) *(from operations.py)* `top-level`
 - [make_three_point_arc_rwire](make_three_point_arc_rwire.md) *(from operations.py)* `top-level`
 - [make_wire_from_edges_rwire](make_wire_from_edges_rwire.md) *(from operations.py)* `top-level`
+- [make_wire_from_sketch_rwire](make_wire_from_sketch_rwire.md) *(from operations.py)* `top-level`
 
 ## Transforms
 
@@ -96,6 +100,10 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 - [SimpleCADError](SimpleCADError.md) *(from errors.py)* `top-level`
 - [Sketch](Sketch.md) *(from sketch.py)* `top-level`
+- [SketchConstraint](SketchConstraint.md) *(from sketch.py)* `top-level`
+- [SketchConstraintDiagnostic](SketchConstraintDiagnostic.md) *(from sketch.py)* `top-level`
+- [SketchRef](SketchRef.md) *(from sketch.py)* `top-level`
+- [SketchSolveResult](SketchSolveResult.md) *(from sketch.py)* `top-level`
 
 ## Advanced Features
 
@@ -114,8 +122,34 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 - [SemanticDelta](SemanticDelta.md) *(from topology.py)* `top-level`
 - [SemanticRef](SemanticRef.md) *(from topology.py)* `top-level`
+- [add_circle_rsketch](add_circle_rsketch.md) *(from operations.py)* `top-level`
+- [add_line_rsketch](add_line_rsketch.md) *(from operations.py)* `top-level`
 - [and_](and_.md) *(from ql.py)* `submodule:ql`
+- [constrain_angle_rsketch](constrain_angle_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_coincident_rsketch](constrain_coincident_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_collinear_rsketch](constrain_collinear_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_concentric_rsketch](constrain_concentric_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_connect_rsketch](constrain_connect_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_diameter_rsketch](constrain_diameter_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_distance_rsketch](constrain_distance_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_distance_x_rsketch](constrain_distance_x_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_distance_y_rsketch](constrain_distance_y_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_equal_length_rsketch](constrain_equal_length_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_equal_radius_rsketch](constrain_equal_radius_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_fix_rsketch](constrain_fix_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_horizontal_rsketch](constrain_horizontal_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_length_rsketch](constrain_length_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_midpoint_rsketch](constrain_midpoint_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_parallel_rsketch](constrain_parallel_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_perpendicular_rsketch](constrain_perpendicular_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_point_on_rsketch](constrain_point_on_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_radius_rsketch](constrain_radius_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_symmetric_rsketch](constrain_symmetric_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_tangent_rsketch](constrain_tangent_rsketch.md) *(from operations.py)* `top-level`
+- [constrain_vertical_rsketch](constrain_vertical_rsketch.md) *(from operations.py)* `top-level`
 - [geo](geo.md) *(from ql.py)* `submodule:ql`
+- [get_sketch_entity_rsketchref](get_sketch_entity_rsketchref.md) *(from operations.py)* `top-level`
+- [get_sketch_point_rsketchref](get_sketch_point_rsketchref.md) *(from operations.py)* `top-level`
 - [linear_pattern_rsolidlist](linear_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [meta](meta.md) *(from ql.py)* `submodule:ql`
 - [not_](not_.md) *(from ql.py)* `submodule:ql`
@@ -123,5 +157,6 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`
+- [solve_sketch_rsketchresult](solve_sketch_rsketchresult.md) *(from operations.py)* `top-level`
 - [tag](tag.md) *(from ql.py)* `submodule:ql`
 - [value](value.md) *(from ql.py)* `submodule:ql`

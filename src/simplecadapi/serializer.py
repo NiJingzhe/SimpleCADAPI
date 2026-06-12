@@ -30,6 +30,7 @@ from .errors import raise_harness_error
 from .core import AnyShape, Edge, Face, Solid, Vertex, Wire, use_coordinate_system
 from .graph import attach_graph_node, suspend_graph_recording
 from .ql import selector_from_dict
+from .sketch import Sketch, SketchRef
 from .topology import (
     OperationGraph,
     semantic_delta_to_dict,
@@ -75,6 +76,35 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "status": "replayable",
         "op": "make_wire_from_edges_rwire",
     },
+    "make_sketch_rsketch": {"status": "replayable", "op": "make_sketch_rsketch"},
+    "make_sketch_point_rsketchref": {"status": "replayable", "op": "make_sketch_point_rsketchref"},
+    "add_line_rsketch": {"status": "replayable", "op": "make_add_line_rsketch"},
+    "add_circle_rsketch": {"status": "replayable", "op": "make_add_circle_rsketch"},
+    "constrain_coincident_rsketch": {"status": "replayable", "op": "make_constrain_coincident_rsketch"},
+    "constrain_connect_rsketch": {"status": "replayable", "op": "make_constrain_coincident_rsketch"},
+    "constrain_point_on_rsketch": {"status": "replayable", "op": "make_constrain_point_on_rsketch"},
+    "constrain_horizontal_rsketch": {"status": "replayable", "op": "make_constrain_horizontal_rsketch"},
+    "constrain_vertical_rsketch": {"status": "replayable", "op": "make_constrain_vertical_rsketch"},
+    "constrain_parallel_rsketch": {"status": "replayable", "op": "make_constrain_parallel_rsketch"},
+    "constrain_perpendicular_rsketch": {"status": "replayable", "op": "make_constrain_perpendicular_rsketch"},
+    "constrain_collinear_rsketch": {"status": "replayable", "op": "make_constrain_collinear_rsketch"},
+    "constrain_tangent_rsketch": {"status": "replayable", "op": "make_constrain_tangent_rsketch"},
+    "constrain_concentric_rsketch": {"status": "replayable", "op": "make_constrain_concentric_rsketch"},
+    "constrain_midpoint_rsketch": {"status": "replayable", "op": "make_constrain_midpoint_rsketch"},
+    "constrain_symmetric_rsketch": {"status": "replayable", "op": "make_constrain_symmetric_rsketch"},
+    "constrain_equal_length_rsketch": {"status": "replayable", "op": "make_constrain_equal_length_rsketch"},
+    "constrain_equal_radius_rsketch": {"status": "replayable", "op": "make_constrain_equal_radius_rsketch"},
+    "constrain_distance_rsketch": {"status": "replayable", "op": "make_constrain_distance_rsketch"},
+    "constrain_distance_x_rsketch": {"status": "replayable", "op": "make_constrain_distance_x_rsketch"},
+    "constrain_distance_y_rsketch": {"status": "replayable", "op": "make_constrain_distance_y_rsketch"},
+    "constrain_length_rsketch": {"status": "replayable", "op": "make_constrain_length_rsketch"},
+    "constrain_angle_rsketch": {"status": "replayable", "op": "make_constrain_angle_rsketch"},
+    "constrain_radius_rsketch": {"status": "replayable", "op": "make_constrain_radius_rsketch"},
+    "constrain_diameter_rsketch": {"status": "replayable", "op": "make_constrain_diameter_rsketch"},
+    "constrain_fix_rsketch": {"status": "replayable", "op": "make_constrain_fix_rsketch"},
+    "solve_sketch_rsketchresult": {"status": "replayable", "op": "make_solve_sketch_rsketchresult"},
+    "make_wire_from_sketch_rwire": {"status": "replayable", "op": "make_wire_from_sketch_rwire"},
+    "make_face_from_sketch_rface": {"status": "replayable", "op": "make_face_from_sketch_rface"},
     "make_box_rsolid": {
         "status": "macro",
         "reason": "Composite convenience API that should lower into low-level sketch + make_extrude_rsolid operations.",
@@ -175,6 +205,34 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_helix_redge",
     "make_wire_from_edges_rwire",
     "make_face_from_wire_rface",
+    "make_sketch_rsketch",
+    "make_sketch_point_rsketchref",
+    "make_add_line_rsketch",
+    "make_add_circle_rsketch",
+    "make_constrain_coincident_rsketch",
+    "make_constrain_point_on_rsketch",
+    "make_constrain_horizontal_rsketch",
+    "make_constrain_vertical_rsketch",
+    "make_constrain_parallel_rsketch",
+    "make_constrain_perpendicular_rsketch",
+    "make_constrain_collinear_rsketch",
+    "make_constrain_tangent_rsketch",
+    "make_constrain_concentric_rsketch",
+    "make_constrain_midpoint_rsketch",
+    "make_constrain_symmetric_rsketch",
+    "make_constrain_equal_length_rsketch",
+    "make_constrain_equal_radius_rsketch",
+    "make_constrain_distance_rsketch",
+    "make_constrain_distance_x_rsketch",
+    "make_constrain_distance_y_rsketch",
+    "make_constrain_length_rsketch",
+    "make_constrain_angle_rsketch",
+    "make_constrain_radius_rsketch",
+    "make_constrain_diameter_rsketch",
+    "make_constrain_fix_rsketch",
+    "make_solve_sketch_rsketchresult",
+    "make_wire_from_sketch_rwire",
+    "make_face_from_sketch_rface",
     "make_extrude_rsolid",
     "make_revolve_rsolid",
     "make_loft_rsolid",
@@ -628,6 +686,30 @@ _OP_REGISTRY: Dict[str, Any] = {
     "make_intersect_rsolid": lambda p: None,  # handled specially below
 }
 
+_SKETCH_CONSTRAINT_KIND_BY_OP: Dict[str, str] = {
+    "make_constrain_coincident_rsketch": "coincident",
+    "make_constrain_point_on_rsketch": "point_on",
+    "make_constrain_horizontal_rsketch": "horizontal",
+    "make_constrain_vertical_rsketch": "vertical",
+    "make_constrain_parallel_rsketch": "parallel",
+    "make_constrain_perpendicular_rsketch": "perpendicular",
+    "make_constrain_collinear_rsketch": "collinear",
+    "make_constrain_tangent_rsketch": "tangent",
+    "make_constrain_concentric_rsketch": "concentric",
+    "make_constrain_midpoint_rsketch": "midpoint",
+    "make_constrain_symmetric_rsketch": "symmetric",
+    "make_constrain_equal_length_rsketch": "equal_length",
+    "make_constrain_equal_radius_rsketch": "equal_radius",
+    "make_constrain_distance_rsketch": "distance",
+    "make_constrain_distance_x_rsketch": "distance_x",
+    "make_constrain_distance_y_rsketch": "distance_y",
+    "make_constrain_length_rsketch": "length",
+    "make_constrain_angle_rsketch": "angle",
+    "make_constrain_radius_rsketch": "radius",
+    "make_constrain_diameter_rsketch": "diameter",
+    "make_constrain_fix_rsketch": "fix",
+}
+
 
 def _normalize_output(result: Any) -> List[AnyShape]:
     if result is None:
@@ -644,6 +726,13 @@ def _replay_primitive_or_simple(
 ) -> Any:
     op_name = node.op
     node_id = node.node_id
+    if op_name == "make_sketch_rsketch":
+        ctx.require_params(node_id, op_name, params, ("sketch_id",))
+        return ops.make_sketch_rsketch(
+            params.get("name"),
+            plane=params.get("plane", "XY"),
+            sketch_id=str(params["sketch_id"]),
+        )
     if op_name == "make_point_rvertex":
         ctx.require_params(node_id, op_name, params, ("x", "y", "z"))
         return ops.make_point_rvertex(params["x"], params["y"], params["z"])
@@ -1310,6 +1399,100 @@ def _execute_graph(
 
             try:
                 with context_manager:
+                    if op_name == "make_sketch_point_rsketchref":
+                        ctx.require_params(node.node_id, op_name, params, ("point_id", "x", "y"))
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.make_sketch_point_rsketchref(
+                                cast(Sketch, sketch_outputs[0]),
+                                str(params["point_id"]),
+                                params["x"],
+                                params["y"],
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_add_line_rsketch":
+                        ctx.require_params(node.node_id, op_name, params, ("entity_id", "start", "end"))
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.add_line_rsketch(
+                                cast(Sketch, sketch_outputs[0]),
+                                str(params["entity_id"]),
+                                SketchRef.from_dict(cast(Dict[str, Any], params["start"])),
+                                SketchRef.from_dict(cast(Dict[str, Any], params["end"])),
+                                construction=bool(params.get("construction", False)),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_add_circle_rsketch":
+                        ctx.require_params(node.node_id, op_name, params, ("entity_id", "center", "radius"))
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.add_circle_rsketch(
+                                cast(Sketch, sketch_outputs[0]),
+                                str(params["entity_id"]),
+                                SketchRef.from_dict(cast(Dict[str, Any], params["center"])),
+                                params["radius"],
+                                construction=bool(params.get("construction", False)),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name in _SKETCH_CONSTRAINT_KIND_BY_OP:
+                        ctx.require_params(node.node_id, op_name, params, ("targets",))
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            target_refs = [
+                                SketchRef.from_dict(cast(Dict[str, Any], target))
+                                for target in params.get("targets", [])
+                            ]
+                            result = ops._constrain_rsketch(
+                                cast(Sketch, sketch_outputs[0]),
+                                _SKETCH_CONSTRAINT_KIND_BY_OP[op_name],
+                                target_refs,
+                                value=params.get("value"),
+                                constraint_id=params.get("constraint_id"),
+                                driving=bool(params.get("driving", True)),
+                                metadata=cast(Dict[str, Any], params.get("metadata", {})),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_solve_sketch_rsketchresult":
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.solve_sketch_rsketchresult(
+                                cast(Sketch, sketch_outputs[0]),
+                                require_fully_constrained=bool(params.get("require_fully_constrained", False)),
+                                strict=bool(params.get("strict", True)),
+                                tolerance=float(params.get("tolerance", 1e-7)),
+                                max_iterations=int(params.get("max_iterations", 80)),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_wire_from_sketch_rwire":
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.make_wire_from_sketch_rwire(
+                                cast(Sketch, sketch_outputs[0]),
+                                profile=params.get("profile", 0),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_face_from_sketch_rface":
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.make_face_from_sketch_rface(
+                                cast(Sketch, sketch_outputs[0]),
+                                profile=params.get("profile", 0),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
                     if op_name in {
                         "make_select_rvertex",
                         "make_select_redge",

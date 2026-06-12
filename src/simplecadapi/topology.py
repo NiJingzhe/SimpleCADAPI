@@ -32,6 +32,7 @@ def graph_capabilities_payload() -> Dict[str, Any]:
         "geo_select_nodes": True,
         "selector_hint_fallback": True,
         "display_payload": True,
+        "sketch_constraints": True,
         "topology_delta_summary": False,
         "assembly_graph": False,
         "scalar_field_graph": False,

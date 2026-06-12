@@ -1,4 +1,19 @@
-# Assembly And Constraint Status
+# Declarative Constraint Status
+
+Sketch constraints are supported through the isomorphic sketch API surface:
+
+- `make_sketch_rsketch(...)`
+- `make_sketch_point_rsketchref(...)`
+- `add_line_rsketch(...)`
+- `add_circle_rsketch(...)`
+- `constrain_*_rsketch(...)`
+- `solve_sketch_rsketchresult(...)`
+- `make_wire_from_sketch_rwire(...)`
+- `make_face_from_sketch_rface(...)`
+
+When the modeling intent is a sketch/profile, use these sketch APIs as the only recommended construction path. Concrete geometry APIs such as `make_line_redge(...)` and `make_wire_from_edges_rwire(...)` remain for paths, pure geometry, and internal lowering targets.
+
+# Assembly Constraint Status
 
 Assembly containers, explicit part transforms, and declarative assembly constraints are temporarily removed from the public/support surface while the assembly system is redesigned.
 
