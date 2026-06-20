@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union, cast
 import math
 import numpy as np
@@ -34,6 +35,7 @@ from .graph import (
 )
 from .ql import ShapeSelector
 from .sketch import Sketch, SketchRef, SketchSolveResult
+from .tagging import normalize_tag
 from .topology import (
     SemanticDelta,
     SemanticRef,
@@ -126,10 +128,9 @@ _OP_MAKE_SELECT_RWIRE = "make_select_rwire"
 _OP_MAKE_SELECT_RFACE = "make_select_rface"
 _OP_MAKE_SELECT_RSOLID = "make_select_rsolid"
 _OP_MAKE_SKETCH_RSKETCH = "make_sketch_rsketch"
-_OP_MAKE_SKETCH_POINT_RSKETCHREF = "make_sketch_point_rsketchref"
+_OP_MAKE_ADD_POINT_RSKETCH = "make_add_point_rsketch"
 _OP_MAKE_ADD_LINE_RSKETCH = "make_add_line_rsketch"
 _OP_MAKE_ADD_CIRCLE_RSKETCH = "make_add_circle_rsketch"
-_OP_MAKE_SOLVE_SKETCH_RSKETCHRESULT = "make_solve_sketch_rsketchresult"
 _OP_MAKE_WIRE_FROM_SKETCH_RWIRE = "make_wire_from_sketch_rwire"
 _OP_MAKE_FACE_FROM_SKETCH_RFACE = "make_face_from_sketch_rface"
 
@@ -920,13 +921,11 @@ def _semantic_delta_for_output(
             _OP_MAKE_POINT_RVERTEX,
         }:
             resolved_entity_type = "Point"
-        elif op == _OP_MAKE_SKETCH_POINT_RSKETCHREF:
-            resolved_entity_type = "SketchPoint"
         elif op in {
             _OP_MAKE_SKETCH_RSKETCH,
+            _OP_MAKE_ADD_POINT_RSKETCH,
             _OP_MAKE_ADD_LINE_RSKETCH,
             _OP_MAKE_ADD_CIRCLE_RSKETCH,
-            _OP_MAKE_SOLVE_SKETCH_RSKETCHRESULT,
             _OP_MAKE_WIRE_FROM_SKETCH_RWIRE,
             _OP_MAKE_FACE_FROM_SKETCH_RFACE,
             *_SKETCH_CONSTRAINT_OPS.values(),
@@ -1220,34 +1219,79 @@ def make_sketch_rsketch(
         )
 
 
-def make_sketch_point_rsketchref(
+def _safe_semantic_tag(prefix: str, value: object) -> str:
+    raw = str(value or "unnamed").strip().lower()
+    raw = re.sub(r"[^a-z0-9_-]+", ".", raw).strip(".")
+    raw = re.sub(r"\.+", ".", raw)
+    segments: List[str] = []
+    for segment in raw.split("."):
+        if not segment:
+            continue
+        if not segment[0].isalpha():
+            segment = f"id_{segment}"
+        segments.append(segment)
+    if not segments:
+        segments = ["unnamed"]
+    return normalize_tag(f"{prefix}.{'.'.join(segments)}", strict=True)
+
+
+def _sketch_target_to_path(target: SketchRef) -> str:
+    if target.kind == "point" and target.subentity != "geometry":
+        return f"{target.entity_id}.{target.subentity}"
+    return target.entity_id
+
+
+def _resolve_sketch_target(
+    sketch: Sketch,
+    target: Union[SketchRef, str],
+    *,
+    expected: Optional[Union[str, Sequence[str]]] = None,
+) -> SketchRef:
+    return sketch.resolve_target(target, expected=expected)
+
+
+def _resolve_sketch_targets(
+    sketch: Sketch,
+    targets: Sequence[Union[SketchRef, str]],
+    *,
+    expected: Optional[Sequence[Optional[Union[str, Sequence[str]]]]] = None,
+) -> List[SketchRef]:
+    refs: List[SketchRef] = []
+    for index, target in enumerate(targets):
+        target_expected = expected[index] if expected is not None else None
+        refs.append(_resolve_sketch_target(sketch, target, expected=target_expected))
+    return refs
+
+
+def add_point_rsketch(
     sketch: Sketch,
     point_id: str,
     x: ScalarLike,
     y: ScalarLike,
-) -> SketchRef:
-    """Add a named sketch point and return its stable sketch ref."""
+) -> Sketch:
+    """Add a named point entity and return an updated sketch document."""
     try:
-        ref = sketch.add_point(point_id, x, y)
+        updated = sketch.clone(include_solve=False)
+        updated.add_point(point_id, x, y)
         return cast(
-            SketchRef,
+            Sketch,
             _finalize_runtime_object(
-                ref,
-                op=_OP_MAKE_SKETCH_POINT_RSKETCHREF,
+                updated,
+                op=_OP_MAKE_ADD_POINT_RSKETCH,
                 params={
-                    "sketch_id": sketch.sketch_id,
+                    "sketch_id": updated.sketch_id,
                     "point_id": point_id,
                     "x": x,
                     "y": y,
                 },
                 input_objects=[sketch],
                 tags={"sketch", "point"},
-                entity_type="SketchPoint",
+                entity_type="Sketch",
             ),
         )
     except Exception as e:
         _wrap_public_api_error(
-            operation="make_sketch_point_rsketchref",
+            operation="add_point_rsketch",
             what_happened="Failed to add a point to the sketch.",
             possible_causes=[
                 "The sketch is invalid.",
@@ -1281,27 +1325,30 @@ def get_sketch_point_rsketchref(
 def add_line_rsketch(
     sketch: Sketch,
     entity_id: str,
-    start: SketchRef,
-    end: SketchRef,
+    start: Union[SketchRef, str],
+    end: Union[SketchRef, str],
     *,
     construction: bool = False,
 ) -> Sketch:
-    """Add a named line entity to a declarative sketch."""
+    """Add a named line entity and return an updated sketch document."""
     try:
-        sketch.add_line(entity_id, start, end, construction=construction)
+        start_ref = _resolve_sketch_target(sketch, start, expected="point")
+        end_ref = _resolve_sketch_target(sketch, end, expected="point")
+        updated = sketch.clone(include_solve=False)
+        updated.add_line(entity_id, start_ref, end_ref, construction=construction)
         return cast(
             Sketch,
             _finalize_runtime_object(
-                sketch,
+                updated,
                 op=_OP_MAKE_ADD_LINE_RSKETCH,
                 params={
-                    "sketch_id": sketch.sketch_id,
+                    "sketch_id": updated.sketch_id,
                     "entity_id": entity_id,
-                    "start": start.to_dict(),
-                    "end": end.to_dict(),
+                    "start": _sketch_target_to_path(start_ref),
+                    "end": _sketch_target_to_path(end_ref),
                     "construction": construction,
                 },
-                input_objects=[sketch, start, end],
+                input_objects=[sketch],
                 tags={"sketch", "line"},
             ),
         )
@@ -1316,7 +1363,7 @@ def add_line_rsketch(
             ],
             how_to_fix=[
                 "Use a unique line id.",
-                "Create endpoints with make_sketch_point_rsketchref(...).",
+                "Create endpoints with add_point_rsketch(...) and refer to them by id.",
             ],
             error=e,
         )
@@ -1325,27 +1372,29 @@ def add_line_rsketch(
 def add_circle_rsketch(
     sketch: Sketch,
     entity_id: str,
-    center: SketchRef,
+    center: Union[SketchRef, str],
     radius: ScalarLike,
     *,
     construction: bool = False,
 ) -> Sketch:
-    """Add a named circle entity to a declarative sketch."""
+    """Add a named circle entity and return an updated sketch document."""
     try:
-        sketch.add_circle(entity_id, center, radius, construction=construction)
+        center_ref = _resolve_sketch_target(sketch, center, expected="point")
+        updated = sketch.clone(include_solve=False)
+        updated.add_circle(entity_id, center_ref, radius, construction=construction)
         return cast(
             Sketch,
             _finalize_runtime_object(
-                sketch,
+                updated,
                 op=_OP_MAKE_ADD_CIRCLE_RSKETCH,
                 params={
-                    "sketch_id": sketch.sketch_id,
+                    "sketch_id": updated.sketch_id,
                     "entity_id": entity_id,
-                    "center": center.to_dict(),
+                    "center": _sketch_target_to_path(center_ref),
                     "radius": radius,
                     "construction": construction,
                 },
-                input_objects=[sketch, center],
+                input_objects=[sketch],
                 tags={"sketch", "circle"},
             ),
         )
@@ -1360,7 +1409,7 @@ def add_circle_rsketch(
             ],
             how_to_fix=[
                 "Use a unique circle id and a positive radius.",
-                "Create the center with make_sketch_point_rsketchref(...).",
+                "Create the center with add_point_rsketch(...) and refer to it by id.",
             ],
             error=e,
         )
@@ -1369,16 +1418,19 @@ def add_circle_rsketch(
 def _constrain_rsketch(
     sketch: Sketch,
     kind: str,
-    targets: Sequence[SketchRef],
+    targets: Sequence[Union[SketchRef, str]],
     *,
     value: Any = None,
     constraint_id: Optional[str] = None,
     driving: bool = True,
     metadata: Optional[Dict[str, Any]] = None,
+    expected: Optional[Sequence[Optional[Union[str, Sequence[str]]]]] = None,
 ) -> Sketch:
-    sketch.add_constraint(
+    target_refs = _resolve_sketch_targets(sketch, targets, expected=expected)
+    updated = sketch.clone(include_solve=False)
+    updated.add_constraint(
         kind,
-        targets,
+        target_refs,
         value=value,
         constraint_id=constraint_id,
         driving=driving,
@@ -1388,134 +1440,134 @@ def _constrain_rsketch(
     return cast(
         Sketch,
         _finalize_runtime_object(
-            sketch,
+            updated,
             op=op,
             params={
-                "sketch_id": sketch.sketch_id,
+                "sketch_id": updated.sketch_id,
                 "kind": kind,
-                "targets": [target.to_dict() for target in targets],
+                "targets": [_sketch_target_to_path(target) for target in target_refs],
                 "value": value,
                 "constraint_id": constraint_id,
                 "driving": driving,
                 "metadata": metadata or {},
             },
-            input_objects=[sketch, *targets],
+            input_objects=[sketch],
             tags={"sketch", "constraint"},
         ),
     )
 
 
-def constrain_coincident_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_coincident_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain two sketch points to be coincident."""
-    return _constrain_rsketch(sketch, "coincident", [a, b], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "coincident", [a, b], constraint_id=constraint_id, expected=["point", "point"])
 
 
-def constrain_connect_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_connect_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Alias for `constrain_coincident_rsketch` using connection wording."""
-    return _constrain_rsketch(sketch, "coincident", [a, b], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "coincident", [a, b], constraint_id=constraint_id, expected=["point", "point"])
 
 
-def constrain_point_on_rsketch(sketch: Sketch, point: SketchRef, entity: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_point_on_rsketch(sketch: Sketch, point: Union[SketchRef, str], entity: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain a sketch point to lie on a line or circle."""
-    return _constrain_rsketch(sketch, "point_on", [point, entity], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "point_on", [point, entity], constraint_id=constraint_id, expected=["point", ("line", "circle")])
 
 
-def constrain_horizontal_rsketch(sketch: Sketch, line: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_horizontal_rsketch(sketch: Sketch, line: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain a sketch line to be horizontal."""
-    return _constrain_rsketch(sketch, "horizontal", [line], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "horizontal", [line], constraint_id=constraint_id, expected=["line"])
 
 
-def constrain_vertical_rsketch(sketch: Sketch, line: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_vertical_rsketch(sketch: Sketch, line: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain a sketch line to be vertical."""
-    return _constrain_rsketch(sketch, "vertical", [line], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "vertical", [line], constraint_id=constraint_id, expected=["line"])
 
 
-def constrain_parallel_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_parallel_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain two sketch lines to be parallel."""
-    return _constrain_rsketch(sketch, "parallel", [a, b], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "parallel", [a, b], constraint_id=constraint_id, expected=["line", "line"])
 
 
-def constrain_perpendicular_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_perpendicular_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain two sketch lines to be perpendicular."""
-    return _constrain_rsketch(sketch, "perpendicular", [a, b], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "perpendicular", [a, b], constraint_id=constraint_id, expected=["line", "line"])
 
 
-def constrain_collinear_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_collinear_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain two sketch lines to lie on the same infinite line."""
-    return _constrain_rsketch(sketch, "collinear", [a, b], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "collinear", [a, b], constraint_id=constraint_id, expected=["line", "line"])
 
 
-def constrain_tangent_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_tangent_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain supported sketch curves to be tangent."""
-    return _constrain_rsketch(sketch, "tangent", [a, b], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "tangent", [a, b], constraint_id=constraint_id, expected=[("line", "circle"), ("line", "circle")])
 
 
-def constrain_concentric_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_concentric_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain two sketch circles to share a center."""
-    return _constrain_rsketch(sketch, "concentric", [a, b], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "concentric", [a, b], constraint_id=constraint_id, expected=["circle", "circle"])
 
 
-def constrain_midpoint_rsketch(sketch: Sketch, point: SketchRef, line: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_midpoint_rsketch(sketch: Sketch, point: Union[SketchRef, str], line: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain a sketch point to the midpoint of a line."""
-    return _constrain_rsketch(sketch, "midpoint", [point, line], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "midpoint", [point, line], constraint_id=constraint_id, expected=["point", "line"])
 
 
-def constrain_symmetric_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, axis: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_symmetric_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], axis: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain two sketch points to be symmetric about a line axis."""
-    return _constrain_rsketch(sketch, "symmetric", [a, b, axis], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "symmetric", [a, b, axis], constraint_id=constraint_id, expected=["point", "point", "line"])
 
 
-def constrain_equal_length_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_equal_length_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain two sketch lines to have equal length."""
-    return _constrain_rsketch(sketch, "equal_length", [a, b], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "equal_length", [a, b], constraint_id=constraint_id, expected=["line", "line"])
 
 
-def constrain_equal_radius_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_equal_radius_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Constrain two sketch circles to have equal radius."""
-    return _constrain_rsketch(sketch, "equal_radius", [a, b], constraint_id=constraint_id)
+    return _constrain_rsketch(sketch, "equal_radius", [a, b], constraint_id=constraint_id, expected=["circle", "circle"])
 
 
-def constrain_distance_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_distance_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
     """Add a driving point-to-point distance constraint."""
-    return _constrain_rsketch(sketch, "distance", [a, b], value=value, constraint_id=constraint_id, driving=driving)
+    return _constrain_rsketch(sketch, "distance", [a, b], value=value, constraint_id=constraint_id, driving=driving, expected=["point", "point"])
 
 
-def constrain_distance_x_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_distance_x_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
     """Add a driving horizontal distance constraint."""
-    return _constrain_rsketch(sketch, "distance_x", [a, b], value=value, constraint_id=constraint_id, driving=driving)
+    return _constrain_rsketch(sketch, "distance_x", [a, b], value=value, constraint_id=constraint_id, driving=driving, expected=["point", "point"])
 
 
-def constrain_distance_y_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_distance_y_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
     """Add a driving vertical distance constraint."""
-    return _constrain_rsketch(sketch, "distance_y", [a, b], value=value, constraint_id=constraint_id, driving=driving)
+    return _constrain_rsketch(sketch, "distance_y", [a, b], value=value, constraint_id=constraint_id, driving=driving, expected=["point", "point"])
 
 
-def constrain_length_rsketch(sketch: Sketch, line: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_length_rsketch(sketch: Sketch, line: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
     """Add a driving line length constraint."""
-    return _constrain_rsketch(sketch, "length", [line], value=value, constraint_id=constraint_id, driving=driving)
+    return _constrain_rsketch(sketch, "length", [line], value=value, constraint_id=constraint_id, driving=driving, expected=["line"])
 
 
-def constrain_angle_rsketch(sketch: Sketch, a: SketchRef, b: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_angle_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
     """Add a driving angle constraint between two sketch lines."""
-    return _constrain_rsketch(sketch, "angle", [a, b], value=value, constraint_id=constraint_id, driving=driving)
+    return _constrain_rsketch(sketch, "angle", [a, b], value=value, constraint_id=constraint_id, driving=driving, expected=["line", "line"])
 
 
-def constrain_radius_rsketch(sketch: Sketch, circle: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_radius_rsketch(sketch: Sketch, circle: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
     """Add a driving circle radius constraint."""
-    return _constrain_rsketch(sketch, "radius", [circle], value=value, constraint_id=constraint_id, driving=driving)
+    return _constrain_rsketch(sketch, "radius", [circle], value=value, constraint_id=constraint_id, driving=driving, expected=["circle"])
 
 
-def constrain_diameter_rsketch(sketch: Sketch, circle: SketchRef, value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_diameter_rsketch(sketch: Sketch, circle: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
     """Add a driving circle diameter constraint."""
-    return _constrain_rsketch(sketch, "diameter", [circle], value=value, constraint_id=constraint_id, driving=driving)
+    return _constrain_rsketch(sketch, "diameter", [circle], value=value, constraint_id=constraint_id, driving=driving, expected=["circle"])
 
 
-def constrain_fix_rsketch(sketch: Sketch, target: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_fix_rsketch(sketch: Sketch, target: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
     """Fix a sketch point or entity to its initial coordinates."""
     return _constrain_rsketch(sketch, "fix", [target], constraint_id=constraint_id)
 
 
-def solve_sketch_rsketchresult(
+def inspect_sketch_rsketchresult(
     sketch: Sketch,
     *,
     require_fully_constrained: bool = False,
@@ -1523,46 +1575,228 @@ def solve_sketch_rsketchresult(
     tolerance: float = 1e-7,
     max_iterations: int = 80,
 ) -> SketchSolveResult:
-    """Solve a declarative sketch and return solver diagnostics."""
+    """Inspect sketch constraints by running the solver without recording graph nodes."""
     try:
-        result = sketch.solve(
+        result = sketch.clone(include_solve=False).solve(
             require_fully_constrained=require_fully_constrained,
             strict=strict,
             tolerance=tolerance,
             max_iterations=max_iterations,
         )
-        return cast(
-            SketchSolveResult,
-            _finalize_runtime_object(
-                result,
-                op=_OP_MAKE_SOLVE_SKETCH_RSKETCHRESULT,
-                params={
-                    "sketch_id": sketch.sketch_id,
-                    "require_fully_constrained": require_fully_constrained,
-                    "strict": strict,
-                    "tolerance": tolerance,
-                    "max_iterations": max_iterations,
-                    "result": result.to_dict(),
-                },
-                input_objects=[sketch],
-                tags={"sketch", "solve"},
-                entity_type="Sketch",
-            ),
-        )
+        return result
     except Exception as e:
         _wrap_public_api_error(
-            operation="solve_sketch_rsketchresult",
-            what_happened="Failed to solve the sketch.",
+            operation="inspect_sketch_rsketchresult",
+            what_happened="Failed to inspect the sketch constraints.",
             possible_causes=[
                 "The sketch has invalid, conflicting, or underconstrained constraints.",
                 "A constraint references a missing or wrong-kind entity.",
             ],
             how_to_fix=[
-                "Inspect result diagnostics with strict=False if needed.",
+                "Inspect diagnostics with strict=False if needed.",
                 "Add fix/dimension constraints until the intended profile is fully constrained.",
             ],
             error=e,
         )
+
+
+def _sketch_solve_snapshot(result: SketchSolveResult) -> Dict[str, Any]:
+    return result.to_dict()
+
+
+def _sketch_source_metadata(
+    sketch: Sketch,
+    profile: int | str,
+    profile_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "sketch_id": sketch.sketch_id,
+        "name": sketch.name,
+        "plane": sketch.plane,
+        "profile": profile,
+        "profile_id": profile_payload.get("id"),
+        "profile_kind": profile_payload.get("kind"),
+    }
+
+
+def _sketch_edge_metadata(
+    sketch: Sketch,
+    entity_id: str,
+    profile: int | str,
+    profile_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    entity = sketch.entities[str(entity_id)]
+    return {
+        "sketch_id": sketch.sketch_id,
+        "sketch_name": sketch.name,
+        "entity_id": str(entity_id),
+        "kind": entity.kind,
+        "profile": profile,
+        "profile_id": profile_payload.get("id"),
+    }
+
+
+def _sketch_promotion_tags(
+    sketch: Sketch,
+    profile_payload: Dict[str, Any],
+) -> Tuple[str, str]:
+    sketch_tag = _safe_semantic_tag("sketch", sketch.name or sketch.sketch_id)
+    profile_tag = _safe_semantic_tag("sketch_profile", profile_payload.get("id", "profile"))
+    return sketch_tag, profile_tag
+
+
+def _sketch_promotion_map(
+    sketch: Sketch,
+    profile: int | str,
+    profile_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    sketch_tag, profile_tag = _sketch_promotion_tags(sketch, profile_payload)
+    edges: List[Dict[str, Any]] = []
+    for entity_id in profile_payload.get("entity_ids", []):
+        entity_tag = _safe_semantic_tag("sketch_entity", entity_id)
+        edges.append(
+            {
+                "entity_id": str(entity_id),
+                "target_kind": "edge",
+                "tags": [sketch_tag, profile_tag, entity_tag],
+                "metadata": {
+                    "sketch_ref": _sketch_edge_metadata(sketch, str(entity_id), profile, profile_payload)
+                },
+            }
+        )
+    return {
+        "profile": profile,
+        "profile_id": profile_payload.get("id"),
+        "profile_kind": profile_payload.get("kind"),
+        "tags": [sketch_tag, profile_tag],
+        "edges": edges,
+    }
+
+
+def _apply_sketch_promotion_metadata(
+    shape: Union[Wire, Face],
+    *,
+    sketch: Sketch,
+    profile: int | str,
+    profile_payload: Dict[str, Any],
+    solve_snapshot: Dict[str, Any],
+) -> None:
+    source_sketch = _sketch_source_metadata(sketch, profile, profile_payload)
+    promotion_map = _sketch_promotion_map(sketch, profile, profile_payload)
+    sketch_tag, profile_tag = _sketch_promotion_tags(sketch, profile_payload)
+
+    shape.set_metadata("source_sketch", source_sketch)
+    shape.set_metadata("sketch_solve", solve_snapshot)
+    shape.set_metadata("sketch_promotion", promotion_map)
+    shape._apply_tag(sketch_tag, propagate=False)
+    shape._apply_tag(profile_tag, propagate=False)
+
+    wires: List[Wire] = []
+    if isinstance(shape, Wire):
+        wires = [shape]
+    elif isinstance(shape, Face):
+        wires = cast(List[Wire], shape.get_wires())
+
+    for wire in wires:
+        wire.set_metadata("source_sketch", source_sketch)
+        wire.set_metadata("sketch_solve", solve_snapshot)
+        wire.set_metadata("sketch_promotion", promotion_map)
+        wire._apply_tag(sketch_tag, propagate=False)
+        wire._apply_tag(profile_tag, propagate=False)
+
+    if isinstance(shape, Face):
+        edges = cast(List[Edge], shape.get_edges())
+    else:
+        edges = cast(List[Edge], shape.get_edges())
+
+    for edge, entity_id in zip(edges, profile_payload.get("entity_ids", [])):
+        entity_tag = _safe_semantic_tag("sketch_entity", entity_id)
+        edge.set_metadata("sketch_ref", _sketch_edge_metadata(sketch, str(entity_id), profile, profile_payload))
+        edge.set_metadata("source_sketch", source_sketch)
+        edge._apply_tag(sketch_tag, propagate=False)
+        edge._apply_tag(profile_tag, propagate=False)
+        edge._apply_tag(entity_tag, propagate=False)
+
+
+def _promote_sketch_profile(
+    sketch: Sketch,
+    profile: int | str,
+    *,
+    target_kind: str,
+    require_fully_constrained: bool,
+    strict: bool,
+    tolerance: float,
+    max_iterations: int,
+) -> Tuple[Union[Wire, Face], SketchSolveResult, Dict[str, Any]]:
+    working = sketch.clone(include_solve=False)
+    solve_result = working.solve(
+        require_fully_constrained=require_fully_constrained,
+        strict=strict,
+        tolerance=tolerance,
+        max_iterations=max_iterations,
+    )
+    profile_payload = sketch._profile_payload(profile, solve_result=solve_result)
+    solve_snapshot = _sketch_solve_snapshot(solve_result)
+    with suspend_graph_recording():
+        if target_kind == "wire":
+            shape = sketch._wire_from_profile_payload(profile_payload)
+        elif target_kind == "face":
+            wire = sketch._wire_from_profile_payload(profile_payload)
+            shape = make_face_from_wire_rface(wire, normal=sketch._plane_normal_tuple())
+        else:
+            raise ValueError(f"Unsupported sketch promotion target kind '{target_kind}'")
+    _apply_sketch_promotion_metadata(
+        cast(Union[Wire, Face], shape),
+        sketch=sketch,
+        profile=profile,
+        profile_payload=profile_payload,
+        solve_snapshot=solve_snapshot,
+    )
+    return cast(Union[Wire, Face], shape), solve_result, profile_payload
+
+
+def _assert_sketch_solve_snapshot_matches(
+    result: SketchSolveResult,
+    snapshot: Dict[str, Any],
+    *,
+    tolerance: float = 1e-7,
+) -> None:
+    _assert_sketch_solve_snapshot_dict_matches(result.to_dict(), snapshot, tolerance=tolerance)
+
+
+def _assert_sketch_solve_snapshot_dict_matches(
+    actual: Dict[str, Any],
+    snapshot: Dict[str, Any],
+    *,
+    tolerance: float = 1e-7,
+) -> None:
+    if str(actual.get("status")) != str(snapshot.get("status")):
+        raise ValueError(
+            f"Sketch solve status changed from {snapshot.get('status')!r} to {actual.get('status')!r}"
+        )
+    if int(actual.get("dof", -1)) != int(snapshot.get("dof", -1)):
+        raise ValueError(
+            f"Sketch solve DOF changed from {snapshot.get('dof')!r} to {actual.get('dof')!r}"
+        )
+    if abs(float(actual.get("residual_norm", 0.0)) - float(snapshot.get("residual_norm", 0.0))) > tolerance:
+        raise ValueError("Sketch solve residual changed beyond recorded tolerance")
+
+    actual_points = cast(Dict[str, Any], actual.get("solved_points", {}))
+    expected_points = cast(Dict[str, Any], snapshot.get("solved_points", {}))
+    if set(actual_points) != set(expected_points):
+        raise ValueError("Sketch solve point set changed")
+    for point_id, point in actual_points.items():
+        expected = expected_points[point_id]
+        if math.dist((float(point[0]), float(point[1])), (float(expected[0]), float(expected[1]))) > tolerance:
+            raise ValueError(f"Sketch solve point '{point_id}' changed beyond recorded tolerance")
+
+    actual_scalars = cast(Dict[str, Any], actual.get("solved_scalars", {}))
+    expected_scalars = cast(Dict[str, Any], snapshot.get("solved_scalars", {}))
+    if set(actual_scalars) != set(expected_scalars):
+        raise ValueError("Sketch solve scalar set changed")
+    for scalar_id, value in actual_scalars.items():
+        if abs(float(value) - float(expected_scalars[scalar_id])) > tolerance:
+            raise ValueError(f"Sketch solve scalar '{scalar_id}' changed beyond recorded tolerance")
 
 
 def make_line_redge(
@@ -2028,19 +2262,44 @@ def make_wire_from_edges_rwire(edges: List[Edge]) -> Wire:
         )
 
 
-def make_wire_from_sketch_rwire(sketch: Sketch, profile: int | str = 0) -> Wire:
-    """Solve a declarative sketch profile and return a concrete wire."""
+def make_wire_from_sketch_rwire(
+    sketch: Sketch,
+    profile: int | str = 0,
+    *,
+    require_fully_constrained: bool = False,
+    strict: bool = True,
+    tolerance: float = 1e-7,
+    max_iterations: int = 80,
+) -> Wire:
+    """Promote a sketch profile to a concrete wire, solving internally."""
     try:
         if not isinstance(sketch, Sketch):
             raise ValueError("Input must be a Sketch")
-        with suspend_graph_recording():
-            wire = sketch.make_wire(profile=profile)
+        wire, solve_result, profile_payload = _promote_sketch_profile(
+            sketch,
+            profile,
+            target_kind="wire",
+            require_fully_constrained=require_fully_constrained,
+            strict=strict,
+            tolerance=tolerance,
+            max_iterations=max_iterations,
+        )
+        solve_snapshot = _sketch_solve_snapshot(solve_result)
         return cast(
             Wire,
             _finalize_derived_shape(
-                wire,
+                cast(Wire, wire),
                 op=_OP_MAKE_WIRE_FROM_SKETCH_RWIRE,
-                params={"profile": profile, "sketch": sketch.to_dict()},
+                params={
+                    "profile": profile,
+                    "sketch": sketch.to_dict(),
+                    "require_fully_constrained": require_fully_constrained,
+                    "strict": strict,
+                    "tolerance": tolerance,
+                    "max_iterations": max_iterations,
+                    "solve_snapshot": solve_snapshot,
+                    "promotion_map": _sketch_promotion_map(sketch, profile, profile_payload),
+                },
                 input_shapes=cast(Sequence[AnyShape], [sketch]),
                 tags={"derived", "wire", "sketch"},
             ),
@@ -2056,25 +2315,50 @@ def make_wire_from_sketch_rwire(sketch: Sketch, profile: int | str = 0) -> Wire:
             ],
             how_to_fix=[
                 "Build sketch profiles only through sketch APIs and close all profile loops.",
-                "Call solve_sketch_rsketchresult(..., strict=False) to inspect diagnostics.",
+                "Call inspect_sketch_rsketchresult(..., strict=False) to inspect diagnostics.",
             ],
             error=e,
         )
 
 
-def make_face_from_sketch_rface(sketch: Sketch, profile: int | str = 0) -> Face:
-    """Solve a declarative sketch profile and return a concrete face."""
+def make_face_from_sketch_rface(
+    sketch: Sketch,
+    profile: int | str = 0,
+    *,
+    require_fully_constrained: bool = False,
+    strict: bool = True,
+    tolerance: float = 1e-7,
+    max_iterations: int = 80,
+) -> Face:
+    """Promote a sketch profile to a concrete face, solving internally."""
     try:
         if not isinstance(sketch, Sketch):
             raise ValueError("Input must be a Sketch")
-        with suspend_graph_recording():
-            face = sketch.make_face(profile=profile)
+        face, solve_result, profile_payload = _promote_sketch_profile(
+            sketch,
+            profile,
+            target_kind="face",
+            require_fully_constrained=require_fully_constrained,
+            strict=strict,
+            tolerance=tolerance,
+            max_iterations=max_iterations,
+        )
+        solve_snapshot = _sketch_solve_snapshot(solve_result)
         return cast(
             Face,
             _finalize_derived_shape(
-                face,
+                cast(Face, face),
                 op=_OP_MAKE_FACE_FROM_SKETCH_RFACE,
-                params={"profile": profile, "sketch": sketch.to_dict()},
+                params={
+                    "profile": profile,
+                    "sketch": sketch.to_dict(),
+                    "require_fully_constrained": require_fully_constrained,
+                    "strict": strict,
+                    "tolerance": tolerance,
+                    "max_iterations": max_iterations,
+                    "solve_snapshot": solve_snapshot,
+                    "promotion_map": _sketch_promotion_map(sketch, profile, profile_payload),
+                },
                 input_shapes=cast(Sequence[AnyShape], [sketch]),
                 tags={"derived", "face", "sketch"},
             ),
@@ -2753,49 +3037,199 @@ def make_angle_arc_rwire(
         )
 
 
+def _normalize_bspline_control_points(
+    control_points: Sequence[Sequence[ScalarLike]],
+) -> Tuple[Tuple[float, float, float], ...]:
+    points = list(control_points)
+    if not points:
+        raise ValueError("control_points must contain at least one point")
+    normalized: List[Tuple[float, float, float]] = []
+    for index, point in enumerate(points):
+        value = cast(Sequence[float], evaluate_value(point))
+        if len(value) == 2:
+            coords = (float(value[0]), float(value[1]), 0.0)
+        elif len(value) == 3:
+            coords = (float(value[0]), float(value[1]), float(value[2]))
+        else:
+            raise ValueError(f"control point {index} must be 2D or 3D")
+        if not all(math.isfinite(component) for component in coords):
+            raise ValueError(f"control point {index} contains a non-finite coordinate")
+        normalized.append(coords)
+    return tuple(normalized)
+
+
+def _collapse_knot_vector(knots: Sequence[ScalarLike]) -> Tuple[Tuple[float, ...], Tuple[int, ...]]:
+    values = [float(evaluate_scalar(knot)) for knot in knots]
+    if not values:
+        raise ValueError("knots must not be empty")
+    if any(not math.isfinite(value) for value in values):
+        raise ValueError("knots must contain only finite values")
+    for previous, current in zip(values, values[1:]):
+        if current < previous:
+            raise ValueError("knots must be non-decreasing when passed as a full knot vector")
+    unique: List[float] = []
+    multiplicities: List[int] = []
+    for value in values:
+        if unique and abs(value - unique[-1]) <= 1e-12:
+            multiplicities[-1] += 1
+        else:
+            unique.append(value)
+            multiplicities.append(1)
+    return tuple(unique), tuple(multiplicities)
+
+
+def _default_bspline_knots(
+    control_count: int, degree: int, periodic: bool
+) -> Tuple[Tuple[float, ...], Tuple[int, ...]]:
+    if periodic:
+        knot_count = control_count + 1
+        return (
+            tuple(index / (knot_count - 1) for index in range(knot_count)),
+            tuple(1 for _ in range(knot_count)),
+        )
+    knot_count = control_count - degree + 1
+    if knot_count < 2:
+        raise ValueError("control point count must be at least degree + 1")
+    knots = tuple(index / (knot_count - 1) for index in range(knot_count))
+    multiplicities = [degree + 1]
+    multiplicities.extend(1 for _ in range(max(0, knot_count - 2)))
+    multiplicities.append(degree + 1)
+    return knots, tuple(multiplicities)
+
+
+def _normalize_bspline_knots(
+    *,
+    control_count: int,
+    degree: int,
+    periodic: bool,
+    knots: Optional[Sequence[ScalarLike]],
+    multiplicities: Optional[Sequence[int]],
+) -> Tuple[Tuple[float, ...], Tuple[int, ...]]:
+    if knots is None:
+        if multiplicities is not None:
+            raise ValueError("multiplicities require explicit knots")
+        unique_knots, mults = _default_bspline_knots(control_count, degree, periodic)
+    elif multiplicities is None:
+        unique_knots, mults = _collapse_knot_vector(knots)
+    else:
+        unique_knots = tuple(float(evaluate_scalar(knot)) for knot in knots)
+        mults = tuple(int(value) for value in multiplicities)
+
+    if len(unique_knots) != len(mults):
+        raise ValueError("knots and multiplicities must have the same length")
+    if len(unique_knots) < 2:
+        raise ValueError("at least two unique knots are required")
+    if any(not math.isfinite(knot) for knot in unique_knots):
+        raise ValueError("knots must contain only finite values")
+    for previous, current in zip(unique_knots, unique_knots[1:]):
+        if current <= previous:
+            raise ValueError("unique knots must be strictly increasing")
+    if any(multiplicity <= 0 for multiplicity in mults):
+        raise ValueError("multiplicities must be positive integers")
+    if any(multiplicity > degree + 1 for multiplicity in mults):
+        raise ValueError("multiplicities must not exceed degree + 1")
+
+    expected_sum = control_count + (1 if periodic else degree + 1)
+    actual_sum = sum(mults)
+    if actual_sum != expected_sum:
+        raise ValueError(
+            "sum(multiplicities) must equal "
+            f"{expected_sum} for this {'periodic' if periodic else 'non-periodic'} B-spline"
+        )
+    return tuple(unique_knots), tuple(mults)
+
+
+def _normalize_bspline_weights(
+    weights: Optional[Sequence[ScalarLike]], control_count: int
+) -> Optional[Tuple[float, ...]]:
+    if weights is None:
+        return None
+    values = tuple(float(evaluate_scalar(weight)) for weight in weights)
+    if len(values) != control_count:
+        raise ValueError("weights must contain exactly one value per control point")
+    if any(not math.isfinite(value) or value <= 0.0 for value in values):
+        raise ValueError("weights must be finite positive values")
+    return values
+
+
 def make_spline_redge(
-    points: List[Tuple[float, float, float]],
-    tangents: Optional[List[Tuple[float, float, float]]] = None,
+    *,
+    control_points: Sequence[Sequence[ScalarLike]],
+    degree: int = 3,
+    knots: Optional[Sequence[ScalarLike]] = None,
+    multiplicities: Optional[Sequence[int]] = None,
+    weights: Optional[Sequence[ScalarLike]] = None,
+    periodic: bool = False,
 ) -> Edge:
-    """Create a spline edge through control points."""
+    """Create an exact B-spline edge from named control-point parameters.
+
+    Pass sampled curve points through `fit_cubic_bspline_control_points(...)` first,
+    then pass the result fields explicitly as `control_points=...`, `knots=...`,
+    and `multiplicities=...`. `control_points` are poles, not interpolation
+    points; the curve generally does not pass through interior poles.
+    """
     try:
-        if len(points) < 2:
-            raise ValueError("至少需要2个控制点")
+        if isinstance(degree, bool) or int(degree) != degree:
+            raise ValueError("degree must be an integer")
+        degree_value = int(degree)
+        if degree_value < 1:
+            raise ValueError("degree must be at least 1")
+        if degree_value > 25:
+            raise ValueError("degree must be 25 or lower")
+        periodic_value = bool(periodic)
+
+        local_control_points = _normalize_bspline_control_points(control_points)
+        if len(local_control_points) < degree_value + 1:
+            raise ValueError("control point count must be at least degree + 1")
+        resolved_knots, resolved_multiplicities = _normalize_bspline_knots(
+            control_count=len(local_control_points),
+            degree=degree_value,
+            periodic=periodic_value,
+            knots=knots,
+            multiplicities=multiplicities,
+        )
+        resolved_weights = _normalize_bspline_weights(weights, len(local_control_points))
 
         cs = get_current_cs()
-
-        # 转换控制点到全局坐标系
-        global_points = []
-        for point in points:
-            point_value = cast(Tuple[float, float, float], evaluate_value(point))
-            global_point = cs.transform_point(np.array(point_value))
-            global_points.append(tuple(float(v) for v in global_point))
-
-        # 转换切线向量（如果提供）
-        global_tangents = None
-        if tangents:
-            if len(tangents) != len(points):
-                raise ValueError("切线向量数量必须与控制点数量一致")
-            global_tangents = []
-            for tangent in tangents:
-                tangent_value = cast(
-                    Tuple[float, float, float], evaluate_value(tangent)
-                )
-                global_tangent = cs.transform_point(np.array(tangent_value)) - cs.origin
-                global_tangents.append(tuple(float(v) for v in global_tangent))
-
-        point_tuples = [(float(point[0]), float(point[1]), float(point[2])) for point in global_points]
-        tangent_tuples = (
-            [(float(t[0]), float(t[1]), float(t[2])) for t in global_tangents] if global_tangents else None
+        global_control_points = tuple(
+            tuple(float(component) for component in cs.transform_point(np.array(point)))
+            for point in local_control_points
         )
-        edge_shape = make_bspline_edge(point_tuples, tangent_tuples)
+        edge_shape = make_bspline_edge(
+            control_points=global_control_points,
+            degree=degree_value,
+            knots=resolved_knots,
+            multiplicities=resolved_multiplicities,
+            weights=resolved_weights,
+            periodic=periodic_value,
+        )
+        edge = Edge(edge_shape)
+        edge.set_metadata(
+            "geo",
+            {
+                "type": "bspline",
+                "degree": degree_value,
+                "control_points": [list(point) for point in global_control_points],
+                "knots": list(resolved_knots),
+                "multiplicities": list(resolved_multiplicities),
+                "weights": list(resolved_weights) if resolved_weights is not None else None,
+                "periodic": periodic_value,
+            },
+        )
 
         return cast(
             Edge,
             _finalize_primitive_shape(
-                Edge(edge_shape),
+                edge,
                 op=_OP_MAKE_SPLINE_REDGE,
-                params={"points": points, "tangents": tangents},
+                params={
+                    "control_points": control_points,
+                    "degree": degree_value,
+                    "knots": resolved_knots,
+                    "multiplicities": resolved_multiplicities,
+                    "weights": weights,
+                    "periodic": periodic_value,
+                },
                 tags={"primitive", "edge"},
             ),
         )
@@ -2804,52 +3238,52 @@ def make_spline_redge(
             operation="make_spline_redge",
             what_happened="Failed to create a spline edge.",
             possible_causes=[
-                "Fewer than two control points were provided.",
-                "One or more control points or tangents are invalid.",
-                "The tangent list length does not match the point count.",
+                "The exact B-spline definition is inconsistent.",
+                "Control points, knots, multiplicities, or weights are invalid.",
+                "A sampled-point list was passed directly instead of fitted control points.",
             ],
             how_to_fix=[
-                "Pass at least two finite 3D control points.",
-                "If tangents are provided, make sure there is exactly one tangent per point.",
-                "Log the evaluated control points and tangents before retrying.",
+                "Pass keyword arguments such as control_points=..., degree=3, knots=..., multiplicities=....",
+                "Use fit_cubic_bspline_control_points(sample_points) for sampled curves, then pass its result fields explicitly.",
+                "Ensure sum(multiplicities) matches the exact B-spline degree/control-count rule.",
             ],
             error=e,
         )
 
 
 def make_spline_rwire(
-    points: List[Tuple[float, float, float]],
-    tangents: Optional[List[Tuple[float, float, float]]] = None,
-    closed: bool = False,
+    *,
+    control_points: Sequence[Sequence[ScalarLike]],
+    degree: int = 3,
+    knots: Optional[Sequence[ScalarLike]] = None,
+    multiplicities: Optional[Sequence[int]] = None,
+    weights: Optional[Sequence[ScalarLike]] = None,
+    periodic: bool = False,
 ) -> Wire:
-    """Create a spline wire through control points."""
+    """Create a wire containing one exact B-spline edge."""
     try:
+        edge_kwargs = {
+            "control_points": control_points,
+            "degree": degree,
+            "knots": knots,
+            "multiplicities": multiplicities,
+            "weights": weights,
+            "periodic": periodic,
+        }
         if get_active_session() is not None:
-            if closed:
-                return make_polyline_rwire(cast(Any, points), closed=True)
-            edge = make_spline_redge(points, tangents)
+            edge = make_spline_redge(**edge_kwargs)
             return make_wire_from_edges_rwire([edge])
 
         with suspend_graph_recording():
-            edge = make_spline_redge(points, tangents)
-        cs = get_current_cs()
-        wire_points = []
-        for point in points:
-            point_value = cast(Tuple[float, float, float], evaluate_value(point))
-            global_point = cs.transform_point(np.array(point_value))
-            wire_points.append(tuple(float(v) for v in global_point))
-        wire_shape = (
-            make_polyline_wire(wire_points, closed=closed)
-            if closed
-            else make_wire_from_edges_ocp([edge.wrapped])
-        )
+            edge = make_spline_redge(**edge_kwargs)
+        wire_shape = make_wire_from_edges_ocp([edge.wrapped])
         rv = Wire(wire_shape)
         return cast(
             Wire,
             _finalize_primitive_shape(
                 rv,
                 op="make_spline_wire",
-                params={"points": points, "tangents": tangents, "closed": closed},
+                params=edge_kwargs,
                 tags={"primitive", "wire"},
             ),
         )
@@ -2859,12 +3293,12 @@ def make_spline_rwire(
             what_happened="Failed to create a spline wire.",
             possible_causes=[
                 "The spline edge could not be created.",
-                "The closed-wire fallback received invalid points.",
+                "The exact B-spline definition is inconsistent.",
                 "The kernel rejected the resulting wire geometry.",
             ],
             how_to_fix=[
-                "Validate the spline control points first.",
-                "If closed=True, ensure the point sequence forms a valid loop.",
+                "Validate the B-spline control points, degree, knots, multiplicities, and weights first.",
+                "For sampled curves, call fit_cubic_bspline_control_points(...) and pass the result fields explicitly.",
                 "Retry after inspecting the evaluated spline inputs.",
             ],
             error=e,

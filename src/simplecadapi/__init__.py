@@ -38,7 +38,6 @@ from .operations import (
     make_segment_redge,
     make_segment_rwire,
     make_sphere_rsolid,
-    make_sketch_point_rsketchref,
     make_sketch_rsketch,
     make_spline_redge,
     make_spline_rwire,
@@ -46,6 +45,7 @@ from .operations import (
     make_three_point_arc_rwire,
     make_wire_from_edges_rwire,
     make_wire_from_sketch_rwire,
+    add_point_rsketch,
     add_circle_rsketch,
     add_line_rsketch,
     constrain_angle_rsketch,
@@ -72,7 +72,7 @@ from .operations import (
     constrain_vertical_rsketch,
     get_sketch_entity_rsketchref,
     get_sketch_point_rsketchref,
-    solve_sketch_rsketchresult,
+    inspect_sketch_rsketchresult,
     # 变换操作
     mirror_shape,
     rotate_shape,
@@ -136,11 +136,13 @@ from .expr import (
     tan,
     var,
 )
+from .math import BSplineFitResult, fit_cubic_bspline_control_points
 from .sketch import Sketch, SketchConstraint, SketchConstraintDiagnostic, SketchRef, SketchSolveResult
 from .topology import SemanticDelta, SemanticRef
 from .errors import SimpleCADError
 
 from . import ql
+from . import math
 
 # Avoid advertising internal implementation submodules from the top-level package
 # namespace. They remain importable as `simplecadapi.<module>` when needed.
@@ -231,7 +233,6 @@ __all__ = [
     "make_segment_redge",
     "make_segment_rwire",
     "make_sphere_rsolid",
-    "make_sketch_point_rsketchref",
     "make_sketch_rsketch",
     "make_spline_redge",
     "make_spline_rwire",
@@ -240,6 +241,7 @@ __all__ = [
     "make_wire_from_edges_rwire",
     "make_wire_from_sketch_rwire",
     # Sketch construction and constraints
+    "add_point_rsketch",
     "add_circle_rsketch",
     "add_line_rsketch",
     "constrain_angle_rsketch",
@@ -266,7 +268,7 @@ __all__ = [
     "constrain_vertical_rsketch",
     "get_sketch_entity_rsketchref",
     "get_sketch_point_rsketchref",
-    "solve_sketch_rsketchresult",
+    "inspect_sketch_rsketchresult",
     # 变换操作
     "mirror_shape",
     "rotate_shape",
@@ -297,6 +299,7 @@ __all__ = [
     "shell_rsolid",
     # 其他
     "linear_pattern_rsolidlist",
+    "math",
     "make_n_hole_flange_rsolid",
     "make_naca_propeller_blade_rsolid",
     "make_threaded_rod_rsolid",
@@ -318,6 +321,7 @@ __all__ = [
     "Var",
     "Const",
     "ExpressionGraph",
+    "BSplineFitResult",
     "acos",
     "asin",
     "atan",
@@ -328,6 +332,7 @@ __all__ = [
     "sqrt",
     "tan",
     "var",
+    "fit_cubic_bspline_control_points",
     "Sketch",
     "SketchConstraint",
     "SketchConstraintDiagnostic",

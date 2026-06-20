@@ -33,6 +33,7 @@ def graph_capabilities_payload() -> Dict[str, Any]:
         "selector_hint_fallback": True,
         "display_payload": True,
         "sketch_constraints": True,
+        "sketch_solve_snapshots": True,
         "topology_delta_summary": False,
         "assembly_graph": False,
         "scalar_field_graph": False,

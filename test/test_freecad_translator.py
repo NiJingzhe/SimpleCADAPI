@@ -123,10 +123,96 @@ class TestFreeCADTranslator(unittest.TestCase):
         self.assertIn("import FreeCAD as App", script)
         self.assertIn("Sketcher::SketchObject", script)
         self.assertIn("Part::Extrusion", script)
-        self.assertIn("App::Link", script)
+        self.assertIn("_register_graph_folded_alias", script)
+        self.assertNotIn("doc.addObject('App::Link'", script)
         self.assertIn("SimpleCADNodeId", script)
         self.assertIn("EXPRESSION_GRAPH_META", script)
         self.assertIn("# Step", script)
+
+    def test_translate_model_json_folds_single_use_translate_into_extrusion_fcstd(self):
+        tx = scad.var("fold_tx", 1.0)
+        ty = scad.var("fold_ty", 2.0)
+        tz = scad.var("fold_tz", 3.0)
+        with GraphSession() as session:
+            profile = scad.make_circle_rface((0.0, 0.0, 0.0), 1.0)
+            solid = scad.extrude_rsolid(profile, (0.0, 0.0, 1.0), 2.0)
+            scad.translate_shape(solid, (tx, ty, tz))
+        payload = scad.export_model_json(session)
+        script = scad.translate_model_json_to_freecad_script(payload)
+        self.assertIn("_register_graph_folded_alias", script)
+        self.assertNotIn("doc.addObject('App::Link'", script)
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+extrusions = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_extrude_rsolid']
+links = [obj for obj in doc.Objects if getattr(obj, 'TypeId', '') == 'App::Link']
+extrusion = extrusions[-1]
+folded = json.loads(getattr(extrusion, 'SimpleCADFoldedOps', '[]') or '[]')
+exprs = list(getattr(extrusion, 'ExpressionEngine', []))
+shape = extrusion.Shape
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'extrusion_count': len(extrusions),
+        'link_count': len(links),
+        'placement': [float(extrusion.Placement.Base.x), float(extrusion.Placement.Base.y), float(extrusion.Placement.Base.z)],
+        'folded_ops': [item.get('op') for item in folded],
+        'folded_count': len(folded),
+        'exprs': exprs,
+        'solid_count': 0 if shape.isNull() else len(shape.Solids),
+        'volume': 0.0 if shape.isNull() else float(shape.Volume),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["extrusion_count"], 1)
+        self.assertEqual(result["link_count"], 0)
+        self.assertEqual(result["placement"], [1.0, 2.0, 3.0])
+        self.assertEqual(result["folded_ops"], ["make_translate_rshape"])
+        self.assertEqual(result["folded_count"], 1)
+        self.assertEqual(result["solid_count"], 1)
+        self.assertAlmostEqual(result["volume"], 2.0 * 3.141592653589793, places=5)
+        expr_map = {prop: expr for prop, expr in result["exprs"]}
+        normalized_expr_map = {prop.lstrip("."): expr for prop, expr in result["exprs"]}
+        self.assertIn("Placement.Base.x", normalized_expr_map)
+        self.assertIn("Placement.Base.y", normalized_expr_map)
+        self.assertIn("Placement.Base.z", normalized_expr_map)
+        self.assertIn("var_fold_tx", normalized_expr_map["Placement.Base.x"])
+        self.assertIn("var_fold_ty", normalized_expr_map["Placement.Base.y"])
+        self.assertIn("var_fold_tz", normalized_expr_map["Placement.Base.z"])
+
+    def test_translate_model_json_keeps_link_when_translate_input_is_shared(self):
+        with GraphSession() as session:
+            profile = scad.make_circle_rface((0.0, 0.0, 0.0), 1.0)
+            solid = scad.extrude_rsolid(profile, (0.0, 0.0, 1.0), 2.0)
+            scad.translate_shape(solid, (1.0, 0.0, 0.0))
+            scad.translate_shape(solid, (0.0, 1.0, 0.0))
+        payload = scad.export_model_json(session)
+        script = scad.translate_model_json_to_freecad_script(payload)
+        self.assertIn("doc.addObject('App::Link'", script)
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+links = [obj for obj in doc.Objects if getattr(obj, 'TypeId', '') == 'App::Link']
+extrusions = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_extrude_rsolid']
+folded_counts = [len(json.loads(getattr(obj, 'SimpleCADFoldedOps', '[]') or '[]')) for obj in extrusions]
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'link_count': len(links),
+        'link_ops': [getattr(obj, 'SimpleCADOp', '') for obj in links],
+        'linked_ops': [getattr(getattr(obj, 'LinkedObject', None), 'SimpleCADOp', '') for obj in links],
+        'folded_counts': folded_counts,
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["link_count"], 2)
+        self.assertEqual(result["link_ops"], ["make_translate_rshape", "make_translate_rshape"])
+        self.assertEqual(result["linked_ops"], ["make_extrude_rsolid", "make_extrude_rsolid"])
+        self.assertEqual(result["folded_counts"], [0])
 
     def test_translate_model_json_uses_single_low_level_graph(self):
         with GraphSession() as session:
@@ -545,7 +631,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
                     (1.0, 1.0, 0.0),
                 ),
                 scad.make_spline_redge(
-                    [
+                    control_points=[
                         (1.0, 1.0, 0.0),
                         (0.6, 1.25, 0.0),
                         (0.2, 1.15, 0.0),
@@ -1295,16 +1381,22 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             op="make_spline_redge",
             node_id="spline_expr",
             params={
-                "points": [
+                "control_points": [
                     [0.0, 0.0, 0.0],
-                    [1.0, 1.0, 0.0],
+                    [0.6, 1.0, 0.0],
+                    [1.4, 1.0, 0.0],
                     [2.0, 0.0, 0.0],
                 ],
-                "tangents": None,
+                "degree": 3,
+                "knots": [0.0, 1.0],
+                "multiplicities": [4, 4],
+                "weights": None,
+                "periodic": False,
             },
             param_exprs={
-                "points": [
+                "control_points": [
                     [None, None, None],
+                    [None, {"expr_id": "var_sy"}, None],
                     [None, {"expr_id": "var_sy"}, None],
                     [None, None, None],
                 ]
@@ -1360,14 +1452,14 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             result["expr_limitation"],
         )
         self.assertIn(
-            "no stable equivalent native FreeCAD BSpline parameter host",
+            "no stable equivalent native FreeCAD Sketcher BSpline parameter host",
             result["expr_limitation"],
         )
         payload_obj = json.loads(result["note_payload"])
         self.assertIn("spline_expr", payload_obj)
         self.assertEqual(payload_obj["spline_expr"]["op"], "make_spline_redge")
         self.assertIn(
-            "no stable equivalent native FreeCAD BSpline parameter host",
+            "no stable equivalent native FreeCAD Sketcher BSpline parameter host",
             payload_obj["spline_expr"]["reason"],
         )
 
@@ -1399,6 +1491,95 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             if node.get("kind") == "var"
         ]
         self.assertNotIn("pitch_radius", var_names)
+
+    def test_naca0016_blade_example_translates_bspline_sections_to_fcstd(self):
+        freecad_cmd = self._discover_freecadcmd()
+        if not freecad_cmd:
+            self.skipTest("freecadcmd not available")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "python",
+                    "examples/09_naca0016_blade_freecad.py",
+                    "--output-dir",
+                    str(output_dir),
+                    "--freecad-cmd",
+                    freecad_cmd,
+                ],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            model_path = output_dir / "naca0016_blade.model.json"
+            fcstd_path = output_dir / "naca0016_blade.fcstd"
+            probe_path = output_dir / "probe_blade.py"
+            out_path = output_dir / "probe_blade.json"
+            payload = json.loads(model_path.read_text(encoding="utf-8"))
+            probe_path.write_text(
+                f"FCSTD_PATH = {json.dumps(str(fcstd_path))}\n"
+                f"OUT_PATH = {json.dumps(str(out_path))}\n"
+                """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+sketches = [obj for obj in doc.Objects if getattr(obj, 'TypeId', '') == 'Sketcher::SketchObject']
+bspline_counts = []
+placements = []
+for sketch in sketches:
+    bspline_counts.append(sum(1 for geom in getattr(sketch, 'Geometry', []) if type(geom).__name__ == 'BSplineCurve'))
+    placements.append({
+        'z': float(sketch.Placement.Base.z),
+        'angle': float(sketch.Placement.Rotation.Angle),
+        'axis': [float(sketch.Placement.Rotation.Axis.x), float(sketch.Placement.Rotation.Axis.y), float(sketch.Placement.Rotation.Axis.z)],
+    })
+lofts = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_loft_rsolid']
+links = [obj for obj in doc.Objects if getattr(obj, 'TypeId', '') == 'App::Link']
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'sketch_count': len(sketches),
+        'bspline_counts': bspline_counts,
+        'total_bspline_geometry': sum(bspline_counts),
+        'placements': placements,
+        'link_count': len(links),
+        'loft_count': len(lofts),
+        'loft_solid_count': 0 if not lofts else len(lofts[-1].Shape.Solids),
+        'loft_volume': 0.0 if not lofts else float(lofts[-1].Shape.Volume),
+    }, fh)
+""",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [freecad_cmd, str(probe_path)],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            result = json.loads(out_path.read_text(encoding="utf-8"))
+
+        bspline_nodes = [
+            node for node in payload["graph"]["nodes"] if node.get("op") == "make_spline_redge"
+        ]
+        self.assertEqual(len(bspline_nodes), 6)
+        self.assertEqual(result["sketch_count"], 6)
+        self.assertEqual(result["total_bspline_geometry"], 6)
+        self.assertTrue(all(count == 1 for count in result["bspline_counts"]))
+        self.assertEqual(result["link_count"], 0)
+        self.assertEqual(
+            [round(item["z"], 3) for item in result["placements"]],
+            [0.0, 0.8, 1.6, 2.4, 3.2, 4.0],
+        )
+        self.assertEqual(
+            [round(item["angle"], 6) for item in result["placements"]],
+            [0.0, 0.125664, 0.251327, 0.376991, 0.502655, 0.628319],
+        )
+        self.assertEqual(result["loft_count"], 1)
+        self.assertEqual(result["loft_solid_count"], 1)
+        self.assertGreater(result["loft_volume"], 0.0)
 
     def test_translate_model_json_adds_coincident_constraints_for_polyline_wire(self):
         graph = OperationGraph(graph_id="graph_polyline_constraints")
@@ -1452,6 +1633,402 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertGreaterEqual(result["constraint_count"], 3)
         self.assertGreaterEqual(
             sum(1 for item in result["constraints"] if "Coincident" in item), 3
+        )
+
+    def _functional_rectangle_sketch_model_json(self) -> str:
+        width = scad.var("fcstd_sketch_width", 2.0)
+        height = scad.var("fcstd_sketch_height", 1.0)
+        thickness = scad.var("fcstd_sketch_thickness", 0.5)
+        with GraphSession() as session:
+            sketch = scad.make_sketch_rsketch("fcstd_rect")
+            sketch = scad.add_point_rsketch(sketch, "p0", 0.0, 0.0)
+            sketch = scad.add_point_rsketch(sketch, "p1", width, 0.0)
+            sketch = scad.add_point_rsketch(sketch, "p2", width, height)
+            sketch = scad.add_point_rsketch(sketch, "p3", 0.0, height)
+            sketch = scad.add_line_rsketch(sketch, "bottom", "p0", "p1")
+            sketch = scad.add_line_rsketch(sketch, "right", "p1", "p2")
+            sketch = scad.add_line_rsketch(sketch, "top", "p2", "p3")
+            sketch = scad.add_line_rsketch(sketch, "left", "p3", "p0")
+            sketch = scad.constrain_fix_rsketch(sketch, "p0")
+            sketch = scad.constrain_horizontal_rsketch(sketch, "bottom")
+            sketch = scad.constrain_vertical_rsketch(sketch, "right")
+            sketch = scad.constrain_parallel_rsketch(sketch, "bottom", "top")
+            sketch = scad.constrain_parallel_rsketch(sketch, "left", "right")
+            sketch = scad.constrain_perpendicular_rsketch(sketch, "bottom", "right")
+            sketch = scad.constrain_distance_rsketch(sketch, "p0", "p1", width)
+            sketch = scad.constrain_distance_rsketch(sketch, "p0", "p3", height)
+            face = scad.make_face_from_sketch_rface(
+                sketch,
+                require_fully_constrained=True,
+            )
+            scad.extrude_rsolid(face, (0.0, 0.0, 1.0), thickness)
+        return scad.export_model_json(session)
+
+    def test_translate_model_json_supports_functional_sketch_promotion_script(self):
+        payload = self._functional_rectangle_sketch_model_json()
+
+        script = scad.translate_model_json_to_freecad_script(payload)
+
+        self.assertIn("_make_sketch_promotion_object", script)
+        self.assertIn("make_face_from_sketch_rface", script)
+        self.assertIn("make_add_point_rsketch", script)
+        self.assertIn("make_constrain_distance_rsketch", script)
+        self.assertIn("SimpleCADSketchSolve", script)
+        self.assertIn("SimpleCADSketchConstraints", script)
+        self.assertIn("Part::Extrusion", script)
+        self.assertNotIn("make_solve_sketch_rsketchresult", script)
+
+    def test_translate_model_json_functional_sketch_promotion_fcstd_valid(self):
+        payload = self._functional_rectangle_sketch_model_json()
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+op_objects = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_face_from_sketch_rface']
+sketches = [obj for obj in doc.Objects if getattr(obj, 'TypeId', '') == 'Sketcher::SketchObject' and getattr(obj, 'SimpleCADOp', '') == 'make_face_from_sketch_rface']
+bridge_features = [obj for obj in doc.Objects if getattr(obj, 'TypeId', '') == 'Part::Feature' and getattr(obj, 'SimpleCADOp', '') == 'make_face_from_sketch_rface']
+extrusions = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_extrude_rsolid']
+sketch = sketches[-1]
+extrusion = extrusions[-1]
+solve = json.loads(sketch.SimpleCADSketchSolve)
+constraint_status = json.loads(sketch.SimpleCADSketchConstraints)
+exprs = list(getattr(sketch, 'ExpressionEngine', []))
+shape = extrusion.Shape
+base = extrusion.Base
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'op_object_count': len(op_objects),
+        'sketch_count': len(sketches),
+        'bridge_feature_count': len(bridge_features),
+        'extrusion_count': len(extrusions),
+        'extrusion_base_name': getattr(base, 'Name', ''),
+        'extrusion_base_type': getattr(base, 'TypeId', ''),
+        'sketch_name': sketch.Name,
+        'geom_count': len(list(sketch.Geometry)),
+        'constraint_count': len(sketch.Constraints),
+        'mapped_count': len(constraint_status.get('mapped', [])),
+        'skipped_count': len(constraint_status.get('skipped', [])),
+        'solve_status': solve.get('status'),
+        'solve_dof': int(solve.get('dof', -1)),
+        'exprs': exprs,
+        'solid_count': 0 if shape.isNull() else len(shape.Solids),
+        'volume': 0.0 if shape.isNull() else float(shape.Volume),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["op_object_count"], 1)
+        self.assertEqual(result["sketch_count"], 1)
+        self.assertEqual(result["bridge_feature_count"], 0)
+        self.assertEqual(result["extrusion_count"], 1)
+        self.assertEqual(result["extrusion_base_name"], result["sketch_name"])
+        self.assertEqual(result["extrusion_base_type"], "Sketcher::SketchObject")
+        self.assertEqual(result["geom_count"], 4)
+        self.assertGreaterEqual(result["constraint_count"], 10)
+        self.assertEqual(result["mapped_count"], result["constraint_count"])
+        self.assertGreaterEqual(result["mapped_count"] + result["skipped_count"], 13)
+        self.assertEqual(result["solve_status"], "solved")
+        self.assertEqual(result["solve_dof"], 0)
+        self.assertEqual(result["solid_count"], 1)
+        self.assertAlmostEqual(result["volume"], 1.0, places=6)
+        expr_map = {prop: expr for prop, expr in result["exprs"]}
+        self.assertTrue(
+            any(
+                prop.startswith("Constraints[")
+                and "var_fcstd_sketch_width" in expr
+                for prop, expr in expr_map.items()
+            )
+        )
+        self.assertTrue(
+            any(
+                prop.startswith("Constraints[")
+                and "var_fcstd_sketch_height" in expr
+                for prop, expr in expr_map.items()
+            )
+        )
+
+    def test_translate_model_json_functional_circle_sketch_promotion_fcstd_valid(self):
+        radius = scad.var("fcstd_circle_radius", 1.5)
+        thickness = scad.var("fcstd_circle_thickness", 0.5)
+        with GraphSession() as session:
+            sketch = scad.make_sketch_rsketch("fcstd_circle")
+            sketch = scad.add_point_rsketch(sketch, "center", 0.0, 0.0)
+            sketch = scad.add_circle_rsketch(sketch, "outer", "center", radius)
+            sketch = scad.constrain_fix_rsketch(sketch, "center")
+            sketch = scad.constrain_radius_rsketch(sketch, "outer", radius)
+            face = scad.make_face_from_sketch_rface(
+                sketch,
+                require_fully_constrained=True,
+            )
+            scad.extrude_rsolid(face, (0.0, 0.0, 1.0), thickness)
+        payload = scad.export_model_json(session)
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+sketch = next(obj for obj in doc.Objects if getattr(obj, 'TypeId', '') == 'Sketcher::SketchObject' and getattr(obj, 'SimpleCADOp', '') == 'make_face_from_sketch_rface')
+extrusion = next(obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_extrude_rsolid')
+constraint_status = json.loads(sketch.SimpleCADSketchConstraints)
+solve = json.loads(sketch.SimpleCADSketchSolve)
+exprs = list(getattr(sketch, 'ExpressionEngine', []))
+shape = extrusion.Shape
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'geom_count': len(list(sketch.Geometry)),
+        'constraint_count': len(sketch.Constraints),
+        'mapped_count': len(constraint_status.get('mapped', [])),
+        'skipped_count': len(constraint_status.get('skipped', [])),
+        'solve_status': solve.get('status'),
+        'solve_dof': int(solve.get('dof', -1)),
+        'exprs': exprs,
+        'solid_count': 0 if shape.isNull() else len(shape.Solids),
+        'volume': 0.0 if shape.isNull() else float(shape.Volume),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["geom_count"], 1)
+        self.assertGreaterEqual(result["constraint_count"], 3)
+        self.assertEqual(result["mapped_count"], result["constraint_count"])
+        self.assertEqual(result["skipped_count"], 0)
+        self.assertEqual(result["solve_status"], "solved")
+        self.assertEqual(result["solve_dof"], 0)
+        self.assertEqual(result["solid_count"], 1)
+        self.assertAlmostEqual(result["volume"], 3.141592653589793 * 1.5 * 1.5 * 0.5, places=5)
+        expr_map = {prop: expr for prop, expr in result["exprs"]}
+        self.assertTrue(
+            any(
+                prop.startswith("Constraints[")
+                and "var_fcstd_circle_radius" in expr
+                for prop, expr in expr_map.items()
+            )
+        )
+
+    def test_translate_model_json_complex_guided_sketch_constraints_fcstd_valid(self):
+        with GraphSession() as session:
+            sketch = scad.make_sketch_rsketch("fcstd_guided_diamond")
+            sketch = scad.add_point_rsketch(sketch, "center", 10.0, 8.0)
+            sketch = scad.add_point_rsketch(sketch, "left", 3.0, 8.0)
+            sketch = scad.add_point_rsketch(sketch, "top", 10.0, 12.0)
+            sketch = scad.add_point_rsketch(sketch, "right", 17.0, 8.0)
+            sketch = scad.add_point_rsketch(sketch, "bottom", 10.0, 4.0)
+            sketch = scad.add_point_rsketch(sketch, "guide_upper_start", 3.0, 13.0)
+            sketch = scad.add_point_rsketch(sketch, "guide_upper_end", 10.0, 17.0)
+            sketch = scad.add_point_rsketch(sketch, "guide_lower_start", 17.0, 3.0)
+            sketch = scad.add_point_rsketch(sketch, "guide_lower_end", 10.0, -1.0)
+            sketch = scad.add_line_rsketch(sketch, "bottom_left", "left", "bottom")
+            sketch = scad.add_line_rsketch(sketch, "right_bottom", "bottom", "right")
+            sketch = scad.add_line_rsketch(sketch, "top_right", "right", "top")
+            sketch = scad.add_line_rsketch(sketch, "left_top", "top", "left")
+            sketch = scad.add_line_rsketch(sketch, "guide_upper", "guide_upper_start", "guide_upper_end", construction=True)
+            sketch = scad.add_line_rsketch(sketch, "guide_lower", "guide_lower_start", "guide_lower_end", construction=True)
+            sketch = scad.constrain_fix_rsketch(sketch, "center")
+            sketch = scad.constrain_distance_x_rsketch(sketch, "left", "center", 7.0)
+            sketch = scad.constrain_distance_y_rsketch(sketch, "left", "center", 0.0)
+            sketch = scad.constrain_distance_x_rsketch(sketch, "center", "right", 7.0)
+            sketch = scad.constrain_distance_y_rsketch(sketch, "center", "right", 0.0)
+            sketch = scad.constrain_distance_x_rsketch(sketch, "center", "top", 0.0)
+            sketch = scad.constrain_distance_y_rsketch(sketch, "center", "top", 4.0)
+            sketch = scad.constrain_distance_x_rsketch(sketch, "bottom", "center", 0.0)
+            sketch = scad.constrain_distance_y_rsketch(sketch, "bottom", "center", 4.0)
+            sketch = scad.constrain_parallel_rsketch(sketch, "bottom_left", "top_right")
+            sketch = scad.constrain_parallel_rsketch(sketch, "right_bottom", "left_top")
+            sketch = scad.constrain_equal_length_rsketch(sketch, "bottom_left", "right_bottom")
+            sketch = scad.constrain_equal_length_rsketch(sketch, "right_bottom", "top_right")
+            sketch = scad.constrain_equal_length_rsketch(sketch, "top_right", "left_top")
+            sketch = scad.constrain_distance_x_rsketch(sketch, "left", "guide_upper_start", 0.0)
+            sketch = scad.constrain_distance_y_rsketch(sketch, "left", "guide_upper_start", 5.0)
+            sketch = scad.constrain_distance_x_rsketch(sketch, "top", "guide_upper_end", 0.0)
+            sketch = scad.constrain_distance_y_rsketch(sketch, "top", "guide_upper_end", 5.0)
+            sketch = scad.constrain_distance_x_rsketch(sketch, "guide_lower_start", "right", 0.0)
+            sketch = scad.constrain_distance_y_rsketch(sketch, "guide_lower_start", "right", 5.0)
+            sketch = scad.constrain_distance_x_rsketch(sketch, "guide_lower_end", "bottom", 0.0)
+            sketch = scad.constrain_distance_y_rsketch(sketch, "guide_lower_end", "bottom", 5.0)
+            sketch = scad.constrain_parallel_rsketch(sketch, "guide_upper", "guide_lower")
+            sketch = scad.constrain_parallel_rsketch(sketch, "guide_upper", "right_bottom")
+            sketch = scad.constrain_parallel_rsketch(sketch, "guide_lower", "left_top")
+            sketch = scad.constrain_equal_length_rsketch(sketch, "guide_upper", "right_bottom")
+            sketch = scad.constrain_equal_length_rsketch(sketch, "guide_lower", "left_top")
+            face = scad.make_face_from_sketch_rface(
+                sketch,
+                require_fully_constrained=True,
+            )
+            scad.extrude_rsolid(face, (0.0, 0.0, 1.0), 1.0)
+        payload = scad.export_model_json(session)
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+sketch = next(obj for obj in doc.Objects if getattr(obj, 'TypeId', '') == 'Sketcher::SketchObject' and getattr(obj, 'SimpleCADOp', '') == 'make_face_from_sketch_rface')
+extrusion = next(obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_extrude_rsolid')
+constraint_status = json.loads(sketch.SimpleCADSketchConstraints)
+solve = json.loads(sketch.SimpleCADSketchSolve)
+promotion = json.loads(sketch.SimpleCADSketchPromotion)
+shape = extrusion.Shape
+construction_count = 0
+for idx, _geo in enumerate(sketch.Geometry):
+    try:
+        construction_count += 1 if sketch.getConstruction(idx) else 0
+    except Exception:
+        pass
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'geom_count': len(list(sketch.Geometry)),
+        'construction_count': construction_count,
+        'constraint_count': len(sketch.Constraints),
+        'mapped_count': len(constraint_status.get('mapped', [])),
+        'skipped_count': len(constraint_status.get('skipped', [])),
+        'solve_status': solve.get('status'),
+        'solve_dof': int(solve.get('dof', -1)),
+        'promotion_edges': [edge.get('entity_id') for edge in promotion.get('edges', [])],
+        'solid_count': 0 if shape.isNull() else len(shape.Solids),
+        'volume': 0.0 if shape.isNull() else float(shape.Volume),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["geom_count"], 6)
+        self.assertEqual(result["construction_count"], 2)
+        self.assertGreaterEqual(result["constraint_count"], 12)
+        self.assertGreaterEqual(result["mapped_count"], 12)
+        self.assertGreaterEqual(result["mapped_count"] + result["skipped_count"], 31)
+        self.assertEqual(result["solve_status"], "solved")
+        self.assertEqual(result["solve_dof"], 0)
+        self.assertEqual(
+            result["promotion_edges"],
+            ["bottom_left", "right_bottom", "top_right", "left_top"],
+        )
+        self.assertEqual(result["solid_count"], 1)
+        self.assertAlmostEqual(result["volume"], 56.0, places=5)
+
+    def test_translate_model_json_curve_guided_sketch_constraints_fcstd_valid(self):
+        with GraphSession() as session:
+            sketch = scad.make_sketch_rsketch("fcstd_curve_guided")
+            sketch = scad.add_point_rsketch(sketch, "center", 32.0, 42.0)
+            sketch = scad.add_point_rsketch(sketch, "rim", 36.0, 42.0)
+            sketch = scad.add_point_rsketch(sketch, "clearance_center", 32.0, 42.0)
+            sketch = scad.add_point_rsketch(sketch, "upper_left", 23.0, 46.0)
+            sketch = scad.add_point_rsketch(sketch, "upper_right", 41.0, 46.0)
+            sketch = scad.add_point_rsketch(sketch, "lower_left", 23.0, 38.0)
+            sketch = scad.add_point_rsketch(sketch, "lower_right", 41.0, 38.0)
+            sketch = scad.add_circle_rsketch(sketch, "relief", "center", 4.0)
+            sketch = scad.add_circle_rsketch(sketch, "clearance", "clearance_center", 4.0, construction=True)
+            sketch = scad.add_line_rsketch(sketch, "radius_probe", "center", "rim", construction=True)
+            sketch = scad.add_line_rsketch(sketch, "upper_rail", "upper_left", "upper_right", construction=True)
+            sketch = scad.add_line_rsketch(sketch, "lower_rail", "lower_left", "lower_right", construction=True)
+            sketch = scad.constrain_fix_rsketch(sketch, "center")
+            sketch = scad.constrain_radius_rsketch(sketch, "relief", 4.0)
+            sketch = scad.constrain_point_on_rsketch(sketch, "rim", "relief")
+            sketch = scad.constrain_horizontal_rsketch(sketch, "radius_probe")
+            sketch = scad.constrain_length_rsketch(sketch, "radius_probe", 4.0)
+            sketch = scad.constrain_concentric_rsketch(sketch, "relief", "clearance")
+            sketch = scad.constrain_equal_radius_rsketch(sketch, "relief", "clearance")
+            sketch = scad.constrain_horizontal_rsketch(sketch, "upper_rail")
+            sketch = scad.constrain_horizontal_rsketch(sketch, "lower_rail")
+            sketch = scad.constrain_tangent_rsketch(sketch, "upper_rail", "relief")
+            sketch = scad.constrain_tangent_rsketch(sketch, "lower_rail", "relief")
+            sketch = scad.constrain_distance_x_rsketch(sketch, "center", "upper_left", -9.0)
+            sketch = scad.constrain_distance_x_rsketch(sketch, "center", "upper_right", 9.0)
+            sketch = scad.constrain_distance_x_rsketch(sketch, "center", "lower_left", -9.0)
+            sketch = scad.constrain_distance_x_rsketch(sketch, "center", "lower_right", 9.0)
+            face = scad.make_face_from_sketch_rface(
+                sketch,
+                require_fully_constrained=True,
+            )
+            scad.extrude_rsolid(face, (0.0, 0.0, 1.0), 1.0)
+        payload = scad.export_model_json(session)
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+sketch = next(obj for obj in doc.Objects if getattr(obj, 'TypeId', '') == 'Sketcher::SketchObject' and getattr(obj, 'SimpleCADOp', '') == 'make_face_from_sketch_rface')
+extrusion = next(obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_extrude_rsolid')
+constraint_status = json.loads(sketch.SimpleCADSketchConstraints)
+solve = json.loads(sketch.SimpleCADSketchSolve)
+promotion = json.loads(sketch.SimpleCADSketchPromotion)
+shape = extrusion.Shape
+geometry_type_names = [geo.__class__.__name__ for geo in sketch.Geometry]
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'geom_count': len(list(sketch.Geometry)),
+        'circle_count': sum(1 for item in geometry_type_names if item == 'Circle'),
+        'line_count': sum(1 for item in geometry_type_names if item == 'LineSegment'),
+        'constraint_count': len(sketch.Constraints),
+        'mapped_kinds': [item.get('kind') for item in constraint_status.get('mapped', [])],
+        'skipped_count': len(constraint_status.get('skipped', [])),
+        'solve_status': solve.get('status'),
+        'solve_dof': int(solve.get('dof', -1)),
+        'promotion_edges': [edge.get('entity_id') for edge in promotion.get('edges', [])],
+        'solid_count': 0 if shape.isNull() else len(shape.Solids),
+        'volume': 0.0 if shape.isNull() else float(shape.Volume),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["geom_count"], 5)
+        self.assertEqual(result["circle_count"], 2)
+        self.assertEqual(result["line_count"], 3)
+        self.assertGreaterEqual(result["constraint_count"], 15)
+        self.assertGreaterEqual(result["mapped_kinds"].count("tangent"), 2)
+        self.assertIn("point_on", result["mapped_kinds"])
+        self.assertIn("equal_radius", result["mapped_kinds"])
+        self.assertIn("concentric", result["mapped_kinds"])
+        self.assertLessEqual(result["skipped_count"], 1)
+        self.assertEqual(result["solve_status"], "solved")
+        self.assertEqual(result["solve_dof"], 0)
+        self.assertEqual(result["promotion_edges"], ["relief"])
+        self.assertEqual(result["solid_count"], 1)
+        self.assertAlmostEqual(result["volume"], 16.0 * 3.141592653589793, places=5)
+
+    def test_translate_model_json_records_unsupported_functional_sketch_constraints(self):
+        with GraphSession() as session:
+            sketch = scad.make_sketch_rsketch("fcstd_midpoint_record")
+            sketch = scad.add_point_rsketch(sketch, "p0", 0.0, 0.0)
+            sketch = scad.add_point_rsketch(sketch, "p1", 2.0, 0.0)
+            sketch = scad.add_point_rsketch(sketch, "p2", 2.0, 1.0)
+            sketch = scad.add_point_rsketch(sketch, "p3", 0.0, 1.0)
+            sketch = scad.add_point_rsketch(sketch, "mid", 1.0, 0.0)
+            sketch = scad.add_line_rsketch(sketch, "bottom", "p0", "p1")
+            sketch = scad.add_line_rsketch(sketch, "right", "p1", "p2")
+            sketch = scad.add_line_rsketch(sketch, "top", "p2", "p3")
+            sketch = scad.add_line_rsketch(sketch, "left", "p3", "p0")
+            sketch = scad.constrain_fix_rsketch(sketch, "p0")
+            sketch = scad.constrain_horizontal_rsketch(sketch, "bottom")
+            sketch = scad.constrain_vertical_rsketch(sketch, "right")
+            sketch = scad.constrain_parallel_rsketch(sketch, "bottom", "top")
+            sketch = scad.constrain_parallel_rsketch(sketch, "left", "right")
+            sketch = scad.constrain_distance_rsketch(sketch, "p0", "p1", 2.0)
+            sketch = scad.constrain_distance_rsketch(sketch, "p0", "p3", 1.0)
+            sketch = scad.constrain_midpoint_rsketch(sketch, "mid", "bottom")
+            scad.make_face_from_sketch_rface(sketch)
+        payload = scad.export_model_json(session)
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+sketch = next(obj for obj in doc.Objects if getattr(obj, 'TypeId', '') == 'Sketcher::SketchObject' and getattr(obj, 'SimpleCADOp', '') == 'make_face_from_sketch_rface')
+constraint_status = json.loads(sketch.SimpleCADSketchConstraints)
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'mapped_kinds': [item.get('kind') for item in constraint_status.get('mapped', [])],
+        'skipped': constraint_status.get('skipped', []),
+        'shape_edges': len(sketch.Shape.Edges),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["shape_edges"], 4)
+        self.assertIn("midpoint", [item.get("kind") for item in result["skipped"]])
+        self.assertTrue(
+            any(
+                "no crash-safe FreeCAD Sketcher mapping" in str(item.get("reason"))
+                for item in result["skipped"]
+            )
         )
 
     def test_translate_model_json_binds_mixed_sketch_local_line_and_arc_center_expressions(
