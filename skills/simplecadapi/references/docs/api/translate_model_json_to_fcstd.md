@@ -15,3 +15,10 @@ def translate_model_json_to_fcstd(json_str: str, output_path: str, *, document_n
 ## Description
 
 Translate canonical model JSON to `.FCStd` via FreeCADCmd/FreeCAD.
+
+Functional sketch promotions are written as visible `Sketcher::SketchObject`
+nodes with mapped/skipped constraint evidence. Exact B-spline edges are
+exported to FreeCAD using `Part.BSplineCurve().buildFromPolesMultsKnots(...)`.
+Safe single-use profile transforms such as section rotate/translate chains are
+folded into the section object's placement so downstream `Part::Loft` receives
+already-positioned sections instead of placement-bearing `App::Link` proxies.

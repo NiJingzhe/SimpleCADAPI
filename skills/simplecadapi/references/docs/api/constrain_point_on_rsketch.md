@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def constrain_point_on_rsketch(sketch: Sketch, point: SketchRef, entity: SketchRef, *, constraint_id: Optional[str] = None) -> Sketch
+def constrain_point_on_rsketch(sketch: Sketch, point: Union[SketchRef, str], entity: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch
 ```
 
 *Source: operations.py*

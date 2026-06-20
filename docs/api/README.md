@@ -28,7 +28,6 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_rectangle_rwire](make_rectangle_rwire.md) *(from operations.py)* `top-level`
 - [make_segment_redge](make_segment_redge.md) *(from operations.py)* `top-level`
 - [make_segment_rwire](make_segment_rwire.md) *(from operations.py)* `top-level`
-- [make_sketch_point_rsketchref](make_sketch_point_rsketchref.md) *(from operations.py)* `top-level`
 - [make_sketch_rsketch](make_sketch_rsketch.md) *(from operations.py)* `top-level`
 - [make_sphere_rsolid](make_sphere_rsolid.md) *(from operations.py)* `top-level`
 - [make_spline_redge](make_spline_redge.md) *(from operations.py)* `top-level`
@@ -73,6 +72,11 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 - [translate_model_json_to_fcstd](translate_model_json_to_fcstd.md) *(from freecad_translator.py)* `top-level`
 - [translate_model_json_to_freecad_script](translate_model_json_to_freecad_script.md) *(from freecad_translator.py)* `top-level`
+
+## Math Helpers
+
+- [BSplineFitResult](BSplineFitResult.md) *(from math.py)* `top-level`
+- [fit_cubic_bspline_control_points](fit_cubic_bspline_control_points.md) *(from math.py)* `top-level`
 
 ## Modeling Graph and Replay
 
@@ -124,6 +128,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [SemanticRef](SemanticRef.md) *(from topology.py)* `top-level`
 - [add_circle_rsketch](add_circle_rsketch.md) *(from operations.py)* `top-level`
 - [add_line_rsketch](add_line_rsketch.md) *(from operations.py)* `top-level`
+- [add_point_rsketch](add_point_rsketch.md) *(from operations.py)* `top-level`
 - [and_](and_.md) *(from ql.py)* `submodule:ql`
 - [constrain_angle_rsketch](constrain_angle_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_coincident_rsketch](constrain_coincident_rsketch.md) *(from operations.py)* `top-level`
@@ -150,6 +155,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [geo](geo.md) *(from ql.py)* `submodule:ql`
 - [get_sketch_entity_rsketchref](get_sketch_entity_rsketchref.md) *(from operations.py)* `top-level`
 - [get_sketch_point_rsketchref](get_sketch_point_rsketchref.md) *(from operations.py)* `top-level`
+- [inspect_sketch_rsketchresult](inspect_sketch_rsketchresult.md) *(from operations.py)* `top-level`
 - [linear_pattern_rsolidlist](linear_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [meta](meta.md) *(from ql.py)* `submodule:ql`
 - [not_](not_.md) *(from ql.py)* `submodule:ql`
@@ -157,6 +163,5 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`
-- [solve_sketch_rsketchresult](solve_sketch_rsketchresult.md) *(from operations.py)* `top-level`
 - [tag](tag.md) *(from ql.py)* `submodule:ql`
 - [value](value.md) *(from ql.py)* `submodule:ql`

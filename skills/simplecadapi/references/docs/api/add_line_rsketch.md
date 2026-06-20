@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def add_line_rsketch(sketch: Sketch, entity_id: str, start: SketchRef, end: SketchRef, *, construction: bool = False) -> Sketch
+def add_line_rsketch(sketch: Sketch, entity_id: str, start: Union[SketchRef, str], end: Union[SketchRef, str], *, construction: bool = False) -> Sketch
 ```
 
 *Source: operations.py*
@@ -14,4 +14,4 @@ def add_line_rsketch(sketch: Sketch, entity_id: str, start: SketchRef, end: Sket
 
 ## Description
 
-Add a named line entity to a declarative sketch.
+Add a named line entity and return an updated sketch document.
