@@ -139,6 +139,7 @@ class TestExportImport(unittest.TestCase):
         self.assertTrue(payload["capabilities"]["selection_ref_strategies"])
         self.assertTrue(payload["capabilities"]["geo_select_nodes"])
         self.assertTrue(payload["capabilities"]["display_payload"])
+        self.assertTrue(payload["capabilities"]["sketch_solve_snapshots"])
 
     def test_sdf_field_surface_api_is_not_public(self):
         self.assertFalse(hasattr(scad, "field"))
@@ -210,7 +211,7 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_wire_from_edges_rwire",
             "make_face_from_wire_rface",
             "make_sketch_rsketch",
-            "make_sketch_point_rsketchref",
+            "make_add_point_rsketch",
             "make_add_line_rsketch",
             "make_add_circle_rsketch",
             "make_constrain_coincident_rsketch",
@@ -234,7 +235,6 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_constrain_radius_rsketch",
             "make_constrain_diameter_rsketch",
             "make_constrain_fix_rsketch",
-            "make_solve_sketch_rsketchresult",
             "make_wire_from_sketch_rwire",
             "make_face_from_sketch_rface",
             "make_extrude_rsolid",

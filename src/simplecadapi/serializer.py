@@ -30,7 +30,7 @@ from .errors import raise_harness_error
 from .core import AnyShape, Edge, Face, Solid, Vertex, Wire, use_coordinate_system
 from .graph import attach_graph_node, suspend_graph_recording
 from .ql import selector_from_dict
-from .sketch import Sketch, SketchRef
+from .sketch import Sketch
 from .topology import (
     OperationGraph,
     semantic_delta_to_dict,
@@ -77,7 +77,7 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "op": "make_wire_from_edges_rwire",
     },
     "make_sketch_rsketch": {"status": "replayable", "op": "make_sketch_rsketch"},
-    "make_sketch_point_rsketchref": {"status": "replayable", "op": "make_sketch_point_rsketchref"},
+    "add_point_rsketch": {"status": "replayable", "op": "make_add_point_rsketch"},
     "add_line_rsketch": {"status": "replayable", "op": "make_add_line_rsketch"},
     "add_circle_rsketch": {"status": "replayable", "op": "make_add_circle_rsketch"},
     "constrain_coincident_rsketch": {"status": "replayable", "op": "make_constrain_coincident_rsketch"},
@@ -102,7 +102,10 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     "constrain_radius_rsketch": {"status": "replayable", "op": "make_constrain_radius_rsketch"},
     "constrain_diameter_rsketch": {"status": "replayable", "op": "make_constrain_diameter_rsketch"},
     "constrain_fix_rsketch": {"status": "replayable", "op": "make_constrain_fix_rsketch"},
-    "solve_sketch_rsketchresult": {"status": "replayable", "op": "make_solve_sketch_rsketchresult"},
+    "inspect_sketch_rsketchresult": {
+        "status": "diagnostic",
+        "reason": "Runs the sketch solver for inspection only; solve evidence is recorded on sketch promotion nodes.",
+    },
     "make_wire_from_sketch_rwire": {"status": "replayable", "op": "make_wire_from_sketch_rwire"},
     "make_face_from_sketch_rface": {"status": "replayable", "op": "make_face_from_sketch_rface"},
     "make_box_rsolid": {
@@ -206,7 +209,7 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_wire_from_edges_rwire",
     "make_face_from_wire_rface",
     "make_sketch_rsketch",
-    "make_sketch_point_rsketchref",
+    "make_add_point_rsketch",
     "make_add_line_rsketch",
     "make_add_circle_rsketch",
     "make_constrain_coincident_rsketch",
@@ -230,7 +233,6 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_constrain_radius_rsketch",
     "make_constrain_diameter_rsketch",
     "make_constrain_fix_rsketch",
-    "make_solve_sketch_rsketchresult",
     "make_wire_from_sketch_rwire",
     "make_face_from_sketch_rface",
     "make_extrude_rsolid",
@@ -530,6 +532,8 @@ def export_model_json(
                 "make_helix_redge",
                 "make_wire_from_edges_rwire",
                 "make_face_from_wire_rface",
+                "make_wire_from_sketch_rwire",
+                "make_face_from_sketch_rface",
             }:
                 sketch_profile_registry.append(
                     {
@@ -768,8 +772,20 @@ def _replay_primitive_or_simple(
             tuple(params["normal"]),
         )
     if op_name == "make_spline_redge":
-        ctx.require_params(node_id, op_name, params, ("points",))
-        return ops.make_spline_redge(params["points"], tangents=params.get("tangents"))
+        ctx.require_params(
+            node_id,
+            op_name,
+            params,
+            ("control_points", "degree", "knots", "multiplicities"),
+        )
+        return ops.make_spline_redge(
+            control_points=params["control_points"],
+            degree=params["degree"],
+            knots=params["knots"],
+            multiplicities=params["multiplicities"],
+            weights=params.get("weights"),
+            periodic=bool(params.get("periodic", False)),
+        )
     if op_name == "make_helix_redge":
         ctx.require_params(
             node_id, op_name, params, ("pitch", "height", "radius", "center", "dir")
@@ -1399,11 +1415,11 @@ def _execute_graph(
 
             try:
                 with context_manager:
-                    if op_name == "make_sketch_point_rsketchref":
+                    if op_name == "make_add_point_rsketch":
                         ctx.require_params(node.node_id, op_name, params, ("point_id", "x", "y"))
                         sketch_outputs = _input_outputs(ctx, outputs, node, 0)
                         if sketch_outputs:
-                            result = ops.make_sketch_point_rsketchref(
+                            result = ops.add_point_rsketch(
                                 cast(Sketch, sketch_outputs[0]),
                                 str(params["point_id"]),
                                 params["x"],
@@ -1419,8 +1435,8 @@ def _execute_graph(
                             result = ops.add_line_rsketch(
                                 cast(Sketch, sketch_outputs[0]),
                                 str(params["entity_id"]),
-                                SketchRef.from_dict(cast(Dict[str, Any], params["start"])),
-                                SketchRef.from_dict(cast(Dict[str, Any], params["end"])),
+                                str(params["start"]),
+                                str(params["end"]),
                                 construction=bool(params.get("construction", False)),
                             )
                             _store_outputs(node, result)
@@ -1433,7 +1449,7 @@ def _execute_graph(
                             result = ops.add_circle_rsketch(
                                 cast(Sketch, sketch_outputs[0]),
                                 str(params["entity_id"]),
-                                SketchRef.from_dict(cast(Dict[str, Any], params["center"])),
+                                str(params["center"]),
                                 params["radius"],
                                 construction=bool(params.get("construction", False)),
                             )
@@ -1444,31 +1460,14 @@ def _execute_graph(
                         ctx.require_params(node.node_id, op_name, params, ("targets",))
                         sketch_outputs = _input_outputs(ctx, outputs, node, 0)
                         if sketch_outputs:
-                            target_refs = [
-                                SketchRef.from_dict(cast(Dict[str, Any], target))
-                                for target in params.get("targets", [])
-                            ]
                             result = ops._constrain_rsketch(
                                 cast(Sketch, sketch_outputs[0]),
                                 _SKETCH_CONSTRAINT_KIND_BY_OP[op_name],
-                                target_refs,
+                                [str(target) for target in params.get("targets", [])],
                                 value=params.get("value"),
                                 constraint_id=params.get("constraint_id"),
                                 driving=bool(params.get("driving", True)),
                                 metadata=cast(Dict[str, Any], params.get("metadata", {})),
-                            )
-                            _store_outputs(node, result)
-                        continue
-
-                    if op_name == "make_solve_sketch_rsketchresult":
-                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
-                        if sketch_outputs:
-                            result = ops.solve_sketch_rsketchresult(
-                                cast(Sketch, sketch_outputs[0]),
-                                require_fully_constrained=bool(params.get("require_fully_constrained", False)),
-                                strict=bool(params.get("strict", True)),
-                                tolerance=float(params.get("tolerance", 1e-7)),
-                                max_iterations=int(params.get("max_iterations", 80)),
                             )
                             _store_outputs(node, result)
                         continue
@@ -1479,7 +1478,22 @@ def _execute_graph(
                             result = ops.make_wire_from_sketch_rwire(
                                 cast(Sketch, sketch_outputs[0]),
                                 profile=params.get("profile", 0),
+                                require_fully_constrained=bool(params.get("require_fully_constrained", False)),
+                                strict=bool(params.get("strict", True)),
+                                tolerance=float(params.get("tolerance", 1e-7)),
+                                max_iterations=int(params.get("max_iterations", 80)),
                             )
+                            if ctx.strict and not isinstance(params.get("solve_snapshot"), dict):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) is missing required solve_snapshot"
+                                )
+                            if ctx.strict:
+                                actual = result.get_metadata("sketch_solve", {})
+                                ops._assert_sketch_solve_snapshot_dict_matches(
+                                    cast(Dict[str, Any], actual),
+                                    cast(Dict[str, Any], params["solve_snapshot"]),
+                                    tolerance=float(params.get("tolerance", 1e-7)),
+                                )
                             _store_outputs(node, result)
                         continue
 
@@ -1489,7 +1503,22 @@ def _execute_graph(
                             result = ops.make_face_from_sketch_rface(
                                 cast(Sketch, sketch_outputs[0]),
                                 profile=params.get("profile", 0),
+                                require_fully_constrained=bool(params.get("require_fully_constrained", False)),
+                                strict=bool(params.get("strict", True)),
+                                tolerance=float(params.get("tolerance", 1e-7)),
+                                max_iterations=int(params.get("max_iterations", 80)),
                             )
+                            if ctx.strict and not isinstance(params.get("solve_snapshot"), dict):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) is missing required solve_snapshot"
+                                )
+                            if ctx.strict:
+                                actual = result.get_metadata("sketch_solve", {})
+                                ops._assert_sketch_solve_snapshot_dict_matches(
+                                    cast(Dict[str, Any], actual),
+                                    cast(Dict[str, Any], params["solve_snapshot"]),
+                                    tolerance=float(params.get("tolerance", 1e-7)),
+                                )
                             _store_outputs(node, result)
                         continue
 

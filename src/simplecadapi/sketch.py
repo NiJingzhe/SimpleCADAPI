@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -173,10 +173,12 @@ class SketchSolveResult(TaggedMixin):
 class Sketch(TaggedMixin, TopoMixein):
     """Declarative constrained sketch container.
 
-    Use `make_sketch_rsketch(...)`, `make_sketch_point_rsketchref(...)`,
-    `add_line_rsketch(...)`, and `constrain_*_rsketch(...)` as the canonical
-    API for building sketch profiles. The legacy `curves` constructor remains
-    only for reading already-built wire/edge containers.
+    Use `make_sketch_rsketch(...)`, `add_point_rsketch(...)`,
+    `add_line_rsketch(...)`, `add_circle_rsketch(...)`, and
+    `constrain_*_rsketch(...)` as the canonical API for building sketch
+    profiles. Public sketch construction APIs are functional and return an
+    updated `Sketch` document. The legacy `curves` constructor remains only for
+    reading already-built wire/edge containers.
     """
 
     def __init__(
@@ -228,12 +230,14 @@ class Sketch(TaggedMixin, TopoMixein):
 
         return make_face_from_sketch_rface(self, profile=profile)
 
-    def clone(self) -> "Sketch":
+    def clone(self, *, include_solve: bool = True) -> "Sketch":
         cloned = Sketch(name=self.name, plane=self.plane, sketch_id=self.sketch_id)
+        cloned._tags = self._tags.copy()
+        cloned._metadata = self._metadata.copy()
         cloned.entities = dict(self.entities)
         cloned.entity_order = list(self.entity_order)
         cloned.constraints = list(self.constraints)
-        cloned._last_solve_result = self._last_solve_result
+        cloned._last_solve_result = self._last_solve_result if include_solve else None
         for curve in self.curves():
             cloned.add_curve(curve)
         return cloned
@@ -245,7 +249,6 @@ class Sketch(TaggedMixin, TopoMixein):
             "plane": self.plane,
             "entities": [self.entities[key].to_dict() for key in self.entity_order],
             "constraints": [constraint.to_dict() for constraint in self.constraints],
-            "solve": self._last_solve_result.to_dict() if self._last_solve_result else None,
         }
 
     @classmethod
@@ -288,8 +291,58 @@ class Sketch(TaggedMixin, TopoMixein):
     def point_ref(self, path: str) -> SketchRef:
         if "." in path:
             entity_id, subentity = path.split(".", 1)
+            if entity_id not in self.entities:
+                raise ValueError(f"Unknown sketch entity '{entity_id}'")
+            entity = self.entities[entity_id]
+            valid_subentities = {
+                "line": {"start", "end"},
+                "circle": {"center"},
+            }.get(entity.kind, set())
+            if subentity not in valid_subentities:
+                raise ValueError(
+                    f"Sketch entity '{entity_id}' has no point subentity '{subentity}'"
+                )
             return SketchRef(self.sketch_id, entity_id, kind="point", subentity=subentity)
+        if path not in self.entities:
+            raise ValueError(f"Unknown sketch point '{path}'")
+        entity = self.entities[path]
+        if entity.kind != "point":
+            raise ValueError(f"Sketch entity '{path}' is kind '{entity.kind}', not 'point'")
         return SketchRef(self.sketch_id, path, kind="point")
+
+    def resolve_target(
+        self,
+        target: Union[SketchRef, str],
+        *,
+        expected: Optional[Union[str, Sequence[str]]] = None,
+    ) -> SketchRef:
+        if isinstance(expected, str):
+            expected_kinds = {expected}
+        elif expected is None:
+            expected_kinds = set()
+        else:
+            expected_kinds = {str(item) for item in expected}
+
+        if isinstance(target, SketchRef):
+            ref = target
+        elif isinstance(target, str):
+            if "." in target or expected_kinds == {"point"}:
+                ref = self.point_ref(target)
+            else:
+                if target not in self.entities:
+                    raise ValueError(f"Unknown sketch entity '{target}'")
+                entity = self.entities[target]
+                ref = self.point_ref(target) if entity.kind == "point" else self.ref(target)
+        else:
+            raise TypeError("Sketch targets must be SketchRef or string ids")
+
+        self.validate_ref(ref)
+        if expected_kinds and ref.kind not in expected_kinds:
+            expected_label = ", ".join(sorted(expected_kinds))
+            raise ValueError(
+                f"Sketch target '{ref.entity_id}' is kind '{ref.kind}', expected {expected_label}"
+            )
+        return ref
 
     def add_point(self, point_id: str, x: ScalarLike, y: ScalarLike) -> SketchRef:
         self._add_entity(SketchEntity(point_id, "point", {"x": x, "y": y}))
@@ -389,10 +442,18 @@ class Sketch(TaggedMixin, TopoMixein):
             return self.solve(strict=True)
         return self._last_solve_result
 
-    def make_wire(self, profile: int | str = 0) -> Wire:
+    def make_wire(
+        self,
+        profile: int | str = 0,
+        *,
+        solve_result: Optional[SketchSolveResult] = None,
+    ) -> Wire:
+        profile_payload = self._profile_payload(profile, solve_result=solve_result)
+        return self._wire_from_profile_payload(profile_payload)
+
+    def _wire_from_profile_payload(self, profile_payload: Mapping[str, Any]) -> Wire:
         from .operations import make_circle_redge, make_line_redge, make_wire_from_edges_rwire
 
-        profile_payload = self._profile_payload(profile)
         if profile_payload["kind"] == "circle":
             center = profile_payload["center"]
             edge = make_circle_redge(center, profile_payload["radius"], profile_payload["normal"])
@@ -406,10 +467,15 @@ class Sketch(TaggedMixin, TopoMixein):
             return make_wire_from_edges_rwire(edges)
         raise ValueError(f"Unsupported sketch profile kind '{profile_payload['kind']}'")
 
-    def make_face(self, profile: int | str = 0) -> Face:
+    def make_face(
+        self,
+        profile: int | str = 0,
+        *,
+        solve_result: Optional[SketchSolveResult] = None,
+    ) -> Face:
         from .operations import make_face_from_wire_rface
 
-        wire = self.make_wire(profile=profile)
+        wire = self.make_wire(profile=profile, solve_result=solve_result)
         return make_face_from_wire_rface(wire, normal=self._plane_normal_tuple())
 
     def _add_entity(self, entity: SketchEntity) -> None:
@@ -496,8 +562,13 @@ class Sketch(TaggedMixin, TopoMixein):
         _origin, _x_axis, _y_axis, normal = self._plane_frame()
         return (float(normal[0]), float(normal[1]), float(normal[2]))
 
-    def _profile_payload(self, profile: int | str = 0) -> Dict[str, Any]:
-        result = self.solved_result()
+    def _profile_payload(
+        self,
+        profile: int | str = 0,
+        *,
+        solve_result: Optional[SketchSolveResult] = None,
+    ) -> Dict[str, Any]:
+        result = solve_result or self.solved_result()
         profiles = self._profiles_from_solution(result)
         if not profiles:
             raise ValueError("Sketch does not contain a closed non-construction profile")
@@ -525,6 +596,7 @@ class Sketch(TaggedMixin, TopoMixein):
                     {
                         "id": entity_id,
                         "kind": "circle",
+                        "entity_ids": [entity_id],
                         "center": self._point3(center),
                         "radius": float(result.solved_scalars[scalar_key]),
                         "normal": self._plane_normal_tuple(),
@@ -545,14 +617,16 @@ class Sketch(TaggedMixin, TopoMixein):
             first_line = min(unused, key=self.entity_order.index)
             component = self._line_component(first_line, unused)
             unused.difference_update(component)
-            loop = self._ordered_line_loop(component)
-            if loop is None:
+            ordered = self._ordered_line_loop(component)
+            if ordered is None:
                 continue
-            point_ids = loop
+            point_ids, ordered_line_ids = ordered
             profiles.append(
                 {
                     "id": component[0],
                     "kind": "line_loop",
+                    "entity_ids": list(ordered_line_ids),
+                    "point_ids": list(point_ids),
                     "points": [self._point3(result.solved_points[pid]) for pid in point_ids],
                 }
             )
@@ -578,7 +652,7 @@ class Sketch(TaggedMixin, TopoMixein):
                         queue.append(other_id)
         return sorted(seen_lines, key=self.entity_order.index)
 
-    def _ordered_line_loop(self, line_ids: Sequence[str]) -> Optional[List[str]]:
+    def _ordered_line_loop(self, line_ids: Sequence[str]) -> Optional[Tuple[List[str], List[str]]]:
         adjacency: Dict[str, List[str]] = {}
         for line_id in line_ids:
             entity = self.entities[line_id]
@@ -595,6 +669,7 @@ class Sketch(TaggedMixin, TopoMixein):
         current_point = str(entity.data["end"])
         used_lines = {start_line}
         ordered_points = [start_point, current_point]
+        ordered_line_ids = [start_line]
 
         while current_point != start_point:
             options = [line_id for line_id in adjacency[current_point] if line_id not in used_lines]
@@ -602,6 +677,7 @@ class Sketch(TaggedMixin, TopoMixein):
                 return None
             next_line = options[0]
             used_lines.add(next_line)
+            ordered_line_ids.append(next_line)
             next_entity = self.entities[next_line]
             next_start = str(next_entity.data["start"])
             next_end = str(next_entity.data["end"])
@@ -612,7 +688,7 @@ class Sketch(TaggedMixin, TopoMixein):
                 return None
         if len(used_lines) != len(line_ids):
             return None
-        return ordered_points
+        return ordered_points, ordered_line_ids
 
 
 class _SketchSolver:

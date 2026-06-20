@@ -21,6 +21,7 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "ql.py",
     "serializer.py",
     "freecad_translator.py",
+    "math.py",
     "expr.py",
     "graph.py",
     "sketch.py",
@@ -33,6 +34,7 @@ FULL_PUBLIC_FUNCTION_MODULES = frozenset(
         "operations.py",
         "evolve.py",
         "ql.py",
+        "math.py",
     }
 )
 
@@ -41,7 +43,7 @@ EXPORTED_FUNCTION_MODULES = frozenset(
 )
 
 EXPORTED_CALLABLE_MODULES = frozenset(
-    {"expr.py", "graph.py", "sketch.py", "errors.py", "topology.py"}
+    {"expr.py", "graph.py", "sketch.py", "errors.py", "topology.py", "math.py"}
 )
 
 MISSING = object()
@@ -415,6 +417,7 @@ class APIDocumentGenerator:
             "Boolean Operations": [],
             "Export": [],
             "FreeCAD Translation": [],
+            "Math Helpers": [],
             "Modeling Graph and Replay": [],
             "Expressions and Parameters": [],
             "Types and Errors": [],
@@ -436,6 +439,10 @@ class APIDocumentGenerator:
 
             if api.source_file == "freecad_translator.py":
                 categories["FreeCAD Translation"].append(api)
+                continue
+
+            if api.source_file == "math.py":
+                categories["Math Helpers"].append(api)
                 continue
 
             if api.source_file == "expr.py":

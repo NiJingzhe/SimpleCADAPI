@@ -12,7 +12,7 @@ import os
 import pprint
 import shutil
 import tempfile
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .errors import raise_harness_error
 from .serializer import import_model_json
@@ -117,9 +117,10 @@ _OP_EXPRESSION_BINDINGS: Dict[str, Tuple[Tuple[str, Tuple[Any, ...]], ...]] = {
 
 _OP_EXPRESSION_LIMITATIONS: Dict[str, str] = {
     "make_spline_redge": (
-        "Canonical function-fit spline expressions have no stable equivalent native "
-        "FreeCAD BSpline parameter host. The translator exports spline geometry, but "
-        "does not map make_spline_redge param_exprs into FreeCAD ExpressionEngine."
+        "Exact B-spline pole/weight expressions have no stable equivalent native "
+        "FreeCAD Sketcher BSpline parameter host. The translator exports exact "
+        "B-spline geometry, but does not map make_spline_redge param_exprs into "
+        "FreeCAD ExpressionEngine."
     ),
 }
 
@@ -270,6 +271,8 @@ class FreeCADScriptTranslator:
         self.document_name = document_name
         self._source_graph: Optional[OperationGraph] = None
         self._expr_alias_by_id: Dict[str, str] = {}
+        self._result_node_ids: Set[str] = set()
+        self._result_node_id_list: List[str] = []
 
     def _compile_time_expr_formula(self, expr_ref: Any) -> Optional[str]:
         if not isinstance(expr_ref, dict):
@@ -343,6 +346,12 @@ class FreeCADScriptTranslator:
                 "FreeCAD translation requires payload to contain a non-empty canonical low-level graph"
             )
         self._source_graph = source_graph
+        leaf_ids = payload.get("leaf_ids")
+        if isinstance(leaf_ids, list) and leaf_ids:
+            self._result_node_id_list = [str(v) for v in leaf_ids]
+        else:
+            self._result_node_id_list = [leaf.node_id for leaf in source_graph.leaf_nodes()]
+        self._result_node_ids = set(self._result_node_id_list)
 
         lines: List[str] = []
         emit = lines.append
@@ -416,13 +425,7 @@ class FreeCADScriptTranslator:
         emit("doc.recompute()")
         emit("")
         emit("# Leaf/result metadata")
-        leaf_ids = payload.get("leaf_ids")
-        if isinstance(leaf_ids, list) and leaf_ids:
-            emit(f"RESULT_NODE_IDS = {_py_literal([str(v) for v in leaf_ids])}")
-        else:
-            emit(
-                f"RESULT_NODE_IDS = {_py_literal([leaf.node_id for leaf in source_graph.leaf_nodes()])}"
-            )
+        emit(f"RESULT_NODE_IDS = {_py_literal(self._result_node_id_list)}")
         emit(
             "RESULT_OBJECTS = [obj for node_id in RESULT_NODE_IDS for obj in GRAPH_OUTPUTS.get(node_id, [])]"
         )
@@ -540,6 +543,27 @@ class FreeCADScriptTranslator:
             return f"=atan2({args[0]}; {args[1]}) * pi / 180"
         return None
 
+    def _can_fold_transform_into_input(self, node: OperationNode) -> bool:
+        graph = self._source_graph
+        if graph is None or node.op not in {"make_translate_rshape", "make_rotate_rshape"} or len(node.inputs) != 1:
+            return False
+        source = node.inputs[0]
+        if source.op not in {
+            "make_extrude_rsolid",
+            "make_wire_from_edges_rwire",
+            "make_face_from_wire_rface",
+            "make_wire_from_sketch_rwire",
+            "make_face_from_sketch_rface",
+            "make_translate_rshape",
+            "make_rotate_rshape",
+        }:
+            return False
+        if source.node_id in self._result_node_ids:
+            return False
+        if graph.downstream_nodes(source.node_id) != [node.node_id]:
+            return False
+        return True
+
     def _script_helpers(self) -> str:
         return """
 class SimpleCADUnsupportedOpError(RuntimeError):
@@ -547,17 +571,17 @@ class SimpleCADUnsupportedOpError(RuntimeError):
 
 
 def _ensure_string_property(obj, prop_name, group='SimpleCAD'):
-    if not hasattr(obj, prop_name):
+    if prop_name not in list(getattr(obj, 'PropertiesList', []) or []):
         obj.addProperty('App::PropertyString', prop_name, group)
 
 
 def _ensure_string_list_property(obj, prop_name, group='SimpleCAD'):
-    if not hasattr(obj, prop_name):
+    if prop_name not in list(getattr(obj, 'PropertiesList', []) or []):
         obj.addProperty('App::PropertyStringList', prop_name, group)
 
 
 def _ensure_string_map_property(obj, prop_name, group='SimpleCAD'):
-    if not hasattr(obj, prop_name):
+    if prop_name not in list(getattr(obj, 'PropertiesList', []) or []):
         obj.addProperty('App::PropertyMap', prop_name, group)
 
 
@@ -613,6 +637,35 @@ def _attach_simplecad_metadata(obj, *, node_id, op, params, inputs, tags, contex
     obj.SimpleCADExprSupport = 'limited' if limitation else 'mapped_or_not_requested'
     obj.SimpleCADExprLimitation = limitation['reason'] if limitation else ''
     obj.SimpleCADTags = [str(tag) for tag in (tags or [])]
+
+
+def _append_folded_op_metadata(obj, *, node_id, op, params, inputs, tags, context, output_count, param_exprs=None, semantic_delta=None, topo_delta=None):
+    _ensure_string_property(obj, 'SimpleCADFoldedOps')
+    try:
+        folded = json.loads(obj.SimpleCADFoldedOps) if obj.SimpleCADFoldedOps else []
+    except Exception:
+        folded = []
+    if not isinstance(folded, list):
+        folded = []
+    folded.append({
+        'node_id': str(node_id),
+        'op': str(op),
+        'params': params or {},
+        'inputs': list(inputs or []),
+        'tags': list(tags or []),
+        'context': context or {},
+        'output_count': int(output_count),
+        'param_exprs': param_exprs or {},
+        'semantic_delta': semantic_delta or {},
+        'topo_delta': topo_delta or {},
+    })
+    obj.SimpleCADFoldedOps = json.dumps(folded, ensure_ascii=True, sort_keys=True)
+    existing_tags = list(getattr(obj, 'SimpleCADTags', []) or [])
+    merged_tags = sorted({str(tag) for tag in existing_tags + list(tags or [])})
+    try:
+        obj.SimpleCADTags = merged_tags
+    except Exception:
+        pass
 
 
 def _record_graph_output(node_id, obj):
@@ -682,6 +735,35 @@ def _register_graph_alias(*, node_id, source_node_id, op, params, inputs, tags, 
         'tags': list(tags or []),
     }
     GRAPH_OUTPUTS[node_id] = list(GRAPH_OUTPUTS.get(source_node_id, []))
+    return source_obj
+
+
+def _register_graph_folded_alias(*, node_id, source_node_id, op, params, inputs, tags, context, output_count, param_exprs=None, semantic_delta=None, topo_delta=None):
+    source_obj = _node_object(source_node_id)
+    _append_folded_op_metadata(
+        source_obj,
+        node_id=node_id,
+        op=op,
+        params=params,
+        inputs=inputs,
+        tags=tags,
+        context=context,
+        output_count=output_count,
+        param_exprs=param_exprs,
+        semantic_delta=semantic_delta,
+        topo_delta=topo_delta,
+    )
+    GRAPH_NODES[node_id] = source_obj
+    GRAPH_METADATA[node_id] = {
+        'op': op,
+        'params': params,
+        'inputs': list(inputs),
+        'context': context or {},
+        'tags': list(tags or []),
+        'folded_into': str(source_node_id),
+    }
+    _record_graph_limitation(node_id, op, param_exprs)
+    GRAPH_OUTPUTS[node_id] = [source_obj]
     return source_obj
 
 
@@ -760,6 +842,19 @@ def _set_visibility(obj, visible):
             obj.Visibility = bool(visible)
     except Exception:
         pass
+
+
+def _placement_for_rotation(origin, axis, angle_degrees):
+    center = _vec(origin)
+    rotation = App.Rotation(_vec(axis), float(angle_degrees))
+    to_center = App.Placement(center, rotation)
+    from_center = App.Placement(App.Vector(-center.x, -center.y, -center.z), App.Rotation())
+    return to_center.multiply(from_center)
+
+
+def _fold_object_placement(obj, placement):
+    obj.Placement = placement.multiply(obj.Placement)
+    return obj
 
 
 def _apply_result_visibility(result_node_ids):
@@ -1255,34 +1350,24 @@ def _local_angle_arc(circle_center, radius, start_angle, end_angle, normal, orig
     return Part.Arc(start_local, mid_local, end_local)
 
 
-def _select_fit_samples(points, target_count=6):
-    pts = [tuple(float(v) for v in point) for point in points]
-    if len(pts) <= 2 or target_count <= 2 or len(pts) <= target_count:
-        return pts
-    result = [pts[0]]
-    interior_count = int(target_count) - 2
-    last_index = len(pts) - 1
-    for i in range(1, interior_count + 1):
-        idx = round(i * last_index / (interior_count + 1))
-        idx = max(1, min(last_index - 1, int(idx)))
-        result.append(pts[idx])
-    result.append(pts[-1])
-    deduped = []
-    for point in result:
-        if not deduped or point != deduped[-1]:
-            deduped.append(point)
-    return deduped if len(deduped) >= 2 else pts[:2]
-
-
-def _fit_bspline_curve(points, target_count=6):
-    selected = _select_fit_samples(points, target_count)
-    return Part.BSplineCurve([_vec(point) for point in selected])
-
-
-def _interpolate_bspline_curve(points, target_count=6):
-    selected = _select_fit_samples(points, target_count)
+def _bspline_curve_from_params(params, transform_point=None):
+    poles = []
+    for point in params.get('control_points') or []:
+        point3 = tuple(point) + (0.0,) if len(tuple(point)) == 2 else tuple(point)
+        pole = transform_point(point3) if transform_point is not None else _vec(point3)
+        poles.append(pole)
+    if not poles:
+        raise RuntimeError('B-spline has no control points')
+    mults = tuple(int(value) for value in (params.get('multiplicities') or []))
+    knots = tuple(float(value) for value in (params.get('knots') or []))
+    degree = int(params.get('degree', 3))
+    periodic = bool(params.get('periodic', False))
+    weights = params.get('weights')
     curve = Part.BSplineCurve()
-    curve.interpolate([_vec(point) for point in selected])
+    if weights is None:
+        curve.buildFromPolesMultsKnots(poles, mults, knots, periodic, degree)
+    else:
+        curve.buildFromPolesMultsKnots(poles, mults, knots, periodic, degree, tuple(float(value) for value in weights))
     return curve
 
 
@@ -1353,6 +1438,556 @@ def _register_ir_node(name, *, node_id, op, params, inputs, tags, context, outpu
         semantic_delta=semantic_delta,
         topo_delta=topo_delta,
     )
+
+
+def _placement_from_frame(origin, x_axis, y_axis, z_axis):
+    m = App.Matrix()
+    m.A11, m.A21, m.A31 = x_axis.x, x_axis.y, x_axis.z
+    m.A12, m.A22, m.A32 = y_axis.x, y_axis.y, y_axis.z
+    m.A13, m.A23, m.A33 = z_axis.x, z_axis.y, z_axis.z
+    return App.Placement(origin, App.Rotation(m))
+
+
+def _sketch_plane_frame(plane):
+    if isinstance(plane, str):
+        token = plane.upper()
+        if token == 'XY':
+            origin = App.Vector(0.0, 0.0, 0.0)
+            x_axis = App.Vector(1.0, 0.0, 0.0)
+            y_axis = App.Vector(0.0, 1.0, 0.0)
+            z_axis = App.Vector(0.0, 0.0, 1.0)
+            return origin, x_axis, y_axis, z_axis
+        if token == 'XZ':
+            origin = App.Vector(0.0, 0.0, 0.0)
+            x_axis = App.Vector(1.0, 0.0, 0.0)
+            y_axis = App.Vector(0.0, 0.0, 1.0)
+            z_axis = App.Vector(0.0, -1.0, 0.0)
+            return origin, x_axis, y_axis, z_axis
+        if token == 'YZ':
+            origin = App.Vector(0.0, 0.0, 0.0)
+            x_axis = App.Vector(0.0, 1.0, 0.0)
+            y_axis = App.Vector(0.0, 0.0, 1.0)
+            z_axis = App.Vector(1.0, 0.0, 0.0)
+            return origin, x_axis, y_axis, z_axis
+    if isinstance(plane, dict):
+        origin = _vec(plane.get('origin', (0.0, 0.0, 0.0)))
+        x_axis = _normalized_vec(plane.get('x_axis', (1.0, 0.0, 0.0)))
+        y_axis = _normalized_vec(plane.get('y_axis', (0.0, 1.0, 0.0)))
+        z_axis = x_axis.cross(y_axis)
+        z_len = float(getattr(z_axis, 'Length', 0.0))
+        if z_len == 0.0:
+            raise RuntimeError('Sketch plane x_axis and y_axis must not be parallel')
+        z_axis = App.Vector(z_axis.x / z_len, z_axis.y / z_len, z_axis.z / z_len)
+        y_axis = z_axis.cross(x_axis)
+        y_len = float(getattr(y_axis, 'Length', 0.0))
+        y_axis = App.Vector(y_axis.x / y_len, y_axis.y / y_len, y_axis.z / y_len)
+        return origin, x_axis, y_axis, z_axis
+    raise RuntimeError(f'Unsupported sketch plane payload: {plane!r}')
+
+
+def _sketch_entity_maps(sketch_payload):
+    entities = list(sketch_payload.get('entities') or []) if isinstance(sketch_payload, dict) else []
+    return entities, {str(entity.get('id')): entity for entity in entities if isinstance(entity, dict) and entity.get('id') is not None}
+
+
+def _sketch_solved_point(point_id, sketch_payload, solve_snapshot):
+    solved = (solve_snapshot or {}).get('solved_points', {}) if isinstance(solve_snapshot, dict) else {}
+    if point_id in solved:
+        point = solved[point_id]
+        return (float(point[0]), float(point[1]))
+    _entities, by_id = _sketch_entity_maps(sketch_payload)
+    entity = by_id.get(str(point_id))
+    if isinstance(entity, dict) and entity.get('kind') == 'point':
+        return (float(entity.get('x', 0.0)), float(entity.get('y', 0.0)))
+    raise RuntimeError(f'Missing solved sketch point {point_id!r}')
+
+
+def _sketch_solved_radius(entity_id, entity, solve_snapshot):
+    key = f'circle:{entity_id}:radius'
+    scalars = (solve_snapshot or {}).get('solved_scalars', {}) if isinstance(solve_snapshot, dict) else {}
+    if key in scalars:
+        return float(scalars[key])
+    return float(entity.get('radius', 0.0))
+
+
+def _sketch_profile_entity_ids(params, sketch_payload):
+    promotion_map = params.get('promotion_map') if isinstance(params, dict) else None
+    if isinstance(promotion_map, dict):
+        edges = promotion_map.get('edges') or []
+        ids = [str(edge.get('entity_id')) for edge in edges if isinstance(edge, dict) and edge.get('entity_id') is not None]
+        if ids:
+            return ids
+    entities, _by_id = _sketch_entity_maps(sketch_payload)
+    return [
+        str(entity.get('id'))
+        for entity in entities
+        if entity.get('kind') in {'line', 'circle'} and not bool(entity.get('construction', False))
+    ]
+
+
+def _sketch_world_point(point_id, sketch_payload, solve_snapshot, origin, x_axis, y_axis):
+    x, y = _sketch_solved_point(point_id, sketch_payload, solve_snapshot)
+    return App.Vector(
+        origin.x + x * x_axis.x + y * y_axis.x,
+        origin.y + x * x_axis.y + y * y_axis.y,
+        origin.z + x * x_axis.z + y * y_axis.z,
+    )
+
+
+def _sketch_local_point(point_id, sketch_payload, solve_snapshot):
+    x, y = _sketch_solved_point(point_id, sketch_payload, solve_snapshot)
+    return App.Vector(x, y, 0.0)
+
+
+def _sketch_wire_shape_from_promotion(params):
+    sketch_payload = params.get('sketch') or {}
+    solve_snapshot = params.get('solve_snapshot') or {}
+    origin, x_axis, y_axis, z_axis = _sketch_plane_frame(sketch_payload.get('plane', 'XY'))
+    _entities, by_id = _sketch_entity_maps(sketch_payload)
+    edge_shapes = []
+    for entity_id in _sketch_profile_entity_ids(params, sketch_payload):
+        entity = by_id.get(str(entity_id))
+        if not isinstance(entity, dict):
+            continue
+        kind = str(entity.get('kind'))
+        if kind == 'line':
+            start = _sketch_world_point(str(entity.get('start')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
+            end = _sketch_world_point(str(entity.get('end')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
+            edge_shapes.append(Part.LineSegment(start, end).toShape())
+        elif kind == 'circle':
+            center = _sketch_world_point(str(entity.get('center')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
+            edge_shapes.append(Part.Circle(center, z_axis, _sketch_solved_radius(str(entity_id), entity, solve_snapshot)).toShape())
+    if not edge_shapes:
+        raise RuntimeError('Sketch promotion has no profile geometry to materialize')
+    return Part.Wire(edge_shapes)
+
+
+def _sketch_entity_expr(param_exprs, entity_index, *path):
+    expr_meta = _nested_expr_ref(param_exprs or {}, 'sketch', 'entities', int(entity_index))
+    if expr_meta is None:
+        return None
+    return _nested_expr_ref(expr_meta, *path)
+
+
+def _sketch_constraint_value_expr(param_exprs, constraint_index):
+    return _nested_expr_ref(param_exprs or {}, 'sketch', 'constraints', int(constraint_index), 'value')
+
+
+def _sketch_constraint_status_append(status, source, mapped, **payload):
+    entry = {'id': source.get('id') if isinstance(source, dict) else None, 'kind': source.get('kind') if isinstance(source, dict) else None}
+    entry.update(payload)
+    status['mapped' if mapped else 'skipped'].append(entry)
+
+
+def _sketch_constraint_priority(item):
+    _index, constraint = item
+    kind = str(constraint.get('kind')) if isinstance(constraint, dict) else ''
+    priorities = {
+        'coincident': 0,
+        'connect': 0,
+        'point_on': 1,
+        'fix': 2,
+        'horizontal': 3,
+        'vertical': 3,
+        'distance': 4,
+        'distance_x': 4,
+        'distance_y': 4,
+        'length': 4,
+        'radius': 4,
+        'diameter': 4,
+        'angle': 4,
+        'parallel': 5,
+        'perpendicular': 5,
+        'collinear': 5,
+        'tangent': 5,
+        'concentric': 5,
+        'equal_length': 5,
+        'equal_radius': 5,
+        'midpoint': 6,
+        'symmetric': 6,
+    }
+    return priorities.get(kind, 9), int(_index)
+
+
+def _validate_sketch_constraint(sketch_obj, idx):
+    try:
+        result = sketch_obj.solve()
+    except Exception as exc:
+        return False, f'FreeCAD Sketcher solver raised {exc!r}'
+    try:
+        result_int = int(result)
+    except Exception:
+        return True, ''
+    if result_int < 0:
+        return False, f'FreeCAD Sketcher solver rejected constraint with result {result_int}'
+    return True, ''
+
+
+def _remove_sketch_constraint(sketch_obj, idx):
+    try:
+        if hasattr(sketch_obj, 'setExpression'):
+            sketch_obj.setExpression(f'Constraints[{int(idx)}]', None)
+    except Exception:
+        pass
+    try:
+        sketch_obj.delConstraint(int(idx))
+    except Exception:
+        pass
+
+
+def _safe_add_sketch_constraint(sketch_obj, status, source, freecad_kind, *args, expr_ref=None, synthetic=False):
+    if Sketcher is None:
+        _sketch_constraint_status_append(status, source, False, freecad_kind=freecad_kind, reason='Sketcher module is unavailable', synthetic=bool(synthetic))
+        return None
+    try:
+        idx = sketch_obj.addConstraint(Sketcher.Constraint(freecad_kind, *args))
+    except Exception as exc:
+        _sketch_constraint_status_append(status, source, False, freecad_kind=freecad_kind, reason=str(exc), synthetic=bool(synthetic))
+        return None
+    if expr_ref is not None:
+        _bind_expression(sketch_obj, f'Constraints[{int(idx)}]', expr_ref)
+    ok, reason = _validate_sketch_constraint(sketch_obj, idx)
+    if not ok:
+        _remove_sketch_constraint(sketch_obj, idx)
+        _sketch_constraint_status_append(status, source, False, freecad_kind=freecad_kind, reason=reason, synthetic=bool(synthetic))
+        return None
+    serializable_args = [int(arg) if isinstance(arg, int) and not isinstance(arg, bool) else arg for arg in args]
+    _sketch_constraint_status_append(status, source, True, freecad_kind=freecad_kind, index=int(idx), args=serializable_args, synthetic=bool(synthetic))
+    return int(idx)
+
+
+def _target_point_id(target, by_id):
+    if not isinstance(target, dict):
+        return None
+    entity_id = str(target.get('entity_id'))
+    subentity = str(target.get('subentity', 'geometry'))
+    entity = by_id.get(entity_id)
+    if not isinstance(entity, dict):
+        return None
+    kind = str(entity.get('kind'))
+    if kind == 'point':
+        return entity_id
+    if kind == 'line' and subentity in {'start', 'end'}:
+        return str(entity.get(subentity))
+    if kind == 'circle' and subentity == 'center':
+        return str(entity.get('center'))
+    return None
+
+
+def _target_point_ref(target, by_id, point_refs):
+    point_id = _target_point_id(target, by_id)
+    if point_id is None:
+        return None
+    refs = point_refs.get(point_id) or []
+    return refs[0] if refs else None
+
+
+def _target_entity_ref(target, by_id, geom_by_entity):
+    if not isinstance(target, dict):
+        return None
+    entity_id = str(target.get('entity_id'))
+    entity = by_id.get(entity_id)
+    if not isinstance(entity, dict):
+        return None
+    geom_index = geom_by_entity.get(entity_id)
+    if geom_index is None:
+        return None
+    return int(geom_index), str(entity.get('kind'))
+
+
+def _fix_point_constraint(sketch_obj, status, source, point_ref, x_value, y_value, x_expr=None, y_expr=None):
+    if point_ref is None:
+        _sketch_constraint_status_append(status, source, False, reason='Target point is not represented by safe Sketcher geometry')
+        return
+    geom_index, pos = point_ref
+    _safe_add_sketch_constraint(sketch_obj, status, source, 'DistanceX', int(geom_index), int(pos), float(x_value), expr_ref=x_expr)
+    _safe_add_sketch_constraint(sketch_obj, status, source, 'DistanceY', int(geom_index), int(pos), float(y_value), expr_ref=y_expr)
+
+
+def _materialize_sketch_constraints(sketch_obj, sketch_payload, params, param_exprs, geom_by_entity, point_refs):
+    status = {'mapped': [], 'skipped': []}
+    entities, by_id = _sketch_entity_maps(sketch_payload)
+    entity_index_by_id = {str(entity.get('id')): idx for idx, entity in enumerate(entities)}
+    solve_snapshot = params.get('solve_snapshot') or {}
+
+    for point_id, refs in sorted(point_refs.items()):
+        if len(refs) < 2:
+            continue
+        first_geom, first_pos = refs[0]
+        for geom_index, pos in refs[1:]:
+            _safe_add_sketch_constraint(
+                sketch_obj,
+                status,
+                {'id': f'point_identity:{point_id}', 'kind': 'coincident'},
+                'Coincident',
+                int(first_geom),
+                int(first_pos),
+                int(geom_index),
+                int(pos),
+                synthetic=True,
+            )
+
+    constraints = list(sketch_payload.get('constraints') or []) if isinstance(sketch_payload, dict) else []
+    for constraint_index, constraint in sorted(enumerate(constraints), key=_sketch_constraint_priority):
+        if not isinstance(constraint, dict):
+            continue
+        kind = str(constraint.get('kind'))
+        targets = list(constraint.get('targets') or [])
+        value = constraint.get('value')
+        value_expr = _sketch_constraint_value_expr(param_exprs, constraint_index)
+
+        if kind in {'coincident', 'connect'} and len(targets) == 2:
+            a = _target_point_ref(targets[0], by_id, point_refs)
+            b = _target_point_ref(targets[1], by_id, point_refs)
+            if a is None or b is None:
+                _sketch_constraint_status_append(status, constraint, False, reason='Coincident target is not represented by safe Sketcher geometry')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Coincident', int(a[0]), int(a[1]), int(b[0]), int(b[1]))
+            continue
+
+        if kind == 'point_on' and len(targets) == 2:
+            point_ref = _target_point_ref(targets[0], by_id, point_refs)
+            entity_ref = _target_entity_ref(targets[1], by_id, geom_by_entity)
+            if point_ref is None or entity_ref is None:
+                _sketch_constraint_status_append(status, constraint, False, reason='Point-on target is not represented by safe Sketcher geometry')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'PointOnObject', int(point_ref[0]), int(point_ref[1]), int(entity_ref[0]))
+            continue
+
+        if kind in {'horizontal', 'vertical'} and len(targets) == 1:
+            entity_ref = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            if entity_ref is None or entity_ref[1] != 'line':
+                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} requires a materialized line')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Horizontal' if kind == 'horizontal' else 'Vertical', int(entity_ref[0]))
+            continue
+
+        if kind in {'parallel', 'perpendicular', 'equal_length', 'angle'} and len(targets) == 2:
+            a = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            b = _target_entity_ref(targets[1], by_id, geom_by_entity)
+            if a is None or b is None or a[1] != 'line' or b[1] != 'line':
+                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} requires two materialized lines')
+                continue
+            if kind == 'parallel':
+                _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Parallel', int(a[0]), int(b[0]))
+            elif kind == 'perpendicular':
+                _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Perpendicular', int(a[0]), int(b[0]))
+            elif kind == 'equal_length':
+                _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Equal', int(a[0]), int(b[0]))
+            else:
+                _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Angle', int(a[0]), int(b[0]), float(value), expr_ref=value_expr)
+            continue
+
+        if kind == 'collinear' and len(targets) == 2:
+            a = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            b_target = targets[1]
+            b = _target_entity_ref(b_target, by_id, geom_by_entity)
+            if a is None or b is None or a[1] != 'line' or b[1] != 'line':
+                _sketch_constraint_status_append(status, constraint, False, reason='collinear requires two materialized lines')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Parallel', int(a[0]), int(b[0]))
+            b_entity = by_id.get(str(b_target.get('entity_id')))
+            if isinstance(b_entity, dict):
+                for point_id in (str(b_entity.get('start')), str(b_entity.get('end'))):
+                    refs = point_refs.get(point_id) or []
+                    if refs:
+                        _safe_add_sketch_constraint(sketch_obj, status, constraint, 'PointOnObject', int(refs[0][0]), int(refs[0][1]), int(a[0]))
+            continue
+
+        if kind in {'equal_radius', 'concentric'} and len(targets) == 2:
+            a = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            b = _target_entity_ref(targets[1], by_id, geom_by_entity)
+            if a is None or b is None or a[1] != 'circle' or b[1] != 'circle':
+                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} requires two materialized circles')
+                continue
+            if kind == 'equal_radius':
+                _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Equal', int(a[0]), int(b[0]))
+            else:
+                _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Coincident', int(a[0]), 3, int(b[0]), 3)
+            continue
+
+        if kind == 'tangent' and len(targets) == 2:
+            a = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            b = _target_entity_ref(targets[1], by_id, geom_by_entity)
+            if a is None or b is None or a[1] not in {'line', 'circle'} or b[1] not in {'line', 'circle'}:
+                _sketch_constraint_status_append(status, constraint, False, reason='tangent requires two materialized line/circle entities')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Tangent', int(a[0]), int(b[0]))
+            continue
+
+        if kind in {'distance', 'distance_x', 'distance_y'} and len(targets) == 2:
+            a = _target_point_ref(targets[0], by_id, point_refs)
+            b = _target_point_ref(targets[1], by_id, point_refs)
+            if a is None or b is None:
+                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} target is not represented by safe Sketcher geometry')
+                continue
+            fc_kind = {'distance': 'Distance', 'distance_x': 'DistanceX', 'distance_y': 'DistanceY'}[kind]
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, fc_kind, int(a[0]), int(a[1]), int(b[0]), int(b[1]), float(value), expr_ref=value_expr)
+            continue
+
+        if kind == 'length' and len(targets) == 1:
+            entity_ref = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            if entity_ref is None or entity_ref[1] != 'line':
+                _sketch_constraint_status_append(status, constraint, False, reason='length requires a materialized line')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Distance', int(entity_ref[0]), float(value), expr_ref=value_expr)
+            continue
+
+        if kind in {'radius', 'diameter'} and len(targets) == 1:
+            entity_ref = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            if entity_ref is None or entity_ref[1] != 'circle':
+                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} requires a materialized circle')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Radius' if kind == 'radius' else 'Diameter', int(entity_ref[0]), float(value), expr_ref=value_expr)
+            continue
+
+        if kind == 'fix' and len(targets) == 1:
+            target = targets[0]
+            entity_id = str(target.get('entity_id')) if isinstance(target, dict) else ''
+            entity = by_id.get(entity_id)
+            if not isinstance(entity, dict):
+                _sketch_constraint_status_append(status, constraint, False, reason='fix target entity is missing')
+                continue
+            entity_kind = str(entity.get('kind'))
+            if entity_kind == 'point':
+                point_id = entity_id
+                x_value, y_value = _sketch_solved_point(point_id, sketch_payload, solve_snapshot)
+                expr_meta = _sketch_entity_expr(param_exprs, entity_index_by_id[point_id])
+                _fix_point_constraint(sketch_obj, status, constraint, _target_point_ref(target, by_id, point_refs), x_value, y_value, _nested_expr_ref(expr_meta, 'x'), _nested_expr_ref(expr_meta, 'y'))
+            elif entity_kind == 'line':
+                for point_key in ('start', 'end'):
+                    point_id = str(entity.get(point_key))
+                    x_value, y_value = _sketch_solved_point(point_id, sketch_payload, solve_snapshot)
+                    point_entity_index = entity_index_by_id.get(point_id)
+                    expr_meta = _sketch_entity_expr(param_exprs, point_entity_index) if point_entity_index is not None else None
+                    refs = point_refs.get(point_id) or []
+                    _fix_point_constraint(sketch_obj, status, constraint, refs[0] if refs else None, x_value, y_value, _nested_expr_ref(expr_meta, 'x'), _nested_expr_ref(expr_meta, 'y'))
+            elif entity_kind == 'circle':
+                center_id = str(entity.get('center'))
+                x_value, y_value = _sketch_solved_point(center_id, sketch_payload, solve_snapshot)
+                center_entity_index = entity_index_by_id.get(center_id)
+                expr_meta = _sketch_entity_expr(param_exprs, center_entity_index) if center_entity_index is not None else None
+                refs = point_refs.get(center_id) or []
+                _fix_point_constraint(sketch_obj, status, constraint, refs[0] if refs else None, x_value, y_value, _nested_expr_ref(expr_meta, 'x'), _nested_expr_ref(expr_meta, 'y'))
+                entity_ref = _target_entity_ref(target, by_id, geom_by_entity)
+                if entity_ref is not None:
+                    circle_index = entity_index_by_id.get(entity_id)
+                    radius_expr = _nested_expr_ref(_sketch_entity_expr(param_exprs, circle_index) if circle_index is not None else None, 'radius')
+                    _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Radius', int(entity_ref[0]), _sketch_solved_radius(entity_id, entity, solve_snapshot), expr_ref=radius_expr)
+            else:
+                _sketch_constraint_status_append(status, constraint, False, reason=f'Cannot fix unsupported sketch entity kind {entity_kind!r}')
+            continue
+
+        if kind in {'midpoint', 'symmetric'}:
+            _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} has no crash-safe FreeCAD Sketcher mapping in this translator')
+            continue
+
+        _sketch_constraint_status_append(status, constraint, False, reason=f'Unsupported sketch constraint kind {kind!r}')
+    return status
+
+
+def _attach_sketch_promotion_metadata(obj, params, constraint_status):
+    _ensure_string_property(obj, 'SimpleCADSketch')
+    _ensure_string_property(obj, 'SimpleCADSketchSolve')
+    _ensure_string_property(obj, 'SimpleCADSketchPromotion')
+    _ensure_string_property(obj, 'SimpleCADSketchConstraints')
+    obj.SimpleCADSketch = json.dumps(params.get('sketch') or {}, ensure_ascii=True, sort_keys=True)
+    obj.SimpleCADSketchSolve = json.dumps(params.get('solve_snapshot') or {}, ensure_ascii=True, sort_keys=True)
+    obj.SimpleCADSketchPromotion = json.dumps(params.get('promotion_map') or {}, ensure_ascii=True, sort_keys=True)
+    obj.SimpleCADSketchConstraints = json.dumps(constraint_status or {}, ensure_ascii=True, sort_keys=True)
+
+
+def _make_sketch_promotion_object(name, *, node_id, op, params, inputs, tags, context, output_count, param_exprs=None, semantic_delta=None, topo_delta=None):
+    sketch_payload = params.get('sketch') or {}
+    solve_snapshot = params.get('solve_snapshot') or {}
+    if Sketcher is None:
+        obj = doc.addObject('Part::Feature', name)
+        obj.Shape = _sketch_wire_shape_from_promotion(params)
+        constraint_status = {'mapped': [], 'skipped': [{'reason': 'Sketcher module is unavailable'}]}
+        _attach_sketch_promotion_metadata(obj, params, constraint_status)
+        return _register_graph_object(
+            obj,
+            node_id=node_id,
+            op=op,
+            params=params,
+            inputs=inputs,
+            tags=tags,
+            context=context,
+            output_count=output_count,
+            param_exprs=param_exprs,
+            semantic_delta=semantic_delta,
+            topo_delta=topo_delta,
+        )
+
+    obj = doc.addObject('Sketcher::SketchObject', name)
+    origin, x_axis, y_axis, z_axis = _sketch_plane_frame(sketch_payload.get('plane', 'XY'))
+    obj.Placement = _placement_from_frame(origin, x_axis, y_axis, z_axis)
+    profile_ids = set(_sketch_profile_entity_ids(params, sketch_payload))
+    entities, _by_id = _sketch_entity_maps(sketch_payload)
+    geom_by_entity = {}
+    point_refs = {}
+
+    for entity in entities:
+        entity_id = str(entity.get('id'))
+        kind = str(entity.get('kind'))
+        construction = bool(entity.get('construction', False)) or (kind in {'line', 'circle'} and entity_id not in profile_ids)
+        if kind == 'line':
+            start_id = str(entity.get('start'))
+            end_id = str(entity.get('end'))
+            start = _sketch_local_point(start_id, sketch_payload, solve_snapshot)
+            end = _sketch_local_point(end_id, sketch_payload, solve_snapshot)
+            geom_index = int(obj.addGeometry(Part.LineSegment(start, end), construction))
+            geom_by_entity[entity_id] = geom_index
+            point_refs.setdefault(start_id, []).append((geom_index, 1))
+            point_refs.setdefault(end_id, []).append((geom_index, 2))
+        elif kind == 'circle':
+            center_id = str(entity.get('center'))
+            center = _sketch_local_point(center_id, sketch_payload, solve_snapshot)
+            radius = _sketch_solved_radius(entity_id, entity, solve_snapshot)
+            geom_index = int(obj.addGeometry(Part.Circle(center, App.Vector(0.0, 0.0, 1.0), radius), construction))
+            geom_by_entity[entity_id] = geom_index
+            point_refs.setdefault(center_id, []).append((geom_index, 3))
+
+    if not geom_by_entity:
+        raise RuntimeError('Sketch promotion contains no materialized line or circle geometry')
+    constraint_status = _materialize_sketch_constraints(obj, sketch_payload, params, param_exprs or {}, geom_by_entity, point_refs)
+    try:
+        obj.solve()
+    except Exception:
+        pass
+    try:
+        doc.recompute()
+    except Exception:
+        pass
+    _attach_sketch_promotion_metadata(obj, params, constraint_status)
+    _attach_simplecad_metadata(
+        obj,
+        node_id=node_id,
+        op=op,
+        params=params,
+        inputs=inputs,
+        tags=tags,
+        context=context,
+        output_count=output_count,
+        param_exprs=param_exprs,
+        semantic_delta=semantic_delta,
+        topo_delta=topo_delta,
+    )
+    SKETCH_REGISTRY.append({'node_id': node_id, 'op': op, 'object': obj.Name, 'constraint_status': constraint_status})
+    registered = _register_graph_object(
+        obj,
+        node_id=node_id,
+        op=op,
+        params=params,
+        inputs=inputs,
+        tags=tags,
+        context=context,
+        output_count=output_count,
+        param_exprs=param_exprs,
+        semantic_delta=semantic_delta,
+        topo_delta=topo_delta,
+    )
+    return registered
 
 
 def _sanitize_expr_alias(expr_id, prefix='expr'):
@@ -1968,6 +2603,40 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"{var_name} = _register_geo_selection_node(node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
 
+        if node.op in {
+            "make_sketch_rsketch",
+            "make_add_point_rsketch",
+            "make_add_line_rsketch",
+            "make_add_circle_rsketch",
+            "make_constrain_coincident_rsketch",
+            "make_constrain_point_on_rsketch",
+            "make_constrain_horizontal_rsketch",
+            "make_constrain_vertical_rsketch",
+            "make_constrain_parallel_rsketch",
+            "make_constrain_perpendicular_rsketch",
+            "make_constrain_collinear_rsketch",
+            "make_constrain_tangent_rsketch",
+            "make_constrain_concentric_rsketch",
+            "make_constrain_midpoint_rsketch",
+            "make_constrain_symmetric_rsketch",
+            "make_constrain_equal_length_rsketch",
+            "make_constrain_equal_radius_rsketch",
+            "make_constrain_distance_rsketch",
+            "make_constrain_distance_x_rsketch",
+            "make_constrain_distance_y_rsketch",
+            "make_constrain_length_rsketch",
+            "make_constrain_angle_rsketch",
+            "make_constrain_radius_rsketch",
+            "make_constrain_diameter_rsketch",
+            "make_constrain_fix_rsketch",
+        }:
+            return finish_ir()
+
+        if node.op in {"make_wire_from_sketch_rwire", "make_face_from_sketch_rface"}:
+            return [
+                f"{var_name} = _make_sketch_promotion_object({_json_ascii(object_name)}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+            ]
+
         if node.op == "make_line_redge":
             lines = [
                 f"{var_name} = _register_graph_value(Part.makeLine(_vec(_resolve_vec3_param({rp}, {re}, 'start')), _vec(_resolve_vec3_param({rp}, {re}, 'end'))), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
@@ -1995,7 +2664,7 @@ def _resolve_vec3_param(params, param_exprs, key):
 
         if node.op == "make_spline_redge":
             lines = [
-                f"{var_name} = _register_graph_value(Part.BSplineCurve([_vec(point) for point in _select_fit_samples({rp}['points'], 6)]).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+                f"{var_name} = _register_graph_value(_bspline_curve_from_params({rp}).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
             return lines
 
@@ -2197,7 +2866,7 @@ def _resolve_vec3_param(params, param_exprs, key):
                         )
                     elif input_node.op == "make_spline_redge":
                         lines.append(
-                            f"{var_name}.addGeometry(_fit_bspline_curve([tuple(_local_point_on_frame(point, {var_name}_origin, {var_name}_xaxis, {var_name}_yaxis)) for point in {edge_var}_params['points']], 6), False)"
+                            f"{var_name}.addGeometry(_bspline_curve_from_params({edge_var}_params, transform_point=lambda point: _local_point_on_frame(point, {var_name}_origin, {var_name}_xaxis, {var_name}_yaxis)), False)"
                         )
                     elif input_node.op == "make_three_point_arc_redge":
                         lines.append(
@@ -2298,7 +2967,7 @@ def _resolve_vec3_param(params, param_exprs, key):
                     spline_var = _safe_name(spline_node.node_id)
                     lines = [
                         f"{var_name} = doc.addObject('Sketcher::SketchObject', {_json_ascii(object_name)})",
-                        f"{var_name}.addGeometry(_fit_bspline_curve({spline_var}_params['points'], 6), False)",
+                        f"{var_name}.addGeometry(_bspline_curve_from_params({spline_var}_params), False)",
                     ]
                     lines.extend(finish())
                     return lines
@@ -2321,6 +2990,8 @@ def _resolve_vec3_param(params, param_exprs, key):
             if base_node is not None and base_node.op in {
                 "make_face_from_wire_rface",
                 "make_wire_from_edges_rwire",
+                "make_face_from_sketch_rface",
+                "make_wire_from_sketch_rwire",
             }:
                 sketch_node_id = inputs[0]
                 if base_node.op == "make_face_from_wire_rface" and base_node.inputs:
@@ -2494,10 +3165,22 @@ def _resolve_vec3_param(params, param_exprs, key):
             vector = node.params.get("vector")
             if isinstance(vector, (list, tuple)) and len(vector) == 3:
                 try:
-                    if all(abs(float(v)) <= 1e-12 for v in vector):
+                    if all(abs(float(v)) <= 1e-12 for v in vector) and not _contains_expr_refs(dict(node.param_exprs)):
                         return finish_alias(inputs[0])
                 except Exception:
                     pass
+            if self._can_fold_transform_into_input(node):
+                lines = [
+                    f"{var_name} = GRAPH_NODES[{_json_ascii(inputs[0])}]",
+                    f"_fold_object_placement({var_name}, App.Placement(_vec(_resolve_vec3_param({rp}, {re}, 'vector')), App.Rotation()))",
+                ]
+                lines.append(
+                    f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
+                )
+                lines.append(
+                    f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+                )
+                return lines
             lines = [
                 f"{var_name} = doc.addObject('App::Link', {_json_ascii(object_name)})",
                 f"{var_name}.LinkedObject = GRAPH_NODES[{_json_ascii(inputs[0])}]",
@@ -2510,6 +3193,18 @@ def _resolve_vec3_param(params, param_exprs, key):
             return lines
 
         if node.op == "make_rotate_rshape" and len(inputs) == 1:
+            if self._can_fold_transform_into_input(node):
+                lines = [
+                    f"{var_name} = GRAPH_NODES[{_json_ascii(inputs[0])}]",
+                    f"_fold_object_placement({var_name}, _placement_for_rotation(_resolve_vec3_param({rp}, {re}, 'origin') if 'origin' in {rp} else (0.0, 0.0, 0.0), _resolve_vec3_param({rp}, {re}, 'axis') if 'axis' in {rp} else (0.0, 0.0, 1.0), _resolve_param_value({rp}, {re}, 'angle')))",
+                ]
+                lines.append(
+                    f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
+                )
+                lines.append(
+                    f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+                )
+                return lines
             lines = [
                 f"{var_name} = doc.addObject('App::Link', {_json_ascii(object_name)})",
                 f"{var_name}.LinkedObject = GRAPH_NODES[{_json_ascii(inputs[0])}]",
@@ -2581,7 +3276,15 @@ def translate_model_json_to_fcstd(
     document_name: str = "SimpleCADModel",
     freecad_cmd: Optional[str] = None,
 ) -> str:
-    """Translate canonical model JSON to `.FCStd` via FreeCADCmd/FreeCAD."""
+    """Translate canonical model JSON to `.FCStd` via FreeCADCmd/FreeCAD.
+
+    Functional sketch promotions are written as visible `Sketcher::SketchObject`
+    nodes with mapped/skipped constraint evidence. Exact B-spline edges are
+    exported to FreeCAD using `Part.BSplineCurve().buildFromPolesMultsKnots(...)`.
+    Safe single-use profile transforms such as section rotate/translate chains are
+    folded into the section object's placement so downstream `Part::Loft` receives
+    already-positioned sections instead of placement-bearing `App::Link` proxies.
+    """
 
     import subprocess
 
