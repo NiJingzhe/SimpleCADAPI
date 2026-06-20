@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def add_circle_rsketch(sketch: Sketch, entity_id: str, center: SketchRef, radius: ScalarLike, *, construction: bool = False) -> Sketch
+def add_circle_rsketch(sketch: Sketch, entity_id: str, center: Union[SketchRef, str], radius: ScalarLike, *, construction: bool = False) -> Sketch
 ```
 
 *Source: operations.py*
@@ -14,4 +14,4 @@ def add_circle_rsketch(sketch: Sketch, entity_id: str, center: SketchRef, radius
 
 ## Description
 
-Add a named circle entity to a declarative sketch.
+Add a named circle entity and return an updated sketch document.

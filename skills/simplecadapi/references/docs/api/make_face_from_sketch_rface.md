@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def make_face_from_sketch_rface(sketch: Sketch, profile: int | str = 0) -> Face
+def make_face_from_sketch_rface(sketch: Sketch, profile: int | str = 0, *, require_fully_constrained: bool = False, strict: bool = True, tolerance: float = 1e-07, max_iterations: int = 80) -> Face
 ```
 
 *Source: operations.py*
@@ -14,4 +14,4 @@ def make_face_from_sketch_rface(sketch: Sketch, profile: int | str = 0) -> Face
 
 ## Description
 
-Solve a declarative sketch profile and return a concrete face.
+Promote a sketch profile to a concrete face, solving internally.

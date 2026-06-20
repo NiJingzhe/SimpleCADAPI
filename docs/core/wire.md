@@ -134,10 +134,10 @@ polyline = make_polyline_rwire(points=[
 apply_tag(polyline, "polyline")
 apply_tag(polyline, "open")
 
-# 样条线
-spline = make_spline_rwire(points=[
-    (0, 0, 0), (1, 2, 0), (3, 2, 0), (4, 0, 0)
-])
+# 样条线：control_points 是 B-spline poles，不是采样点
+spline = make_spline_rwire(
+    control_points=[(0, 0, 0), (1, 2, 0), (3, 2, 0), (4, 0, 0)]
+)
 apply_tag(spline, "spline")
 apply_tag(spline, "smooth")
 

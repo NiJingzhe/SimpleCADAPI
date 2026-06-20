@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def make_wire_from_sketch_rwire(sketch: Sketch, profile: int | str = 0) -> Wire
+def make_wire_from_sketch_rwire(sketch: Sketch, profile: int | str = 0, *, require_fully_constrained: bool = False, strict: bool = True, tolerance: float = 1e-07, max_iterations: int = 80) -> Wire
 ```
 
 *Source: operations.py*
@@ -14,4 +14,4 @@ def make_wire_from_sketch_rwire(sketch: Sketch, profile: int | str = 0) -> Wire
 
 ## Description
 
-Solve a declarative sketch profile and return a concrete wire.
+Promote a sketch profile to a concrete wire, solving internally.
