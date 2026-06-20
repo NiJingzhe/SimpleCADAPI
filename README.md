@@ -146,6 +146,7 @@ uv run python examples/05_loft_sweep_revolve.py
 uv run python examples/06_parametric_gear_model.py
 uv run python examples/07_serialization_operation_tree.py
 uv run python examples/08_constrained_sketch.py
+uv run python examples/09_naca0016_blade_freecad.py
 ```
 
 ## Documentation
