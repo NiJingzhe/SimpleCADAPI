@@ -7,9 +7,11 @@ import os
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 from unittest import mock
 import unittest
+import xml.etree.ElementTree as ET
 
 import simplecadapi as scad
 from simplecadapi.graph import GraphSession
@@ -106,6 +108,42 @@ class TestFreeCADTranslator(unittest.TestCase):
             with open(out_path, "r", encoding="utf-8") as fh:
                 return json.load(fh)
 
+    def _inspect_fcstd_gui_visibility(self, payload: str) -> dict:
+        freecad_cmd = self._discover_freecadcmd()
+        if not freecad_cmd:
+            self.skipTest("freecadcmd not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            fcstd_path = os.path.join(tmp_dir, "model.FCStd")
+            scad.translate_model_json_to_fcstd(
+                payload, fcstd_path, freecad_cmd=freecad_cmd
+            )
+            with zipfile.ZipFile(fcstd_path, "r") as archive:
+                names = set(archive.namelist())
+                gui_xml = archive.read("GuiDocument.xml")
+
+        root = ET.fromstring(gui_xml)
+        visibility = {}
+        expanded = {}
+        view_provider_data = root.find("ViewProviderData")
+        if view_provider_data is None:
+            return {"entries": names, "visibility": visibility, "expanded": expanded}
+        for view_provider in view_provider_data.findall("ViewProvider"):
+            name = str(view_provider.attrib.get("name", ""))
+            expanded[name] = view_provider.attrib.get("expanded") == "1"
+            properties = view_provider.find("Properties")
+            if properties is None:
+                continue
+            for prop in properties.findall("Property"):
+                if prop.attrib.get("name") != "Visibility":
+                    continue
+                bool_value = prop.find("Bool")
+                visibility[name] = (
+                    bool_value is not None
+                    and bool_value.attrib.get("value", "").lower() == "true"
+                )
+        return {"entries": names, "visibility": visibility, "expanded": expanded}
+
     def _expression_payload(self, payload: str) -> dict:
         payload_obj = json.loads(payload)
         payload_obj["expression_graph"] = {"nodes": []}
@@ -128,6 +166,244 @@ class TestFreeCADTranslator(unittest.TestCase):
         self.assertIn("SimpleCADNodeId", script)
         self.assertIn("EXPRESSION_GRAPH_META", script)
         self.assertIn("# Step", script)
+
+    def test_translate_model_json_preserves_part_assembly_semantics_in_script(self):
+        with GraphSession() as session:
+            body = scad.make_box_rsolid(2.0, 3.0, 1.0)
+            material = scad.make_material_rmaterial(
+                "steel_8_8", density=7.85e-6, density_unit="kg/mm^3"
+            )
+            part = scad.assign_material_rpart(scad.make_part_rpart("plate", body), material)
+            assembly = scad.make_assembly_rassembly("fixture")
+            assembly = scad.add_component_rassembly(
+                assembly,
+                part,
+                component_id="plate_1",
+                placement=scad.identity_placement_rplacement(),
+            )
+            scad.make_compound_from_assembly_rcompound(assembly)
+
+        script = scad.translate_model_json_to_freecad_script(scad.export_model_json(session))
+
+        self.assertIn("PRODUCT_VALUES = {}", script)
+        self.assertIn("import Assembly", script)
+        self.assertIn("Assembly::AssemblyObject", script)
+        self.assertIn("SimpleCADPartId", script)
+        self.assertIn("SimpleCADMaterial", script)
+        self.assertIn("SimpleCADAssemblyId", script)
+        self.assertIn("SimpleCADComponentId", script)
+        self.assertIn("Part.makeCompound", script)
+
+    def test_translate_model_json_part_assembly_fcstd_valid(self):
+        with GraphSession() as session:
+            body = scad.make_box_rsolid(2.0, 3.0, 1.0)
+            material = scad.make_material_rmaterial(
+                "steel_8_8", density=7.85e-6, density_unit="kg/mm^3"
+            )
+            part = scad.assign_material_rpart(scad.make_part_rpart("plate", body), material)
+            assembly = scad.make_assembly_rassembly("fixture")
+            assembly = scad.add_component_rassembly(
+                assembly,
+                part,
+                component_id="plate_1",
+                placement=scad.make_placement_rplacement(origin=(5.0, 0.0, 0.0)),
+            )
+            scad.make_compound_from_assembly_rcompound(assembly)
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+parts = [obj for obj in doc.Objects if obj.TypeId == 'App::Part' and hasattr(obj, 'SimpleCADPartId')]
+assemblies = [obj for obj in doc.Objects if obj.TypeId == 'Assembly::AssemblyObject' and hasattr(obj, 'SimpleCADAssemblyId')]
+components = [obj for obj in doc.Objects if obj.TypeId == 'App::Link' and hasattr(obj, 'SimpleCADComponentId')]
+compound_objs = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_compound_from_assembly_rcompound']
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'part_ids': [obj.SimpleCADPartId for obj in parts],
+        'assembly_ids': [obj.SimpleCADAssemblyId for obj in assemblies],
+        'assembly_type_ids': [obj.TypeId for obj in assemblies],
+        'component_ids': [obj.SimpleCADComponentId for obj in components],
+        'component_type_ids': [obj.TypeId for obj in components],
+        'component_linked_type_ids': [obj.LinkedObject.TypeId for obj in components],
+        'component_x': [round(obj.Placement.Base.x, 3) for obj in components],
+        'assembly_visible': [bool(obj.Visibility) for obj in assemblies],
+        'compound_visible': [bool(obj.Visibility) for obj in compound_objs],
+        'compound_count': len(compound_objs),
+        'compound_volume': 0.0 if not compound_objs else float(compound_objs[-1].Shape.Volume),
+    }, fh)
+"""
+        payload = scad.export_model_json(session)
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["part_ids"], ["plate"])
+        self.assertEqual(result["assembly_ids"], ["fixture"])
+        self.assertEqual(result["assembly_type_ids"], ["Assembly::AssemblyObject"])
+        self.assertEqual(result["component_ids"], ["plate_1"])
+        self.assertEqual(result["component_type_ids"], ["App::Link"])
+        self.assertEqual(result["component_linked_type_ids"], ["App::Part"])
+        self.assertEqual(result["component_x"], [5.0])
+        self.assertEqual(result["assembly_visible"], [True])
+        self.assertEqual(result["compound_visible"], [False])
+        self.assertEqual(result["compound_count"], 1)
+        self.assertGreater(result["compound_volume"], 0.0)
+
+    def test_translate_model_json_nested_assembly_uses_native_assembly_link(self):
+        with GraphSession() as session:
+            body = scad.make_box_rsolid(1.0, 1.0, 1.0)
+            part = scad.make_part_rpart("cube", body)
+            child = scad.make_assembly_rassembly("child")
+            child = scad.add_component_rassembly(
+                child,
+                part,
+                component_id="cube_1",
+                placement=scad.identity_placement_rplacement(),
+            )
+            root = scad.make_assembly_rassembly("root")
+            root = scad.add_component_rassembly(
+                root,
+                child,
+                component_id="child_1",
+                placement=scad.make_placement_rplacement(origin=(4.0, 0.0, 0.0)),
+            )
+            scad.make_compound_from_assembly_rcompound(root)
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+assembly_objs = [obj for obj in doc.Objects if obj.TypeId == 'Assembly::AssemblyObject' and hasattr(obj, 'SimpleCADAssemblyId')]
+subassembly_links = [obj for obj in doc.Objects if obj.TypeId == 'Assembly::AssemblyLink' and hasattr(obj, 'SimpleCADComponentId')]
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'assembly_ids': sorted(obj.SimpleCADAssemblyId for obj in assembly_objs),
+        'subassembly_component_ids': [obj.SimpleCADComponentId for obj in subassembly_links],
+        'subassembly_linked_type_ids': [obj.LinkedObject.TypeId for obj in subassembly_links],
+        'subassembly_x': [round(obj.Placement.Base.x, 3) for obj in subassembly_links],
+        'subassembly_rigid': [bool(obj.Rigid) for obj in subassembly_links],
+    }, fh)
+"""
+        payload = scad.export_model_json(session)
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["assembly_ids"], ["child", "root"])
+        self.assertEqual(result["subassembly_component_ids"], ["child_1"])
+        self.assertEqual(result["subassembly_linked_type_ids"], ["Assembly::AssemblyObject"])
+        self.assertEqual(result["subassembly_x"], [4.0])
+        self.assertEqual(result["subassembly_rigid"], [True])
+
+    def test_translate_model_json_x_axis_cylinder_fcstd_valid(self):
+        with GraphSession() as session:
+            scad.make_cylinder_rsolid(
+                radius=2.0,
+                height=10.0,
+                bottom_face_center=(0.0, 0.0, 0.0),
+                axis=(1.0, 0.0, 0.0),
+            )
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+cylinders = [obj for obj in doc.Objects if obj.TypeId == 'Part::Cylinder']
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'cylinder_count': len(cylinders),
+        'valid': [bool(obj.Shape.isValid()) for obj in cylinders],
+        'volumes': [round(float(obj.Shape.Volume), 3) for obj in cylinders],
+    }, fh)
+"""
+        payload = scad.export_model_json(session)
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["cylinder_count"], 1)
+        self.assertEqual(result["valid"], [True])
+        self.assertGreater(result["volumes"][0], 0.0)
+
+    def test_translate_model_json_assembly_fcstd_keeps_clean_product_tree(self):
+        with GraphSession() as session:
+            body = scad.make_cylinder_rsolid(
+                radius=2.0,
+                height=10.0,
+                bottom_face_center=(0.0, 0.0, 0.0),
+                axis=(1.0, 0.0, 0.0),
+            )
+            part = scad.make_part_rpart("rod", body, name="Rod")
+            assembly = scad.make_assembly_rassembly("rod_assembly", name="Rod assembly")
+            assembly = scad.add_component_rassembly(
+                assembly,
+                part,
+                component_id="rod_1",
+                placement=scad.identity_placement_rplacement(),
+            )
+            scad.make_compound_from_assembly_rcompound(assembly)
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+loose_sketches = [obj for obj in doc.Objects if obj.TypeId == 'Sketcher::SketchObject' and not getattr(obj, 'InList', [])]
+assemblies = [obj for obj in doc.Objects if obj.TypeId == 'Assembly::AssemblyObject' and hasattr(obj, 'SimpleCADAssemblyId')]
+links = [obj for obj in doc.Objects if obj.TypeId == 'App::Link' and hasattr(obj, 'SimpleCADComponentId')]
+parts = [obj for obj in doc.Objects if obj.TypeId == 'App::Part' and hasattr(obj, 'SimpleCADPartId')]
+libraries = [obj for obj in doc.Objects if obj.Name == 'SimpleCADProductLibrary']
+construction = [obj for obj in doc.Objects if obj.Name == 'SimpleCADConstruction']
+compound_objs = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_compound_from_assembly_rcompound']
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'loose_sketch_count': len(loose_sketches),
+        'assembly_visible': [bool(obj.Visibility) for obj in assemblies],
+        'compound_visible': [bool(obj.Visibility) for obj in compound_objs],
+        'link_visible': [bool(obj.Visibility) for obj in links],
+        'link_group_sizes': [len(getattr(obj, 'Group', []) or []) for obj in links],
+        'part_group_types': [[child.TypeId for child in getattr(obj, 'Group', []) if child.TypeId != 'App::Origin'] for obj in parts],
+        'part_group_visible': [[bool(child.Visibility) for child in getattr(obj, 'Group', []) if child.TypeId != 'App::Origin'] for obj in parts],
+        'library_visible': [bool(obj.Visibility) for obj in libraries],
+        'construction_visible': [bool(obj.Visibility) for obj in construction],
+    }, fh)
+"""
+        payload = scad.export_model_json(session)
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["loose_sketch_count"], 0)
+        self.assertEqual(result["assembly_visible"], [True])
+        self.assertEqual(result["compound_visible"], [False])
+        self.assertEqual(result["link_visible"], [True])
+        self.assertEqual(result["link_group_sizes"], [1])
+        self.assertEqual(result["part_group_types"], [["Part::Feature"]])
+        self.assertEqual(result["part_group_visible"], [[True]])
+        self.assertEqual(result["library_visible"], [False])
+        self.assertEqual(result["construction_visible"], [False])
+
+        gui = self._inspect_fcstd_gui_visibility(payload)
+        gui_visibility = gui["visibility"]
+        assembly_names = [
+            name
+            for name in gui_visibility
+            if name.startswith("make_assembly_rassembly_")
+        ]
+        component_names = [
+            name
+            for name in gui_visibility
+            if name.startswith("make_add_component_rassembly_")
+            and name.endswith("_component")
+        ]
+        compound_names = [
+            name
+            for name in gui_visibility
+            if name.startswith("make_compound_from_assembly_rcompound_")
+        ]
+        self.assertIn("GuiDocument.xml", gui["entries"])
+        self.assertEqual([gui_visibility[name] for name in assembly_names], [True])
+        self.assertEqual([gui_visibility[name] for name in component_names], [True])
+        self.assertEqual(gui_visibility["SimpleCADProductLibrary"], False)
+        self.assertEqual(gui_visibility["SimpleCADConstruction"], False)
+        self.assertEqual([gui_visibility[name] for name in compound_names], [False])
+        self.assertEqual([gui["expanded"][name] for name in assembly_names], [True])
 
     def test_translate_model_json_folds_single_use_translate_into_extrusion_fcstd(self):
         tx = scad.var("fold_tx", 1.0)
@@ -573,7 +849,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
 
         self.assertIn("Part::Fuse", script)
 
-    def test_translate_model_json_uses_multifuse_for_multi_tool_cut(self):
+    def test_translate_model_json_chains_multi_tool_cut(self):
         graph = OperationGraph(graph_id="graph_cut_multi")
         base = graph.add_node(
             op="make_line_redge",
@@ -617,9 +893,11 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
 
         script = scad.translate_model_json_to_freecad_script(json.dumps(payload))
 
-        self.assertIn("Part::MultiFuse", script)
-        self.assertIn("cut_out_inputs[1:]", script)
-        self.assertIn("cut_out.Tool = cut_out_tools", script)
+        self.assertNotIn("Part::MultiFuse", script)
+        self.assertIn("cut_out_step_1 = doc.addObject('Part::Cut'", script)
+        self.assertIn("cut_out_step_2 = doc.addObject('Part::Cut'", script)
+        self.assertIn("cut_out = doc.addObject('Part::Cut'", script)
+        self.assertIn("cut_out.Base = cut_out_step_2", script)
 
     def test_translate_model_json_mixed_curve_sketch_closes_in_fcstd(self):
         with GraphSession() as session:
@@ -696,9 +974,11 @@ cut_objs = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'ma
 final_cut = cut_objs[-1]
 shape = final_cut.Shape
 tools = doc.getObject('make_cut_rsolid_node_' + final_cut.Name.split('_node_')[-1] + '_tools')
+part_cut_objs = [obj for obj in doc.Objects if obj.TypeId == 'Part::Cut']
 with open(OUT_PATH, 'w', encoding='utf-8') as fh:
     json.dump({
         'cut_count': len(cut_objs),
+        'part_cut_count': len(part_cut_objs),
         'final_valid': shape.isValid(),
         'solid_count': len(shape.Solids),
         'volume': float(shape.Volume),
@@ -709,10 +989,11 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         result = self._inspect_fcstd_json(payload, probe)
 
         self.assertGreaterEqual(result["cut_count"], 1)
+        self.assertGreaterEqual(result["part_cut_count"], 3)
         self.assertTrue(result["final_valid"])
         self.assertEqual(result["solid_count"], 1)
-        self.assertTrue(result["has_tools_fuse"])
-        self.assertEqual(result["tool_shape_count"], 3)
+        self.assertFalse(result["has_tools_fuse"])
+        self.assertEqual(result["tool_shape_count"], 0)
 
     def test_translate_model_json_emits_native_loft_feature(self):
         with GraphSession() as session:
@@ -2340,7 +2621,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn("selected_edge_indices", script)
         self.assertIn("selected_face_indices", script)
 
-    def test_translate_model_json_does_not_emit_assembly_scaffold(self):
+    def test_translate_model_json_does_not_emit_assembly_object_for_plain_geometry(self):
         with GraphSession() as session:
             scad.make_box_rsolid(1.0, 1.0, 1.0)
 
@@ -2348,8 +2629,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             scad.export_model_json(session)
         )
 
-        self.assertNotIn("Assembly::AssemblyObject", script)
-        self.assertNotIn("Assembly::JointGroup", script)
+        self.assertNotIn("= _make_native_assembly(", script)
+        self.assertNotIn("SimpleCADAssemblyId", script)
         self.assertNotIn("PART_REGISTRY", script)
         self.assertNotIn("CONSTRAINT_REGISTRY", script)
         self.assertNotIn("SimpleCAD Constraint", script)
@@ -2378,7 +2659,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         )
 
         self.assertIn("_apply_result_visibility(RESULT_NODE_IDS)", script)
+        self.assertIn("_set_active_result_object(RESULT_NODE_IDS)", script)
         self.assertIn("def _set_visibility", script)
+        self.assertIn("def _save_fcstd_with_gui_visibility", script)
         self.assertIn("def _apply_result_visibility", script)
 
     def test_translate_model_json_rejects_field_surface_ops(self):
@@ -2429,6 +2712,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
                 ),
             ),
             mock.patch("subprocess.run") as run_mock,
+            mock.patch("os.path.exists", return_value=True),
+            mock.patch("os.path.getsize", return_value=1024),
         ):
             run_mock.return_value = mock.Mock(
                 returncode=0, stdout="/tmp/out.FCStd\n", stderr=""
@@ -2458,11 +2743,15 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         payload = scad.export_model_json(session)
 
         def fake_exists(path: str) -> bool:
-            return path == "/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd"
+            return path in {
+                "/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd",
+                "/tmp/out.FCStd",
+            }
 
         with (
             mock.patch("shutil.which", return_value=None),
             mock.patch("os.path.exists", side_effect=fake_exists),
+            mock.patch("os.path.getsize", return_value=1024),
             mock.patch("subprocess.run") as run_mock,
         ):
             run_mock.return_value = mock.Mock(
