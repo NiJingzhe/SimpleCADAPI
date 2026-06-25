@@ -27,10 +27,11 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 from .errors import raise_harness_error
 
-from .core import AnyShape, Edge, Face, Solid, Vertex, Wire, use_coordinate_system
+from .core import AnyShape, Compound, Edge, Face, Solid, Vertex, Wire, use_coordinate_system
 from .graph import attach_graph_node, suspend_graph_recording
 from .ql import selector_from_dict
 from .sketch import Sketch
+from .product import Assembly, Material, Part, Placement
 from .topology import (
     OperationGraph,
     semantic_delta_to_dict,
@@ -108,6 +109,15 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     },
     "make_wire_from_sketch_rwire": {"status": "replayable", "op": "make_wire_from_sketch_rwire"},
     "make_face_from_sketch_rface": {"status": "replayable", "op": "make_face_from_sketch_rface"},
+    "make_material_rmaterial": {"status": "replayable", "op": "make_material_rmaterial"},
+    "make_placement_rplacement": {"status": "replayable", "op": "make_placement_rplacement"},
+    "identity_placement_rplacement": {"status": "replayable", "op": "make_identity_placement_rplacement"},
+    "make_part_rpart": {"status": "replayable", "op": "make_part_rpart"},
+    "assign_material_rpart": {"status": "replayable", "op": "make_assign_material_rpart"},
+    "make_assembly_rassembly": {"status": "replayable", "op": "make_assembly_rassembly"},
+    "add_component_rassembly": {"status": "replayable", "op": "make_add_component_rassembly"},
+    "place_component_rassembly": {"status": "replayable", "op": "make_place_component_rassembly"},
+    "make_compound_from_assembly_rcompound": {"status": "replayable", "op": "make_compound_from_assembly_rcompound"},
     "make_box_rsolid": {
         "status": "macro",
         "reason": "Composite convenience API that should lower into low-level sketch + make_extrude_rsolid operations.",
@@ -235,6 +245,15 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_constrain_fix_rsketch",
     "make_wire_from_sketch_rwire",
     "make_face_from_sketch_rface",
+    "make_material_rmaterial",
+    "make_placement_rplacement",
+    "make_identity_placement_rplacement",
+    "make_part_rpart",
+    "make_assign_material_rpart",
+    "make_assembly_rassembly",
+    "make_add_component_rassembly",
+    "make_place_component_rassembly",
+    "make_compound_from_assembly_rcompound",
     "make_extrude_rsolid",
     "make_revolve_rsolid",
     "make_loft_rsolid",
@@ -645,7 +664,7 @@ def import_model_json(json_str: str) -> Dict[str, Any]:
         )
 
 
-def replay_model_json(json_str: str, *, strict: bool = True) -> List[AnyShape]:
+def replay_model_json(json_str: str, *, strict: bool = True) -> List[Any]:
     """Replay a model payload using its canonical low-level graph."""
 
     try:
@@ -715,7 +734,7 @@ _SKETCH_CONSTRAINT_KIND_BY_OP: Dict[str, str] = {
 }
 
 
-def _normalize_output(result: Any) -> List[AnyShape]:
+def _normalize_output(result: Any) -> List[Any]:
     if result is None:
         return []
     if isinstance(result, list):
@@ -833,6 +852,8 @@ def _shape_kind_token(shape: AnyShape) -> str:
         return "face"
     if isinstance(shape, Solid):
         return "solid"
+    if isinstance(shape, Compound):
+        return "compound"
     return type(shape).__name__.lower()
 
 
@@ -1338,10 +1359,10 @@ def _param(
 
 def _input_outputs(
     ctx: _ReplayContext,
-    outputs: Dict[str, List[AnyShape]],
+    outputs: Dict[str, List[Any]],
     node,
     index: int,
-) -> List[AnyShape]:
+) -> List[Any]:
     if len(node.inputs) <= index:
         if not ctx.strict:
             return []
@@ -1361,10 +1382,10 @@ def _input_outputs(
 
 def _all_input_outputs(
     ctx: _ReplayContext,
-    outputs: Dict[str, List[AnyShape]],
+    outputs: Dict[str, List[Any]],
     node,
-) -> List[AnyShape]:
-    result: List[AnyShape] = []
+) -> List[Any]:
+    result: List[Any] = []
     for input_node in node.inputs:
         input_outputs = outputs.get(input_node.node_id)
         if not input_outputs:
@@ -1382,7 +1403,7 @@ def _execute_graph(
     leaf_node_ids: Optional[Sequence[str]] = None,
     *,
     strict: bool = True,
-) -> List[AnyShape]:
+) -> List[Any]:
     ctx = _ReplayContext(strict=strict)
     if graph.node_count == 0:
         return []
@@ -1390,7 +1411,7 @@ def _execute_graph(
     topo_order = graph.topological_order()
 
     # Store per-node outputs
-    outputs: Dict[str, List[AnyShape]] = {}
+    outputs: Dict[str, List[Any]] = {}
 
     def _store_outputs(node, result: Any) -> None:
         result_list = _normalize_output(result)
@@ -1519,6 +1540,107 @@ def _execute_graph(
                                     cast(Dict[str, Any], params["solve_snapshot"]),
                                     tolerance=float(params.get("tolerance", 1e-7)),
                                 )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_material_rmaterial":
+                        ctx.require_params(node.node_id, op_name, params, ("material_id",))
+                        result = ops.make_material_rmaterial(
+                            str(params["material_id"]),
+                            name=cast(Optional[str], params.get("name")),
+                            density=cast(Optional[float], params.get("density")),
+                            density_unit=cast(Optional[str], params.get("density_unit")),
+                            color=(
+                                cast(Any, tuple(params["color"]))
+                                if params.get("color") is not None
+                                else None
+                            ),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_placement_rplacement":
+                        ctx.require_params(node.node_id, op_name, params, ("origin", "x_axis", "y_axis"))
+                        result = ops.make_placement_rplacement(
+                            cast(Any, tuple(params["origin"])),
+                            x_axis=cast(Any, tuple(params["x_axis"])),
+                            y_axis=cast(Any, tuple(params["y_axis"])),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_identity_placement_rplacement":
+                        result = ops.identity_placement_rplacement()
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_part_rpart":
+                        ctx.require_params(node.node_id, op_name, params, ("part_id",))
+                        body_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if body_outputs:
+                            result = ops.make_part_rpart(
+                                str(params["part_id"]),
+                                cast(Solid, body_outputs[0]),
+                                name=cast(Optional[str], params.get("name")),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_assign_material_rpart":
+                        part_outputs = _input_outputs(ctx, outputs, node, 0)
+                        material_outputs = _input_outputs(ctx, outputs, node, 1)
+                        if part_outputs and material_outputs:
+                            result = ops.assign_material_rpart(
+                                cast(Part, part_outputs[0]),
+                                cast(Material, material_outputs[0]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_assembly_rassembly":
+                        ctx.require_params(node.node_id, op_name, params, ("assembly_id",))
+                        result = ops.make_assembly_rassembly(
+                            str(params["assembly_id"]),
+                            name=cast(Optional[str], params.get("name")),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_add_component_rassembly":
+                        ctx.require_params(node.node_id, op_name, params, ("component_id",))
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        item_outputs = _input_outputs(ctx, outputs, node, 1)
+                        placement_outputs = _input_outputs(ctx, outputs, node, 2)
+                        if assembly_outputs and item_outputs and placement_outputs:
+                            result = ops.add_component_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                cast(Any, item_outputs[0]),
+                                component_id=str(params["component_id"]),
+                                placement=cast(Placement, placement_outputs[0]),
+                                name=cast(Optional[str], params.get("name")),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_place_component_rassembly":
+                        ctx.require_params(node.node_id, op_name, params, ("component_id",))
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        placement_outputs = _input_outputs(ctx, outputs, node, 1)
+                        if assembly_outputs and placement_outputs:
+                            result = ops.place_component_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                str(params["component_id"]),
+                                cast(Placement, placement_outputs[0]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_compound_from_assembly_rcompound":
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if assembly_outputs:
+                            result = ops.make_compound_from_assembly_rcompound(
+                                cast(Assembly, assembly_outputs[0])
+                            )
                             _store_outputs(node, result)
                         continue
 
@@ -1844,7 +1966,7 @@ def _execute_graph(
                     f"Failed to replay graph node '{node.node_id}' ({op_name}): {exc}"
                 ) from exc
 
-    leaf_results: List[AnyShape] = []
+    leaf_results: List[Any] = []
     if leaf_node_ids is None:
         target_leaf_ids = [leaf.node_id for leaf in graph.leaf_nodes()]
     else:
@@ -1859,7 +1981,7 @@ def _execute_graph(
     return leaf_results
 
 
-def replay_graph(graph: OperationGraph, *, strict: bool = True) -> List[AnyShape]:
+def replay_graph(graph: OperationGraph, *, strict: bool = True) -> List[Any]:
     """Replay an OperationGraph to rebuild the model.
 
     Executes nodes in topological order. Primitives are created from their

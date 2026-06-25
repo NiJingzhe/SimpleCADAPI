@@ -31,7 +31,7 @@ from .frame import FrameGraph
 from .topology import OperationGraph, OperationNode, TopoDelta
 from .topology import SemanticDelta
 from .topology import TopoKind, TopoRef, topo_ref_to_dict
-from .core import Edge, Face, Solid, Vertex, Wire, get_current_cs
+from .core import Compound, Edge, Face, Solid, Vertex, Wire, get_current_cs
 
 
 # ---------------------------------------------------------------------------
@@ -168,11 +168,13 @@ def _shape_kind(shape: Any) -> Optional[TopoKind]:
         return TopoKind.FACE
     if isinstance(shape, Solid):
         return TopoKind.SOLID
+    if isinstance(shape, Compound):
+        return TopoKind.COMPOUND
     return None
 
 
 def _wrapped_shape(shape: Any) -> Any:
-    if isinstance(shape, (Vertex, Edge, Wire, Face, Solid)):
+    if isinstance(shape, (Vertex, Edge, Wire, Face, Solid, Compound)):
         return shape.wrapped
     return None
 

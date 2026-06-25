@@ -9,6 +9,7 @@ from .core import (
     Wire,
     Face,
     Solid,
+    Compound,
     AnyShape,
     TaggedMixin,
     # 坐标系函数
@@ -45,6 +46,15 @@ from .operations import (
     make_three_point_arc_rwire,
     make_wire_from_edges_rwire,
     make_wire_from_sketch_rwire,
+    make_material_rmaterial,
+    make_placement_rplacement,
+    identity_placement_rplacement,
+    make_part_rpart,
+    assign_material_rpart,
+    make_assembly_rassembly,
+    add_component_rassembly,
+    place_component_rassembly,
+    make_compound_from_assembly_rcompound,
     add_point_rsketch,
     add_circle_rsketch,
     add_line_rsketch,
@@ -137,6 +147,7 @@ from .expr import (
     var,
 )
 from .math import BSplineFitResult, fit_cubic_bspline_control_points
+from .product import Assembly, Component, Material, Part, Placement
 from .sketch import Sketch, SketchConstraint, SketchConstraintDiagnostic, SketchRef, SketchSolveResult
 from .topology import SemanticDelta, SemanticRef
 from .errors import SimpleCADError
@@ -207,6 +218,7 @@ __all__ = [
     "Wire",
     "Face",
     "Solid",
+    "Compound",
     "AnyShape",
     "TaggedMixin",
     # 坐标系
@@ -240,6 +252,15 @@ __all__ = [
     "make_three_point_arc_rwire",
     "make_wire_from_edges_rwire",
     "make_wire_from_sketch_rwire",
+    "make_material_rmaterial",
+    "make_placement_rplacement",
+    "identity_placement_rplacement",
+    "make_part_rpart",
+    "assign_material_rpart",
+    "make_assembly_rassembly",
+    "add_component_rassembly",
+    "place_component_rassembly",
+    "make_compound_from_assembly_rcompound",
     # Sketch construction and constraints
     "add_point_rsketch",
     "add_circle_rsketch",
@@ -341,6 +362,11 @@ __all__ = [
     "SemanticRef",
     "SemanticDelta",
     "SimpleCADError",
+    "Assembly",
+    "Component",
+    "Material",
+    "Part",
+    "Placement",
     # 别名
     "create_angle_arc",
     "create_angle_arc_wire",

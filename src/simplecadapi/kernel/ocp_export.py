@@ -18,6 +18,12 @@ def make_compound(shapes: Sequence[TopoDS_Shape]) -> TopoDS_Shape:
         raise ValueError("No shapes to export")
     if len(shapes) == 1:
         return shapes[0]
+    return make_compound_always(shapes)
+
+
+def make_compound_always(shapes: Sequence[TopoDS_Shape]) -> TopoDS_Shape:
+    if not shapes:
+        raise ValueError("No shapes to export")
     builder = BRep_Builder()
     compound = TopoDS_Compound()
     builder.MakeCompound(compound)
