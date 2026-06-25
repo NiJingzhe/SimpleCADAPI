@@ -11,10 +11,12 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 - [make_angle_arc_redge](make_angle_arc_redge.md) *(from operations.py)* `top-level`
 - [make_angle_arc_rwire](make_angle_arc_rwire.md) *(from operations.py)* `top-level`
+- [make_assembly_rassembly](make_assembly_rassembly.md) *(from operations.py)* `top-level`
 - [make_box_rsolid](make_box_rsolid.md) *(from operations.py)* `top-level`
 - [make_circle_redge](make_circle_redge.md) *(from operations.py)* `top-level`
 - [make_circle_rface](make_circle_rface.md) *(from operations.py)* `top-level`
 - [make_circle_rwire](make_circle_rwire.md) *(from operations.py)* `top-level`
+- [make_compound_from_assembly_rcompound](make_compound_from_assembly_rcompound.md) *(from operations.py)* `top-level`
 - [make_cone_rsolid](make_cone_rsolid.md) *(from operations.py)* `top-level`
 - [make_cylinder_rsolid](make_cylinder_rsolid.md) *(from operations.py)* `top-level`
 - [make_face_from_sketch_rface](make_face_from_sketch_rface.md) *(from operations.py)* `top-level`
@@ -22,6 +24,9 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_helix_redge](make_helix_redge.md) *(from operations.py)* `top-level`
 - [make_helix_rwire](make_helix_rwire.md) *(from operations.py)* `top-level`
 - [make_line_redge](make_line_redge.md) *(from operations.py)* `top-level`
+- [make_material_rmaterial](make_material_rmaterial.md) *(from operations.py)* `top-level`
+- [make_part_rpart](make_part_rpart.md) *(from operations.py)* `top-level`
+- [make_placement_rplacement](make_placement_rplacement.md) *(from operations.py)* `top-level`
 - [make_point_rvertex](make_point_rvertex.md) *(from operations.py)* `top-level`
 - [make_polyline_rwire](make_polyline_rwire.md) *(from operations.py)* `top-level`
 - [make_rectangle_rface](make_rectangle_rface.md) *(from operations.py)* `top-level`
@@ -124,12 +129,19 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 ## Other
 
+- [Assembly](Assembly.md) *(from product.py)* `top-level`
+- [Component](Component.md) *(from product.py)* `top-level`
+- [Material](Material.md) *(from product.py)* `top-level`
+- [Part](Part.md) *(from product.py)* `top-level`
+- [Placement](Placement.md) *(from product.py)* `top-level`
 - [SemanticDelta](SemanticDelta.md) *(from topology.py)* `top-level`
 - [SemanticRef](SemanticRef.md) *(from topology.py)* `top-level`
 - [add_circle_rsketch](add_circle_rsketch.md) *(from operations.py)* `top-level`
+- [add_component_rassembly](add_component_rassembly.md) *(from operations.py)* `top-level`
 - [add_line_rsketch](add_line_rsketch.md) *(from operations.py)* `top-level`
 - [add_point_rsketch](add_point_rsketch.md) *(from operations.py)* `top-level`
 - [and_](and_.md) *(from ql.py)* `submodule:ql`
+- [assign_material_rpart](assign_material_rpart.md) *(from operations.py)* `top-level`
 - [constrain_angle_rsketch](constrain_angle_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_coincident_rsketch](constrain_coincident_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_collinear_rsketch](constrain_collinear_rsketch.md) *(from operations.py)* `top-level`
@@ -155,11 +167,13 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [geo](geo.md) *(from ql.py)* `submodule:ql`
 - [get_sketch_entity_rsketchref](get_sketch_entity_rsketchref.md) *(from operations.py)* `top-level`
 - [get_sketch_point_rsketchref](get_sketch_point_rsketchref.md) *(from operations.py)* `top-level`
+- [identity_placement_rplacement](identity_placement_rplacement.md) *(from operations.py)* `top-level`
 - [inspect_sketch_rsketchresult](inspect_sketch_rsketchresult.md) *(from operations.py)* `top-level`
 - [linear_pattern_rsolidlist](linear_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [meta](meta.md) *(from ql.py)* `submodule:ql`
 - [not_](not_.md) *(from ql.py)* `submodule:ql`
 - [or_](or_.md) *(from ql.py)* `submodule:ql`
+- [place_component_rassembly](place_component_rassembly.md) *(from operations.py)* `top-level`
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`

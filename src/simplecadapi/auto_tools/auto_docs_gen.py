@@ -22,6 +22,7 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "serializer.py",
     "freecad_translator.py",
     "math.py",
+    "product.py",
     "expr.py",
     "graph.py",
     "sketch.py",
@@ -35,6 +36,7 @@ FULL_PUBLIC_FUNCTION_MODULES = frozenset(
         "evolve.py",
         "ql.py",
         "math.py",
+        "product.py",
     }
 )
 
@@ -43,7 +45,7 @@ EXPORTED_FUNCTION_MODULES = frozenset(
 )
 
 EXPORTED_CALLABLE_MODULES = frozenset(
-    {"expr.py", "graph.py", "sketch.py", "errors.py", "topology.py", "math.py"}
+    {"expr.py", "graph.py", "sketch.py", "errors.py", "topology.py", "math.py", "product.py"}
 )
 
 MISSING = object()
