@@ -34,8 +34,9 @@ def graph_capabilities_payload() -> Dict[str, Any]:
         "display_payload": True,
         "sketch_constraints": True,
         "sketch_solve_snapshots": True,
+        "product_semantics": True,
+        "assembly_graph": True,
         "topology_delta_summary": False,
-        "assembly_graph": False,
         "scalar_field_graph": False,
         "expression_graph": True,
     }
@@ -49,6 +50,7 @@ class TopoKind(Enum):
     WIRE = auto()
     FACE = auto()
     SOLID = auto()
+    COMPOUND = auto()
 
 
 class TopoEvent(Enum):

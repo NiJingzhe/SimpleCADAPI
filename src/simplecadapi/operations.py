@@ -21,6 +21,7 @@ from .core import (
     Wire,
     Face,
     Solid,
+    Compound,
     AnyShape,
     get_current_cs,
 )
@@ -34,6 +35,15 @@ from .graph import (
     suspend_graph_recording,
 )
 from .ql import ShapeSelector
+from .product import (
+    Assembly,
+    Component,
+    Material,
+    Part,
+    Placement,
+    compose_placements,
+    identity_placement,
+)
 from .sketch import Sketch, SketchRef, SketchSolveResult
 from .tagging import normalize_tag
 from .topology import (
@@ -86,10 +96,11 @@ from .kernel.ocp_features import (
 from .kernel.ocp_transforms import (
     mirror_shape_ocp,
     rotate_shape_ocp,
+    place_shape_ocp,
     translate_shape_ocp,
 )
 from .kernel.ocp_booleans import common_shapes, fuse_shapes, solids_of
-from .kernel.ocp_export import export_step_shapes, export_stl_shape, make_compound
+from .kernel.ocp_export import export_step_shapes, export_stl_shape, make_compound, make_compound_always
 from .kernel.ocp_mesh import tessellate_face
 from .kernel.ocp_properties import bounding_box, distance as ocp_distance
 
@@ -133,6 +144,15 @@ _OP_MAKE_ADD_LINE_RSKETCH = "make_add_line_rsketch"
 _OP_MAKE_ADD_CIRCLE_RSKETCH = "make_add_circle_rsketch"
 _OP_MAKE_WIRE_FROM_SKETCH_RWIRE = "make_wire_from_sketch_rwire"
 _OP_MAKE_FACE_FROM_SKETCH_RFACE = "make_face_from_sketch_rface"
+_OP_MAKE_MATERIAL_RMATERIAL = "make_material_rmaterial"
+_OP_MAKE_PLACEMENT_RPLACEMENT = "make_placement_rplacement"
+_OP_MAKE_IDENTITY_PLACEMENT_RPLACEMENT = "make_identity_placement_rplacement"
+_OP_MAKE_PART_RPART = "make_part_rpart"
+_OP_MAKE_ASSIGN_MATERIAL_RPART = "make_assign_material_rpart"
+_OP_MAKE_ASSEMBLY_RASSEMBLY = "make_assembly_rassembly"
+_OP_MAKE_ADD_COMPONENT_RASSEMBLY = "make_add_component_rassembly"
+_OP_MAKE_PLACE_COMPONENT_RASSEMBLY = "make_place_component_rassembly"
+_OP_MAKE_COMPOUND_FROM_ASSEMBLY_RCOMPOUND = "make_compound_from_assembly_rcompound"
 
 
 _SKETCH_CONSTRAINT_OPS = {
@@ -248,6 +268,75 @@ def _wrap_public_api_error(
         how_to_fix=how_to_fix,
         error=error,
     )
+
+
+def _semantic_id_registry(kind: str) -> Set[str]:
+    session = get_active_session()
+    if session is None:
+        return set()
+    registry = getattr(session, "_simplecad_semantic_ids", None)
+    if registry is None:
+        registry = {}
+        setattr(session, "_simplecad_semantic_ids", registry)
+    return cast(Set[str], registry.setdefault(kind, set()))
+
+
+def _reserve_semantic_id(kind: str, value: str) -> None:
+    session = get_active_session()
+    if session is None:
+        return
+    registry = _semantic_id_registry(kind)
+    if value in registry:
+        raise ValueError(f"duplicate {kind} id in active GraphSession: {value}")
+    registry.add(value)
+
+
+def _semantic_created(entity_type: str, entity_id: str, metadata: Optional[Dict[str, Any]] = None) -> SemanticDelta:
+    return SemanticDelta(
+        created=(
+            SemanticRef(
+                graph_id="pending",
+                node_id="pending",
+                entity_type=entity_type,
+                entity_id=entity_id,
+            ),
+        ),
+        metadata=dict(metadata or {}),
+    )
+
+
+def _semantic_modified(entity_type: str, entity_id: str, metadata: Optional[Dict[str, Any]] = None) -> SemanticDelta:
+    return SemanticDelta(
+        modified=(
+            SemanticRef(
+                graph_id="pending",
+                node_id="pending",
+                entity_type=entity_type,
+                entity_id=entity_id,
+            ),
+        ),
+        metadata=dict(metadata or {}),
+    )
+
+
+def _material_params(material: Material) -> Dict[str, object]:
+    return material.to_dict()
+
+
+def _placement_params(placement: Placement) -> Dict[str, object]:
+    return {
+        "origin": placement.origin,
+        "x_axis": placement.x_axis,
+        "y_axis": placement.y_axis,
+    }
+
+
+def _part_params(part: Part) -> Dict[str, object]:
+    return {"part_id": part.part_id, "name": part.name}
+
+
+def _assembly_params(assembly: Assembly) -> Dict[str, object]:
+    return {"assembly_id": assembly.assembly_id, "name": assembly.name}
 
 
 def _resolve_union_tol(
@@ -472,6 +561,14 @@ def _make_selector_hint(shape: AnyShape) -> Dict[str, object]:
             "min": (float(bb.xmin), float(bb.ymin), float(bb.zmin)),
             "max": (float(bb.xmax), float(bb.ymax), float(bb.zmax)),
         }
+    elif isinstance(shape, Compound):
+        hint["volume"] = float(shape.get_volume())
+        hint["solid_count"] = len(shape.get_solids())
+        bb = bounding_box(shape.wrapped)
+        hint["bbox"] = {
+            "min": (float(bb.xmin), float(bb.ymin), float(bb.zmin)),
+            "max": (float(bb.xmax), float(bb.ymax), float(bb.zmax)),
+        }
 
     return hint
 
@@ -575,6 +672,8 @@ def _shape_kind_token(shape: AnyShape) -> str:
         return "face"
     if isinstance(shape, Solid):
         return "solid"
+    if isinstance(shape, Compound):
+        return "compound"
     return type(shape).__name__.lower()
 
 
@@ -598,7 +697,7 @@ def _candidate_shapes_for_selection(source: AnyShape, kind: str) -> List[AnyShap
             return list(source.get_edges())
         return [source] if isinstance(source, Edge) else []
     if kind == "face":
-        if isinstance(source, Solid):
+        if isinstance(source, (Solid, Compound)):
             return list(source.get_faces())
         return [source] if isinstance(source, Face) else []
     if kind == "wire":
@@ -622,7 +721,11 @@ def _candidate_shapes_for_selection(source: AnyShape, kind: str) -> List[AnyShap
             ]
         return [source] if isinstance(source, Vertex) else []
     if kind == "solid":
+        if isinstance(source, Compound):
+            return cast(List[AnyShape], source.get_solids())
         return [source] if isinstance(source, Solid) else []
+    if kind == "compound":
+        return [source] if isinstance(source, Compound) else []
     return []
 
 
@@ -693,6 +796,9 @@ def _make_geo_selector(
         center = shape.get_center() if hasattr(shape, "get_center") else None
         if center is not None:
             selector["center"] = [float(center.x), float(center.y), float(center.z)]
+    elif isinstance(shape, Compound):
+        selector["volume"] = float(shape.get_volume())
+        selector["solid_count"] = len(shape.get_solids())
     return selector
 
 
@@ -4301,11 +4407,438 @@ def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
 
 
 # =============================================================================
+# Product semantic functions
+# =============================================================================
+
+
+def make_material_rmaterial(
+    material_id: str,
+    *,
+    name: Optional[str] = None,
+    density: Optional[float] = None,
+    density_unit: Optional[str] = None,
+    color: Optional[Tuple[float, float, float]] = None,
+) -> Material:
+    """Create a material definition for later Part assignment.
+
+    Material is deliberately separate from `make_part_rpart(...)`; the only
+    correct workflow is to create a material and then assign it to a Part with
+    `assign_material_rpart(...)`.
+    """
+
+    try:
+        material = Material(
+            material_id,
+            name=name,
+            density=density,
+            density_unit=density_unit,
+            color=color,
+        )
+        _reserve_semantic_id("material", material.material_id)
+        record_operation_if_active(
+            _OP_MAKE_MATERIAL_RMATERIAL,
+            _material_params(material),
+            outputs=material,
+            semantic_delta=_semantic_created(
+                "Material", material.material_id, material.to_dict()
+            ),
+            context=_current_context_metadata(),
+        )
+        return material
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_material_rmaterial",
+            what_happened="Failed to create the material definition.",
+            possible_causes=[
+                "The material_id is empty or uses unsupported characters.",
+                "The density is non-finite, non-positive, or missing a density_unit.",
+                "The color is not a 3-tuple in the [0.0, 1.0] range.",
+            ],
+            how_to_fix=[
+                "Use a stable identifier such as 'aluminum_6061'.",
+                "Provide density and density_unit together, or omit both.",
+                "Pass RGB color components as floats between 0.0 and 1.0.",
+            ],
+            error=e,
+        )
+
+
+def make_placement_rplacement(
+    origin: Tuple[float, float, float],
+    *,
+    x_axis: Tuple[float, float, float] = (1.0, 0.0, 0.0),
+    y_axis: Tuple[float, float, float] = (0.0, 1.0, 0.0),
+) -> Placement:
+    """Create a canonical right-handed component placement.
+
+    The placement maps child-local coordinates into parent assembly coordinates
+    using one representation only: origin plus child x/y axes in parent space.
+    """
+
+    try:
+        placement = Placement(origin, x_axis=x_axis, y_axis=y_axis)
+        record_operation_if_active(
+            _OP_MAKE_PLACEMENT_RPLACEMENT,
+            _placement_params(placement),
+            outputs=placement,
+            context=_current_context_metadata(),
+        )
+        return placement
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_placement_rplacement",
+            what_happened="Failed to create the placement.",
+            possible_causes=[
+                "The origin is not a finite 3D point.",
+                "One of the axes is zero-length or non-finite.",
+                "x_axis and y_axis are not orthogonal.",
+            ],
+            how_to_fix=[
+                "Pass origin, x_axis, and y_axis as finite 3-element tuples.",
+                "Use one canonical representation; do not mix Euler, quaternion, or axis-angle payloads.",
+                "Make sure x_axis and y_axis form a right-handed frame.",
+            ],
+            error=e,
+        )
+
+
+def identity_placement_rplacement() -> Placement:
+    """Create an identity placement."""
+
+    try:
+        placement = identity_placement()
+        record_operation_if_active(
+            _OP_MAKE_IDENTITY_PLACEMENT_RPLACEMENT,
+            _placement_params(placement),
+            outputs=placement,
+            context=_current_context_metadata(),
+        )
+        return placement
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="identity_placement_rplacement",
+            what_happened="Failed to create the identity placement.",
+            possible_causes=["Internal placement validation failed."],
+            how_to_fix=["Report this as a SimpleCADAPI bug if it reproduces."],
+            error=e,
+        )
+
+
+def make_part_rpart(
+    part_id: str,
+    body: Solid,
+    *,
+    name: Optional[str] = None,
+) -> Part:
+    """Wrap exactly one Solid as a semantic single-body Part."""
+
+    try:
+        part = Part(part_id, body, name=name)
+        _reserve_semantic_id("part", part.part_id)
+        record_operation_if_active(
+            _OP_MAKE_PART_RPART,
+            _part_params(part),
+            outputs=part,
+            input_shapes=[body],
+            semantic_delta=_semantic_created("Part", part.part_id, part.to_dict()),
+            context=_current_context_metadata(),
+        )
+        return part
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_part_rpart",
+            what_happened="Failed to create the single-body Part.",
+            possible_causes=[
+                "The part_id is empty or uses unsupported characters.",
+                "The body is not a Solid.",
+                "A Part with the same part_id already exists in the active GraphSession.",
+            ],
+            how_to_fix=[
+                "Pass a stable part_id such as 'base_plate'.",
+                "Union intended multiple bodies into one Solid before creating the Part.",
+                "Do not pass material to make_part_rpart; use assign_material_rpart instead.",
+            ],
+            error=e,
+        )
+
+
+def assign_material_rpart(part: Part, material: Material) -> Part:
+    """Assign a Material to a Part and return the updated Part."""
+
+    try:
+        if not isinstance(part, Part):
+            raise TypeError("part must be a Part")
+        if not isinstance(material, Material):
+            raise TypeError("material must be a Material")
+        result = part.with_material(material)
+        record_operation_if_active(
+            _OP_MAKE_ASSIGN_MATERIAL_RPART,
+            {
+                "part_id": part.part_id,
+                "material_id": material.material_id,
+            },
+            outputs=result,
+            input_shapes=[part, material],
+            semantic_delta=_semantic_modified(
+                "Part",
+                part.part_id,
+                {"material_id": material.material_id},
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="assign_material_rpart",
+            what_happened="Failed to assign the material to the Part.",
+            possible_causes=[
+                "The part input is not a Part.",
+                "The material input is not a Material.",
+            ],
+            how_to_fix=[
+                "Create parts with make_part_rpart(...).",
+                "Create materials with make_material_rmaterial(...).",
+            ],
+            error=e,
+        )
+
+
+def make_assembly_rassembly(
+    assembly_id: str,
+    *,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Create an empty assembly product structure."""
+
+    try:
+        assembly = Assembly(assembly_id, name=name)
+        _reserve_semantic_id("assembly", assembly.assembly_id)
+        record_operation_if_active(
+            _OP_MAKE_ASSEMBLY_RASSEMBLY,
+            _assembly_params(assembly),
+            outputs=assembly,
+            semantic_delta=_semantic_created(
+                "Assembly", assembly.assembly_id, assembly.to_dict()
+            ),
+            context=_current_context_metadata(),
+        )
+        return assembly
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_assembly_rassembly",
+            what_happened="Failed to create the assembly.",
+            possible_causes=[
+                "The assembly_id is empty or uses unsupported characters.",
+                "An Assembly with the same assembly_id already exists in the active GraphSession.",
+            ],
+            how_to_fix=["Pass a stable assembly_id such as 'fixture_assembly'."],
+            error=e,
+        )
+
+
+def add_component_rassembly(
+    assembly: Assembly,
+    item: Union[Part, Assembly],
+    *,
+    component_id: str,
+    placement: Placement,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Add a placed Part or subassembly component instance to an Assembly."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        if not isinstance(item, (Part, Assembly)):
+            raise TypeError("item must be a Part or Assembly")
+        if not isinstance(placement, Placement):
+            raise TypeError("placement must be a Placement")
+        component = Component(component_id, item, placement, name=name)
+        result = assembly.with_component(component)
+        item_kind = "assembly" if isinstance(item, Assembly) else "part"
+        item_id = item.assembly_id if isinstance(item, Assembly) else item.part_id
+        record_operation_if_active(
+            _OP_MAKE_ADD_COMPONENT_RASSEMBLY,
+            {
+                "assembly_id": assembly.assembly_id,
+                "component_id": component.component_id,
+                "name": component.name,
+                "item_kind": item_kind,
+                "item_id": item_id,
+            },
+            outputs=result,
+            input_shapes=[assembly, item, placement],
+            semantic_delta=SemanticDelta(
+                created=(
+                    SemanticRef(
+                        graph_id="pending",
+                        node_id="pending",
+                        entity_type="Component",
+                        entity_id=f"{assembly.assembly_id}:{component.component_id}",
+                    ),
+                ),
+                modified=(
+                    SemanticRef(
+                        graph_id="pending",
+                        node_id="pending",
+                        entity_type="Assembly",
+                        entity_id=assembly.assembly_id,
+                    ),
+                ),
+                metadata={"component": component.to_dict()},
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_component_rassembly",
+            what_happened="Failed to add the component to the assembly.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "The item input is not a Part or Assembly.",
+                "The component_id is empty, malformed, or duplicated in the assembly.",
+                "The placement is invalid or missing.",
+                "Adding this subassembly would create an assembly cycle.",
+            ],
+            how_to_fix=[
+                "Wrap solids explicitly with make_part_rpart before adding them to assemblies.",
+                "Use a unique component_id within the parent assembly.",
+                "Create placements with make_placement_rplacement or identity_placement_rplacement.",
+            ],
+            error=e,
+        )
+
+
+def place_component_rassembly(
+    assembly: Assembly,
+    component_id: str,
+    placement: Placement,
+) -> Assembly:
+    """Move an existing assembly component by replacing its placement."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        if not isinstance(placement, Placement):
+            raise TypeError("placement must be a Placement")
+        result = assembly.with_component_placement(component_id, placement)
+        record_operation_if_active(
+            _OP_MAKE_PLACE_COMPONENT_RASSEMBLY,
+            {
+                "assembly_id": assembly.assembly_id,
+                "component_id": component_id,
+            },
+            outputs=result,
+            input_shapes=[assembly, placement],
+            semantic_delta=_semantic_modified(
+                "Component", f"{assembly.assembly_id}:{component_id}", {"placement": placement.to_dict()}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="place_component_rassembly",
+            what_happened="Failed to place the assembly component.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "The component_id does not exist in the assembly.",
+                "The placement is invalid or missing.",
+            ],
+            how_to_fix=[
+                "Use add_component_rassembly before placing a component.",
+                "Use a component_id returned in assembly.component_ids().",
+                "Create placements with make_placement_rplacement.",
+            ],
+            error=e,
+        )
+
+
+def _placed_solids_from_item(item: Union[Part, Assembly], placement: Placement) -> List[Solid]:
+    if isinstance(item, Part):
+        placed = place_shape_ocp(
+            item.body,
+            placement.origin,
+            placement.x_axis,
+            placement.y_axis,
+            placement.z_axis,
+        )
+        return [cast(Solid, placed)]
+    if isinstance(item, Assembly):
+        solids: List[Solid] = []
+        for component in item.components:
+            solids.extend(
+                _placed_solids_from_item(
+                    component.item,
+                    compose_placements(placement, component.placement),
+                )
+            )
+        return solids
+    raise TypeError("item must be a Part or Assembly")
+
+
+def make_compound_from_assembly_rcompound(assembly: Assembly) -> Compound:
+    """Project an Assembly into an explicit flattened Compound geometry value."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        if not assembly.components:
+            raise ValueError("assembly must contain at least one component to project")
+        solids = _placed_solids_from_item(assembly, identity_placement())
+        if not solids:
+            raise ValueError("assembly projection produced no solids")
+        compound = Compound(make_compound_always([solid.wrapped for solid in solids]))
+        compound.set_metadata(
+            "assembly_projection",
+            {
+                "assembly_id": assembly.assembly_id,
+                "component_count": len(assembly.components),
+                "solid_count": len(solids),
+            },
+        )
+        record_operation_if_active(
+            _OP_MAKE_COMPOUND_FROM_ASSEMBLY_RCOMPOUND,
+            {
+                "assembly_id": assembly.assembly_id,
+                "component_count": len(assembly.components),
+            },
+            outputs=compound,
+            input_shapes=[assembly],
+            semantic_delta=_semantic_modified(
+                "Assembly",
+                assembly.assembly_id,
+                {"projection": "compound", "solid_count": len(solids)},
+            ),
+            context=_current_context_metadata(),
+        )
+        return compound
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_compound_from_assembly_rcompound",
+            what_happened="Failed to project the assembly into a Compound.",
+            possible_causes=[
+                "The input is not an Assembly.",
+                "The assembly has no components.",
+                "A component placement is invalid.",
+                "The kernel could not transform or combine the component bodies.",
+            ],
+            how_to_fix=[
+                "Create an assembly with make_assembly_rassembly and add at least one component.",
+                "Ensure every component references a valid Part or subassembly.",
+                "Validate placements before projection.",
+            ],
+            error=e,
+        )
+
+
+# =============================================================================
 # 导出函数
 # =============================================================================
 
 
-_EXPORTABLE_TYPES = (Solid, Face, Wire, Edge, Vertex)
+_EXPORTABLE_TYPES = (Compound, Solid, Face, Wire, Edge, Vertex)
 
 
 def _normalize_shape_input(
@@ -4323,7 +4856,7 @@ def _normalize_shape_input(
         return normalized
 
     raise ValueError(
-        "export 函数只支持 Solid、Face、Wire、Edge、Vertex 或其序列类型的输入"
+        "export 函数只支持 Compound、Solid、Face、Wire、Edge、Vertex 或其序列类型的输入"
     )
 
 
@@ -4366,7 +4899,7 @@ def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> N
                 "The exporter rejected the provided geometry.",
             ],
             how_to_fix=[
-                "Pass Solid, Face, Wire, Edge, Vertex, or sequences of those types.",
+                "Pass Compound, Solid, Face, Wire, Edge, Vertex, or sequences of those types.",
                 "Use a writable file path ending in .step or .stp.",
                 "If export still fails, inspect each input shape individually.",
             ],
@@ -4378,7 +4911,7 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
     """Export shapes to STL.
 
     Args:
-        shapes: A single Solid or Face, or any nested sequence of Solid/Face.
+        shapes: A single Compound, Solid, or Face, or any nested sequence of those.
             Lists of Solid are supported directly, including pattern or explicitly
             collected multi-shape results.
         filename: Output STL file path.
@@ -4387,7 +4920,7 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
         None: Writes the provided shapes into one STL file.
 
     Usage:
-        Use this function when you want to export one solid or many solids/faces into
+        Use this function when you want to export one compound, solid, or face into
         the same STL file. Passing `List[Solid]` is valid for pattern outputs or
         explicit shape collections. Boolean operations return a single `Solid`.
 
@@ -4403,8 +4936,8 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
         shape_list = _normalize_shape_input(shapes)
 
         for shape in shape_list:
-            if not isinstance(shape, (Solid, Face)):
-                raise ValueError("export_stl函数只支持Solid和Face类型的几何体")
+            if not isinstance(shape, (Compound, Solid, Face)):
+                raise ValueError("export_stl函数只支持Compound、Solid和Face类型的几何体")
         export_stl_shape(make_compound([shape.wrapped for shape in shape_list]), filename)
     except Exception as e:
         _wrap_public_api_error(

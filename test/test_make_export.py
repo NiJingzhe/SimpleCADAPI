@@ -40,20 +40,24 @@ class TestMakeExportInventory(unittest.TestCase):
         self.assertNotIn("from .constraints import (", content)
         self.assertIn("from . import ql", content)
         self.assertNotIn("create_field_surface", content)
-        self.assertNotIn("make_assembly_rassembly", content)
+        self.assertIn("make_assembly_rassembly", content)
+        self.assertIn("make_part_rpart", content)
+        self.assertIn("make_material_rmaterial", content)
         self.assertIn("apply_tag", content)
         self.assertIn("list_tags", content)
         self.assertNotIn("set_tag", content)
         self.assertNotIn('"field",', content)
         self.assertIn('"ql",', content)
 
-    def test_target_symbols_exclude_removed_module_exports(self):
+    def test_target_symbols_include_product_semantics_but_exclude_removed_exports(self):
         inventory = make_export.collect_api_inventory()
 
         symbols = make_export._target_symbols(inventory)
 
-        self.assertNotIn("make_assembly_rassembly", symbols)
-        self.assertNotIn("Assembly", symbols)
+        self.assertIn("make_assembly_rassembly", symbols)
+        self.assertIn("make_part_rpart", symbols)
+        self.assertIn("make_material_rmaterial", symbols)
+        self.assertNotIn("PartHandle", symbols)
         self.assertIn("apply_tag", symbols)
         self.assertIn("list_tags", symbols)
         self.assertNotIn("set_tag", symbols)
