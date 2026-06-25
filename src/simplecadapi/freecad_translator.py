@@ -273,6 +273,7 @@ class FreeCADScriptTranslator:
         self._expr_alias_by_id: Dict[str, str] = {}
         self._result_node_ids: Set[str] = set()
         self._result_node_id_list: List[str] = []
+        self._suppressed_profile_node_ids: Set[str] = set()
 
     def _compile_time_expr_formula(self, expr_ref: Any) -> Optional[str]:
         if not isinstance(expr_ref, dict):
@@ -352,6 +353,7 @@ class FreeCADScriptTranslator:
         else:
             self._result_node_id_list = [leaf.node_id for leaf in source_graph.leaf_nodes()]
         self._result_node_ids = set(self._result_node_id_list)
+        self._suppressed_profile_node_ids = self._find_cylinder_profile_nodes(source_graph)
 
         lines: List[str] = []
         emit = lines.append
@@ -365,9 +367,15 @@ class FreeCADScriptTranslator:
         emit("except Exception:")
         emit("    Sketcher = None")
         emit("try:")
+        emit("    import Assembly")
+        emit("except Exception:")
+        emit("    Assembly = None")
+        emit("try:")
         emit("    import Spreadsheet")
         emit("except Exception:")
         emit("    Spreadsheet = None")
+        emit("import os")
+        emit("import zipfile")
         emit("")
         emit(f"DOC_NAME = {_json_ascii(self.document_name)}")
         emit(
@@ -379,6 +387,10 @@ class FreeCADScriptTranslator:
         emit("GRAPH_SELECTIONS = {}")
         emit("GRAPH_SPINE_OBJECTS = {}")
         emit("GRAPH_LIMITATIONS = {}")
+        emit("PRODUCT_VALUES = {}")
+        emit("ASSEMBLY_PROJECTION_INPUTS = {}")
+        emit("GUI_VISIBILITY_BY_NAME = {}")
+        emit("GUI_EXPANDED_BY_NAME = {}")
         emit("SKETCH_REGISTRY = []")
         expression_graph_payload = payload.get("expression_graph", {})
         if hasattr(expression_graph_payload, "to_dict"):
@@ -430,8 +442,47 @@ class FreeCADScriptTranslator:
             "RESULT_OBJECTS = [obj for node_id in RESULT_NODE_IDS for obj in GRAPH_OUTPUTS.get(node_id, [])]"
         )
         emit("_apply_result_visibility(RESULT_NODE_IDS)")
+        emit("_set_active_result_object(RESULT_NODE_IDS)")
         emit("doc.TransientDir = getattr(doc, 'TransientDir', '')")
         return "\n".join(lines).rstrip() + "\n"
+
+    def _find_cylinder_profile_nodes(self, graph: OperationGraph) -> Set[str]:
+        use_counts: Dict[str, int] = {}
+        for graph_node in graph.topological_order():
+            for input_ref in graph_node.inputs:
+                use_counts[input_ref.node_id] = use_counts.get(input_ref.node_id, 0) + 1
+
+        suppressed: Set[str] = set()
+        for graph_node in graph.topological_order():
+            if graph_node.op != "make_extrude_rsolid" or len(graph_node.inputs) != 1:
+                continue
+            profile_node = graph.get_node(graph_node.inputs[0].node_id)
+            face_node = None
+            if (
+                profile_node is not None
+                and profile_node.op == "make_face_from_wire_rface"
+                and len(profile_node.inputs) == 1
+            ):
+                face_node = profile_node
+                profile_node = graph.get_node(profile_node.inputs[0].node_id)
+            if (
+                profile_node is None
+                or profile_node.op != "make_wire_from_edges_rwire"
+                or len(profile_node.inputs) != 1
+            ):
+                continue
+            edge_node = graph.get_node(profile_node.inputs[0].node_id)
+            if edge_node is None or edge_node.op != "make_circle_redge":
+                continue
+            profile_ids = [profile_node.node_id]
+            if face_node is not None:
+                profile_ids.append(face_node.node_id)
+            if any(node_id in self._result_node_ids for node_id in profile_ids):
+                continue
+            if any(use_counts.get(node_id, 0) != 1 for node_id in profile_ids):
+                continue
+            suppressed.update(profile_ids)
+        return suppressed
 
     def _emit_expression_graph(self, expression_graph_payload: Any) -> List[str]:
         if not isinstance(expression_graph_payload, dict):
@@ -816,10 +867,135 @@ def _make_native_object(type_id, name, *, node_id, op, params, inputs, tags, con
     )
 
 
+def _make_native_assembly(name, *, node_id, op, params, inputs, tags, context, output_count, param_exprs=None, semantic_delta=None, topo_delta=None):
+    if Assembly is None:
+        raise RuntimeError('FreeCAD Assembly workbench module is required for SimpleCAD Assembly translation')
+    obj = doc.addObject('Assembly::AssemblyObject', name)
+    obj.Type = 'Assembly'
+    try:
+        obj.newObject('Assembly::JointGroup', 'Joints')
+    except Exception:
+        pass
+    return _register_graph_object(
+        obj,
+        node_id=node_id,
+        op=op,
+        params=params,
+        inputs=inputs,
+        tags=tags,
+        context=context,
+        output_count=output_count,
+        param_exprs=param_exprs,
+        semantic_delta=semantic_delta,
+        topo_delta=topo_delta,
+    )
+
+
+PRODUCT_LIBRARY_GROUP = None
+CONSTRUCTION_GROUP = None
+
+
+def _named_document_group(name, label):
+    existing = doc.getObject(name)
+    if existing is not None:
+        return existing
+    group = doc.addObject('App::DocumentObjectGroup', name)
+    group.Label = label
+    _set_visibility(group, False)
+    return group
+
+
+def _product_library_group():
+    global PRODUCT_LIBRARY_GROUP
+    if PRODUCT_LIBRARY_GROUP is None:
+        PRODUCT_LIBRARY_GROUP = _named_document_group('SimpleCADProductLibrary', 'SimpleCAD Product Library')
+    return PRODUCT_LIBRARY_GROUP
+
+
+def _construction_group():
+    global CONSTRUCTION_GROUP
+    if CONSTRUCTION_GROUP is None:
+        CONSTRUCTION_GROUP = _named_document_group('SimpleCADConstruction', 'SimpleCAD Construction')
+    return CONSTRUCTION_GROUP
+
+
+def _group_contains(group, obj):
+    return obj in list(getattr(group, 'Group', []) or [])
+
+
+def _add_to_group(group, obj):
+    if obj is None or obj is group:
+        return
+    if not _group_contains(group, obj):
+        try:
+            group.addObject(obj)
+        except Exception:
+            pass
+
+
+def _hide_origin_tree(container):
+    for child in list(getattr(container, 'Group', []) or []):
+        if getattr(child, 'TypeId', '') == 'App::Origin' or str(getattr(child, 'Name', '')).startswith('Origin'):
+            _set_visibility(child, False)
+            for nested in list(getattr(child, 'OutListRecursive', []) or []):
+                _set_visibility(nested, False)
+
+
+def _move_to_construction_group(obj):
+    group = _construction_group()
+    for candidate in [obj] + list(getattr(obj, 'OutListRecursive', []) or []):
+        if candidate is None:
+            continue
+        if getattr(candidate, 'TypeId', '') in {'App::Origin', 'App::Line', 'App::Plane', 'App::Point'}:
+            continue
+        _add_to_group(group, candidate)
+        _set_visibility(candidate, False)
+    _set_visibility(group, False)
+
+
+def _move_product_source_to_library(product_item):
+    container = product_item.get('container') if isinstance(product_item, dict) else None
+    if container is None:
+        return
+    group = _product_library_group()
+    _add_to_group(group, container)
+    _set_visibility(container, False)
+    _hide_origin_tree(container)
+    _set_visibility(group, False)
+
+
+def _make_part_body_copy(part_container, source_obj, source_node_id):
+    doc.recompute()
+    if source_obj is None or not hasattr(source_obj, 'Shape'):
+        raise RuntimeError('Part body source has no shape')
+    body = part_container.newObject('Part::Feature', 'Body')
+    body.Label = 'Body'
+    body.Shape = source_obj.Shape.copy()
+    _ensure_string_property(body, 'SimpleCADSourceBodyNodeId')
+    body.SimpleCADSourceBodyNodeId = str(source_node_id)
+    _set_visibility(body, True)
+    _move_to_construction_group(source_obj)
+    return body
+
+
+def _make_assembly_component_link(assembly_container, product_item, name, label, placement):
+    link_type = 'Assembly::AssemblyLink' if product_item.get('kind') == 'assembly' else 'App::Link'
+    link = assembly_container.newObject(link_type, name)
+    link.Label = str(label)
+    _move_product_source_to_library(product_item)
+    link.LinkedObject = product_item.get('container')
+    if product_item.get('kind') == 'part':
+        link.LinkedObject = product_item.get('container') or product_item.get('body')
+    link.Placement = _placement_from_axes_payload(placement)
+    if link_type == 'Assembly::AssemblyLink':
+        try:
+            link.Rigid = True
+        except Exception:
+            pass
+    return link
+
+
 def _node_object(node_id, index=0):
-    node_value = GRAPH_NODES.get(node_id)
-    if node_value is not None and not hasattr(node_value, 'Shape'):
-        raise RuntimeError(f'Graph node {node_id!r} stores a non-document value, not a FreeCAD object')
     outputs = GRAPH_OUTPUTS.get(node_id, [])
     if not outputs:
         raise RuntimeError(f'Missing graph output object for node {node_id!r}')
@@ -830,11 +1006,15 @@ def _node_object(node_id, index=0):
 
 
 def _set_visibility(obj, visible):
+    if obj is not None:
+        try:
+            GUI_VISIBILITY_BY_NAME[str(obj.Name)] = bool(visible)
+        except Exception:
+            pass
     try:
         view = getattr(obj, 'ViewObject', None)
         if view is not None and hasattr(view, 'Visibility'):
             view.Visibility = bool(visible)
-            return
     except Exception:
         pass
     try:
@@ -842,6 +1022,85 @@ def _set_visibility(obj, visible):
             obj.Visibility = bool(visible)
     except Exception:
         pass
+
+
+def _set_expanded(obj, expanded=True):
+    try:
+        GUI_EXPANDED_BY_NAME[str(obj.Name)] = bool(expanded)
+    except Exception:
+        pass
+
+
+def _xml_attr(value):
+    return str(value).replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def _visibility_for_gui(obj):
+    try:
+        name = str(obj.Name)
+    except Exception:
+        return False
+    if name in GUI_VISIBILITY_BY_NAME:
+        return bool(GUI_VISIBILITY_BY_NAME[name])
+    try:
+        return bool(obj.Visibility)
+    except Exception:
+        return False
+
+
+def _write_gui_document_xml(fcstd_path):
+    object_rows = []
+    for obj in list(getattr(doc, 'Objects', []) or []):
+        try:
+            name = str(obj.Name)
+        except Exception:
+            continue
+        object_rows.append((name, _visibility_for_gui(obj), bool(GUI_EXPANDED_BY_NAME.get(name, False))))
+    lines = [
+        "<?xml version='1.0' encoding='utf-8'?>",
+        '<!--',
+        ' FreeCAD Document, see https://www.freecad.org for more information...',
+        '-->',
+        '<Document SchemaVersion="1">',
+        f'    <ViewProviderData Count="{len(object_rows)}">',
+    ]
+    for name, visible, expanded in object_rows:
+        lines.extend([
+            f'        <ViewProvider name="{_xml_attr(name)}" expanded="{1 if expanded else 0}">',
+            '            <Properties Count="1">',
+            '                <Property name="Visibility" type="App::PropertyBool">',
+            f'                    <Bool value="{str(bool(visible)).lower()}"/>',
+            '                </Property>',
+            '            </Properties>',
+            '        </ViewProvider>',
+        ])
+    lines.extend([
+        '    </ViewProviderData>',
+        '    <Camera settings="  OrthographicCamera { viewportMapping ADJUST_CAMERA position 0 -0 20000 orientation 0 0 1 0 nearDistance 1 farDistance 100000 aspectRatio 1 focalDistance 20000 height 1000 } "/>',
+        '</Document>',
+        '',
+    ])
+    gui_document = '\\n'.join(lines).encode('utf-8')
+    tmp_path = str(fcstd_path) + '.simplecad_tmp'
+    with zipfile.ZipFile(fcstd_path, 'r') as source:
+        infos = source.infolist()
+        with zipfile.ZipFile(tmp_path, 'w', compression=zipfile.ZIP_DEFLATED) as target:
+            wrote_gui = False
+            for info in infos:
+                if info.filename == 'GuiDocument.xml':
+                    target.writestr(info, gui_document)
+                    wrote_gui = True
+                else:
+                    target.writestr(info, source.read(info.filename))
+            if not wrote_gui:
+                target.writestr('GuiDocument.xml', gui_document)
+    os.replace(tmp_path, fcstd_path)
+
+
+def _save_fcstd_with_gui_visibility(output_path):
+    doc.recompute()
+    doc.saveAs(output_path)
+    _write_gui_document_xml(output_path)
 
 
 def _placement_for_rotation(origin, axis, angle_degrees):
@@ -857,16 +1116,160 @@ def _fold_object_placement(obj, placement):
     return obj
 
 
+def _set_part_body_visibility(product_value, visible):
+    container = product_value.get('container') if isinstance(product_value, dict) else None
+    if container is None:
+        return
+    for child in list(getattr(container, 'Group', []) or []):
+        if getattr(child, 'TypeId', '') == 'App::Origin' or str(getattr(child, 'Name', '')).startswith('Origin'):
+            _set_visibility(child, False)
+            continue
+        _set_visibility(child, visible)
+
+
+def _set_product_tree_visibility(product_value, visible, *, show_source_container=True):
+    if not isinstance(product_value, dict):
+        return
+    kind = product_value.get('kind')
+    container = product_value.get('container')
+    if kind == 'part':
+        if container is not None:
+            _set_visibility(container, visible if show_source_container else False)
+            _set_expanded(container, bool(visible and show_source_container))
+            _hide_origin_tree(container)
+        _set_part_body_visibility(product_value, visible)
+        return
+    if kind == 'assembly':
+        if container is not None:
+            _set_visibility(container, visible if show_source_container else False)
+            _set_expanded(container, bool(visible and show_source_container))
+            _hide_origin_tree(container)
+        for component in product_value.get('components', []):
+            link = component.get('link')
+            if link is not None:
+                _set_visibility(link, visible)
+                _set_expanded(link, bool(visible))
+            item = component.get('item')
+            _set_product_tree_visibility(item, visible, show_source_container=False)
+
+
+def _apply_product_result_visibility(visible_ids):
+    product_ids = set()
+    product_ids.update(str(node_id) for node_id in visible_ids if str(node_id) in PRODUCT_VALUES)
+    product_ids.update(
+        str(source_id)
+        for node_id, source_id in ASSEMBLY_PROJECTION_INPUTS.items()
+        if str(node_id) in visible_ids
+    )
+    for node_id in product_ids:
+        _set_product_tree_visibility(PRODUCT_VALUES.get(node_id), True)
+    if PRODUCT_LIBRARY_GROUP is not None:
+        _set_visibility(PRODUCT_LIBRARY_GROUP, False)
+    if CONSTRUCTION_GROUP is not None:
+        _set_visibility(CONSTRUCTION_GROUP, False)
+
+
+def _result_product_container(result_node_ids):
+    for node_id in result_node_ids or []:
+        product_value = PRODUCT_VALUES.get(str(node_id))
+        if isinstance(product_value, dict) and product_value.get('container') is not None:
+            return product_value.get('container')
+        source_id = ASSEMBLY_PROJECTION_INPUTS.get(str(node_id))
+        product_value = PRODUCT_VALUES.get(str(source_id))
+        if isinstance(product_value, dict) and product_value.get('container') is not None:
+            return product_value.get('container')
+    return None
+
+
+def _set_active_result_object(result_node_ids):
+    obj = _result_product_container(result_node_ids)
+    if obj is None:
+        result_objects = [candidate for node_id in (result_node_ids or []) for candidate in GRAPH_OUTPUTS.get(str(node_id), [])]
+        obj = result_objects[0] if result_objects else None
+    if obj is None:
+        return
+    try:
+        doc.ActiveObject = obj
+    except Exception:
+        pass
+    try:
+        import FreeCADGui as Gui
+        if getattr(App, 'GuiUp', False) and Gui.ActiveDocument is not None:
+            Gui.ActiveDocument.ActiveView.setActiveObject('part', obj)
+    except Exception:
+        pass
+
+
 def _apply_result_visibility(result_node_ids):
     visible_ids = {str(node_id) for node_id in (result_node_ids or [])}
+    projection_visible_ids = {str(source_id) for node_id, source_id in ASSEMBLY_PROJECTION_INPUTS.items() if str(node_id) in visible_ids}
     for node_id, outputs in GRAPH_OUTPUTS.items():
-        is_visible = str(node_id) in visible_ids
+        is_visible = str(node_id) in visible_ids or str(node_id) in projection_visible_ids
+        if str(node_id) in ASSEMBLY_PROJECTION_INPUTS:
+            is_visible = False
         for obj in outputs:
             _set_visibility(obj, is_visible)
+    _apply_product_result_visibility(visible_ids)
 
 
 def _vec(v):
     return App.Vector(float(v[0]), float(v[1]), float(v[2]))
+
+
+def _placement_from_axes_payload(payload):
+    origin = payload.get('origin', (0.0, 0.0, 0.0))
+    x_axis = payload.get('x_axis', (1.0, 0.0, 0.0))
+    y_axis = payload.get('y_axis', (0.0, 1.0, 0.0))
+    z_axis = payload.get('z_axis')
+    if z_axis is None:
+        x = _vec(x_axis)
+        y = _vec(y_axis)
+        z = x.cross(y)
+        length = float(getattr(z, 'Length', 0.0))
+        if length == 0.0:
+            raise RuntimeError('Placement axes do not form a frame')
+        z_axis = (z.x / length, z.y / length, z.z / length)
+    matrix = App.Matrix()
+    matrix.A11 = float(x_axis[0]); matrix.A12 = float(y_axis[0]); matrix.A13 = float(z_axis[0]); matrix.A14 = float(origin[0])
+    matrix.A21 = float(x_axis[1]); matrix.A22 = float(y_axis[1]); matrix.A23 = float(z_axis[1]); matrix.A24 = float(origin[1])
+    matrix.A31 = float(x_axis[2]); matrix.A32 = float(y_axis[2]); matrix.A33 = float(z_axis[2]); matrix.A34 = float(origin[2])
+    return App.Placement(matrix)
+
+
+def _shape_from_component_link(link):
+    source = getattr(link, 'LinkedObject', None)
+    if source is None or not hasattr(source, 'Shape'):
+        raise RuntimeError('Component link has no shape-bearing linked object')
+    shape = source.Shape.copy()
+    try:
+        shape.Placement = link.Placement.multiply(shape.Placement)
+    except Exception:
+        pass
+    return shape
+
+
+def _placed_shape_from_body(body, placement):
+    if body is None or not hasattr(body, 'Shape'):
+        raise RuntimeError('Part product value has no shape-bearing body')
+    shape = body.Shape.copy()
+    try:
+        shape.Placement = placement.multiply(shape.Placement)
+    except Exception:
+        pass
+    return shape
+
+
+def _shapes_from_product_value(value, placement=None):
+    placement = placement or App.Placement()
+    if value.get('kind') == 'part':
+        return [_placed_shape_from_body(value.get('body'), placement)]
+    if value.get('kind') == 'assembly':
+        shapes = []
+        for component in value.get('components', []):
+            component_placement = component.get('link').Placement if component.get('link') is not None else _placement_from_axes_payload(component.get('placement') or {})
+            shapes.extend(_shapes_from_product_value(component.get('item'), placement.multiply(component_placement)))
+        return shapes
+    raise RuntimeError('Unsupported product value for shape projection')
 
 
 def _normalized_vec(v):
@@ -2592,6 +2995,105 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"{var_name} = _register_graph_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(source_node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
 
+        if node.op == "make_material_rmaterial":
+            return [
+                f"{var_name} = dict({rp})",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'material', 'material': {var_name}}}",
+                f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op in {"make_placement_rplacement", "make_identity_placement_rplacement"}:
+            return [
+                f"{var_name} = dict({rp})",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'placement', 'placement': {var_name}}}",
+                f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_part_rpart" and len(inputs) == 1:
+            lines = [
+                f"{var_name} = doc.addObject('App::Part', {_json_ascii(object_name)})",
+                f"{var_name}.Label = str({rp}.get('name') or {rp}.get('part_id') or {_json_ascii(object_name)})",
+                f"{var_name}_source_body = GRAPH_NODES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_body = _make_part_body_copy({var_name}, {var_name}_source_body, {_json_ascii(inputs[0])})",
+                f"{var_name}.addObject({var_name}_body)",
+                f"_ensure_string_property({var_name}, 'SimpleCADPartId')",
+                f"{var_name}.SimpleCADPartId = str({rp}.get('part_id', ''))",
+                f"_hide_origin_tree({var_name})",
+            ]
+            lines.extend(finish())
+            lines.append(
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'part', 'part_id': str({rp}.get('part_id', '')), 'body': {var_name}_body, 'container': {var_name}, 'material': None}}"
+            )
+            return lines
+
+        if node.op == "make_assign_material_rpart" and len(inputs) >= 2:
+            lines = [
+                f"{var_name}_part = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_material = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['material']",
+                f"{var_name} = {var_name}_part['container']",
+                f"_ensure_string_property({var_name}, 'SimpleCADMaterial')",
+                f"{var_name}.SimpleCADMaterial = json.dumps({var_name}_material, ensure_ascii=True, sort_keys=True)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_part)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['material'] = {var_name}_material",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+            return lines
+
+        if node.op == "make_assembly_rassembly":
+            lines = [
+                f"{var_name} = _make_native_assembly({_json_ascii(object_name)}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+                f"{var_name}.Label = str({rp}.get('name') or {rp}.get('assembly_id') or {_json_ascii(object_name)})",
+                f"_ensure_string_property({var_name}, 'SimpleCADAssemblyId')",
+                f"{var_name}.SimpleCADAssemblyId = str({rp}.get('assembly_id', ''))",
+            ]
+            lines.append(
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'assembly', 'assembly_id': str({rp}.get('assembly_id', '')), 'container': {var_name}, 'components': []}}"
+            )
+            return lines
+
+        if node.op == "make_add_component_rassembly" and len(inputs) >= 3:
+            lines = [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_item = PRODUCT_VALUES[{_json_ascii(inputs[1])}]",
+                f"{var_name}_placement = PRODUCT_VALUES[{_json_ascii(inputs[2])}]['placement']",
+                f"{var_name} = {var_name}_assembly['container']",
+                f"{var_name}_link_label = str({rp}.get('name') or {rp}.get('component_id') or {_json_ascii(object_name)})",
+                f"{var_name}_link = _make_assembly_component_link({var_name}, {var_name}_item, {_json_ascii(object_name + '_component')}, {var_name}_link_label, {var_name}_placement)",
+                f"_ensure_string_property({var_name}_link, 'SimpleCADComponentId')",
+                f"{var_name}_link.SimpleCADComponentId = str({rp}.get('component_id', ''))",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['components'] = list({var_name}_assembly.get('components', [])) + [{{'component_id': str({rp}.get('component_id', '')), 'link': {var_name}_link, 'placement': {var_name}_placement, 'item': {var_name}_item}}]",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+            return lines
+
+        if node.op == "make_place_component_rassembly" and len(inputs) >= 2:
+            lines = [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_placement = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['placement']",
+                f"{var_name} = {var_name}_assembly['container']",
+                f"{var_name}_components = []",
+                f"for _component in {var_name}_assembly.get('components', []):",
+                f"    if str(_component.get('component_id')) == str({rp}.get('component_id')):",
+                f"        _component = dict(_component)",
+                f"        _component['placement'] = {var_name}_placement",
+                f"        _component['link'].Placement = _placement_from_axes_payload({var_name}_placement)",
+                f"    {var_name}_components.append(_component)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['components'] = {var_name}_components",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+            return lines
+
+        if node.op == "make_compound_from_assembly_rcompound" and len(inputs) == 1:
+            return [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"ASSEMBLY_PROJECTION_INPUTS[{_json_ascii(node.node_id)}] = {_json_ascii(inputs[0])}",
+                "doc.recompute()",
+                f"{var_name}_shapes = _shapes_from_product_value({var_name}_assembly)",
+                f"{var_name} = _make_feature({_json_ascii(object_name)}, Part.makeCompound({var_name}_shapes), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
         if node.op in {
             "make_select_rvertex",
             "make_select_redge",
@@ -2636,6 +3138,9 @@ def _resolve_vec3_param(params, param_exprs, key):
             return [
                 f"{var_name} = _make_sketch_promotion_object({_json_ascii(object_name)}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
+
+        if node.node_id in self._suppressed_profile_node_ids:
+            return finish_ir()
 
         if node.op == "make_line_redge":
             lines = [
@@ -2892,8 +3397,9 @@ def _resolve_vec3_param(params, param_exprs, key):
                 lines.append(
                     f"{var_name}.SimpleCADExprLimitation = json.dumps({var_name}_expr_limitations, ensure_ascii=True, sort_keys=True) if {var_name}_expr_limitations else {var_name}.SimpleCADExprLimitation"
                 )
+                lines.append(f"if {var_name}_expr_limitations:")
                 lines.append(
-                    f"GRAPH_LIMITATIONS[{_json_ascii(node.node_id)}] = {{'op': {_json_ascii(node.op)}, 'reason': json.dumps({var_name}_expr_limitations, ensure_ascii=True, sort_keys=True)}} if {var_name}_expr_limitations else GRAPH_LIMITATIONS.get({_json_ascii(node.node_id)})"
+                    f"    GRAPH_LIMITATIONS[{_json_ascii(node.node_id)}] = {{'op': {_json_ascii(node.op)}, 'reason': json.dumps({var_name}_expr_limitations, ensure_ascii=True, sort_keys=True)}}"
                 )
                 return lines
             lines = [
@@ -2987,6 +3493,32 @@ def _resolve_vec3_param(params, param_exprs, key):
 
         if node.op == "make_extrude_rsolid" and len(inputs) == 1:
             base_node = graph.get_node(inputs[0])
+            profile_node = base_node
+            if (
+                profile_node is not None
+                and profile_node.op == "make_face_from_wire_rface"
+                and profile_node.inputs
+            ):
+                profile_node = graph.get_node(profile_node.inputs[0].node_id)
+            circle_node = None
+            if (
+                profile_node is not None
+                and profile_node.op == "make_wire_from_edges_rwire"
+                and len(profile_node.inputs) == 1
+            ):
+                edge_node = graph.get_node(profile_node.inputs[0].node_id)
+                if edge_node is not None and edge_node.op == "make_circle_redge":
+                    circle_node = edge_node
+            if circle_node is not None:
+                circle_var = _safe_name(circle_node.node_id)
+                lines = [
+                    f"{var_name} = doc.addObject('Part::Cylinder', {_json_ascii(object_name)})",
+                    f"{var_name}.Radius = float(_resolve_param_value({circle_var}_params, {circle_var}_param_exprs, 'radius'))",
+                    f"{var_name}.Height = float(_resolve_param_value({rp}, {re}, 'distance'))",
+                    f"{var_name}.Placement = App.Placement(_vec(_resolve_vec3_param({circle_var}_params, {circle_var}_param_exprs, 'center')), App.Rotation(App.Vector(0.0, 0.0, 1.0), _normalized_vec(_resolve_vec3_param({rp}, {re}, 'direction'))))",
+                ]
+                lines.extend(finish())
+                return lines
             if base_node is not None and base_node.op in {
                 "make_face_from_wire_rface",
                 "make_wire_from_edges_rwire",
@@ -3060,38 +3592,64 @@ def _resolve_vec3_param(params, param_exprs, key):
             return lines
 
         if node.op == "make_cut_rsolid" and len(inputs) >= 2:
-            lines: List[str]
             if len(inputs) == 2:
                 lines = [
+                    "doc.recompute()",
                     f"{var_name} = doc.addObject('Part::Cut', {_json_ascii(object_name)})",
                     f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
                     f"{var_name}.Tool = GRAPH_NODES[{_json_ascii(inputs[1])}]",
                 ]
             else:
-                tool_var = f"{var_name}_tools"
-                lines = [
-                    f"{tool_var} = doc.addObject('Part::MultiFuse', {_json_ascii(_safe_name(f'{object_name}_tools', prefix='tools'))})",
-                    f"{tool_var}.Shapes = [GRAPH_NODES[node_id] for node_id in {var_name}_inputs[1:]]",
-                    f"_set_visibility({tool_var}, False)",
-                    f"{var_name} = doc.addObject('Part::Cut', {_json_ascii(object_name)})",
-                    f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
-                    f"{var_name}.Tool = {tool_var}",
-                ]
+                lines = ["doc.recompute()"]
+                previous_expr = f"GRAPH_NODES[{_json_ascii(inputs[0])}]"
+                for index, tool_node_id in enumerate(inputs[1:], start=1):
+                    is_last = index == len(inputs) - 1
+                    step_var = var_name if is_last else f"{var_name}_step_{index}"
+                    step_name = object_name if is_last else _safe_name(
+                        f"{object_name}_step_{index}", prefix="step"
+                    )
+                    lines.extend(
+                        [
+                            f"{step_var} = doc.addObject('Part::Cut', {_json_ascii(step_name)})",
+                            f"{step_var}.Base = {previous_expr}",
+                            f"{step_var}.Tool = GRAPH_NODES[{_json_ascii(tool_node_id)}]",
+                        ]
+                    )
+                    if not is_last:
+                        lines.append(f"_set_visibility({step_var}, False)")
+                        lines.append("doc.recompute()")
+                    previous_expr = step_var
             lines.extend(finish())
             return lines
 
         if node.op == "make_union_rsolid" and len(inputs) >= 2:
             if len(inputs) == 2:
                 lines = [
+                    "doc.recompute()",
                     f"{var_name} = doc.addObject('Part::Fuse', {_json_ascii(object_name)})",
                     f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
                     f"{var_name}.Tool = GRAPH_NODES[{_json_ascii(inputs[1])}]",
                 ]
             else:
-                lines = [
-                    f"{var_name} = doc.addObject('Part::MultiFuse', {_json_ascii(object_name)})",
-                    f"{var_name}.Shapes = [GRAPH_NODES[node_id] for node_id in {var_name}_inputs]",
-                ]
+                lines = ["doc.recompute()"]
+                previous_expr = f"GRAPH_NODES[{_json_ascii(inputs[0])}]"
+                for index, tool_node_id in enumerate(inputs[1:], start=1):
+                    is_last = index == len(inputs) - 1
+                    step_var = var_name if is_last else f"{var_name}_step_{index}"
+                    step_name = object_name if is_last else _safe_name(
+                        f"{object_name}_step_{index}", prefix="step"
+                    )
+                    lines.extend(
+                        [
+                            f"{step_var} = doc.addObject('Part::Fuse', {_json_ascii(step_name)})",
+                            f"{step_var}.Base = {previous_expr}",
+                            f"{step_var}.Tool = GRAPH_NODES[{_json_ascii(tool_node_id)}]",
+                        ]
+                    )
+                    if not is_last:
+                        lines.append(f"_set_visibility({step_var}, False)")
+                        lines.append("doc.recompute()")
+                    previous_expr = step_var
             lines.extend(finish())
             return lines
 
@@ -3262,7 +3820,14 @@ def translate_model_json_to_freecad_script(
     json_str: str,
     document_name: str = "SimpleCADModel",
 ) -> str:
-    """Translate exported model JSON into a FreeCAD Python script."""
+    """Translate exported model JSON into a FreeCAD Python script.
+
+    Part/Assembly product nodes are emitted as editable FreeCAD document
+    structure: parts use `App::Part`, assemblies use native
+    `Assembly::AssemblyObject`, part components use `App::Link`, and
+    subassembly components use `Assembly::AssemblyLink` when the Assembly
+    workbench module is available.
+    """
 
     return FreeCADScriptTranslator(
         document_name=document_name
@@ -3284,6 +3849,12 @@ def translate_model_json_to_fcstd(
     Safe single-use profile transforms such as section rotate/translate chains are
     folded into the section object's placement so downstream `Part::Loft` receives
     already-positioned sections instead of placement-bearing `App::Link` proxies.
+    Part/Assembly product nodes are written as editable FreeCAD assembly structure:
+    parts use `App::Part`, assemblies use native `Assembly::AssemblyObject`, part
+    components use `App::Link`, and nested assembly components use
+    `Assembly::AssemblyLink`. Explicit assembly-to-compound projections remain in
+    the document for geometry workflows but do not replace the visible assembly
+    tree.
     """
 
     import subprocess
@@ -3307,10 +3878,12 @@ def translate_model_json_to_fcstd(
     script = translate_model_json_to_freecad_script(
         json_str, document_name=document_name
     )
+    resolved_output_path = os.path.abspath(output_path)
     save_tail = (
-        f"\nOUTPUT_PATH = {_json_ascii(output_path)}\n"
-        "doc.recompute()\n"
-        "doc.saveAs(OUTPUT_PATH)\n"
+        f"\nOUTPUT_PATH = {_json_ascii(resolved_output_path)}\n"
+        "_apply_result_visibility(RESULT_NODE_IDS)\n"
+        "_set_active_result_object(RESULT_NODE_IDS)\n"
+        "_save_fcstd_with_gui_visibility(OUTPUT_PATH)\n"
         "print(OUTPUT_PATH)\n"
     )
 
@@ -3322,12 +3895,17 @@ def translate_model_json_to_fcstd(
         handle.write(save_tail)
 
     try:
-        subprocess.run(
+        completed = subprocess.run(
             [freecad_exe, temp_script_path],
             check=True,
             text=True,
             capture_output=True,
         )
+        if not os.path.exists(resolved_output_path) or os.path.getsize(resolved_output_path) <= 0:
+            raise RuntimeError(
+                "FreeCAD export completed without creating a non-empty .FCStd file. "
+                f"stderr={completed.stderr.strip()!r}"
+            )
         return output_path
     except Exception as e:
         raise_harness_error(
