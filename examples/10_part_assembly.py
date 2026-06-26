@@ -167,10 +167,32 @@ def build_hydraulic_rod_assembly():
             "outer_sleeve", sleeve_solid, name="Outer sleeve with clevis and gland"
         )
         sleeve_part = scad.assign_material_rpart(sleeve_part, black_oxide_steel)
+        sleeve_faces = ql.faces().resolve(sleeve_solid)
+        sleeve_end_face = None
+        for f in sleeve_faces:
+            n = f.get_normal_at()
+            if abs(abs(n.x) - 1.0) < 0.01 and f.get_area() < 1000.0:
+                sleeve_end_face = f
+                break
+        sleeve_connector = scad.make_face_connector_rconnector("slide_axis", sleeve_end_face)
+        sleeve_part = scad.add_connector_rpart(sleeve_part, sleeve_connector)
+
         piston_rod_part = scad.make_part_rpart(
             "piston_rod", piston_rod_solid, name="Inner piston rod with eye end"
         )
         piston_rod_part = scad.assign_material_rpart(piston_rod_part, chrome_steel)
+        rod_faces = ql.faces().resolve(piston_rod_solid)
+        rod_end_face = None
+        for f in rod_faces:
+            n = f.get_normal_at()
+            if abs(abs(n.x) - 1.0) < 0.01 and f.get_area() < 1000.0:
+                rod_end_face = f
+                break
+        sleeve_normal = sleeve_end_face.get_normal_at()
+        rod_normal = rod_end_face.get_normal_at()
+        rod_flip = (sleeve_normal.x * rod_normal.x) < 0
+        rod_connector = scad.make_face_connector_rconnector("slide_axis", rod_end_face, flip=rod_flip)
+        piston_rod_part = scad.add_connector_rpart(piston_rod_part, rod_connector)
 
         hydraulic_assembly = scad.make_assembly_rassembly(
             "hydraulic_rod_assembly", name="Hydraulic rod assembly"
@@ -185,7 +207,21 @@ def build_hydraulic_rod_assembly():
             hydraulic_assembly,
             piston_rod_part,
             component_id="inner_piston_rod",
-            placement=scad.make_placement_rplacement(origin=(-38.0, 0.0, 0.0)),
+            placement=scad.identity_placement_rplacement(),
+        )
+        hydraulic_assembly = scad.ground_component_rassembly(
+            hydraulic_assembly, "outer_sleeve"
+        )
+        hydraulic_assembly = scad.add_prismatic_constraint_rassembly(
+            hydraulic_assembly,
+            "rod_slide",
+            scad.make_connector_ref_rconnectorref("outer_sleeve", "slide_axis"),
+            scad.make_connector_ref_rconnectorref("inner_piston_rod", "slide_axis"),
+            drive_distance=0.0,
+            distance_limit=scad.make_scalar_limit_rscalarlimit(0.0, 100.0),
+        )
+        hydraulic_assembly = scad.solve_assembly_constraints_rassembly(
+            hydraulic_assembly
         )
 
         preview = scad.make_compound_from_assembly_rcompound(hydraulic_assembly)
