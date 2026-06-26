@@ -215,11 +215,15 @@ make_angle_arc_redge -> make_wire_from_edges_rwire
 Source edge:
 
 ```python
-spline = scad.make_spline_redge([
-    (0, 0, 0),
-    (1, 1, 0),
-    (2, 0, 0),
-])
+fit = scad.fit_cubic_bspline_control_points(
+    [(0, 0, 0), (1, 1, 0), (2, 0, 0)],
+    tolerance=0.01,
+)
+spline = scad.make_spline_redge(
+    control_points=fit.control_points,
+    knots=fit.unique_knots,
+    multiplicities=fit.multiplicities,
+)
 ```
 
 Serialized node:
@@ -228,23 +232,27 @@ Serialized node:
 {
   "op": "make_spline_redge",
   "params": {
-    "points": [[0.0, 0.0, 0.0], [1.0, 1.0, 0.0], [2.0, 0.0, 0.0]],
-    "tangents": null
+    "control_points": [[0.0, 0.0, 0.0], [0.6, 1.0, 0.0], [1.4, 1.0, 0.0], [2.0, 0.0, 0.0]],
+    "degree": 3,
+    "knots": [0.0, 1.0],
+    "multiplicities": [4, 4],
+    "weights": null,
+    "periodic": false
   },
   "inputs": [],
   "output_count": 1
 }
 ```
 
-Replay effect: calls `make_spline_redge(points, tangents=...)`.
+Replay effect: calls `make_spline_redge(control_points=..., degree=..., knots=..., multiplicities=..., weights=..., periodic=...)`.
 
-`make_spline_rwire(points, closed=False)` lowers to:
+`make_spline_rwire(control_points=..., ...)` lowers to:
 
 ```text
 make_spline_redge -> make_wire_from_edges_rwire
 ```
 
-For canonical replay, prefer open spline wires. Closed convenience forms may use fallback construction outside the low-level edge chain.
+`make_spline_redge` now stores an exact B-spline definition. It does not accept sampled/interpolated curve points directly; use `fit_cubic_bspline_control_points(...)` first when human/LLM-authored code starts from samples.
 
 ## Helix edge and wire
 

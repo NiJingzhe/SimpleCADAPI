@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class Var
+class Var(name: str, default: float, comment: str | None = None, expr_id: str = field(default_factory=lambda : _make_expr_id('var')))
 ```
 
 *Source: expr.py*

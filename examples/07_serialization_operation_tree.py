@@ -80,8 +80,14 @@ with scad.GraphSession() as session:
     e3 = scad.make_angle_arc_redge(
         (-3.0, 0.0, plate_t), 1.0, 3.14159, 0.0, normal=(0.0, 0.0, 1.0)
     )
+    spline_fit = scad.fit_cubic_bspline_control_points(
+        [(-2.0, 0.0, plate_t), (-1.0, 0.8, plate_t), (0.0, 0.0, plate_t)],
+        tolerance=0.01,
+    )
     e4 = scad.make_spline_redge(
-        [(-2.0, 0.0, plate_t), (-1.0, 0.8, plate_t), (0.0, 0.0, plate_t)]
+        control_points=spline_fit.control_points,
+        knots=spline_fit.unique_knots,
+        multiplicities=spline_fit.multiplicities,
     )
     # The four edges above are intentionally separate leaf examples.  A valid
     # `make_wire_from_edges_rwire` example follows with a closed triangle.
@@ -109,8 +115,14 @@ with scad.GraphSession() as session:
         (3.0, -5.0, plate_t), (4.0, -4.0, plate_t), (5.0, -5.0, plate_t)
     )
     angle_arc_wire = scad.make_angle_arc_rwire((7.0, -5.0, plate_t), 1.0, 0.0, 1.57)
+    wire_spline_fit = scad.fit_cubic_bspline_control_points(
+        [(9.0, -5.0, plate_t), (10.0, -4.0, plate_t), (11.0, -5.0, plate_t)],
+        tolerance=0.01,
+    )
     spline_wire = scad.make_spline_rwire(
-        [(9.0, -5.0, plate_t), (10.0, -4.0, plate_t), (11.0, -5.0, plate_t)]
+        control_points=wire_spline_fit.control_points,
+        knots=wire_spline_fit.unique_knots,
+        multiplicities=wire_spline_fit.multiplicities,
     )
 
     # Basic solid constructors that lower to replayable core operations.

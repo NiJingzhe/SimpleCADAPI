@@ -511,25 +511,24 @@ canonicalization 结果至少需要包含：
 
 因此 2.0 需要引入 `Sketch`，但 `Sketch` 是增强对象，不替代 `Vertex/Edge/Wire/Face/Solid` 主线。
 
+### One-Way Rule
+
+同一建模意图应只有一种推荐实现方式：当目标是构建 sketch/profile 时，必须使用 sketch API，例如 `make_sketch_rsketch(...)`、`add_line_rsketch(...)`、`constrain_parallel_rsketch(...)`、`make_face_from_sketch_rface(...)`。`make_line_redge(...)`、`make_wire_from_edges_rwire(...)` 等 concrete geometry API 只用于 path、纯几何对象、或 sketch lowering 的内部/底层结果，不作为手写草图的推荐方式。
+
 ### Phase 1 的 Sketch 范围
 
 第一阶段 `Sketch` 只负责：
 
-- 容纳 `line`
-- 容纳 `arc`
-- 容纳 `bspline`
+- 容纳 named point / line / circle entities
+- 承载声明式约束：coincident、horizontal、vertical、parallel、perpendicular、collinear、tangent、concentric、midpoint、symmetric、equal length/radius、distance、distance-x/y、length、angle、radius、diameter、fix
+- 求解 constrained sketch 并输出 diagnostics / DOF / residual
 - 生成闭合 loop/profile
 - 参与 `extrude`/`revolve` 等特征输入
 - 承载表达式参数与 curve identity
 
 ### Phase 1 明确不做
 
-第一阶段不做完整 2D sketch constraint solver。
-
-原因：
-
-- 该问题规模远大于当前 2.0 的主目标
-- 第一阶段优先保证表达式图、OCP 内核、特征链和装配约束图打通
+第一阶段不做 assembly constraint solver；assembly 仍等待新的 assembly graph / constraint graph 契约。
 
 ## 基础操作模型
 

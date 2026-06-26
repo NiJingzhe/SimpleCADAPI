@@ -2,6 +2,7 @@ from simplecadapi import *
 import math
 
 from .errors import raise_harness_error
+from .math import fit_cubic_bspline_control_points
 
 
 def make_n_hole_flange_rsolid(
@@ -302,8 +303,16 @@ def make_naca_propeller_blade_rsolid(
             # 生成当前弦长的NACA 0016翼型点
             airfoil_points = generate_naca_0016_points(chord_i, num_points=30)
 
-            # 创建基础翼型线
-            airfoil_wire = make_spline_rwire(airfoil_points, closed=True)
+            # 创建基础翼型线。BSpline 构造函数接收 exact 控制点；这里先把采样翼型
+            # 拟合成 cubic 控制多边形，再显式传入解析后的 knot 数据。
+            if airfoil_points[0] != airfoil_points[-1]:
+                airfoil_points.append(airfoil_points[0])
+            airfoil_fit = fit_cubic_bspline_control_points(airfoil_points, tolerance=0.01)
+            airfoil_wire = make_spline_rwire(
+                control_points=airfoil_fit.control_points,
+                knots=airfoil_fit.unique_knots,
+                multiplicities=airfoil_fit.multiplicities,
+            )
             print(f"      基础翼型线创建成功")
 
             # 先绕Z轴旋转（扭转角度）
