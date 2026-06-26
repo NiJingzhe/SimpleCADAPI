@@ -212,14 +212,23 @@ class TestRearchitecture20HistoryContracts(unittest.TestCase):
 
 
 class TestRearchitecture20AssemblyContracts(unittest.TestCase):
-    def test_assembly_public_surface_is_temporarily_removed(self):
-        self.assertFalse(hasattr(scad, "Assembly"))
+    def test_single_body_part_assembly_mvp_public_surface_is_exposed(self):
+        self.assertTrue(hasattr(scad, "Assembly"))
+        self.assertTrue(hasattr(scad, "Part"))
+        self.assertTrue(hasattr(scad, "Material"))
+        self.assertTrue(hasattr(scad, "Placement"))
+        self.assertTrue(hasattr(scad, "make_assembly_rassembly"))
+        self.assertTrue(hasattr(scad, "make_part_rpart"))
+        self.assertTrue(hasattr(scad, "make_material_rmaterial"))
+        self.assertTrue(hasattr(scad, "make_placement_rplacement"))
+        self.assertTrue(hasattr(scad, "add_component_rassembly"))
+        self.assertTrue(hasattr(scad, "place_component_rassembly"))
+        self.assertTrue(hasattr(scad, "make_compound_from_assembly_rcompound"))
         self.assertFalse(hasattr(scad, "PartHandle"))
         self.assertFalse(hasattr(scad, "PointAnchor"))
         self.assertFalse(hasattr(scad, "AxisAnchor"))
         self.assertFalse(hasattr(scad, "AssemblyResult"))
         self.assertFalse(hasattr(scad, "SolveReport"))
-        self.assertFalse(hasattr(scad, "make_assembly_rassembly"))
         self.assertFalse(hasattr(scad, "clone_assembly_rassembly"))
         self.assertFalse(hasattr(scad, "add_part_rassembly"))
         self.assertFalse(hasattr(scad, "translate_part_rassembly"))

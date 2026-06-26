@@ -27,9 +27,11 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 from .errors import raise_harness_error
 
-from .core import AnyShape, Edge, Face, Solid, Vertex, Wire, use_coordinate_system
+from .core import AnyShape, Compound, Edge, Face, Solid, Vertex, Wire, use_coordinate_system
 from .graph import attach_graph_node, suspend_graph_recording
 from .ql import selector_from_dict
+from .sketch import Sketch
+from .product import Assembly, Connector, ConnectorRef, GeometryRef, Material, Part, Placement, ScalarLimit
 from .topology import (
     OperationGraph,
     semantic_delta_to_dict,
@@ -74,6 +76,68 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     "make_wire_from_edges_rwire": {
         "status": "replayable",
         "op": "make_wire_from_edges_rwire",
+    },
+    "make_sketch_rsketch": {"status": "replayable", "op": "make_sketch_rsketch"},
+    "add_point_rsketch": {"status": "replayable", "op": "make_add_point_rsketch"},
+    "add_line_rsketch": {"status": "replayable", "op": "make_add_line_rsketch"},
+    "add_circle_rsketch": {"status": "replayable", "op": "make_add_circle_rsketch"},
+    "constrain_coincident_rsketch": {"status": "replayable", "op": "make_constrain_coincident_rsketch"},
+    "constrain_connect_rsketch": {"status": "replayable", "op": "make_constrain_coincident_rsketch"},
+    "constrain_point_on_rsketch": {"status": "replayable", "op": "make_constrain_point_on_rsketch"},
+    "constrain_horizontal_rsketch": {"status": "replayable", "op": "make_constrain_horizontal_rsketch"},
+    "constrain_vertical_rsketch": {"status": "replayable", "op": "make_constrain_vertical_rsketch"},
+    "constrain_parallel_rsketch": {"status": "replayable", "op": "make_constrain_parallel_rsketch"},
+    "constrain_perpendicular_rsketch": {"status": "replayable", "op": "make_constrain_perpendicular_rsketch"},
+    "constrain_collinear_rsketch": {"status": "replayable", "op": "make_constrain_collinear_rsketch"},
+    "constrain_tangent_rsketch": {"status": "replayable", "op": "make_constrain_tangent_rsketch"},
+    "constrain_concentric_rsketch": {"status": "replayable", "op": "make_constrain_concentric_rsketch"},
+    "constrain_midpoint_rsketch": {"status": "replayable", "op": "make_constrain_midpoint_rsketch"},
+    "constrain_symmetric_rsketch": {"status": "replayable", "op": "make_constrain_symmetric_rsketch"},
+    "constrain_equal_length_rsketch": {"status": "replayable", "op": "make_constrain_equal_length_rsketch"},
+    "constrain_equal_radius_rsketch": {"status": "replayable", "op": "make_constrain_equal_radius_rsketch"},
+    "constrain_distance_rsketch": {"status": "replayable", "op": "make_constrain_distance_rsketch"},
+    "constrain_distance_x_rsketch": {"status": "replayable", "op": "make_constrain_distance_x_rsketch"},
+    "constrain_distance_y_rsketch": {"status": "replayable", "op": "make_constrain_distance_y_rsketch"},
+    "constrain_length_rsketch": {"status": "replayable", "op": "make_constrain_length_rsketch"},
+    "constrain_angle_rsketch": {"status": "replayable", "op": "make_constrain_angle_rsketch"},
+    "constrain_radius_rsketch": {"status": "replayable", "op": "make_constrain_radius_rsketch"},
+    "constrain_diameter_rsketch": {"status": "replayable", "op": "make_constrain_diameter_rsketch"},
+    "constrain_fix_rsketch": {"status": "replayable", "op": "make_constrain_fix_rsketch"},
+    "inspect_sketch_rsketchresult": {
+        "status": "diagnostic",
+        "reason": "Runs the sketch solver for inspection only; solve evidence is recorded on sketch promotion nodes.",
+    },
+    "make_wire_from_sketch_rwire": {"status": "replayable", "op": "make_wire_from_sketch_rwire"},
+    "make_face_from_sketch_rface": {"status": "replayable", "op": "make_face_from_sketch_rface"},
+    "make_material_rmaterial": {"status": "replayable", "op": "make_material_rmaterial"},
+    "make_placement_rplacement": {"status": "replayable", "op": "make_placement_rplacement"},
+    "identity_placement_rplacement": {"status": "replayable", "op": "make_identity_placement_rplacement"},
+    "make_part_rpart": {"status": "replayable", "op": "make_part_rpart"},
+    "assign_material_rpart": {"status": "replayable", "op": "make_assign_material_rpart"},
+    "make_assembly_rassembly": {"status": "replayable", "op": "make_assembly_rassembly"},
+    "add_component_rassembly": {"status": "replayable", "op": "make_add_component_rassembly"},
+    "place_component_rassembly": {"status": "replayable", "op": "make_place_component_rassembly"},
+    "make_compound_from_assembly_rcompound": {"status": "replayable", "op": "make_compound_from_assembly_rcompound"},
+    "make_face_connector_rconnector": {"status": "replayable", "op": "make_face_connector_rconnector"},
+    "make_edge_connector_rconnector": {"status": "replayable", "op": "make_edge_connector_rconnector"},
+    "make_vertex_connector_rconnector": {"status": "replayable", "op": "make_vertex_connector_rconnector"},
+    "add_connector_rpart": {"status": "replayable", "op": "make_add_connector_rpart"},
+    "add_connector_rassembly": {"status": "replayable", "op": "make_add_connector_rassembly"},
+    "make_connector_ref_rconnectorref": {"status": "replayable", "op": "make_connector_ref_rconnectorref"},
+    "make_scalar_limit_rscalarlimit": {"status": "replayable", "op": "make_scalar_limit_rscalarlimit"},
+    "ground_component_rassembly": {"status": "replayable", "op": "make_ground_component_rassembly"},
+    "unground_component_rassembly": {"status": "replayable", "op": "make_unground_component_rassembly"},
+    "add_fixed_constraint_rassembly": {"status": "replayable", "op": "make_fixed_constraint_rassembly"},
+    "add_revolute_constraint_rassembly": {"status": "replayable", "op": "make_revolute_constraint_rassembly"},
+    "add_prismatic_constraint_rassembly": {"status": "replayable", "op": "make_prismatic_constraint_rassembly"},
+    "solve_assembly_constraints_rassembly": {"status": "replayable", "op": "make_solve_assembly_constraints_rassembly"},
+    "measure_constraint_residual_rconstraintresidual": {
+        "status": "diagnostic",
+        "reason": "Measures current constraint residuals without changing model state.",
+    },
+    "inspect_assembly_constraints_rconstraintreport": {
+        "status": "diagnostic",
+        "reason": "Inspects current constraint state without changing model state.",
     },
     "make_box_rsolid": {
         "status": "macro",
@@ -175,6 +239,55 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_helix_redge",
     "make_wire_from_edges_rwire",
     "make_face_from_wire_rface",
+    "make_sketch_rsketch",
+    "make_add_point_rsketch",
+    "make_add_line_rsketch",
+    "make_add_circle_rsketch",
+    "make_constrain_coincident_rsketch",
+    "make_constrain_point_on_rsketch",
+    "make_constrain_horizontal_rsketch",
+    "make_constrain_vertical_rsketch",
+    "make_constrain_parallel_rsketch",
+    "make_constrain_perpendicular_rsketch",
+    "make_constrain_collinear_rsketch",
+    "make_constrain_tangent_rsketch",
+    "make_constrain_concentric_rsketch",
+    "make_constrain_midpoint_rsketch",
+    "make_constrain_symmetric_rsketch",
+    "make_constrain_equal_length_rsketch",
+    "make_constrain_equal_radius_rsketch",
+    "make_constrain_distance_rsketch",
+    "make_constrain_distance_x_rsketch",
+    "make_constrain_distance_y_rsketch",
+    "make_constrain_length_rsketch",
+    "make_constrain_angle_rsketch",
+    "make_constrain_radius_rsketch",
+    "make_constrain_diameter_rsketch",
+    "make_constrain_fix_rsketch",
+    "make_wire_from_sketch_rwire",
+    "make_face_from_sketch_rface",
+    "make_material_rmaterial",
+    "make_placement_rplacement",
+    "make_identity_placement_rplacement",
+    "make_part_rpart",
+    "make_assign_material_rpart",
+    "make_assembly_rassembly",
+    "make_add_component_rassembly",
+    "make_place_component_rassembly",
+    "make_compound_from_assembly_rcompound",
+    "make_face_connector_rconnector",
+    "make_edge_connector_rconnector",
+    "make_vertex_connector_rconnector",
+    "make_add_connector_rpart",
+    "make_add_connector_rassembly",
+    "make_connector_ref_rconnectorref",
+    "make_scalar_limit_rscalarlimit",
+    "make_ground_component_rassembly",
+    "make_unground_component_rassembly",
+    "make_fixed_constraint_rassembly",
+    "make_revolute_constraint_rassembly",
+    "make_prismatic_constraint_rassembly",
+    "make_solve_assembly_constraints_rassembly",
     "make_extrude_rsolid",
     "make_revolve_rsolid",
     "make_loft_rsolid",
@@ -472,6 +585,8 @@ def export_model_json(
                 "make_helix_redge",
                 "make_wire_from_edges_rwire",
                 "make_face_from_wire_rface",
+                "make_wire_from_sketch_rwire",
+                "make_face_from_sketch_rface",
             }:
                 sketch_profile_registry.append(
                     {
@@ -583,7 +698,7 @@ def import_model_json(json_str: str) -> Dict[str, Any]:
         )
 
 
-def replay_model_json(json_str: str, *, strict: bool = True) -> List[AnyShape]:
+def replay_model_json(json_str: str, *, strict: bool = True) -> List[Any]:
     """Replay a model payload using its canonical low-level graph."""
 
     try:
@@ -628,8 +743,32 @@ _OP_REGISTRY: Dict[str, Any] = {
     "make_intersect_rsolid": lambda p: None,  # handled specially below
 }
 
+_SKETCH_CONSTRAINT_KIND_BY_OP: Dict[str, str] = {
+    "make_constrain_coincident_rsketch": "coincident",
+    "make_constrain_point_on_rsketch": "point_on",
+    "make_constrain_horizontal_rsketch": "horizontal",
+    "make_constrain_vertical_rsketch": "vertical",
+    "make_constrain_parallel_rsketch": "parallel",
+    "make_constrain_perpendicular_rsketch": "perpendicular",
+    "make_constrain_collinear_rsketch": "collinear",
+    "make_constrain_tangent_rsketch": "tangent",
+    "make_constrain_concentric_rsketch": "concentric",
+    "make_constrain_midpoint_rsketch": "midpoint",
+    "make_constrain_symmetric_rsketch": "symmetric",
+    "make_constrain_equal_length_rsketch": "equal_length",
+    "make_constrain_equal_radius_rsketch": "equal_radius",
+    "make_constrain_distance_rsketch": "distance",
+    "make_constrain_distance_x_rsketch": "distance_x",
+    "make_constrain_distance_y_rsketch": "distance_y",
+    "make_constrain_length_rsketch": "length",
+    "make_constrain_angle_rsketch": "angle",
+    "make_constrain_radius_rsketch": "radius",
+    "make_constrain_diameter_rsketch": "diameter",
+    "make_constrain_fix_rsketch": "fix",
+}
 
-def _normalize_output(result: Any) -> List[AnyShape]:
+
+def _normalize_output(result: Any) -> List[Any]:
     if result is None:
         return []
     if isinstance(result, list):
@@ -644,6 +783,13 @@ def _replay_primitive_or_simple(
 ) -> Any:
     op_name = node.op
     node_id = node.node_id
+    if op_name == "make_sketch_rsketch":
+        ctx.require_params(node_id, op_name, params, ("sketch_id",))
+        return ops.make_sketch_rsketch(
+            params.get("name"),
+            plane=params.get("plane", "XY"),
+            sketch_id=str(params["sketch_id"]),
+        )
     if op_name == "make_point_rvertex":
         ctx.require_params(node_id, op_name, params, ("x", "y", "z"))
         return ops.make_point_rvertex(params["x"], params["y"], params["z"])
@@ -679,8 +825,20 @@ def _replay_primitive_or_simple(
             tuple(params["normal"]),
         )
     if op_name == "make_spline_redge":
-        ctx.require_params(node_id, op_name, params, ("points",))
-        return ops.make_spline_redge(params["points"], tangents=params.get("tangents"))
+        ctx.require_params(
+            node_id,
+            op_name,
+            params,
+            ("control_points", "degree", "knots", "multiplicities"),
+        )
+        return ops.make_spline_redge(
+            control_points=params["control_points"],
+            degree=params["degree"],
+            knots=params["knots"],
+            multiplicities=params["multiplicities"],
+            weights=params.get("weights"),
+            periodic=bool(params.get("periodic", False)),
+        )
     if op_name == "make_helix_redge":
         ctx.require_params(
             node_id, op_name, params, ("pitch", "height", "radius", "center", "dir")
@@ -728,6 +886,8 @@ def _shape_kind_token(shape: AnyShape) -> str:
         return "face"
     if isinstance(shape, Solid):
         return "solid"
+    if isinstance(shape, Compound):
+        return "compound"
     return type(shape).__name__.lower()
 
 
@@ -1233,10 +1393,10 @@ def _param(
 
 def _input_outputs(
     ctx: _ReplayContext,
-    outputs: Dict[str, List[AnyShape]],
+    outputs: Dict[str, List[Any]],
     node,
     index: int,
-) -> List[AnyShape]:
+) -> List[Any]:
     if len(node.inputs) <= index:
         if not ctx.strict:
             return []
@@ -1256,10 +1416,10 @@ def _input_outputs(
 
 def _all_input_outputs(
     ctx: _ReplayContext,
-    outputs: Dict[str, List[AnyShape]],
+    outputs: Dict[str, List[Any]],
     node,
-) -> List[AnyShape]:
-    result: List[AnyShape] = []
+) -> List[Any]:
+    result: List[Any] = []
     for input_node in node.inputs:
         input_outputs = outputs.get(input_node.node_id)
         if not input_outputs:
@@ -1277,7 +1437,7 @@ def _execute_graph(
     leaf_node_ids: Optional[Sequence[str]] = None,
     *,
     strict: bool = True,
-) -> List[AnyShape]:
+) -> List[Any]:
     ctx = _ReplayContext(strict=strict)
     if graph.node_count == 0:
         return []
@@ -1285,7 +1445,7 @@ def _execute_graph(
     topo_order = graph.topological_order()
 
     # Store per-node outputs
-    outputs: Dict[str, List[AnyShape]] = {}
+    outputs: Dict[str, List[Any]] = {}
 
     def _store_outputs(node, result: Any) -> None:
         result_list = _normalize_output(result)
@@ -1310,6 +1470,359 @@ def _execute_graph(
 
             try:
                 with context_manager:
+                    if op_name == "make_add_point_rsketch":
+                        ctx.require_params(node.node_id, op_name, params, ("point_id", "x", "y"))
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.add_point_rsketch(
+                                cast(Sketch, sketch_outputs[0]),
+                                str(params["point_id"]),
+                                params["x"],
+                                params["y"],
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_add_line_rsketch":
+                        ctx.require_params(node.node_id, op_name, params, ("entity_id", "start", "end"))
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.add_line_rsketch(
+                                cast(Sketch, sketch_outputs[0]),
+                                str(params["entity_id"]),
+                                str(params["start"]),
+                                str(params["end"]),
+                                construction=bool(params.get("construction", False)),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_add_circle_rsketch":
+                        ctx.require_params(node.node_id, op_name, params, ("entity_id", "center", "radius"))
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.add_circle_rsketch(
+                                cast(Sketch, sketch_outputs[0]),
+                                str(params["entity_id"]),
+                                str(params["center"]),
+                                params["radius"],
+                                construction=bool(params.get("construction", False)),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name in _SKETCH_CONSTRAINT_KIND_BY_OP:
+                        ctx.require_params(node.node_id, op_name, params, ("targets",))
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops._constrain_rsketch(
+                                cast(Sketch, sketch_outputs[0]),
+                                _SKETCH_CONSTRAINT_KIND_BY_OP[op_name],
+                                [str(target) for target in params.get("targets", [])],
+                                value=params.get("value"),
+                                constraint_id=params.get("constraint_id"),
+                                driving=bool(params.get("driving", True)),
+                                metadata=cast(Dict[str, Any], params.get("metadata", {})),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_wire_from_sketch_rwire":
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.make_wire_from_sketch_rwire(
+                                cast(Sketch, sketch_outputs[0]),
+                                profile=params.get("profile", 0),
+                                require_fully_constrained=bool(params.get("require_fully_constrained", False)),
+                                strict=bool(params.get("strict", True)),
+                                tolerance=float(params.get("tolerance", 1e-7)),
+                                max_iterations=int(params.get("max_iterations", 80)),
+                            )
+                            if ctx.strict and not isinstance(params.get("solve_snapshot"), dict):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) is missing required solve_snapshot"
+                                )
+                            if ctx.strict:
+                                actual = result.get_metadata("sketch_solve", {})
+                                ops._assert_sketch_solve_snapshot_dict_matches(
+                                    cast(Dict[str, Any], actual),
+                                    cast(Dict[str, Any], params["solve_snapshot"]),
+                                    tolerance=float(params.get("tolerance", 1e-7)),
+                                )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_face_from_sketch_rface":
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.make_face_from_sketch_rface(
+                                cast(Sketch, sketch_outputs[0]),
+                                profile=params.get("profile", 0),
+                                require_fully_constrained=bool(params.get("require_fully_constrained", False)),
+                                strict=bool(params.get("strict", True)),
+                                tolerance=float(params.get("tolerance", 1e-7)),
+                                max_iterations=int(params.get("max_iterations", 80)),
+                            )
+                            if ctx.strict and not isinstance(params.get("solve_snapshot"), dict):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) is missing required solve_snapshot"
+                                )
+                            if ctx.strict:
+                                actual = result.get_metadata("sketch_solve", {})
+                                ops._assert_sketch_solve_snapshot_dict_matches(
+                                    cast(Dict[str, Any], actual),
+                                    cast(Dict[str, Any], params["solve_snapshot"]),
+                                    tolerance=float(params.get("tolerance", 1e-7)),
+                                )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_material_rmaterial":
+                        ctx.require_params(node.node_id, op_name, params, ("material_id",))
+                        result = ops.make_material_rmaterial(
+                            str(params["material_id"]),
+                            name=cast(Optional[str], params.get("name")),
+                            density=cast(Optional[float], params.get("density")),
+                            density_unit=cast(Optional[str], params.get("density_unit")),
+                            color=(
+                                cast(Any, tuple(params["color"]))
+                                if params.get("color") is not None
+                                else None
+                            ),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_placement_rplacement":
+                        ctx.require_params(node.node_id, op_name, params, ("origin", "x_axis", "y_axis"))
+                        result = ops.make_placement_rplacement(
+                            cast(Any, tuple(params["origin"])),
+                            x_axis=cast(Any, tuple(params["x_axis"])),
+                            y_axis=cast(Any, tuple(params["y_axis"])),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_identity_placement_rplacement":
+                        result = ops.identity_placement_rplacement()
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_part_rpart":
+                        ctx.require_params(node.node_id, op_name, params, ("part_id",))
+                        body_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if body_outputs:
+                            result = ops.make_part_rpart(
+                                str(params["part_id"]),
+                                cast(Solid, body_outputs[0]),
+                                name=cast(Optional[str], params.get("name")),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_assign_material_rpart":
+                        part_outputs = _input_outputs(ctx, outputs, node, 0)
+                        material_outputs = _input_outputs(ctx, outputs, node, 1)
+                        if part_outputs and material_outputs:
+                            result = ops.assign_material_rpart(
+                                cast(Part, part_outputs[0]),
+                                cast(Material, material_outputs[0]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_assembly_rassembly":
+                        ctx.require_params(node.node_id, op_name, params, ("assembly_id",))
+                        result = ops.make_assembly_rassembly(
+                            str(params["assembly_id"]),
+                            name=cast(Optional[str], params.get("name")),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_add_component_rassembly":
+                        ctx.require_params(node.node_id, op_name, params, ("component_id",))
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        item_outputs = _input_outputs(ctx, outputs, node, 1)
+                        placement_outputs = _input_outputs(ctx, outputs, node, 2)
+                        if assembly_outputs and item_outputs and placement_outputs:
+                            result = ops.add_component_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                cast(Any, item_outputs[0]),
+                                component_id=str(params["component_id"]),
+                                placement=cast(Placement, placement_outputs[0]),
+                                name=cast(Optional[str], params.get("name")),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_place_component_rassembly":
+                        ctx.require_params(node.node_id, op_name, params, ("component_id",))
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        placement_outputs = _input_outputs(ctx, outputs, node, 1)
+                        if assembly_outputs and placement_outputs:
+                            result = ops.place_component_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                str(params["component_id"]),
+                                cast(Placement, placement_outputs[0]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_compound_from_assembly_rcompound":
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if assembly_outputs:
+                            result = ops.make_compound_from_assembly_rcompound(
+                                cast(Assembly, assembly_outputs[0])
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name in {
+                        "make_face_connector_rconnector",
+                        "make_edge_connector_rconnector",
+                        "make_vertex_connector_rconnector",
+                    }:
+                        ctx.require_params(node.node_id, op_name, params, ("connector_id", "geometry_ref"))
+                        shape_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if shape_outputs:
+                            shape = shape_outputs[0]
+                            geo_ref_data = cast(Dict[str, Any], params["geometry_ref"])
+                            geometry_ref = GeometryRef(
+                                kind=str(geo_ref_data["kind"]),
+                                source_node_id=cast(Optional[str], geo_ref_data.get("source_node_id")),
+                                geo_selector=cast(Dict[str, Any], geo_ref_data.get("geo_selector", {})),
+                                flip=bool(geo_ref_data.get("flip", False)),
+                            )
+                            connector = Connector(
+                                str(params["connector_id"]),
+                                geometry_ref,
+                                name=cast(Optional[str], params.get("name")),
+                            )
+                            _store_outputs(node, connector)
+                        continue
+
+                    if op_name == "make_add_connector_rpart":
+                        part_outputs = _input_outputs(ctx, outputs, node, 0)
+                        connector_outputs = _input_outputs(ctx, outputs, node, 1)
+                        if part_outputs and connector_outputs:
+                            result = ops.add_connector_rpart(
+                                cast(Part, part_outputs[0]),
+                                cast(Connector, connector_outputs[0]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_add_connector_rassembly":
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        connector_outputs = _input_outputs(ctx, outputs, node, 1)
+                        if assembly_outputs and connector_outputs:
+                            result = ops.add_connector_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                cast(Connector, connector_outputs[0]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_connector_ref_rconnectorref":
+                        ctx.require_params(node.node_id, op_name, params, ("component_id", "connector_id"))
+                        result = ops.make_connector_ref_rconnectorref(
+                            str(params["component_id"]),
+                            str(params["connector_id"]),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_scalar_limit_rscalarlimit":
+                        ctx.require_params(node.node_id, op_name, params, ("lower_value", "upper_value"))
+                        result = ops.make_scalar_limit_rscalarlimit(
+                            cast(float, params["lower_value"]),
+                            cast(float, params["upper_value"]),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_ground_component_rassembly":
+                        ctx.require_params(node.node_id, op_name, params, ("component_id",))
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if assembly_outputs:
+                            result = ops.ground_component_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                str(params["component_id"]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_unground_component_rassembly":
+                        ctx.require_params(node.node_id, op_name, params, ("component_id",))
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if assembly_outputs:
+                            result = ops.unground_component_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                str(params["component_id"]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name in {
+                        "make_fixed_constraint_rassembly",
+                        "make_revolute_constraint_rassembly",
+                        "make_prismatic_constraint_rassembly",
+                    }:
+                        ctx.require_params(node.node_id, op_name, params, ("constraint_id",))
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        connector_a_outputs = _input_outputs(ctx, outputs, node, 1)
+                        connector_b_outputs = _input_outputs(ctx, outputs, node, 2)
+                        limit_outputs = (
+                            _input_outputs(ctx, outputs, node, 3)
+                            if len(node.inputs) > 3
+                            else []
+                        )
+                        if assembly_outputs and connector_a_outputs and connector_b_outputs:
+                            assembly = cast(Assembly, assembly_outputs[0])
+                            connector_a = cast(ConnectorRef, connector_a_outputs[0])
+                            connector_b = cast(ConnectorRef, connector_b_outputs[0])
+                            if op_name == "make_fixed_constraint_rassembly":
+                                result = ops.add_fixed_constraint_rassembly(
+                                    assembly,
+                                    str(params["constraint_id"]),
+                                    connector_a,
+                                    connector_b,
+                                    name=cast(Optional[str], params.get("name")),
+                                )
+                            elif op_name == "make_revolute_constraint_rassembly":
+                                result = ops.add_revolute_constraint_rassembly(
+                                    assembly,
+                                    str(params["constraint_id"]),
+                                    connector_a,
+                                    connector_b,
+                                    drive_angle_degrees=cast(Optional[float], params.get("drive_angle_degrees")),
+                                    angle_limit=cast(Optional[ScalarLimit], limit_outputs[0] if limit_outputs else None),
+                                    name=cast(Optional[str], params.get("name")),
+                                )
+                            else:
+                                result = ops.add_prismatic_constraint_rassembly(
+                                    assembly,
+                                    str(params["constraint_id"]),
+                                    connector_a,
+                                    connector_b,
+                                    drive_distance=cast(Optional[float], params.get("drive_distance")),
+                                    distance_limit=cast(Optional[ScalarLimit], limit_outputs[0] if limit_outputs else None),
+                                    name=cast(Optional[str], params.get("name")),
+                                )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_solve_assembly_constraints_rassembly":
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if assembly_outputs:
+                            result = ops.solve_assembly_constraints_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                strict=bool(params.get("strict", True)),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
                     if op_name in {
                         "make_select_rvertex",
                         "make_select_redge",
@@ -1632,7 +2145,7 @@ def _execute_graph(
                     f"Failed to replay graph node '{node.node_id}' ({op_name}): {exc}"
                 ) from exc
 
-    leaf_results: List[AnyShape] = []
+    leaf_results: List[Any] = []
     if leaf_node_ids is None:
         target_leaf_ids = [leaf.node_id for leaf in graph.leaf_nodes()]
     else:
@@ -1647,7 +2160,7 @@ def _execute_graph(
     return leaf_results
 
 
-def replay_graph(graph: OperationGraph, *, strict: bool = True) -> List[AnyShape]:
+def replay_graph(graph: OperationGraph, *, strict: bool = True) -> List[Any]:
     """Replay an OperationGraph to rebuild the model.
 
     Executes nodes in topological order. Primitives are created from their

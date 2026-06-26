@@ -15,7 +15,9 @@ class TestRemainingStructuralKernel(unittest.TestCase):
             scad.make_circle_redge((0, 0, 0), 1.0),
             scad.make_three_point_arc_redge((0, 0, 0), (1, 1, 0), (2, 0, 0)),
             scad.make_angle_arc_redge((0, 0, 0), 1.0, 0.0, 1.57),
-            scad.make_spline_redge([(0, 0, 0), (1, 1, 0), (2, 0, 0)]),
+            scad.make_spline_redge(
+                control_points=[(0, 0, 0), (0.6, 1, 0), (1.4, 1, 0), (2, 0, 0)]
+            ),
             scad.make_helix_rwire(1.0, 3.0, 0.5),
         ]
         for shape in shapes:

@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def make_spline_rwire(points: List[Tuple[float, float, float]], tangents: Optional[List[Tuple[float, float, float]]] = None, closed: bool = False) -> Wire
+def make_spline_rwire(*, control_points: Sequence[Sequence[ScalarLike]], degree: int = 3, knots: Optional[Sequence[ScalarLike]] = None, multiplicities: Optional[Sequence[int]] = None, weights: Optional[Sequence[ScalarLike]] = None, periodic: bool = False) -> Wire
 ```
 
 *Source: operations.py*
@@ -14,4 +14,4 @@ def make_spline_rwire(points: List[Tuple[float, float, float]], tangents: Option
 
 ## Description
 
-Create a spline wire through control points.
+Create a wire containing one exact B-spline edge.

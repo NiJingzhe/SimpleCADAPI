@@ -386,8 +386,12 @@ def _is_discrete_param_name(key: str) -> bool:
         "geo_selector",
         "removed_face_count",
         "profile_count",
+        "profile",
         "count",
+        "degree",
+        "multiplicities",
         "output_count",
+        "periodic",
     }
 
 
