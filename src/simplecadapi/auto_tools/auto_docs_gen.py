@@ -725,6 +725,10 @@ class APIDocumentGenerator:
                 break
 
         if init_method is None:
+            dataclass_fields = self._extract_dataclass_fields(node)
+            if dataclass_fields:
+                params = ", ".join(dataclass_fields)
+                return f"class {node.name}({params})"
             return f"class {node.name}"
 
         params: List[str] = []
@@ -778,6 +782,45 @@ class APIDocumentGenerator:
             return ast.unparse(node)
         except Exception:
             return "..."
+
+    def _extract_dataclass_fields(self, node: ast.ClassDef) -> List[str]:
+        """Extract field signatures from a @dataclass class body.
+
+        Looks for AnnAssign nodes (annotated assignments) at class scope,
+        which is how dataclass fields are declared. Skips private fields
+        (names starting with ``_``) since they are not part of the public
+        constructor signature.
+        """
+        is_dataclass = any(
+            isinstance(dec, ast.Name) and dec.id == "dataclass"
+            or isinstance(dec, ast.Attribute) and dec.attr == "dataclass"
+            or isinstance(dec, ast.Call)
+            and (
+                (isinstance(dec.func, ast.Name) and dec.func.id == "dataclass")
+                or (isinstance(dec.func, ast.Attribute) and dec.func.attr == "dataclass")
+            )
+            for dec in node.decorator_list
+        )
+        if not is_dataclass:
+            return []
+
+        fields: List[str] = []
+        for item in node.body:
+            if not isinstance(item, ast.AnnAssign):
+                continue
+            if not isinstance(item.target, ast.Name):
+                continue
+            name = item.target.id
+            if name.startswith("_"):
+                continue
+            annotation = ""
+            if item.annotation is not None:
+                annotation = f": {self._safe_unparse(item.annotation)}"
+            default = ""
+            if item.value is not None:
+                default = f" = {self._safe_unparse(item.value)}"
+            fields.append(f"{name}{annotation}{default}")
+        return fields
 
 
 def _parse_cli_args() -> argparse.Namespace:
