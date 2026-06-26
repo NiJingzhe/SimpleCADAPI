@@ -371,6 +371,10 @@ class FreeCADScriptTranslator:
         emit("except Exception:")
         emit("    Assembly = None")
         emit("try:")
+        emit("    import JointObject")
+        emit("except Exception:")
+        emit("    JointObject = None")
+        emit("try:")
         emit("    import Spreadsheet")
         emit("except Exception:")
         emit("    Spreadsheet = None")
@@ -391,6 +395,7 @@ class FreeCADScriptTranslator:
         emit("ASSEMBLY_PROJECTION_INPUTS = {}")
         emit("GUI_VISIBILITY_BY_NAME = {}")
         emit("GUI_EXPANDED_BY_NAME = {}")
+        emit("SIMPLECAD_JOINT_OBJECTS = {}")
         emit("SKETCH_REGISTRY = []")
         expression_graph_payload = payload.get("expression_graph", {})
         if hasattr(expression_graph_payload, "to_dict"):
@@ -891,6 +896,168 @@ def _make_native_assembly(name, *, node_id, op, params, inputs, tags, context, o
     )
 
 
+def _joint_group_for(assembly_container):
+    for child in list(getattr(assembly_container, 'OutList', []) or []):
+        if getattr(child, 'TypeId', '') == 'Assembly::JointGroup':
+            return child
+    return assembly_container.newObject('Assembly::JointGroup', 'Joints')
+
+
+def _find_component_entry(assembly_value, component_id):
+    for component in list(assembly_value.get('components', []) or []):
+        if str(component.get('component_id')) == str(component_id):
+            return component
+    raise RuntimeError(f'Missing assembly component {component_id!r}')
+
+
+def _connector_payload_for(component_entry, connector_id):
+    item = component_entry.get('item') or {}
+    for connector in list(item.get('connectors', []) or []):
+        if str(connector.get('connector_id')) == str(connector_id):
+            return connector
+    raise RuntimeError(f'Missing connector {connector_id!r} on component {component_entry.get("component_id")!r}')
+
+
+def _freecad_subname_for_kind(kind, index):
+    # Convert a 0-based index into a FreeCAD sub-element name string.
+    kind_lower = str(kind).lower()
+    prefix_map = {'vertex': 'Vertex', 'edge': 'Edge', 'wire': 'Wire', 'face': 'Face', 'solid': 'Solid'}
+    prefix = prefix_map.get(kind_lower, 'Face')
+    return f'{prefix}{index + 1}'
+
+
+def _resolve_connector_subname(component_entry, connector_payload):
+    # Resolve the FreeCAD sub-element name (e.g. Face3) for a connector geometry_ref.
+    # Uses the geo_selector to match against the component link shape.
+    # Returns a tuple (subname1, subname2) suitable for FreeCAD Reference1/Reference2.
+    geometry_ref = connector_payload.get('geometry_ref') or {}
+    geo_selector = geometry_ref.get('geo_selector') or {}
+    kind = str(geometry_ref.get('kind') or geo_selector.get('kind') or '').lower()
+    if not kind:
+        return '', ''
+    link = component_entry.get('link')
+    if link is None:
+        return '', ''
+    linked_obj = getattr(link, 'LinkedObject', None) or link
+    shape = getattr(linked_obj, 'Shape', None)
+    if shape is None:
+        return '', ''
+    try:
+        index = _selection_index_for_selector(shape, geo_selector)
+        subname = _freecad_subname_for_kind(kind, index)
+        return subname, subname
+    except Exception:
+        return '', ''
+
+
+def _make_simplecad_joint(assembly_value, constraint_payload, object_name, label):
+    assembly_container = assembly_value.get('container')
+    if assembly_container is None:
+        raise RuntimeError('Assembly value has no container for constraint translation')
+    connector_a = constraint_payload.get('connector_a') or {}
+    connector_b = constraint_payload.get('connector_b') or {}
+    component_a = _find_component_entry(assembly_value, connector_a.get('component_id'))
+    component_b = _find_component_entry(assembly_value, connector_b.get('component_id'))
+    connector_a_payload = _connector_payload_for(component_a, connector_a.get('connector_id'))
+    connector_b_payload = _connector_payload_for(component_b, connector_b.get('connector_id'))
+    joint_type = {'fixed': 'Fixed', 'revolute': 'Revolute', 'prismatic': 'Slider'}.get(str(constraint_payload.get('constraint_kind')))
+    if not joint_type:
+        raise RuntimeError(f"Unsupported SimpleCAD constraint kind {constraint_payload.get('constraint_kind')!r}")
+    joint_group = _joint_group_for(assembly_container)
+    joint = joint_group.newObject('App::FeaturePython', object_name)
+    joint.Label = str(label or constraint_payload.get('constraint_id') or object_name)
+    type_index = {'Fixed': 0, 'Revolute': 1, 'Slider': 3}[joint_type]
+    native_status = 'metadata_only'
+    if JointObject is not None:
+        JointObject.Joint(joint, type_index)
+        native_status = 'native_equivalent'
+        if getattr(App, 'GuiUp', False) and hasattr(joint, 'ViewObject') and joint.ViewObject is not None:
+            try:
+                JointObject.ViewProviderJoint(joint.ViewObject)
+            except Exception:
+                pass
+    else:
+        _ensure_string_property(joint, 'JointType')
+        joint.JointType = joint_type
+    try:
+        link_a = component_a.get('link')
+        link_b = component_b.get('link')
+        sub_a1, sub_a2 = _resolve_connector_subname(component_a, connector_a_payload)
+        sub_b1, sub_b2 = _resolve_connector_subname(component_b, connector_b_payload)
+        if hasattr(joint, 'Reference1'):
+            joint.Reference1 = (link_a, [sub_a1, sub_a2])
+            joint.Reference2 = (link_b, [sub_b1, sub_b2])
+            joint.Detach1 = False
+            joint.Detach2 = False
+    except Exception:
+        native_status = 'native_partial'
+    if joint_type == 'Revolute' and constraint_payload.get('drive_angle_degrees') is not None:
+        try:
+            joint.Angle = float(constraint_payload.get('drive_angle_degrees'))
+        except Exception:
+            native_status = 'native_partial'
+    if joint_type == 'Slider' and constraint_payload.get('drive_distance') is not None:
+        try:
+            joint.Distance = float(constraint_payload.get('drive_distance'))
+        except Exception:
+            native_status = 'native_partial'
+    angle_limit = constraint_payload.get('angle_limit')
+    if angle_limit:
+        try:
+            joint.EnableAngleMin = True
+            joint.EnableAngleMax = True
+            joint.AngleMin = float(angle_limit.get('lower_value'))
+            joint.AngleMax = float(angle_limit.get('upper_value'))
+        except Exception:
+            native_status = 'native_partial'
+    distance_limit = constraint_payload.get('distance_limit')
+    if distance_limit:
+        try:
+            joint.EnableLengthMin = True
+            joint.EnableLengthMax = True
+            joint.LengthMin = float(distance_limit.get('lower_value'))
+            joint.LengthMax = float(distance_limit.get('upper_value'))
+        except Exception:
+            native_status = 'native_partial'
+    _ensure_string_property(joint, 'SimpleCADConstraint')
+    _ensure_string_property(joint, 'SimpleCADConstraintTranslationStatus')
+    joint.SimpleCADConstraint = json.dumps(constraint_payload, ensure_ascii=True, sort_keys=True)
+    joint.SimpleCADConstraintTranslationStatus = native_status
+    _set_visibility(joint, True)
+    try:
+        SIMPLECAD_JOINT_OBJECTS[str(joint.Name)] = joint_type
+    except Exception:
+        pass
+    return joint
+
+
+def _make_simplecad_grounded_joint(assembly_value, component_id):
+    assembly_container = assembly_value.get('container')
+    if assembly_container is None:
+        raise RuntimeError('Assembly value has no container for grounded joint translation')
+    component_entry = _find_component_entry(assembly_value, component_id)
+    link = component_entry.get('link')
+    if link is None:
+        raise RuntimeError(f'Missing component link for grounded component {component_id!r}')
+    joint_group = _joint_group_for(assembly_container)
+    ground = joint_group.newObject('App::FeaturePython', 'GroundedJoint_' + str(component_id))
+    ground.Label = 'GroundedJoint_' + str(component_id)
+    native_status = 'metadata_only'
+    if JointObject is not None:
+        JointObject.GroundedJoint(ground, link)
+        native_status = 'native_equivalent'
+    else:
+        _ensure_string_property(ground, 'ObjectToGround')
+    _ensure_string_property(ground, 'SimpleCADGroundedComponent')
+    ground.SimpleCADGroundedComponent = str(component_id)
+    _set_visibility(ground, True)
+    try:
+        SIMPLECAD_JOINT_OBJECTS[str(ground.Name)] = 'Grounded'
+    except Exception:
+        pass
+    return ground
+
+
 PRODUCT_LIBRARY_GROUP = None
 CONSTRUCTION_GROUP = None
 
@@ -1065,15 +1232,31 @@ def _write_gui_document_xml(fcstd_path):
         f'    <ViewProviderData Count="{len(object_rows)}">',
     ]
     for name, visible, expanded in object_rows:
-        lines.extend([
-            f'        <ViewProvider name="{_xml_attr(name)}" expanded="{1 if expanded else 0}">',
-            '            <Properties Count="1">',
-            '                <Property name="Visibility" type="App::PropertyBool">',
-            f'                    <Bool value="{str(bool(visible)).lower()}"/>',
-            '                </Property>',
-            '            </Properties>',
-            '        </ViewProvider>',
-        ])
+        joint_type = SIMPLECAD_JOINT_OBJECTS.get(name)
+        if joint_type is not None:
+            vp_class = 'ViewProviderGroundedJoint' if joint_type == 'Grounded' else 'ViewProviderJoint'
+            lines.extend([
+                f'        <ViewProvider name="{_xml_attr(name)}" expanded="{1 if expanded else 0}">',
+                '            <Properties Count="2">',
+                '                <Property name="Visibility" type="App::PropertyBool">',
+                f'                    <Bool value="{str(bool(visible)).lower()}"/>',
+                '                </Property>',
+                '                <Property name="Proxy" type="App::PropertyPythonObject" status="67108864">',
+                f'                    <Python value="bnVsbA==" encoded="yes" module="JointObject" class="{vp_class}"/>',
+                '                </Property>',
+                '            </Properties>',
+                '        </ViewProvider>',
+            ])
+        else:
+            lines.extend([
+                f'        <ViewProvider name="{_xml_attr(name)}" expanded="{1 if expanded else 0}">',
+                '            <Properties Count="1">',
+                '                <Property name="Visibility" type="App::PropertyBool">',
+                f'                    <Bool value="{str(bool(visible)).lower()}"/>',
+                '                </Property>',
+                '            </Properties>',
+                '        </ViewProvider>',
+            ])
     lines.extend([
         '    </ViewProviderData>',
         '    <Camera settings="  OrthographicCamera { viewportMapping ADJUST_CAMERA position 0 -0 20000 orientation 0 0 1 0 nearDistance 1 farDistance 100000 aspectRatio 1 focalDistance 20000 height 1000 } "/>',
@@ -3022,7 +3205,7 @@ def _resolve_vec3_param(params, param_exprs, key):
             ]
             lines.extend(finish())
             lines.append(
-                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'part', 'part_id': str({rp}.get('part_id', '')), 'body': {var_name}_body, 'container': {var_name}, 'material': None}}"
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'part', 'part_id': str({rp}.get('part_id', '')), 'body': {var_name}_body, 'container': {var_name}, 'material': None, 'connectors': []}}"
             )
             return lines
 
@@ -3047,7 +3230,7 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"{var_name}.SimpleCADAssemblyId = str({rp}.get('assembly_id', ''))",
             ]
             lines.append(
-                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'assembly', 'assembly_id': str({rp}.get('assembly_id', '')), 'container': {var_name}, 'components': []}}"
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'assembly', 'assembly_id': str({rp}.get('assembly_id', '')), 'container': {var_name}, 'components': [], 'connectors': [], 'constraints': [], 'grounded_component_ids': []}}"
             )
             return lines
 
@@ -3084,6 +3267,88 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
             return lines
+
+        if node.op in {"make_face_connector_rconnector", "make_edge_connector_rconnector", "make_vertex_connector_rconnector"}:
+            return [
+                f"{var_name} = dict({rp})",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'connector', 'connector': {var_name}}}",
+                f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_add_connector_rpart" and len(inputs) >= 2:
+            return [
+                f"{var_name}_part = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_connector = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['connector']",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_part)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['connectors'] = list({var_name}_part.get('connectors', [])) + [{var_name}_connector]",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_add_connector_rassembly" and len(inputs) >= 2:
+            return [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_connector = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['connector']",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['connectors'] = list({var_name}_assembly.get('connectors', [])) + [{var_name}_connector]",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_connector_ref_rconnectorref":
+            return [
+                f"{var_name} = dict({rp})",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'connector_ref', 'connector_ref': {var_name}}}",
+                f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_scalar_limit_rscalarlimit":
+            return [
+                f"{var_name} = dict({rp})",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'scalar_limit', 'scalar_limit': {var_name}}}",
+                f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op in {"make_ground_component_rassembly", "make_unground_component_rassembly"} and len(inputs) >= 1:
+            action = "add" if node.op == "make_ground_component_rassembly" else "remove"
+            return [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"{var_name}_grounded = list({var_name}_assembly.get('grounded_component_ids', []))",
+                f"{var_name}_component_id = str({rp}.get('component_id', ''))",
+                f"{var_name}_grounded = (list({var_name}_grounded) if {_json_ascii(action)} == 'add' else [component_id for component_id in {var_name}_grounded if component_id != {var_name}_component_id])",
+                f"if {_json_ascii(action)} == 'add' and {var_name}_component_id not in {var_name}_grounded: {var_name}_grounded.append({var_name}_component_id)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['grounded_component_ids'] = {var_name}_grounded",
+                f"if {_json_ascii(action)} == 'add': _make_simplecad_grounded_joint({var_name}_assembly, {var_name}_component_id)",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op in {"make_fixed_constraint_rassembly", "make_revolute_constraint_rassembly", "make_prismatic_constraint_rassembly"} and len(inputs) >= 3:
+            return [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_constraint = dict({rp})",
+                f"{var_name}_constraint['connector_a'] = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['connector_ref']",
+                f"{var_name}_constraint['connector_b'] = PRODUCT_VALUES[{_json_ascii(inputs[2])}]['connector_ref']",
+                f"{var_name}_joint = _make_simplecad_joint({var_name}_assembly, {var_name}_constraint, {_json_ascii(object_name)}, str({rp}.get('name') or {rp}.get('constraint_id') or {_json_ascii(object_name)}))",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['constraints'] = list({var_name}_assembly.get('constraints', [])) + [{var_name}_constraint]",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_solve_assembly_constraints_rassembly" and len(inputs) >= 1:
+            return [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"{var_name}_placements = dict({rp}.get('component_placements') or {{}})",
+                f"{var_name}_components = []",
+                f"for _component in {var_name}_assembly.get('components', []):",
+                f"    _component = dict(_component)",
+                f"    _component_id = str(_component.get('component_id'))",
+                f"    if _component_id in {var_name}_placements:",
+                f"        _component['placement'] = {var_name}_placements[_component_id]",
+                f"        _component['link'].Placement = _placement_from_axes_payload(_component['placement'])",
+                f"    {var_name}_components.append(_component)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['components'] = {var_name}_components",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
 
         if node.op == "make_compound_from_assembly_rcompound" and len(inputs) == 1:
             return [

@@ -31,7 +31,7 @@ from .core import AnyShape, Compound, Edge, Face, Solid, Vertex, Wire, use_coord
 from .graph import attach_graph_node, suspend_graph_recording
 from .ql import selector_from_dict
 from .sketch import Sketch
-from .product import Assembly, Material, Part, Placement
+from .product import Assembly, Connector, ConnectorRef, GeometryRef, Material, Part, Placement, ScalarLimit
 from .topology import (
     OperationGraph,
     semantic_delta_to_dict,
@@ -118,6 +118,27 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     "add_component_rassembly": {"status": "replayable", "op": "make_add_component_rassembly"},
     "place_component_rassembly": {"status": "replayable", "op": "make_place_component_rassembly"},
     "make_compound_from_assembly_rcompound": {"status": "replayable", "op": "make_compound_from_assembly_rcompound"},
+    "make_face_connector_rconnector": {"status": "replayable", "op": "make_face_connector_rconnector"},
+    "make_edge_connector_rconnector": {"status": "replayable", "op": "make_edge_connector_rconnector"},
+    "make_vertex_connector_rconnector": {"status": "replayable", "op": "make_vertex_connector_rconnector"},
+    "add_connector_rpart": {"status": "replayable", "op": "make_add_connector_rpart"},
+    "add_connector_rassembly": {"status": "replayable", "op": "make_add_connector_rassembly"},
+    "make_connector_ref_rconnectorref": {"status": "replayable", "op": "make_connector_ref_rconnectorref"},
+    "make_scalar_limit_rscalarlimit": {"status": "replayable", "op": "make_scalar_limit_rscalarlimit"},
+    "ground_component_rassembly": {"status": "replayable", "op": "make_ground_component_rassembly"},
+    "unground_component_rassembly": {"status": "replayable", "op": "make_unground_component_rassembly"},
+    "add_fixed_constraint_rassembly": {"status": "replayable", "op": "make_fixed_constraint_rassembly"},
+    "add_revolute_constraint_rassembly": {"status": "replayable", "op": "make_revolute_constraint_rassembly"},
+    "add_prismatic_constraint_rassembly": {"status": "replayable", "op": "make_prismatic_constraint_rassembly"},
+    "solve_assembly_constraints_rassembly": {"status": "replayable", "op": "make_solve_assembly_constraints_rassembly"},
+    "measure_constraint_residual_rconstraintresidual": {
+        "status": "diagnostic",
+        "reason": "Measures current constraint residuals without changing model state.",
+    },
+    "inspect_assembly_constraints_rconstraintreport": {
+        "status": "diagnostic",
+        "reason": "Inspects current constraint state without changing model state.",
+    },
     "make_box_rsolid": {
         "status": "macro",
         "reason": "Composite convenience API that should lower into low-level sketch + make_extrude_rsolid operations.",
@@ -254,6 +275,19 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_add_component_rassembly",
     "make_place_component_rassembly",
     "make_compound_from_assembly_rcompound",
+    "make_face_connector_rconnector",
+    "make_edge_connector_rconnector",
+    "make_vertex_connector_rconnector",
+    "make_add_connector_rpart",
+    "make_add_connector_rassembly",
+    "make_connector_ref_rconnectorref",
+    "make_scalar_limit_rscalarlimit",
+    "make_ground_component_rassembly",
+    "make_unground_component_rassembly",
+    "make_fixed_constraint_rassembly",
+    "make_revolute_constraint_rassembly",
+    "make_prismatic_constraint_rassembly",
+    "make_solve_assembly_constraints_rassembly",
     "make_extrude_rsolid",
     "make_revolve_rsolid",
     "make_loft_rsolid",
@@ -1640,6 +1674,151 @@ def _execute_graph(
                         if assembly_outputs:
                             result = ops.make_compound_from_assembly_rcompound(
                                 cast(Assembly, assembly_outputs[0])
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name in {
+                        "make_face_connector_rconnector",
+                        "make_edge_connector_rconnector",
+                        "make_vertex_connector_rconnector",
+                    }:
+                        ctx.require_params(node.node_id, op_name, params, ("connector_id", "geometry_ref"))
+                        shape_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if shape_outputs:
+                            shape = shape_outputs[0]
+                            geo_ref_data = cast(Dict[str, Any], params["geometry_ref"])
+                            geometry_ref = GeometryRef(
+                                kind=str(geo_ref_data["kind"]),
+                                source_node_id=cast(Optional[str], geo_ref_data.get("source_node_id")),
+                                geo_selector=cast(Dict[str, Any], geo_ref_data.get("geo_selector", {})),
+                                flip=bool(geo_ref_data.get("flip", False)),
+                            )
+                            connector = Connector(
+                                str(params["connector_id"]),
+                                geometry_ref,
+                                name=cast(Optional[str], params.get("name")),
+                            )
+                            _store_outputs(node, connector)
+                        continue
+
+                    if op_name == "make_add_connector_rpart":
+                        part_outputs = _input_outputs(ctx, outputs, node, 0)
+                        connector_outputs = _input_outputs(ctx, outputs, node, 1)
+                        if part_outputs and connector_outputs:
+                            result = ops.add_connector_rpart(
+                                cast(Part, part_outputs[0]),
+                                cast(Connector, connector_outputs[0]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_add_connector_rassembly":
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        connector_outputs = _input_outputs(ctx, outputs, node, 1)
+                        if assembly_outputs and connector_outputs:
+                            result = ops.add_connector_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                cast(Connector, connector_outputs[0]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_connector_ref_rconnectorref":
+                        ctx.require_params(node.node_id, op_name, params, ("component_id", "connector_id"))
+                        result = ops.make_connector_ref_rconnectorref(
+                            str(params["component_id"]),
+                            str(params["connector_id"]),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_scalar_limit_rscalarlimit":
+                        ctx.require_params(node.node_id, op_name, params, ("lower_value", "upper_value"))
+                        result = ops.make_scalar_limit_rscalarlimit(
+                            cast(float, params["lower_value"]),
+                            cast(float, params["upper_value"]),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_ground_component_rassembly":
+                        ctx.require_params(node.node_id, op_name, params, ("component_id",))
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if assembly_outputs:
+                            result = ops.ground_component_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                str(params["component_id"]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_unground_component_rassembly":
+                        ctx.require_params(node.node_id, op_name, params, ("component_id",))
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if assembly_outputs:
+                            result = ops.unground_component_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                str(params["component_id"]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name in {
+                        "make_fixed_constraint_rassembly",
+                        "make_revolute_constraint_rassembly",
+                        "make_prismatic_constraint_rassembly",
+                    }:
+                        ctx.require_params(node.node_id, op_name, params, ("constraint_id",))
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        connector_a_outputs = _input_outputs(ctx, outputs, node, 1)
+                        connector_b_outputs = _input_outputs(ctx, outputs, node, 2)
+                        limit_outputs = (
+                            _input_outputs(ctx, outputs, node, 3)
+                            if len(node.inputs) > 3
+                            else []
+                        )
+                        if assembly_outputs and connector_a_outputs and connector_b_outputs:
+                            assembly = cast(Assembly, assembly_outputs[0])
+                            connector_a = cast(ConnectorRef, connector_a_outputs[0])
+                            connector_b = cast(ConnectorRef, connector_b_outputs[0])
+                            if op_name == "make_fixed_constraint_rassembly":
+                                result = ops.add_fixed_constraint_rassembly(
+                                    assembly,
+                                    str(params["constraint_id"]),
+                                    connector_a,
+                                    connector_b,
+                                    name=cast(Optional[str], params.get("name")),
+                                )
+                            elif op_name == "make_revolute_constraint_rassembly":
+                                result = ops.add_revolute_constraint_rassembly(
+                                    assembly,
+                                    str(params["constraint_id"]),
+                                    connector_a,
+                                    connector_b,
+                                    drive_angle_degrees=cast(Optional[float], params.get("drive_angle_degrees")),
+                                    angle_limit=cast(Optional[ScalarLimit], limit_outputs[0] if limit_outputs else None),
+                                    name=cast(Optional[str], params.get("name")),
+                                )
+                            else:
+                                result = ops.add_prismatic_constraint_rassembly(
+                                    assembly,
+                                    str(params["constraint_id"]),
+                                    connector_a,
+                                    connector_b,
+                                    drive_distance=cast(Optional[float], params.get("drive_distance")),
+                                    distance_limit=cast(Optional[ScalarLimit], limit_outputs[0] if limit_outputs else None),
+                                    name=cast(Optional[str], params.get("name")),
+                                )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_solve_assembly_constraints_rassembly":
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if assembly_outputs:
+                            result = ops.solve_assembly_constraints_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                strict=bool(params.get("strict", True)),
                             )
                             _store_outputs(node, result)
                         continue
