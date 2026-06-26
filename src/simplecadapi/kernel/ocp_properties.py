@@ -16,7 +16,17 @@ from OCP.GProp import GProp_GProps
 from OCP.GeomAbs import GeomAbs_Plane
 import math
 
-from OCP.TopAbs import TopAbs_REVERSED, TopAbs_VERTEX
+from OCP.TopAbs import (
+    TopAbs_COMPOUND,
+    TopAbs_COMPSOLID,
+    TopAbs_EDGE,
+    TopAbs_FACE,
+    TopAbs_REVERSED,
+    TopAbs_SHELL,
+    TopAbs_SOLID,
+    TopAbs_VERTEX,
+    TopAbs_WIRE,
+)
 from OCP.TopoDS import TopoDS, TopoDS_Edge, TopoDS_Face, TopoDS_Shape, TopoDS_Solid
 from OCP.gp import gp_Pnt, gp_Vec
 
@@ -101,36 +111,100 @@ def volume(solid: TopoDS_Solid) -> float:
     return float(props.Mass())
 
 
-def center_of_mass(shape: TopoDS_Shape) -> Vec3:
-    # Try dimension-specific mass properties. The first successful non-zero mass wins.
-    props = GProp_GProps()
-    try:
-        BRepGProp.VolumeProperties_s(shape, props)
-        if abs(float(props.Mass())) > 1e-15:
-            return _props_point(props)
-    except Exception:
-        pass
-    props = GProp_GProps()
-    try:
-        BRepGProp.SurfaceProperties_s(shape, props)
-        if abs(float(props.Mass())) > 1e-15:
-            return _props_point(props)
-    except Exception:
-        pass
-    props = GProp_GProps()
-    try:
-        BRepGProp.LinearProperties_s(shape, props)
-        if abs(float(props.Mass())) > 1e-15:
-            return _props_point(props)
-    except Exception:
-        pass
-    try:
-        if shape.ShapeType() == TopAbs_VERTEX:
-            return Vec3(*vertex_point(TopoDS.Vertex_s(shape)))
-    except Exception:
-        pass
+def _bbox_center(shape: TopoDS_Shape) -> Vec3:
     bb = bounding_box(shape)
     return Vec3((bb.xmin + bb.xmax) / 2, (bb.ymin + bb.ymax) / 2, (bb.zmin + bb.zmax) / 2)
+
+
+def _props_mass_point(props: GProp_GProps, eps: float = 1e-12) -> Vec3 | None:
+    """Return the CentreOfMass when the reported mass is meaningfully nonzero."""
+    try:
+        mass = float(props.Mass())
+    except Exception:
+        return None
+    if abs(mass) <= eps:
+        return None
+    return _props_point(props)
+
+
+def center_of_mass(shape: TopoDS_Shape) -> Vec3:
+    """Dimension-aware centre of mass.
+
+    Selects the OCP mass-properties routine that matches the shape's own
+    topological dimension. This avoids the numerical residue that
+    ``VolumeProperties_s`` produces when applied to lower-dimensional shapes
+    (e.g. a planar face), which previously leaked a bogus centre into
+    ``Face.get_center()``.
+    """
+
+    try:
+        kind = shape.ShapeType()
+    except Exception:
+        kind = None
+
+    # Solids / compsolids / compounds carry a meaningful volume.
+    if kind in (TopAbs_SOLID, TopAbs_COMPSOLID, TopAbs_COMPOUND):
+        props = GProp_GProps()
+        try:
+            BRepGProp.VolumeProperties_s(shape, props)
+            point = _props_mass_point(props)
+            if point is not None:
+                return point
+        except Exception:
+            pass
+        # A compound may wrap only faces/edges; fall through to the
+        # lower-dimensional properties below.
+        if kind == TopAbs_COMPOUND:
+            try:
+                BRepGProp.SurfaceProperties_s(shape, props)
+                point = _props_mass_point(props)
+                if point is not None:
+                    return point
+            except Exception:
+                pass
+            try:
+                BRepGProp.LinearProperties_s(shape, props)
+                point = _props_mass_point(props)
+                if point is not None:
+                    return point
+            except Exception:
+                pass
+        return _bbox_center(shape)
+
+    # Shells / faces are 2D -> use surface properties.
+    if kind in (TopAbs_FACE, TopAbs_SHELL):
+        props = GProp_GProps()
+        try:
+            BRepGProp.SurfaceProperties_s(shape, props)
+            point = _props_mass_point(props)
+            if point is not None:
+                return point
+        except Exception:
+            pass
+        return _bbox_center(shape)
+
+    # Wires / edges are 1D -> use linear properties.
+    if kind in (TopAbs_WIRE, TopAbs_EDGE):
+        props = GProp_GProps()
+        try:
+            BRepGProp.LinearProperties_s(shape, props)
+            point = _props_mass_point(props)
+            if point is not None:
+                return point
+        except Exception:
+            pass
+        return _bbox_center(shape)
+
+    # Vertex is a point.
+    if kind == TopAbs_VERTEX:
+        try:
+            return Vec3(*vertex_point(TopoDS.Vertex_s(shape)))
+        except Exception:
+            pass
+        return _bbox_center(shape)
+
+    # Unknown / undetermined kind: fall back to bbox centre.
+    return _bbox_center(shape)
 
 
 @dataclass(frozen=True)
