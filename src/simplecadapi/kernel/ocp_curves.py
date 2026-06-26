@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import math
-from typing import Iterable, Optional, Sequence
+from typing import Any, Iterable, Optional, Sequence
 
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
 from OCP.BRepLib import BRepLib
 from OCP.GC import GC_MakeArcOfCircle, GC_MakeCircle
 from OCP.GCE2d import GCE2d_MakeSegment
-from OCP.GeomAPI import GeomAPI_Interpolate, GeomAPI_PointsToBSpline
+from OCP.Geom import Geom_BSplineCurve
 from OCP.Geom2d import Geom2d_Line
 from OCP.Geom import Geom_ConicalSurface, Geom_CylindricalSurface
-from OCP.TColgp import TColgp_Array1OfPnt, TColgp_Array1OfVec, TColgp_HArray1OfPnt
-from OCP.TColStd import TColStd_HArray1OfBoolean
+from OCP.TColgp import TColgp_Array1OfPnt
+from OCP.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
 from OCP.gp import (
     gp_Ax2,
     gp_Ax3,
@@ -22,10 +22,7 @@ from OCP.gp import (
     gp_Dir2d,
     gp_Pnt,
     gp_Pnt2d,
-    gp_Vec,
 )
-
-from .spline_fit import select_fit_samples
 
 
 def _pnt(value: Sequence[float]) -> gp_Pnt:
@@ -65,39 +62,47 @@ def make_arc_angle_edge(
 
 
 def make_bspline_edge(
-    points: Iterable[Sequence[float]],
-    tangents: Optional[Iterable[Sequence[float]]] = None,
+    *,
+    control_points: Sequence[Sequence[float]],
+    degree: int,
+    knots: Sequence[float],
+    multiplicities: Sequence[int],
+    weights: Optional[Sequence[float]] = None,
+    periodic: bool = False,
 ):
-    pts = list(points)
-    fit_pts = select_fit_samples(pts, target_count=6)
-    arr = TColgp_Array1OfPnt(1, len(fit_pts))
-    for idx, point in enumerate(fit_pts, start=1):
-        arr.SetValue(idx, _pnt(point))
+    poles = TColgp_Array1OfPnt(1, len(control_points))
+    for idx, point in enumerate(control_points, start=1):
+        poles.SetValue(idx, _pnt(point))
 
-    if tangents:
-        tangent_list = list(tangents)
-        h_points = TColgp_HArray1OfPnt(1, len(fit_pts))
-        for idx, point in enumerate(fit_pts, start=1):
-            h_points.SetValue(idx, _pnt(point))
-        fit_tangents = list(tangent_list)
-        if len(fit_tangents) != len(fit_pts):
-            fit_tangents = []
-        h_tangents = TColgp_Array1OfVec(1, len(fit_tangents))
-        flags = TColStd_HArray1OfBoolean(1, len(fit_tangents))
-        for idx, tangent in enumerate(fit_tangents, start=1):
-            h_tangents.SetValue(
-                idx, gp_Vec(float(tangent[0]), float(tangent[1]), float(tangent[2]))
-            )
-            flags.SetValue(idx, True)
-        interp = GeomAPI_Interpolate(h_points, False, 1e-6)
-        interp.Load(h_tangents, flags, True)
-        interp.Perform()
-        if not interp.IsDone():
-            raise ValueError("OCP interpolation failed")
-        return BRepBuilderAPI_MakeEdge(interp.Curve()).Edge()
+    knot_array = TColStd_Array1OfReal(1, len(knots))
+    for idx, knot in enumerate(knots, start=1):
+        knot_array.SetValue(idx, float(knot))
 
-    bspline = GeomAPI_PointsToBSpline(arr)
-    return BRepBuilderAPI_MakeEdge(bspline.Curve()).Edge()
+    mult_array = TColStd_Array1OfInteger(1, len(multiplicities))
+    for idx, multiplicity in enumerate(multiplicities, start=1):
+        mult_array.SetValue(idx, int(multiplicity))
+
+    if weights is None:
+        curve = Geom_BSplineCurve(
+            poles,
+            knot_array,
+            mult_array,
+            int(degree),
+            bool(periodic),
+        )
+    else:
+        weight_array = TColStd_Array1OfReal(1, len(weights))
+        for idx, weight in enumerate(weights, start=1):
+            weight_array.SetValue(idx, float(weight))
+        curve = Geom_BSplineCurve(
+            poles,
+            weight_array,
+            knot_array,
+            mult_array,
+            int(degree),
+            bool(periodic),
+        )
+    return BRepBuilderAPI_MakeEdge(curve).Edge()
 
 
 def make_wire_from_edges(edges: Iterable[Any]):

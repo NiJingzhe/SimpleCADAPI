@@ -16,7 +16,7 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
 
 Export shapes to STL.
 
-Use this function when you want to export one solid or many solids/faces into
+Use this function when you want to export one compound, solid, or face into
 the same STL file. Passing `List[Solid]` is valid for pattern outputs or
 explicit shape collections. Boolean operations return a single `Solid`.
 
@@ -24,7 +24,7 @@ explicit shape collections. Boolean operations return a single `Solid`.
 
 ### shapes
 
-- **Description**: A single Solid or Face, or any nested sequence of Solid/Face. Lists of Solid are supported directly, including pattern or explicitly collected multi-shape results.
+- **Description**: A single Compound, Solid, or Face, or any nested sequence of those. Lists of Solid are supported directly, including pattern or explicitly collected multi-shape results.
 
 ### filename
 

@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class Expr
+class Expr(op: str, args: Tuple[ScalarExpr, ...], expr_id: str = field(default_factory=lambda : _make_expr_id('expr')))
 ```
 
 *Source: expr.py*

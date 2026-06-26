@@ -1,0 +1,17 @@
+# add_connector_rpart
+
+## API Definition
+
+```python
+def add_connector_rpart(part: Part, connector: Connector) -> Part
+```
+
+*Source: operations.py*
+
+## Import Surface
+
+- top-level: `from simplecadapi import add_connector_rpart`
+
+## Description
+
+Attach a connector datum frame to a Part definition.

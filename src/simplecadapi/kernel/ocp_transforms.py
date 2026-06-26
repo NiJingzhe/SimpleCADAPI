@@ -7,6 +7,7 @@ from typing import Tuple
 
 from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
 from OCP.TopAbs import (
+    TopAbs_COMPOUND,
     TopAbs_EDGE,
     TopAbs_FACE,
     TopAbs_SOLID,
@@ -16,7 +17,7 @@ from OCP.TopAbs import (
 from OCP.TopoDS import TopoDS
 from OCP.gp import gp_Ax1, gp_Ax2, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
 
-from ..core import AnyShape, Edge, Face, Solid, Vertex, Wire
+from ..core import AnyShape, Compound, Edge, Face, Solid, Vertex, Wire
 
 
 def _shape_from_transformed(shape: AnyShape, transformed) -> AnyShape:
@@ -31,6 +32,8 @@ def _shape_from_transformed(shape: AnyShape, transformed) -> AnyShape:
         return Face(TopoDS.Face_s(transformed))
     if shape_type == TopAbs_SOLID:
         return Solid(TopoDS.Solid_s(transformed))
+    if shape_type == TopAbs_COMPOUND:
+        return Compound(TopoDS.Compound_s(transformed))
     raise ValueError(f"Unsupported transformed shape type: {shape_type}")
 
 
@@ -84,5 +87,30 @@ def mirror_shape_ocp(
                 float(plane_normal[2]),
             ),
         )
+    )
+    return apply_transform(shape, trsf)
+
+
+def place_shape_ocp(
+    shape: AnyShape,
+    origin: Tuple[float, float, float],
+    x_axis: Tuple[float, float, float],
+    y_axis: Tuple[float, float, float],
+    z_axis: Tuple[float, float, float],
+) -> AnyShape:
+    trsf = gp_Trsf()
+    trsf.SetValues(
+        float(x_axis[0]),
+        float(y_axis[0]),
+        float(z_axis[0]),
+        float(origin[0]),
+        float(x_axis[1]),
+        float(y_axis[1]),
+        float(z_axis[1]),
+        float(origin[1]),
+        float(x_axis[2]),
+        float(y_axis[2]),
+        float(z_axis[2]),
+        float(origin[2]),
     )
     return apply_transform(shape, trsf)
