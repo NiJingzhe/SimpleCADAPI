@@ -38,11 +38,21 @@ from .ql import ShapeSelector
 from .product import (
     Assembly,
     Component,
+    Connector,
+    ConnectorRef,
+    Constraint,
+    ConstraintReport,
+    ConstraintResidual,
+    GeometryRef,
     Material,
     Part,
     Placement,
+    ScalarLimit,
     compose_placements,
     identity_placement,
+    inspect_assembly_constraints,
+    measure_constraint_residual,
+    solve_assembly_constraints,
 )
 from .sketch import Sketch, SketchRef, SketchSolveResult
 from .tagging import normalize_tag
@@ -153,6 +163,19 @@ _OP_MAKE_ASSEMBLY_RASSEMBLY = "make_assembly_rassembly"
 _OP_MAKE_ADD_COMPONENT_RASSEMBLY = "make_add_component_rassembly"
 _OP_MAKE_PLACE_COMPONENT_RASSEMBLY = "make_place_component_rassembly"
 _OP_MAKE_COMPOUND_FROM_ASSEMBLY_RCOMPOUND = "make_compound_from_assembly_rcompound"
+_OP_MAKE_FACE_CONNECTOR_RCONNECTOR = "make_face_connector_rconnector"
+_OP_MAKE_EDGE_CONNECTOR_RCONNECTOR = "make_edge_connector_rconnector"
+_OP_MAKE_VERTEX_CONNECTOR_RCONNECTOR = "make_vertex_connector_rconnector"
+_OP_MAKE_ADD_CONNECTOR_RPART = "make_add_connector_rpart"
+_OP_MAKE_ADD_CONNECTOR_RASSEMBLY = "make_add_connector_rassembly"
+_OP_MAKE_CONNECTOR_REF_RCONNECTORREF = "make_connector_ref_rconnectorref"
+_OP_MAKE_SCALAR_LIMIT_RSCALARLIMIT = "make_scalar_limit_rscalarlimit"
+_OP_MAKE_GROUND_COMPONENT_RASSEMBLY = "make_ground_component_rassembly"
+_OP_MAKE_UNGROUND_COMPONENT_RASSEMBLY = "make_unground_component_rassembly"
+_OP_MAKE_FIXED_CONSTRAINT_RASSEMBLY = "make_fixed_constraint_rassembly"
+_OP_MAKE_REVOLUTE_CONSTRAINT_RASSEMBLY = "make_revolute_constraint_rassembly"
+_OP_MAKE_PRISMATIC_CONSTRAINT_RASSEMBLY = "make_prismatic_constraint_rassembly"
+_OP_MAKE_SOLVE_ASSEMBLY_CONSTRAINTS_RASSEMBLY = "make_solve_assembly_constraints_rassembly"
 
 
 _SKETCH_CONSTRAINT_OPS = {
@@ -337,6 +360,22 @@ def _part_params(part: Part) -> Dict[str, object]:
 
 def _assembly_params(assembly: Assembly) -> Dict[str, object]:
     return {"assembly_id": assembly.assembly_id, "name": assembly.name}
+
+
+def _connector_params(connector: Connector) -> Dict[str, object]:
+    return connector.to_dict()
+
+
+def _connector_ref_params(connector_ref: ConnectorRef) -> Dict[str, object]:
+    return connector_ref.to_dict()
+
+
+def _scalar_limit_params(limit: ScalarLimit) -> Dict[str, object]:
+    return limit.to_dict()
+
+
+def _constraint_params(constraint: Constraint) -> Dict[str, object]:
+    return constraint.to_dict()
 
 
 def _resolve_union_tol(
@@ -4413,7 +4452,6 @@ def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
 
 def make_material_rmaterial(
     material_id: str,
-    *,
     name: Optional[str] = None,
     density: Optional[float] = None,
     density_unit: Optional[str] = None,
@@ -4465,7 +4503,6 @@ def make_material_rmaterial(
 
 def make_placement_rplacement(
     origin: Tuple[float, float, float],
-    *,
     x_axis: Tuple[float, float, float] = (1.0, 0.0, 0.0),
     y_axis: Tuple[float, float, float] = (0.0, 1.0, 0.0),
 ) -> Placement:
@@ -4527,7 +4564,6 @@ def identity_placement_rplacement() -> Placement:
 def make_part_rpart(
     part_id: str,
     body: Solid,
-    *,
     name: Optional[str] = None,
 ) -> Part:
     """Wrap exactly one Solid as a semantic single-body Part."""
@@ -4605,7 +4641,6 @@ def assign_material_rpart(part: Part, material: Material) -> Part:
 
 def make_assembly_rassembly(
     assembly_id: str,
-    *,
     name: Optional[str] = None,
 ) -> Assembly:
     """Create an empty assembly product structure."""
@@ -4639,7 +4674,6 @@ def make_assembly_rassembly(
 def add_component_rassembly(
     assembly: Assembly,
     item: Union[Part, Assembly],
-    *,
     component_id: str,
     placement: Placement,
     name: Optional[str] = None,
@@ -4753,6 +4787,533 @@ def place_component_rassembly(
             ],
             error=e,
         )
+
+
+def _make_geometry_backed_connector(
+    connector_id: str,
+    shape: AnyShape,
+    *,
+    op: str,
+    operation_name: str,
+    name: Optional[str] = None,
+    flip: bool = False,
+) -> Connector:
+    source_shape = _selection_source_for_shape(shape) or shape
+    node_ids = _ensure_geo_selection_node_ids(source_shape, [shape])
+    source_node_id = node_ids[0] if node_ids else None
+    geo_selector = _make_geo_selector(shape, source_shape=source_shape)
+    kind = _shape_kind_token(shape)
+    geometry_ref = GeometryRef(
+        kind=kind,
+        source_node_id=source_node_id,
+        geo_selector=geo_selector,
+        flip=bool(flip),
+    )
+    connector = Connector(connector_id, geometry_ref, name=name)
+    record_operation_if_active(
+        op,
+        {
+            "connector_id": connector.connector_id,
+            "geometry_ref": geometry_ref.to_dict(),
+            "name": connector.name,
+        },
+        outputs=connector,
+        input_shapes=[shape],
+        context=_current_context_metadata(),
+    )
+    return connector
+
+
+def make_face_connector_rconnector(
+    connector_id: str,
+    face: Face,
+    name: Optional[str] = None,
+    flip: bool = False,
+) -> Connector:
+    """Create a connector anchored to a Face.
+
+    Z axis follows the face normal; origin is the face center.
+    Set flip=True to negate the Z axis (point it opposite to the normal).
+    """
+    try:
+        if not isinstance(face, Face):
+            raise TypeError("face must be a Face")
+        return _make_geometry_backed_connector(
+            connector_id,
+            face,
+            op=_OP_MAKE_FACE_CONNECTOR_RCONNECTOR,
+            operation_name="make_face_connector_rconnector",
+            name=name,
+            flip=flip,
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_face_connector_rconnector",
+            what_happened="Failed to create the face connector.",
+            possible_causes=[
+                "The connector_id is empty or malformed.",
+                "The face is not a valid Face object.",
+            ],
+            how_to_fix=[
+                "Use a stable connector_id such as 'mount_face'.",
+                "Select a face via ql.faces().resolve(solid) or solid.get_faces()[i].",
+            ],
+            error=e,
+        )
+
+
+def make_edge_connector_rconnector(
+    connector_id: str,
+    edge: Edge,
+    name: Optional[str] = None,
+    flip: bool = False,
+) -> Connector:
+    """Create a connector anchored to an Edge.
+
+    Z axis follows the edge direction (start->end); origin is the edge midpoint.
+    Set flip=True to negate the Z axis.
+    """
+    try:
+        if not isinstance(edge, Edge):
+            raise TypeError("edge must be an Edge")
+        return _make_geometry_backed_connector(
+            connector_id,
+            edge,
+            op=_OP_MAKE_EDGE_CONNECTOR_RCONNECTOR,
+            operation_name="make_edge_connector_rconnector",
+            name=name,
+            flip=flip,
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_edge_connector_rconnector",
+            what_happened="Failed to create the edge connector.",
+            possible_causes=[
+                "The connector_id is empty or malformed.",
+                "The edge is not a valid Edge object.",
+            ],
+            how_to_fix=[
+                "Use a stable connector_id such as 'hinge_axis'.",
+                "Select an edge via ql.edges().resolve(solid) or solid.get_edges()[i].",
+            ],
+            error=e,
+        )
+
+
+def make_vertex_connector_rconnector(
+    connector_id: str,
+    vertex: Vertex,
+    name: Optional[str] = None,
+    flip: bool = False,
+) -> Connector:
+    """Create a connector anchored to a Vertex.
+
+    Origin is the vertex point; axes are identity.
+    flip has no effect on vertex connectors (no direction).
+    """
+    try:
+        if not isinstance(vertex, Vertex):
+            raise TypeError("vertex must be a Vertex")
+        return _make_geometry_backed_connector(
+            connector_id,
+            vertex,
+            op=_OP_MAKE_VERTEX_CONNECTOR_RCONNECTOR,
+            operation_name="make_vertex_connector_rconnector",
+            name=name,
+            flip=flip,
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_vertex_connector_rconnector",
+            what_happened="Failed to create the vertex connector.",
+            possible_causes=[
+                "The connector_id is empty or malformed.",
+                "The vertex is not a valid Vertex object.",
+            ],
+            how_to_fix=[
+                "Use a stable connector_id such as 'pivot_point'.",
+                "Select a vertex via ql.vertices().resolve(solid) or solid.get_vertices()[i].",
+            ],
+            error=e,
+        )
+
+
+def add_connector_rpart(part: Part, connector: Connector) -> Part:
+    """Attach a connector datum frame to a Part definition."""
+
+    try:
+        if not isinstance(part, Part):
+            raise TypeError("part must be a Part")
+        result = part.with_connector(connector)
+        record_operation_if_active(
+            _OP_MAKE_ADD_CONNECTOR_RPART,
+            {"part_id": part.part_id, "connector_id": connector.connector_id},
+            outputs=result,
+            input_shapes=[part, connector],
+            semantic_delta=_semantic_modified(
+                "Part", part.part_id, {"connector": connector.to_dict()}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_connector_rpart",
+            what_happened="Failed to add the connector to the Part.",
+            possible_causes=[
+                "The part input is not a Part.",
+                "The connector input is not a Connector.",
+                "The connector_id is duplicated in the Part.",
+            ],
+            how_to_fix=[
+                "Create a connector with make_face_connector_rconnector, make_edge_connector_rconnector, or make_vertex_connector_rconnector.",
+                "Use unique connector ids within one Part.",
+            ],
+            error=e,
+        )
+
+
+def add_connector_rassembly(assembly: Assembly, connector: Connector) -> Assembly:
+    """Attach a connector datum frame to an Assembly definition."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        result = assembly.with_connector(connector)
+        record_operation_if_active(
+            _OP_MAKE_ADD_CONNECTOR_RASSEMBLY,
+            {"assembly_id": assembly.assembly_id, "connector_id": connector.connector_id},
+            outputs=result,
+            input_shapes=[assembly, connector],
+            semantic_delta=_semantic_modified(
+                "Assembly", assembly.assembly_id, {"connector": connector.to_dict()}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_connector_rassembly",
+            what_happened="Failed to add the connector to the Assembly.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "The connector input is not a Connector.",
+                "The connector_id is duplicated in the Assembly.",
+            ],
+            how_to_fix=[
+                "Create a connector with make_face_connector_rconnector, make_edge_connector_rconnector, or make_vertex_connector_rconnector.",
+                "Use unique connector ids within one Assembly.",
+            ],
+            error=e,
+        )
+
+
+def make_connector_ref_rconnectorref(
+    component_id: str, connector_id: str
+) -> ConnectorRef:
+    """Reference a connector through a component instance."""
+
+    try:
+        connector_ref = ConnectorRef(component_id, connector_id)
+        record_operation_if_active(
+            _OP_MAKE_CONNECTOR_REF_RCONNECTORREF,
+            _connector_ref_params(connector_ref),
+            outputs=connector_ref,
+            context=_current_context_metadata(),
+        )
+        return connector_ref
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_connector_ref_rconnectorref",
+            what_happened="Failed to create the connector reference.",
+            possible_causes=["The component_id or connector_id is empty or malformed."],
+            how_to_fix=["Use stable ids from the owning Assembly and component item."],
+            error=e,
+        )
+
+
+def make_scalar_limit_rscalarlimit(
+    lower_value: float, upper_value: float
+) -> ScalarLimit:
+    """Create a closed scalar limit for driven constraint coordinates."""
+
+    try:
+        limit = ScalarLimit(lower_value, upper_value)
+        record_operation_if_active(
+            _OP_MAKE_SCALAR_LIMIT_RSCALARLIMIT,
+            _scalar_limit_params(limit),
+            outputs=limit,
+            context=_current_context_metadata(),
+        )
+        return limit
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_scalar_limit_rscalarlimit",
+            what_happened="Failed to create the scalar limit.",
+            possible_causes=[
+                "One of the limit values is non-finite.",
+                "lower_value is greater than upper_value.",
+            ],
+            how_to_fix=["Pass finite lower and upper values in increasing order."],
+            error=e,
+        )
+
+
+def ground_component_rassembly(assembly: Assembly, component_id: str) -> Assembly:
+    """Ground a component at its current authored placement."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        result = assembly.with_grounded_component(component_id)
+        record_operation_if_active(
+            _OP_MAKE_GROUND_COMPONENT_RASSEMBLY,
+            {"assembly_id": assembly.assembly_id, "component_id": component_id},
+            outputs=result,
+            input_shapes=[assembly],
+            semantic_delta=_semantic_modified(
+                "Assembly", assembly.assembly_id, {"grounded_component_id": component_id}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="ground_component_rassembly",
+            what_happened="Failed to ground the assembly component.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "The component_id does not exist in the Assembly.",
+            ],
+            how_to_fix=["Use a component_id already added to the Assembly."],
+            error=e,
+        )
+
+
+def unground_component_rassembly(assembly: Assembly, component_id: str) -> Assembly:
+    """Remove a component grounding marker."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        result = assembly.without_grounded_component(component_id)
+        record_operation_if_active(
+            _OP_MAKE_UNGROUND_COMPONENT_RASSEMBLY,
+            {"assembly_id": assembly.assembly_id, "component_id": component_id},
+            outputs=result,
+            input_shapes=[assembly],
+            semantic_delta=_semantic_modified(
+                "Assembly", assembly.assembly_id, {"ungrounded_component_id": component_id}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="unground_component_rassembly",
+            what_happened="Failed to unground the assembly component.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "The component_id does not exist in the Assembly.",
+            ],
+            how_to_fix=["Use a component_id already added to the Assembly."],
+            error=e,
+        )
+
+
+def add_fixed_constraint_rassembly(
+    assembly: Assembly,
+    constraint_id: str,
+    connector_a: ConnectorRef,
+    connector_b: ConnectorRef,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Constrain two component connectors to the same frame."""
+
+    return _add_constraint_rassembly(
+        assembly,
+        Constraint(
+            constraint_id,
+            "fixed",
+            connector_a,
+            connector_b,
+            name=name,
+        ),
+        _OP_MAKE_FIXED_CONSTRAINT_RASSEMBLY,
+        "add_fixed_constraint_rassembly",
+    )
+
+
+def add_revolute_constraint_rassembly(
+    assembly: Assembly,
+    constraint_id: str,
+    connector_a: ConnectorRef,
+    connector_b: ConnectorRef,
+    drive_angle_degrees: Optional[float] = None,
+    angle_limit: Optional[ScalarLimit] = None,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Constrain two connectors as a revolute axis pair."""
+
+    return _add_constraint_rassembly(
+        assembly,
+        Constraint(
+            constraint_id,
+            "revolute",
+            connector_a,
+            connector_b,
+            drive_angle_degrees=drive_angle_degrees,
+            angle_limit=angle_limit,
+            name=name,
+        ),
+        _OP_MAKE_REVOLUTE_CONSTRAINT_RASSEMBLY,
+        "add_revolute_constraint_rassembly",
+    )
+
+
+def add_prismatic_constraint_rassembly(
+    assembly: Assembly,
+    constraint_id: str,
+    connector_a: ConnectorRef,
+    connector_b: ConnectorRef,
+    drive_distance: Optional[float] = None,
+    distance_limit: Optional[ScalarLimit] = None,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Constrain two connectors as a prismatic slider pair."""
+
+    return _add_constraint_rassembly(
+        assembly,
+        Constraint(
+            constraint_id,
+            "prismatic",
+            connector_a,
+            connector_b,
+            drive_distance=drive_distance,
+            distance_limit=distance_limit,
+            name=name,
+        ),
+        _OP_MAKE_PRISMATIC_CONSTRAINT_RASSEMBLY,
+        "add_prismatic_constraint_rassembly",
+    )
+
+
+def _add_constraint_rassembly(
+    assembly: Assembly,
+    constraint: Constraint,
+    op_name: str,
+    public_name: str,
+) -> Assembly:
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        result = assembly.with_constraint(constraint)
+        inputs: List[object] = [assembly, constraint.connector_a, constraint.connector_b]
+        if constraint.distance_limit is not None:
+            inputs.append(constraint.distance_limit)
+        if constraint.angle_limit is not None:
+            inputs.append(constraint.angle_limit)
+        record_operation_if_active(
+            op_name,
+            _constraint_params(constraint),
+            outputs=result,
+            input_shapes=inputs,
+            semantic_delta=_semantic_modified(
+                "Assembly", assembly.assembly_id, {"constraint": constraint.to_dict()}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation=public_name,
+            what_happened="Failed to add the assembly constraint.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "A connector ref references a missing component or connector.",
+                "The constraint_id is duplicated in the Assembly.",
+                "A drive value violates its scalar limit.",
+            ],
+            how_to_fix=[
+                "Create connector refs with make_connector_ref_rconnectorref.",
+                "Add connectors to Parts or Assemblies before adding constrained components.",
+                "Use unique constraint ids within one Assembly.",
+            ],
+            error=e,
+        )
+
+
+def solve_assembly_constraints_rassembly(
+    assembly: Assembly, strict: bool = True
+) -> Assembly:
+    """Solve fixed, revolute, and prismatic assembly constraints.
+
+    Solving is limit-aware: when a constraint carries a ``ScalarLimit``
+    (``angle_limit`` or ``distance_limit``), the drive scalar is clamped
+    into the closed range before placement propagation.  When no drive
+    scalar is present but a limit exists, the current relative-frame
+    scalar is projected into the bounds.  Unresolvable closed kinematic
+    loops fall back to a golden-section search over the limit bounds.
+
+    A ``ConstraintReport`` is recorded on the returned assembly under the
+    ``constraint_report`` runtime key for later inspection via
+    ``inspect_assembly_constraints_rassembly``.
+    """
+
+    try:
+        result = solve_assembly_constraints(assembly, strict=bool(strict))
+        solved_component_placements = {
+            component.component_id: component.placement.to_dict()
+            for component in result.components
+        }
+        record_operation_if_active(
+            _OP_MAKE_SOLVE_ASSEMBLY_CONSTRAINTS_RASSEMBLY,
+            {
+                "assembly_id": assembly.assembly_id,
+                "strict": bool(strict),
+                "component_placements": solved_component_placements,
+            },
+            outputs=result,
+            input_shapes=[assembly],
+            semantic_delta=_semantic_modified(
+                "Assembly", assembly.assembly_id, {"constraints_solved": True}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="solve_assembly_constraints_rassembly",
+            what_happened="Failed to solve the assembly constraints.",
+            possible_causes=[
+                "No component is grounded.",
+                "A constraint graph references missing connectors.",
+                "A connected component cannot be reached from a grounded component.",
+                "A closed-loop residual exceeds tolerance.",
+            ],
+            how_to_fix=[
+                "Ground at least one component with ground_component_rassembly.",
+                "Ensure every constrained component has the required connectors.",
+                "Inspect constraint residuals before strict solving.",
+            ],
+            error=e,
+        )
+
+
+def measure_constraint_residual_rconstraintresidual(
+    assembly: Assembly, constraint_id: str
+) -> ConstraintResidual:
+    """Measure residual for one assembly constraint without mutating the assembly."""
+
+    return measure_constraint_residual(assembly, constraint_id)
+
+
+def inspect_assembly_constraints_rconstraintreport(
+    assembly: Assembly,
+) -> ConstraintReport:
+    """Inspect all assembly constraint residuals without mutating the assembly."""
+
+    return inspect_assembly_constraints(assembly)
 
 
 def _placed_solids_from_item(item: Union[Part, Assembly], placement: Placement) -> List[Solid]:
