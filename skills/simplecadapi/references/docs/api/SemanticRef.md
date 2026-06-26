@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class SemanticRef
+class SemanticRef(graph_id: str, node_id: str, entity_type: str, entity_id: str)
 ```
 
 *Source: topology.py*
