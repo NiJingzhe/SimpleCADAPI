@@ -288,6 +288,25 @@ Semantics:
 - Does not replace the assembly product tree.
 - Records enough graph evidence to replay the projection deterministically.
 
+## FreeCAD Translation
+
+The FreeCAD translator preserves the product tree instead of exporting only a
+fixed geometry result.
+
+Current FCStd mapping:
+
+- `Part` is emitted as an `App::Part` containing the wrapped body object.
+- `Assembly` is emitted as a native `Assembly::AssemblyObject`.
+- Part components are emitted as `App::Link` objects under the owning assembly.
+- Subassembly components are emitted as `Assembly::AssemblyLink` objects under the owning assembly.
+- Component placements are written to the link placement.
+- Material assignment is stored on the part container as `SimpleCADMaterial`.
+- `make_compound_from_assembly_rcompound(...)` still emits an explicit flattened projection for geometry workflows, but the projection is hidden when it is the result leaf so the visible FCStd result remains the editable assembly tree.
+
+Assembly constraints, mates, solving, and connector/datum references are still
+out of scope for the MVP. The FreeCAD output is therefore a placed product
+structure, not a solved constraint model.
+
 ## Part References And Connectors
 
 The MVP does not include a generic part reference API.
