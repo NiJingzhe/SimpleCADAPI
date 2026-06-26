@@ -14,6 +14,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 import simplecadapi as scad
+from simplecadapi import ql
 from simplecadapi.graph import GraphSession
 from simplecadapi.topology import OperationGraph
 
@@ -193,6 +194,96 @@ class TestFreeCADTranslator(unittest.TestCase):
         self.assertIn("SimpleCADAssemblyId", script)
         self.assertIn("SimpleCADComponentId", script)
         self.assertIn("Part.makeCompound", script)
+
+    def test_translate_model_json_emits_native_constraint_joints_in_script(self):
+        with GraphSession() as session:
+            body = scad.make_box_rsolid(1.0, 1.0, 1.0)
+            top_face = ql.faces().resolve(body)[-1]
+            connector = scad.make_face_connector_rconnector("axis", top_face)
+            part = scad.add_connector_rpart(scad.make_part_rpart("block", body), connector)
+            assembly = scad.make_assembly_rassembly("fixture")
+            assembly = scad.add_component_rassembly(
+                assembly,
+                part,
+                component_id="base",
+                placement=scad.identity_placement_rplacement(),
+            )
+            assembly = scad.add_component_rassembly(
+                assembly,
+                part,
+                component_id="slider",
+                placement=scad.identity_placement_rplacement(),
+            )
+            assembly = scad.ground_component_rassembly(assembly, "base")
+            assembly = scad.add_prismatic_constraint_rassembly(
+                assembly,
+                "slide",
+                scad.make_connector_ref_rconnectorref("base", "axis"),
+                scad.make_connector_ref_rconnectorref("slider", "axis"),
+                drive_distance=3.0,
+            )
+            scad.solve_assembly_constraints_rassembly(assembly)
+
+        script = scad.translate_model_json_to_freecad_script(scad.export_model_json(session))
+
+        self.assertIn("import JointObject", script)
+        self.assertIn("JointObject.Joint", script)
+        self.assertIn("SimpleCADConstraint", script)
+        self.assertIn("SimpleCADConstraintTranslationStatus", script)
+        self.assertIn("'Slider'", script)
+
+    def test_translate_model_json_constraint_fcstd_contains_native_joint_metadata(self):
+        with GraphSession() as session:
+            body = scad.make_box_rsolid(1.0, 1.0, 1.0)
+            top_face = ql.faces().resolve(body)[-1]
+            connector = scad.make_face_connector_rconnector("axis", top_face)
+            part = scad.add_connector_rpart(scad.make_part_rpart("block", body), connector)
+            assembly = scad.make_assembly_rassembly("fixture")
+            assembly = scad.add_component_rassembly(
+                assembly,
+                part,
+                component_id="base",
+                placement=scad.identity_placement_rplacement(),
+            )
+            assembly = scad.add_component_rassembly(
+                assembly,
+                part,
+                component_id="slider",
+                placement=scad.identity_placement_rplacement(),
+            )
+            assembly = scad.ground_component_rassembly(assembly, "base")
+            assembly = scad.add_prismatic_constraint_rassembly(
+                assembly,
+                "slide",
+                scad.make_connector_ref_rconnectorref("base", "axis"),
+                scad.make_connector_ref_rconnectorref("slider", "axis"),
+                drive_distance=3.0,
+            )
+            scad.solve_assembly_constraints_rassembly(assembly)
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+joints = [obj for obj in doc.Objects if hasattr(obj, 'SimpleCADConstraint')]
+links = [obj for obj in doc.Objects if hasattr(obj, 'SimpleCADComponentId')]
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'joint_count': len(joints),
+        'joint_types': [str(getattr(obj, 'JointType', '')) for obj in joints],
+        'statuses': [obj.SimpleCADConstraintTranslationStatus for obj in joints],
+        'constraint_kinds': [json.loads(obj.SimpleCADConstraint)['constraint_kind'] for obj in joints],
+        'slider_z': {obj.SimpleCADComponentId: round(float(obj.Placement.Base.z), 3) for obj in links},
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(scad.export_model_json(session), probe)
+
+        self.assertEqual(result["joint_count"], 1)
+        self.assertEqual(result["joint_types"], ["Slider"])
+        self.assertEqual(result["statuses"], ["native_equivalent"])
+        self.assertEqual(result["constraint_kinds"], ["prismatic"])
+        self.assertEqual(result["slider_z"]["slider"], 3.0)
 
     def test_translate_model_json_part_assembly_fcstd_valid(self):
         with GraphSession() as session:
