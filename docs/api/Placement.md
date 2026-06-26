@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class Placement
+class Placement(origin: Vec3, x_axis: Vec3 = (1.0, 0.0, 0.0), y_axis: Vec3 = (0.0, 1.0, 0.0), z_axis: Vec3 = (0.0, 0.0, 1.0))
 ```
 
 *Source: product.py*

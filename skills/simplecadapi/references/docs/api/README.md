@@ -18,7 +18,10 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_circle_rwire](make_circle_rwire.md) *(from operations.py)* `top-level`
 - [make_compound_from_assembly_rcompound](make_compound_from_assembly_rcompound.md) *(from operations.py)* `top-level`
 - [make_cone_rsolid](make_cone_rsolid.md) *(from operations.py)* `top-level`
+- [make_connector_ref_rconnectorref](make_connector_ref_rconnectorref.md) *(from operations.py)* `top-level`
 - [make_cylinder_rsolid](make_cylinder_rsolid.md) *(from operations.py)* `top-level`
+- [make_edge_connector_rconnector](make_edge_connector_rconnector.md) *(from operations.py)* `top-level`
+- [make_face_connector_rconnector](make_face_connector_rconnector.md) *(from operations.py)* `top-level`
 - [make_face_from_sketch_rface](make_face_from_sketch_rface.md) *(from operations.py)* `top-level`
 - [make_face_from_wire_rface](make_face_from_wire_rface.md) *(from operations.py)* `top-level`
 - [make_helix_redge](make_helix_redge.md) *(from operations.py)* `top-level`
@@ -31,6 +34,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_polyline_rwire](make_polyline_rwire.md) *(from operations.py)* `top-level`
 - [make_rectangle_rface](make_rectangle_rface.md) *(from operations.py)* `top-level`
 - [make_rectangle_rwire](make_rectangle_rwire.md) *(from operations.py)* `top-level`
+- [make_scalar_limit_rscalarlimit](make_scalar_limit_rscalarlimit.md) *(from operations.py)* `top-level`
 - [make_segment_redge](make_segment_redge.md) *(from operations.py)* `top-level`
 - [make_segment_rwire](make_segment_rwire.md) *(from operations.py)* `top-level`
 - [make_sketch_rsketch](make_sketch_rsketch.md) *(from operations.py)* `top-level`
@@ -39,6 +43,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_spline_rwire](make_spline_rwire.md) *(from operations.py)* `top-level`
 - [make_three_point_arc_redge](make_three_point_arc_redge.md) *(from operations.py)* `top-level`
 - [make_three_point_arc_rwire](make_three_point_arc_rwire.md) *(from operations.py)* `top-level`
+- [make_vertex_connector_rconnector](make_vertex_connector_rconnector.md) *(from operations.py)* `top-level`
 - [make_wire_from_edges_rwire](make_wire_from_edges_rwire.md) *(from operations.py)* `top-level`
 - [make_wire_from_sketch_rwire](make_wire_from_sketch_rwire.md) *(from operations.py)* `top-level`
 
@@ -131,15 +136,27 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 - [Assembly](Assembly.md) *(from product.py)* `top-level`
 - [Component](Component.md) *(from product.py)* `top-level`
+- [Connector](Connector.md) *(from product.py)* `top-level`
+- [ConnectorRef](ConnectorRef.md) *(from product.py)* `top-level`
+- [Constraint](Constraint.md) *(from product.py)* `top-level`
+- [ConstraintReport](ConstraintReport.md) *(from product.py)* `top-level`
+- [ConstraintResidual](ConstraintResidual.md) *(from product.py)* `top-level`
+- [GeometryRef](GeometryRef.md) *(from product.py)* `top-level`
 - [Material](Material.md) *(from product.py)* `top-level`
 - [Part](Part.md) *(from product.py)* `top-level`
 - [Placement](Placement.md) *(from product.py)* `top-level`
+- [ScalarLimit](ScalarLimit.md) *(from product.py)* `top-level`
 - [SemanticDelta](SemanticDelta.md) *(from topology.py)* `top-level`
 - [SemanticRef](SemanticRef.md) *(from topology.py)* `top-level`
 - [add_circle_rsketch](add_circle_rsketch.md) *(from operations.py)* `top-level`
 - [add_component_rassembly](add_component_rassembly.md) *(from operations.py)* `top-level`
+- [add_connector_rassembly](add_connector_rassembly.md) *(from operations.py)* `top-level`
+- [add_connector_rpart](add_connector_rpart.md) *(from operations.py)* `top-level`
+- [add_fixed_constraint_rassembly](add_fixed_constraint_rassembly.md) *(from operations.py)* `top-level`
 - [add_line_rsketch](add_line_rsketch.md) *(from operations.py)* `top-level`
 - [add_point_rsketch](add_point_rsketch.md) *(from operations.py)* `top-level`
+- [add_prismatic_constraint_rassembly](add_prismatic_constraint_rassembly.md) *(from operations.py)* `top-level`
+- [add_revolute_constraint_rassembly](add_revolute_constraint_rassembly.md) *(from operations.py)* `top-level`
 - [and_](and_.md) *(from ql.py)* `submodule:ql`
 - [assign_material_rpart](assign_material_rpart.md) *(from operations.py)* `top-level`
 - [constrain_angle_rsketch](constrain_angle_rsketch.md) *(from operations.py)* `top-level`
@@ -167,9 +184,12 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [geo](geo.md) *(from ql.py)* `submodule:ql`
 - [get_sketch_entity_rsketchref](get_sketch_entity_rsketchref.md) *(from operations.py)* `top-level`
 - [get_sketch_point_rsketchref](get_sketch_point_rsketchref.md) *(from operations.py)* `top-level`
+- [ground_component_rassembly](ground_component_rassembly.md) *(from operations.py)* `top-level`
 - [identity_placement_rplacement](identity_placement_rplacement.md) *(from operations.py)* `top-level`
+- [inspect_assembly_constraints_rconstraintreport](inspect_assembly_constraints_rconstraintreport.md) *(from operations.py)* `top-level`
 - [inspect_sketch_rsketchresult](inspect_sketch_rsketchresult.md) *(from operations.py)* `top-level`
 - [linear_pattern_rsolidlist](linear_pattern_rsolidlist.md) *(from operations.py)* `top-level`
+- [measure_constraint_residual_rconstraintresidual](measure_constraint_residual_rconstraintresidual.md) *(from operations.py)* `top-level`
 - [meta](meta.md) *(from ql.py)* `submodule:ql`
 - [not_](not_.md) *(from ql.py)* `submodule:ql`
 - [or_](or_.md) *(from ql.py)* `submodule:ql`
@@ -177,5 +197,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`
+- [solve_assembly_constraints_rassembly](solve_assembly_constraints_rassembly.md) *(from operations.py)* `top-level`
 - [tag](tag.md) *(from ql.py)* `submodule:ql`
+- [unground_component_rassembly](unground_component_rassembly.md) *(from operations.py)* `top-level`
 - [value](value.md) *(from ql.py)* `submodule:ql`

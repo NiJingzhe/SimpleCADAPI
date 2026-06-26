@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def make_material_rmaterial(material_id: str, *, name: Optional[str] = None, density: Optional[float] = None, density_unit: Optional[str] = None, color: Optional[Tuple[float, float, float]] = None) -> Material
+def make_material_rmaterial(material_id: str, name: Optional[str] = None, density: Optional[float] = None, density_unit: Optional[str] = None, color: Optional[Tuple[float, float, float]] = None) -> Material
 ```
 
 *Source: operations.py*
