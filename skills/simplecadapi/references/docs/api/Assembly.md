@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class Assembly
+class Assembly(assembly_id: str, name: Optional[str] = None, components: Tuple[Component, ...] = (), connectors: Tuple[Connector, ...] = (), constraints: Tuple[Constraint, ...] = (), grounded_component_ids: Tuple[str, ...] = ())
 ```
 
 *Source: product.py*
