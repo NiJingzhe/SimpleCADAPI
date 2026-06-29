@@ -270,7 +270,14 @@ class TestModelJson(unittest.TestCase):
                 (0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 0.0, 0.0)
             )
             scad.make_angle_arc_rwire((0.0, 0.0, 0.0), 1.0, 0.0, 1.57)
-            scad.make_spline_rwire([(0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 0.0, 0.0)])
+            scad.make_spline_rwire(
+                control_points=[
+                    (0.0, 0.0, 0.0),
+                    (0.6, 1.0, 0.0),
+                    (1.4, 1.0, 0.0),
+                    (2.0, 0.0, 0.0),
+                ]
+            )
             scad.make_helix_rwire(1.0, 2.0, 0.8)
 
         payload = json.loads(scad.export_model_json(session))
@@ -289,22 +296,22 @@ class TestModelJson(unittest.TestCase):
         self.assertNotIn("make_spline_wire", core_ops)
         self.assertNotIn("make_helix_wire", core_ops)
 
-    def test_graph_lowers_closed_spline_wire_to_lines_plus_wire_assembly(self):
+    def test_graph_lowers_spline_wire_to_exact_spline_edge_plus_wire_assembly(self):
         with GraphSession() as session:
             scad.make_spline_rwire(
-                [
+                control_points=[
                     (0.0, 0.0, 0.0),
                     (1.0, 0.0, 0.0),
                     (1.0, 1.0, 0.0),
                     (0.0, 1.0, 0.0),
                 ],
-                closed=True,
+                periodic=True,
             )
 
         payload = json.loads(scad.export_model_json(session))
         core_ops = [node["op"] for node in payload["graph"]["nodes"]]
 
-        self.assertIn("make_line_redge", core_ops)
+        self.assertIn("make_spline_redge", core_ops)
         self.assertIn("make_wire_from_edges_rwire", core_ops)
         self.assertNotIn("make_spline_wire", core_ops)
 

@@ -69,6 +69,7 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 - 必须限制在冻结的 canonical op set 内
 - 不能泄漏 convenience-only 或 macro-only op
 - composite builtin 可以内部构造表达式和 low-level 调用，但最终写入图中的节点只能是 low-level op
+- FreeCAD translator 可以对安全的单消费者 transform 做 lowering 优化，例如把 `make_translate_rshape` 折叠进上游 `Part::Extrusion.Placement`，但 canonical graph 节点仍然保留，并在 `.FCStd` 对象的 `SimpleCADFoldedOps` 中记录 evidence
 
 典型结果：
 
@@ -116,12 +117,14 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 ```json
 {
   "schema_version": "2.0",
-  "producer_version": "2.0.0b3",
+  "producer_version": "2.0.1",
   "capabilities": {
     "selection_ref_strategies": true,
     "geo_select_nodes": true,
     "selector_hint_fallback": true,
     "display_payload": true,
+    "sketch_constraints": true,
+    "sketch_solve_snapshots": true,
     "topology_delta_summary": false,
     "assembly_graph": false,
     "scalar_field_graph": false,
@@ -154,6 +157,8 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 | `geo_select_nodes` | `bool` | detail selections from QL or indexed child-geometry getters can be serialized as `make_select_*` geo selector nodes |
 | `selector_hint_fallback` | `bool` | replay 时支持 selector hint 近似匹配回退 |
 | `display_payload` | `bool` | node 中包含 `display` 字段 |
+| `sketch_constraints` | `bool` | graph/model JSON 支持声明式 constrained sketch nodes |
+| `sketch_solve_snapshots` | `bool` | sketch promotion nodes carry solve evidence for strict replay validation |
 | `topology_delta_summary` | `bool` | 当前为 `false`，表示没有额外 summary-only delta schema |
 | `assembly_graph` | `bool` | 当前 graph JSON 本身不承载 assembly graph |
 | `scalar_field_graph` | `bool` | 当前为 `false`；SDF / scalar field graph 暂时不在支持范围内 |
@@ -900,6 +905,33 @@ New canonical profile nodes use the `make_*_r*` names listed in `canonical_contr
 - `make_helix_redge`
 - `make_wire_from_edges_rwire`
 - `make_face_from_wire_rface`
+- `make_sketch_rsketch`
+- `make_add_point_rsketch`
+- `make_add_line_rsketch`
+- `make_add_circle_rsketch`
+- `make_constrain_coincident_rsketch`
+- `make_constrain_point_on_rsketch`
+- `make_constrain_horizontal_rsketch`
+- `make_constrain_vertical_rsketch`
+- `make_constrain_parallel_rsketch`
+- `make_constrain_perpendicular_rsketch`
+- `make_constrain_collinear_rsketch`
+- `make_constrain_tangent_rsketch`
+- `make_constrain_concentric_rsketch`
+- `make_constrain_midpoint_rsketch`
+- `make_constrain_symmetric_rsketch`
+- `make_constrain_equal_length_rsketch`
+- `make_constrain_equal_radius_rsketch`
+- `make_constrain_distance_rsketch`
+- `make_constrain_distance_x_rsketch`
+- `make_constrain_distance_y_rsketch`
+- `make_constrain_length_rsketch`
+- `make_constrain_angle_rsketch`
+- `make_constrain_radius_rsketch`
+- `make_constrain_diameter_rsketch`
+- `make_constrain_fix_rsketch`
+- `make_wire_from_sketch_rwire`
+- `make_face_from_sketch_rface`
 - `make_extrude_rsolid`
 - `make_revolve_rsolid`
 - `make_loft_rsolid`
@@ -955,8 +987,12 @@ New canonical profile nodes use the `make_*_r*` names listed in `canonical_contr
 - `linear_pattern`
 - `radial_pattern`
 - `helical_sweep`
+- `make_sketch_point_rsketchref`
+- `make_solve_sketch_rsketchresult`
 
 Tests must treat this list as a hard constraint: every exported model graph op must be a subset of `canonical_contract.core_op_set`, and legacy op names must be rejected or isolated outside canonical model JSON.
+
+Sketch solve is a promotion process, not a standalone graph result. Canonical sketch-to-geometry nodes (`make_wire_from_sketch_rwire`, `make_face_from_sketch_rface`) include `solve_snapshot` evidence and replay checks that evidence in strict mode.
 
 ## 14. Recorded Operation Catalog
 
@@ -1082,18 +1118,23 @@ Notes:
 
 - Inputs: none
 - Outputs: 1 `Edge`
+- Semantics: exact B-spline definition. `control_points` are poles, not sampled/interpolated curve points. Use `fit_cubic_bspline_control_points(...)` to convert sampled curve points into this exact payload before calling the geometry API.
 - Params:
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `points` | `array<vec3>` | control points |
-| `tangents` | `array<vec3> | null` | optional per-point tangents |
+| `control_points` | `array<vec2|vec3>` | B-spline poles; 2D points are lifted to z=0 |
+| `degree` | `int` | B-spline degree, default/source canonical examples use `3` |
+| `knots` | `array<number>` | strictly increasing unique knot values |
+| `multiplicities` | `array<int>` | multiplicities aligned with `knots` |
+| `weights` | `array<number> | null` | optional positive rational weights |
+| `periodic` | `bool` | whether the exact curve is periodic |
 
 #### `make_spline_rwire`
 
 - Inputs: none
 - Outputs: 1 `Wire`
-- Params: `points`, `tangents`, `closed`
+- Params: `control_points`, `degree`, `knots`, `multiplicities`, `weights`, `periodic`
 
 #### `make_polyline_rwire`
 
@@ -1113,7 +1154,56 @@ Notes:
 - Outputs: 1 `Wire`
 - Params: `pitch`, `height`, `radius`, `center`, `dir`
 
-### 14.2 Primitive Solid Source APIs
+### 14.2 Declarative Sketch Ops
+
+#### `make_sketch_rsketch`
+
+- Inputs: none
+- Outputs: 1 `Sketch`
+- Params: `name`, `plane`, `sketch_id`
+
+#### `make_add_point_rsketch`
+
+- Inputs: 1 `Sketch`
+- Outputs: 1 updated `Sketch`
+- Params: `sketch_id`, `point_id`, `x`, `y`
+
+#### `make_add_line_rsketch`
+
+- Inputs: 1 `Sketch`
+- Outputs: 1 updated `Sketch`
+- Params: `sketch_id`, `entity_id`, `start`, `end`, `construction`
+- `start` and `end` are stable point target ids such as `p0`, `p1`, or endpoint paths such as `line.start`.
+
+#### `make_add_circle_rsketch`
+
+- Inputs: 1 `Sketch`
+- Outputs: 1 updated `Sketch`
+- Params: `sketch_id`, `entity_id`, `center`, `radius`, `construction`
+- `center` is a stable point target id.
+
+#### `make_constrain_*_rsketch`
+
+- Inputs: 1 `Sketch`
+- Outputs: 1 updated `Sketch`
+- Params: `sketch_id`, `kind`, `targets`, `value`, `constraint_id`, `driving`, `metadata`
+- `targets` contains stable target ids, not graph object ids. Examples: `bottom`, `p0`, `bottom.end`, `hole.center`.
+
+#### `make_wire_from_sketch_rwire`
+
+- Inputs: 1 `Sketch`
+- Outputs: 1 promoted `Wire`
+- Params: `profile`, `sketch`, `require_fully_constrained`, `strict`, `tolerance`, `max_iterations`, `solve_snapshot`, `promotion_map`
+- The solver runs inside this promotion step. `solve_snapshot` is evidence for strict replay validation, not a separate graph leaf.
+
+#### `make_face_from_sketch_rface`
+
+- Inputs: 1 `Sketch`
+- Outputs: 1 promoted `Face`
+- Params: `profile`, `sketch`, `require_fully_constrained`, `strict`, `tolerance`, `max_iterations`, `solve_snapshot`, `promotion_map`
+- The promoted face/wire/edges carry `source_sketch`, `sketch_solve`, and sketch entity tags/metadata.
+
+### 14.3 Primitive Solid Source APIs
 
 #### `make_box_rsolid`
 
@@ -1151,7 +1241,7 @@ Important:
 - Outputs: 1 `Solid`
 - Params: `radius`, `center`
 
-### 14.3 Transform Ops
+### 14.4 Transform Ops
 
 #### `make_translate_rshape`
 
@@ -1171,7 +1261,7 @@ Important:
 - Outputs: 1 shape
 - Params: `plane_origin`, `plane_normal`
 
-### 14.4 Feature Ops
+### 14.5 Feature Ops
 
 #### `make_extrude_rsolid`
 
@@ -1206,7 +1296,7 @@ Important:
 | --- | --- | --- |
 | `is_frenet` | `bool` | sweep orientation mode |
 
-### 14.5 Boolean Ops
+### 14.6 Boolean Ops
 
 #### `make_union_rsolid`
 
@@ -1258,7 +1348,7 @@ Notes:
 
 - Multi-tool intersect preserves the full topology delta chain across all performed intersection steps.
 
-### 14.6 Detail Feature Ops
+### 14.7 Detail Feature Ops
 
 #### `make_fillet_rsolid`
 
@@ -1305,7 +1395,7 @@ Notes:
 | `selected_face_indices` | `array<int>` | legacy index fallback when select nodes are unavailable |
 | `selection_query` | `ShapeSelector object` | legacy/fallback serialized QL selector |
 
-### 14.7 Pattern Ops
+### 14.8 Pattern Ops
 
 #### `linear_pattern`
 
@@ -1342,7 +1432,7 @@ Notes:
 - canonical graph does not keep a single `radial_pattern` node
 - the pattern must expand into explicit `make_rotate_rshape` / `make_translate_rshape` instance nodes and declare final outputs via `leaf_ids`
 
-### 14.8 Macro / Non-Node Cases
+### 14.9 Macro / Non-Node Cases
 
 #### `helical_sweep_rsolid`
 

@@ -8,12 +8,13 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union, cast
 
 import numpy as np
-from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID, TopAbs_VERTEX, TopAbs_WIRE
+from OCP.TopAbs import TopAbs_COMPOUND, TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID, TopAbs_VERTEX, TopAbs_WIRE
 from OCP.TopoDS import TopoDS, TopoDS_Shape
 
 from ._vendor_warning_filters import suppress_vendor_deprecation_warnings
 from .errors import raise_harness_error
-from .kernel.ocp_cast import as_edge, as_face, as_solid, as_vertex, as_wire, shape_type_name
+from .kernel.ocp_cast import as_compound, as_edge, as_face, as_solid, as_vertex, as_wire, shape_type_name
+from .kernel.ocp_booleans import solids_of
 from .kernel.ocp_properties import Vec3, center_of_mass, face_normal_at, linear_length, surface_area, volume
 from .kernel.ocp_topology import edges_of, faces_of, inner_wires_of, is_wire_closed, outer_wire_of, vertex_point, vertices_of
 from .tagging import DEFAULT_TAG_POLICY, normalize_tag
@@ -907,17 +908,33 @@ class Solid(TaggedMixin, TopoMixein):
 
     def _auto_tag_cylinder_faces(self, faces: List[Face]) -> None:
         try:
+            from OCP.BRepAdaptor import BRepAdaptor_Surface
+            from OCP.GeomAbs import GeomAbs_Plane
+
             plane_faces = []
             side_faces = []
             for face in faces:
-                normal = face.get_normal_at()
-                if abs(normal.z) > 0.9:
+                surface_type = BRepAdaptor_Surface(face.wrapped).GetType()
+                if surface_type == GeomAbs_Plane:
                     plane_faces.append(face)
                 else:
                     side_faces.append(face)
             if len(plane_faces) != 2:
                 raise ValueError(f"预期找到2个平面面，但找到了 {len(plane_faces)} 个")
-            plane_faces.sort(key=lambda f: f.get_center().z)
+            centers = [face.get_center() for face in plane_faces]
+            spans = [
+                abs(centers[1].x - centers[0].x),
+                abs(centers[1].y - centers[0].y),
+                abs(centers[1].z - centers[0].z),
+            ]
+            axis_index = max(range(3), key=lambda index: spans[index])
+            plane_faces.sort(
+                key=lambda face: (
+                    face.get_center().x,
+                    face.get_center().y,
+                    face.get_center().z,
+                )[axis_index]
+            )
             bottom_face, top_face = plane_faces
             self._tag_face(bottom_face, "bottom")
             self._tag_face(top_face, "top")
@@ -957,4 +974,76 @@ class Solid(TaggedMixin, TopoMixein):
         return "\n".join(result)
 
 
-AnyShape = Union[Vertex, Edge, Wire, Face, Solid]
+class Compound(TaggedMixin, TopoMixein):
+    """OCP-native compound wrapper for explicit multi-shape projections."""
+
+    def __init__(self, compound: Any, cache: Optional[_TopologyEntityCache] = None):
+        try:
+            self.wrapped = as_compound(compound)
+            self._topology_cache = cache or _TopologyEntityCache()
+            TaggedMixin.__init__(self, self._topology_cache.get("compound", self.wrapped))
+            TopoMixein.__init__(self, level=5, self_shape_ref=self)
+            for solid in solids_of(self.wrapped):
+                self.add_child(Solid(solid, cache=self._topology_cache))
+        except Exception as e:
+            raise ValueError(f"初始化组合体失败: {e}. 请检查输入的组合体对象是否有效。")
+
+    def get_solids(self, index: Optional[int] = None) -> Union[List[Solid], Solid]:
+        try:
+            solids = [
+                child for child in self.get_children() if isinstance(child, Solid)
+            ]
+            if index is None:
+                return solids
+            return solids[index]
+        except Exception as e:
+            raise ValueError(f"获取实体列表失败: {e}")
+
+    def get_faces(self, index: Optional[int] = None) -> Union[List[Face], Face]:
+        try:
+            faces: List[Face] = []
+            for solid in self.get_solids():
+                faces.extend(cast(Solid, solid).get_faces())
+            if index is None:
+                return faces
+            return faces[index]
+        except Exception as e:
+            raise ValueError(f"获取面失败: {e}")
+
+    def get_edges(self, index: Optional[int] = None) -> Union[List[Edge], Edge]:
+        try:
+            unique: Dict[str, Edge] = {}
+            for face in self.get_faces():
+                for edge in face.get_edges():
+                    unique.setdefault(edge.topo_id, edge)
+            edges = list(unique.values())
+            if index is None:
+                return edges
+            return edges[index]
+        except Exception as e:
+            raise ValueError(f"获取边失败: {e}")
+
+    def get_volume(self) -> float:
+        return sum(float(solid.get_volume()) for solid in self.get_solids())
+
+    def __str__(self) -> str:
+        return self._format_string(indent=0)
+
+    def __repr__(self) -> str:
+        return f"Compound(solids={len(self.get_solids())}, volume={self.get_volume():.3f}, tags={self._list_tags()})"
+
+    def _format_string(self, indent: int = 0, show_coordinate_system: bool = True) -> str:
+        spaces = "  " * indent
+        solids = cast(List[Solid], self.get_solids())
+        result = [
+            f"{spaces}Compound:",
+            f"{spaces}  solid_count: {len(solids)}",
+            f"{spaces}  volume: {self.get_volume():.3f}",
+        ]
+        tags_metadata = self._format_tags_and_metadata(indent + 1)
+        if tags_metadata:
+            result.append(tags_metadata)
+        return "\n".join(result)
+
+
+AnyShape = Union[Vertex, Edge, Wire, Face, Solid, Compound]

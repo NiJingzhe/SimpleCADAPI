@@ -1,12 +1,12 @@
 [project]
 name = "simplecadapi"
-version = "2.0.0b3"
+version = "2.0.1"
 description = "A simplified OCP-native CAD modeling Python API"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "倪旌哲", email = "nijingzhe@zju.edu.cn" }]
 maintainers = [{ name = "倪旌哲", email = "nijingzhe@zju.edu.cn" }]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 keywords = ["cad", "modeling", "3d", "design", "ocp", "opencascade"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -19,12 +19,13 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Operating System :: OS Independent",
 ]
 dependencies = [
     "numpy>=1.21.0",
     "rich>=14.0.0",
-    "cadquery-ocp>=7.8.1",
+    "cadquery-ocp>=7.9.3.1",
 ]
 
 [project.optional-dependencies]

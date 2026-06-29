@@ -139,6 +139,7 @@ class TestExportImport(unittest.TestCase):
         self.assertTrue(payload["capabilities"]["selection_ref_strategies"])
         self.assertTrue(payload["capabilities"]["geo_select_nodes"])
         self.assertTrue(payload["capabilities"]["display_payload"])
+        self.assertTrue(payload["capabilities"]["sketch_solve_snapshots"])
 
     def test_sdf_field_surface_api_is_not_public(self):
         self.assertFalse(hasattr(scad, "field"))
@@ -171,6 +172,28 @@ class TestCoverageMatrix(unittest.TestCase):
             "shell_rsolid",
             "linear_pattern_rsolidlist",
             "radial_pattern_rsolidlist",
+            "make_material_rmaterial",
+            "make_placement_rplacement",
+            "identity_placement_rplacement",
+            "make_part_rpart",
+            "assign_material_rpart",
+            "make_assembly_rassembly",
+            "add_component_rassembly",
+            "place_component_rassembly",
+            "make_compound_from_assembly_rcompound",
+            "make_face_connector_rconnector",
+            "make_edge_connector_rconnector",
+            "make_vertex_connector_rconnector",
+            "add_connector_rpart",
+            "add_connector_rassembly",
+            "make_connector_ref_rconnectorref",
+            "make_scalar_limit_rscalarlimit",
+            "ground_component_rassembly",
+            "unground_component_rassembly",
+            "add_fixed_constraint_rassembly",
+            "add_revolute_constraint_rassembly",
+            "add_prismatic_constraint_rassembly",
+            "solve_assembly_constraints_rassembly",
         }
         self.assertTrue(expected.issubset(PUBLIC_API_COVERAGE.keys()))
 
@@ -209,6 +232,58 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_helix_redge",
             "make_wire_from_edges_rwire",
             "make_face_from_wire_rface",
+            "make_face_from_wires_rface",
+            "make_sketch_rsketch",
+            "make_add_point_rsketch",
+            "make_add_line_rsketch",
+            "make_add_circle_rsketch",
+            "make_add_arc_rsketch",
+            "make_add_bspline_rsketch",
+            "make_constrain_coincident_rsketch",
+            "make_constrain_point_on_rsketch",
+            "make_constrain_horizontal_rsketch",
+            "make_constrain_vertical_rsketch",
+            "make_constrain_parallel_rsketch",
+            "make_constrain_perpendicular_rsketch",
+            "make_constrain_collinear_rsketch",
+            "make_constrain_tangent_rsketch",
+            "make_constrain_concentric_rsketch",
+            "make_constrain_midpoint_rsketch",
+            "make_constrain_symmetric_rsketch",
+            "make_constrain_equal_length_rsketch",
+            "make_constrain_equal_radius_rsketch",
+            "make_constrain_distance_rsketch",
+            "make_constrain_distance_x_rsketch",
+            "make_constrain_distance_y_rsketch",
+            "make_constrain_length_rsketch",
+            "make_constrain_angle_rsketch",
+            "make_constrain_radius_rsketch",
+            "make_constrain_diameter_rsketch",
+            "make_constrain_fix_rsketch",
+            "make_wire_from_sketch_rwire",
+            "make_face_from_sketch_rface",
+            "make_material_rmaterial",
+            "make_placement_rplacement",
+            "make_identity_placement_rplacement",
+            "make_part_rpart",
+            "make_assign_material_rpart",
+            "make_assembly_rassembly",
+            "make_add_component_rassembly",
+            "make_place_component_rassembly",
+            "make_compound_from_assembly_rcompound",
+            "make_face_connector_rconnector",
+            "make_edge_connector_rconnector",
+            "make_vertex_connector_rconnector",
+            "make_add_connector_rpart",
+            "make_add_connector_rassembly",
+            "make_connector_ref_rconnectorref",
+            "make_scalar_limit_rscalarlimit",
+            "make_ground_component_rassembly",
+            "make_unground_component_rassembly",
+            "make_fixed_constraint_rassembly",
+            "make_revolute_constraint_rassembly",
+            "make_prismatic_constraint_rassembly",
+            "make_solve_assembly_constraints_rassembly",
             "make_extrude_rsolid",
             "make_revolve_rsolid",
             "make_loft_rsolid",
@@ -219,6 +294,9 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_cut_rsolid",
             "make_union_rsolid",
             "make_intersect_rsolid",
+            "make_2d_cut_rface",
+            "make_2d_union_rface",
+            "make_2d_intersect_rface",
             "make_fillet_rsolid",
             "make_chamfer_rsolid",
             "make_shell_rsolid",
@@ -339,6 +417,21 @@ class TestReplay(unittest.TestCase):
             wire = scad.make_wire_from_edges_rwire([e1, e2, e3, e4])
             face = scad.make_face_from_wire_rface(wire)
             solid = scad.extrude_rsolid(face, (0, 0, 1), 2.0)
+
+        graph_json = export_graph_json(session.graph)
+        restored = import_graph_json(graph_json)
+        results = replay_graph(restored)
+
+        self.assertEqual(len(results), 1)
+        self.assertIsInstance(results[0], scad.Solid)
+        self.assertAlmostEqual(results[0].get_volume(), solid.get_volume(), places=5)
+
+    def test_replay_multi_loop_face_extrude_roundtrip(self):
+        with scad.GraphSession() as session:
+            outer = scad.make_circle_rwire(center=(0, 0, 0), radius=5.0)
+            inner = scad.make_circle_rwire(center=(0, 0, 0), radius=2.0)
+            face = scad.make_face_from_wires_rface(outer, [inner])
+            solid = scad.extrude_rsolid(face, (0, 0, 1), 3.0)
 
         graph_json = export_graph_json(session.graph)
         restored = import_graph_json(graph_json)

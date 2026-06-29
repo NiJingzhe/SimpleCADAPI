@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def replay_model_json(json_str: str, *, strict: bool = True) -> List[AnyShape]
+def replay_model_json(json_str: str, *, strict: bool = True) -> List[Any]
 ```
 
 *Source: serializer.py*

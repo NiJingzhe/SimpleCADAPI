@@ -117,8 +117,14 @@ class TestBasicShapes(unittest.TestCase):
 
     def test_create_spline(self):
         """Test create spline."""
-        points = [(0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 0.0, 0.0)]
-        spline = scad.make_spline_redge(points)
+        spline = scad.make_spline_redge(
+            control_points=[
+                (0.0, 0.0, 0.0),
+                (0.6, 1.0, 0.0),
+                (1.4, 1.0, 0.0),
+                (2.0, 0.0, 0.0),
+            ]
+        )
         self.assertIsInstance(spline, scad.Edge)
 
     def test_create_segment_edge(self):
@@ -148,8 +154,14 @@ class TestBasicShapes(unittest.TestCase):
 
     def test_create_spline_wire(self):
         """Test create spline wire."""
-        points = [(0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 0.0, 0.0)]
-        spline_wire = scad.make_spline_rwire(points)
+        spline_wire = scad.make_spline_rwire(
+            control_points=[
+                (0.0, 0.0, 0.0),
+                (0.6, 1.0, 0.0),
+                (1.4, 1.0, 0.0),
+                (2.0, 0.0, 0.0),
+            ]
+        )
         self.assertIsInstance(spline_wire, scad.Wire)
 
     def test_create_polyline_wire(self):
@@ -192,7 +204,7 @@ class TestBasicShapes(unittest.TestCase):
             scad.make_helix_redge(1.0, 3.0, -0.5)  # 负半径
 
         with self.assertRaises(ValueError):
-            scad.make_spline_redge([(0, 0, 0)])  # 点数不足
+            scad.make_spline_redge(control_points=[(0, 0, 0)])  # 控制点不足
 
         with self.assertRaises(ValueError):
             scad.make_polyline_rwire([(0, 0, 0)])  # 点数不足
@@ -720,13 +732,17 @@ class TestErrorHandling(unittest.TestCase):
 class TestNewFunctionIntegration(unittest.TestCase):
     """Tests for integration of newly added functions."""
 
-    def test_spline_with_tangents(self):
-        """Test spline with tangents."""
-        points = [(0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 0.0, 0.0)]
-        tangents = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (1.0, 0.0, 0.0)]
-
-        # 注意：目前CADQuery的makeSpline不支持tangents，但函数应该能处理
-        spline = scad.make_spline_redge(points, tangents)
+    def test_spline_with_exact_weights(self):
+        """Test exact weighted spline."""
+        spline = scad.make_spline_redge(
+            control_points=[
+                (0.0, 0.0, 0.0),
+                (0.6, 1.0, 0.0),
+                (1.4, 1.0, 0.0),
+                (2.0, 0.0, 0.0),
+            ],
+            weights=[1.0, 0.75, 0.75, 1.0],
+        )
         self.assertIsInstance(spline, scad.Edge)
 
     def test_complex_polyline_shapes(self):
@@ -794,7 +810,9 @@ class TestNewFunctionIntegration(unittest.TestCase):
         arc = scad.create_arc((0, 0, 0), (1, 1, 0), (2, 0, 0))
         self.assertIsInstance(arc, scad.Edge)
 
-        spline = scad.create_spline([(0, 0, 0), (1, 1, 0), (2, 0, 0)])
+        spline = scad.create_spline(
+            control_points=[(0, 0, 0), (0.6, 1, 0), (1.4, 1, 0), (2, 0, 0)]
+        )
         self.assertIsInstance(spline, scad.Edge)
 
         try:

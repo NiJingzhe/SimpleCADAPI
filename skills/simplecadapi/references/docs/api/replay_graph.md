@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def replay_graph(graph: OperationGraph, *, strict: bool = True) -> List[AnyShape]
+def replay_graph(graph: OperationGraph, *, strict: bool = True) -> List[Any]
 ```
 
 *Source: serializer.py*

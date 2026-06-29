@@ -76,7 +76,7 @@ def _lookup_property(obj: Any, path: str) -> Any:
 
     if path == "topo.kind":
         cls_name = obj.__class__.__name__.lower()
-        if cls_name in {"vertex", "edge", "wire", "face", "solid"}:
+        if cls_name in {"vertex", "edge", "wire", "face", "solid", "compound"}:
             return cls_name
         return MISSING
 
@@ -103,6 +103,8 @@ def _lookup_property(obj: Any, path: str) -> Any:
             return "surface"
         if cls_name == "solid":
             return "body"
+        if cls_name == "compound":
+            return "compound"
         if cls_name == "wire":
             return "wire"
         if cls_name == "vertex":
@@ -550,7 +552,7 @@ class ShapeSelector:
         to_kind = str(to_kind).strip().lower()
         if relation != "boundary":
             raise ValueError(f"unsupported traversal relation: {relation}")
-        if to_kind not in {"vertex", "edge", "wire", "face", "solid"}:
+        if to_kind not in {"vertex", "edge", "wire", "face", "solid", "compound"}:
             raise ValueError(f"unsupported traversal target kind: {to_kind}")
         return ShapeSelector(
             target_kind=to_kind,
@@ -776,7 +778,12 @@ def _boundary_items(scope: Any, target_kind: str) -> List[Any]:
         return []
 
     if target_kind == "solid":
+        if cls_name == "Compound" and hasattr(scope, "get_solids"):
+            return list(scope.get_solids())
         return [scope] if cls_name == "Solid" else []
+
+    if target_kind == "compound":
+        return [scope] if cls_name == "Compound" else []
 
     return []
 
@@ -800,6 +807,11 @@ def _resolve_scope_items(scope: Any, target_kind: str) -> List[Any]:
     if target_kind == "face":
         if hasattr(scope, "get_faces"):
             return list(scope.get_faces())
+    if target_kind == "solid":
+        if hasattr(scope, "get_solids"):
+            return list(scope.get_solids())
+        if scope.__class__.__name__ == "Solid":
+            return [scope]
     if target_kind == "wire":
         if hasattr(scope, "get_children"):
             return [

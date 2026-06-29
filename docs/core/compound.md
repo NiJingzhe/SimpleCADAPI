@@ -1,13 +1,22 @@
 # Compound
 
-`Compound` is reserved documentation for collection-style geometry workflows.
+`Compound` is an explicit multi-shape projection wrapper.
 
-SimpleCADAPI 2.0 beta focuses the stable public geometry wrapper surface on:
+SimpleCADAPI 2.0 beta keeps integrated modeling centered on single `Solid`
+results, but product-level `Assembly` workflows can be projected into a flattened
+`Compound` with `make_compound_from_assembly_rcompound(...)`.
+
+The stable public geometry wrapper surface is:
 
 - `Vertex`
 - `Edge`
 - `Wire`
 - `Face`
 - `Solid`
+- `Compound`
 
-For multi-body workflows, prefer Python sequences of `Solid` objects plus export helpers such as `export_step([...], path)`. Assembly APIs are temporarily not public while the assembly system is redesigned.
+Use `Compound` when a workflow intentionally needs a flattened geometry
+projection. Do not use it as a substitute for `Assembly` product structure.
+
+For normal part modeling, keep using `Solid` as the body-level geometry. A
+single-body `Part` wraps exactly one `Solid`.

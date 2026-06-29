@@ -37,7 +37,14 @@ class TestRemainingPrimitiveExpressionSupport(unittest.TestCase):
 
     def test_spline_accepts_expression_points(self):
         y = scad.var("sy", 1.0)
-        edge = scad.make_spline_redge([(0.0, 0.0, 0.0), (1.0, y, 0.0), (2.0, 0.0, 0.0)])
+        edge = scad.make_spline_redge(
+            control_points=[
+                (0.0, 0.0, 0.0),
+                (0.6, y, 0.0),
+                (1.4, y, 0.0),
+                (2.0, 0.0, 0.0),
+            ]
+        )
         self.assertIsInstance(edge, scad.Edge)
 
 

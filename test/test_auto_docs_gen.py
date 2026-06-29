@@ -109,6 +109,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             self.assertIn("graph.py", resolved_names)
             self.assertIn("expr.py", resolved_names)
             self.assertIn("sketch.py", resolved_names)
+            self.assertIn("math.py", resolved_names)
 
 
 class TestAutoDocsGenExtraction(unittest.TestCase):
@@ -213,6 +214,47 @@ def const(value):
             self.assertTrue((output_dir / "const_function.md").exists())
             self.assertIn("[Const](Const.md)", readme)
             self.assertIn("[const](const_function.md)", readme)
+
+    def test_generate_markdown_includes_math_helper_category(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            init_file = tmp_path / "__init__.py"
+            init_file.write_text(
+                "__all__ = ['BSplineFitResult', 'fit_cubic_bspline_control_points']\n",
+                encoding="utf-8",
+            )
+            source_file = tmp_path / "math.py"
+            source_file.write_text(
+                '''
+class BSplineFitResult:
+    """B-spline fitting result."""
+
+
+def fit_cubic_bspline_control_points(sample_points, *, tolerance=1e-3):
+    """Fit sampled points to cubic B-spline controls."""
+    return BSplineFitResult()
+'''.strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            output_dir = tmp_path / "docs/api"
+
+            generator = auto_docs_gen.APIDocumentGenerator(
+                source_files=[source_file],
+                output_dirs=[output_dir],
+                quiet=True,
+            )
+            generator.extract_apis()
+            generator.generate_markdown_docs()
+
+            readme = (output_dir / "README.md").read_text(encoding="utf-8")
+
+            self.assertIn("## Math Helpers", readme)
+            self.assertIn("[BSplineFitResult](BSplineFitResult.md)", readme)
+            self.assertIn(
+                "[fit_cubic_bspline_control_points](fit_cubic_bspline_control_points.md)",
+                readme,
+            )
 
 
 if __name__ == "__main__":
