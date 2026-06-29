@@ -12,7 +12,7 @@ import os
 import pprint
 import shutil
 import tempfile
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .errors import raise_harness_error
 from .serializer import import_model_json
@@ -67,6 +67,7 @@ _OP_EXPRESSION_BINDINGS: Dict[str, Tuple[Tuple[str, Tuple[Any, ...]], ...]] = {
         ("Placement.Base.z", ("center", 2)),
     ),
     "make_face_from_wire_rface": (),
+    "make_face_from_wires_rface": (),
     "make_extrude_rsolid": (
         ("LengthFwd", ("distance",)),
         ("Dir.x", ("direction", 0)),
@@ -117,9 +118,10 @@ _OP_EXPRESSION_BINDINGS: Dict[str, Tuple[Tuple[str, Tuple[Any, ...]], ...]] = {
 
 _OP_EXPRESSION_LIMITATIONS: Dict[str, str] = {
     "make_spline_redge": (
-        "Canonical function-fit spline expressions have no stable equivalent native "
-        "FreeCAD BSpline parameter host. The translator exports spline geometry, but "
-        "does not map make_spline_redge param_exprs into FreeCAD ExpressionEngine."
+        "Exact B-spline pole/weight expressions have no stable equivalent native "
+        "FreeCAD Sketcher BSpline parameter host. The translator exports exact "
+        "B-spline geometry, but does not map make_spline_redge param_exprs into "
+        "FreeCAD ExpressionEngine."
     ),
 }
 
@@ -270,6 +272,9 @@ class FreeCADScriptTranslator:
         self.document_name = document_name
         self._source_graph: Optional[OperationGraph] = None
         self._expr_alias_by_id: Dict[str, str] = {}
+        self._result_node_ids: Set[str] = set()
+        self._result_node_id_list: List[str] = []
+        self._suppressed_profile_node_ids: Set[str] = set()
 
     def _compile_time_expr_formula(self, expr_ref: Any) -> Optional[str]:
         if not isinstance(expr_ref, dict):
@@ -343,6 +348,13 @@ class FreeCADScriptTranslator:
                 "FreeCAD translation requires payload to contain a non-empty canonical low-level graph"
             )
         self._source_graph = source_graph
+        leaf_ids = payload.get("leaf_ids")
+        if isinstance(leaf_ids, list) and leaf_ids:
+            self._result_node_id_list = [str(v) for v in leaf_ids]
+        else:
+            self._result_node_id_list = [leaf.node_id for leaf in source_graph.leaf_nodes()]
+        self._result_node_ids = set(self._result_node_id_list)
+        self._suppressed_profile_node_ids = self._find_cylinder_profile_nodes(source_graph)
 
         lines: List[str] = []
         emit = lines.append
@@ -356,9 +368,19 @@ class FreeCADScriptTranslator:
         emit("except Exception:")
         emit("    Sketcher = None")
         emit("try:")
+        emit("    import Assembly")
+        emit("except Exception:")
+        emit("    Assembly = None")
+        emit("try:")
+        emit("    import JointObject")
+        emit("except Exception:")
+        emit("    JointObject = None")
+        emit("try:")
         emit("    import Spreadsheet")
         emit("except Exception:")
         emit("    Spreadsheet = None")
+        emit("import os")
+        emit("import zipfile")
         emit("")
         emit(f"DOC_NAME = {_json_ascii(self.document_name)}")
         emit(
@@ -370,6 +392,11 @@ class FreeCADScriptTranslator:
         emit("GRAPH_SELECTIONS = {}")
         emit("GRAPH_SPINE_OBJECTS = {}")
         emit("GRAPH_LIMITATIONS = {}")
+        emit("PRODUCT_VALUES = {}")
+        emit("ASSEMBLY_PROJECTION_INPUTS = {}")
+        emit("GUI_VISIBILITY_BY_NAME = {}")
+        emit("GUI_EXPANDED_BY_NAME = {}")
+        emit("SIMPLECAD_JOINT_OBJECTS = {}")
         emit("SKETCH_REGISTRY = []")
         expression_graph_payload = payload.get("expression_graph", {})
         if hasattr(expression_graph_payload, "to_dict"):
@@ -416,19 +443,52 @@ class FreeCADScriptTranslator:
         emit("doc.recompute()")
         emit("")
         emit("# Leaf/result metadata")
-        leaf_ids = payload.get("leaf_ids")
-        if isinstance(leaf_ids, list) and leaf_ids:
-            emit(f"RESULT_NODE_IDS = {_py_literal([str(v) for v in leaf_ids])}")
-        else:
-            emit(
-                f"RESULT_NODE_IDS = {_py_literal([leaf.node_id for leaf in source_graph.leaf_nodes()])}"
-            )
+        emit(f"RESULT_NODE_IDS = {_py_literal(self._result_node_id_list)}")
         emit(
             "RESULT_OBJECTS = [obj for node_id in RESULT_NODE_IDS for obj in GRAPH_OUTPUTS.get(node_id, [])]"
         )
         emit("_apply_result_visibility(RESULT_NODE_IDS)")
+        emit("_set_active_result_object(RESULT_NODE_IDS)")
         emit("doc.TransientDir = getattr(doc, 'TransientDir', '')")
         return "\n".join(lines).rstrip() + "\n"
+
+    def _find_cylinder_profile_nodes(self, graph: OperationGraph) -> Set[str]:
+        use_counts: Dict[str, int] = {}
+        for graph_node in graph.topological_order():
+            for input_ref in graph_node.inputs:
+                use_counts[input_ref.node_id] = use_counts.get(input_ref.node_id, 0) + 1
+
+        suppressed: Set[str] = set()
+        for graph_node in graph.topological_order():
+            if graph_node.op != "make_extrude_rsolid" or len(graph_node.inputs) != 1:
+                continue
+            profile_node = graph.get_node(graph_node.inputs[0].node_id)
+            face_node = None
+            if (
+                profile_node is not None
+                and profile_node.op == "make_face_from_wire_rface"
+                and len(profile_node.inputs) == 1
+            ):
+                face_node = profile_node
+                profile_node = graph.get_node(profile_node.inputs[0].node_id)
+            if (
+                profile_node is None
+                or profile_node.op != "make_wire_from_edges_rwire"
+                or len(profile_node.inputs) != 1
+            ):
+                continue
+            edge_node = graph.get_node(profile_node.inputs[0].node_id)
+            if edge_node is None or edge_node.op != "make_circle_redge":
+                continue
+            profile_ids = [profile_node.node_id]
+            if face_node is not None:
+                profile_ids.append(face_node.node_id)
+            if any(node_id in self._result_node_ids for node_id in profile_ids):
+                continue
+            if any(use_counts.get(node_id, 0) != 1 for node_id in profile_ids):
+                continue
+            suppressed.update(profile_ids)
+        return suppressed
 
     def _emit_expression_graph(self, expression_graph_payload: Any) -> List[str]:
         if not isinstance(expression_graph_payload, dict):
@@ -540,6 +600,63 @@ class FreeCADScriptTranslator:
             return f"=atan2({args[0]}; {args[1]}) * pi / 180"
         return None
 
+    def _can_fold_transform_into_input(self, node: OperationNode) -> bool:
+        graph = self._source_graph
+        if graph is None or node.op not in {"make_translate_rshape", "make_rotate_rshape"} or len(node.inputs) != 1:
+            return False
+        source = node.inputs[0]
+        if source.op not in {
+            "make_extrude_rsolid",
+            "make_wire_from_edges_rwire",
+            "make_face_from_wire_rface",
+            "make_wire_from_sketch_rwire",
+            "make_face_from_sketch_rface",
+            "make_translate_rshape",
+            "make_rotate_rshape",
+        }:
+            return False
+        if source.node_id in self._result_node_ids:
+            return False
+        if graph.downstream_nodes(source.node_id) != [node.node_id]:
+            return False
+        return True
+
+    def _should_materialize_transform_for_loft_section(self, node: OperationNode) -> bool:
+        graph = self._source_graph
+        if graph is None or node.op not in {"make_translate_rshape", "make_rotate_rshape"} or len(node.inputs) != 1:
+            return False
+        if not self._transform_feeds_only_loft(node.node_id, set()):
+            return False
+        source = node.inputs[0]
+        return source.op in {
+            "make_wire_from_edges_rwire",
+            "make_face_from_wire_rface",
+            "make_wire_from_sketch_rwire",
+            "make_face_from_sketch_rface",
+            "make_translate_rshape",
+            "make_rotate_rshape",
+        }
+
+    def _transform_feeds_only_loft(self, node_id: str, seen: Set[str]) -> bool:
+        graph = self._source_graph
+        if graph is None or node_id in seen:
+            return False
+        seen.add(node_id)
+        downstream = graph.downstream_nodes(node_id)
+        if not downstream:
+            return False
+        for downstream_id in downstream:
+            downstream_node = graph.get_node(downstream_id)
+            if downstream_node is None:
+                return False
+            if downstream_node.op == "make_loft_rsolid":
+                continue
+            if downstream_node.op in {"make_translate_rshape", "make_rotate_rshape"}:
+                if self._transform_feeds_only_loft(downstream_id, seen):
+                    continue
+            return False
+        return True
+
     def _script_helpers(self) -> str:
         return """
 class SimpleCADUnsupportedOpError(RuntimeError):
@@ -547,17 +664,17 @@ class SimpleCADUnsupportedOpError(RuntimeError):
 
 
 def _ensure_string_property(obj, prop_name, group='SimpleCAD'):
-    if not hasattr(obj, prop_name):
+    if prop_name not in list(getattr(obj, 'PropertiesList', []) or []):
         obj.addProperty('App::PropertyString', prop_name, group)
 
 
 def _ensure_string_list_property(obj, prop_name, group='SimpleCAD'):
-    if not hasattr(obj, prop_name):
+    if prop_name not in list(getattr(obj, 'PropertiesList', []) or []):
         obj.addProperty('App::PropertyStringList', prop_name, group)
 
 
 def _ensure_string_map_property(obj, prop_name, group='SimpleCAD'):
-    if not hasattr(obj, prop_name):
+    if prop_name not in list(getattr(obj, 'PropertiesList', []) or []):
         obj.addProperty('App::PropertyMap', prop_name, group)
 
 
@@ -613,6 +730,35 @@ def _attach_simplecad_metadata(obj, *, node_id, op, params, inputs, tags, contex
     obj.SimpleCADExprSupport = 'limited' if limitation else 'mapped_or_not_requested'
     obj.SimpleCADExprLimitation = limitation['reason'] if limitation else ''
     obj.SimpleCADTags = [str(tag) for tag in (tags or [])]
+
+
+def _append_folded_op_metadata(obj, *, node_id, op, params, inputs, tags, context, output_count, param_exprs=None, semantic_delta=None, topo_delta=None):
+    _ensure_string_property(obj, 'SimpleCADFoldedOps')
+    try:
+        folded = json.loads(obj.SimpleCADFoldedOps) if obj.SimpleCADFoldedOps else []
+    except Exception:
+        folded = []
+    if not isinstance(folded, list):
+        folded = []
+    folded.append({
+        'node_id': str(node_id),
+        'op': str(op),
+        'params': params or {},
+        'inputs': list(inputs or []),
+        'tags': list(tags or []),
+        'context': context or {},
+        'output_count': int(output_count),
+        'param_exprs': param_exprs or {},
+        'semantic_delta': semantic_delta or {},
+        'topo_delta': topo_delta or {},
+    })
+    obj.SimpleCADFoldedOps = json.dumps(folded, ensure_ascii=True, sort_keys=True)
+    existing_tags = list(getattr(obj, 'SimpleCADTags', []) or [])
+    merged_tags = sorted({str(tag) for tag in existing_tags + list(tags or [])})
+    try:
+        obj.SimpleCADTags = merged_tags
+    except Exception:
+        pass
 
 
 def _record_graph_output(node_id, obj):
@@ -685,6 +831,35 @@ def _register_graph_alias(*, node_id, source_node_id, op, params, inputs, tags, 
     return source_obj
 
 
+def _register_graph_folded_alias(*, node_id, source_node_id, op, params, inputs, tags, context, output_count, param_exprs=None, semantic_delta=None, topo_delta=None):
+    source_obj = _node_object(source_node_id)
+    _append_folded_op_metadata(
+        source_obj,
+        node_id=node_id,
+        op=op,
+        params=params,
+        inputs=inputs,
+        tags=tags,
+        context=context,
+        output_count=output_count,
+        param_exprs=param_exprs,
+        semantic_delta=semantic_delta,
+        topo_delta=topo_delta,
+    )
+    GRAPH_NODES[node_id] = source_obj
+    GRAPH_METADATA[node_id] = {
+        'op': op,
+        'params': params,
+        'inputs': list(inputs),
+        'context': context or {},
+        'tags': list(tags or []),
+        'folded_into': str(source_node_id),
+    }
+    _record_graph_limitation(node_id, op, param_exprs)
+    GRAPH_OUTPUTS[node_id] = [source_obj]
+    return source_obj
+
+
 def _register_graph_value(value, *, node_id, op, params, inputs, tags, context, output_count, param_exprs=None, semantic_delta=None, topo_delta=None):
     GRAPH_NODES[node_id] = value
     GRAPH_METADATA[node_id] = {
@@ -717,6 +892,100 @@ def _make_feature(name, shape, *, node_id, op, params, inputs, tags, context, ou
     )
 
 
+def _single_face_shape(shape, operation):
+    if hasattr(shape, 'Shape'):
+        shape = shape.Shape
+    if shape is None or shape.isNull():
+        raise RuntimeError(f'{operation} produced no valid shape')
+    if getattr(shape, 'ShapeType', '') == 'Face':
+        return shape
+    faces = list(getattr(shape, 'Faces', []) or [])
+    if len(faces) == 1:
+        return faces[0]
+    raise RuntimeError(f'{operation} expected exactly one face, got {len(faces)}')
+
+
+def _face_shape_from_wire_shape(shape, operation='make_face_from_wire_rface'):
+    source_obj = shape
+    if hasattr(shape, 'Shape'):
+        shape = shape.Shape
+    try:
+        shape_invalid = shape is None or shape.isNull()
+    except Exception:
+        shape_invalid = shape is None
+    if shape_invalid and hasattr(source_obj, 'Shape'):
+        try:
+            doc.recompute()
+        except Exception:
+            pass
+        shape = getattr(source_obj, 'Shape', None)
+    try:
+        shape_invalid = shape is None or shape.isNull()
+    except Exception:
+        shape_invalid = shape is None
+    if shape_invalid:
+        raise RuntimeError(f'{operation} source has no valid shape')
+    if getattr(shape, 'ShapeType', '') == 'Face':
+        return shape
+    if getattr(shape, 'ShapeType', '') == 'Wire':
+        return Part.Face(shape)
+    wires = list(getattr(shape, 'Wires', []) or [])
+    if len(wires) == 1:
+        return Part.Face(wires[0])
+    return _single_face_shape(shape, operation)
+
+
+def _wire_shape_from_object(obj, operation):
+    source_obj = obj
+    shape = getattr(obj, 'Shape', obj)
+    try:
+        shape_invalid = shape is None or shape.isNull()
+    except Exception:
+        shape_invalid = shape is None
+    if shape_invalid and hasattr(source_obj, 'Shape'):
+        try:
+            doc.recompute()
+        except Exception:
+            pass
+        shape = getattr(source_obj, 'Shape', None)
+    try:
+        shape_invalid = shape is None or shape.isNull()
+    except Exception:
+        shape_invalid = shape is None
+    if shape_invalid:
+        raise RuntimeError(f'{operation} source has no valid shape')
+    if getattr(shape, 'ShapeType', '') == 'Wire':
+        return shape
+    wires = list(getattr(shape, 'Wires', []) or [])
+    if len(wires) == 1:
+        return wires[0]
+    raise RuntimeError(f'{operation} expected exactly one wire, got {len(wires)}')
+
+
+def _face_shape_from_wire_shapes(outer_obj, inner_objs, operation='make_face_from_wires_rface'):
+    wires = [_wire_shape_from_object(outer_obj, operation + ' outer')]
+    for inner_obj in inner_objs:
+        wires.append(_wire_shape_from_object(inner_obj, operation + ' inner').reversed())
+    face = Part.Face(wires)
+    if face is None or face.isNull() or not face.isValid():
+        raise RuntimeError(f'{operation} produced an invalid multi-loop face')
+    return face
+
+
+def _face_boolean_shape(operation, base_obj, tool_obj):
+    base_shape = _face_shape_from_wire_shape(base_obj, operation + ' base')
+    tool_shape = _face_shape_from_wire_shape(tool_obj, operation + ' tool')
+    if operation == 'make_2d_cut_rface':
+        result = base_shape.cut(tool_shape)
+    elif operation == 'make_2d_union_rface':
+        result = base_shape.fuse(tool_shape)
+    elif operation == 'make_2d_intersect_rface':
+        result = base_shape.common(tool_shape)
+    else:
+        raise RuntimeError(f'Unsupported 2D face boolean {operation!r}')
+    return _single_face_shape(result, operation)
+
+
 def _make_native_object(type_id, name, *, node_id, op, params, inputs, tags, context, output_count, param_exprs=None, semantic_delta=None, topo_delta=None):
     obj = doc.addObject(type_id, name)
     return _register_graph_object(
@@ -734,10 +1003,297 @@ def _make_native_object(type_id, name, *, node_id, op, params, inputs, tags, con
     )
 
 
+def _make_native_assembly(name, *, node_id, op, params, inputs, tags, context, output_count, param_exprs=None, semantic_delta=None, topo_delta=None):
+    if Assembly is None:
+        raise RuntimeError('FreeCAD Assembly workbench module is required for SimpleCAD Assembly translation')
+    obj = doc.addObject('Assembly::AssemblyObject', name)
+    obj.Type = 'Assembly'
+    try:
+        obj.newObject('Assembly::JointGroup', 'Joints')
+    except Exception:
+        pass
+    return _register_graph_object(
+        obj,
+        node_id=node_id,
+        op=op,
+        params=params,
+        inputs=inputs,
+        tags=tags,
+        context=context,
+        output_count=output_count,
+        param_exprs=param_exprs,
+        semantic_delta=semantic_delta,
+        topo_delta=topo_delta,
+    )
+
+
+def _joint_group_for(assembly_container):
+    for child in list(getattr(assembly_container, 'OutList', []) or []):
+        if getattr(child, 'TypeId', '') == 'Assembly::JointGroup':
+            return child
+    return assembly_container.newObject('Assembly::JointGroup', 'Joints')
+
+
+def _find_component_entry(assembly_value, component_id):
+    for component in list(assembly_value.get('components', []) or []):
+        if str(component.get('component_id')) == str(component_id):
+            return component
+    raise RuntimeError(f'Missing assembly component {component_id!r}')
+
+
+def _connector_payload_for(component_entry, connector_id):
+    item = component_entry.get('item') or {}
+    for connector in list(item.get('connectors', []) or []):
+        if str(connector.get('connector_id')) == str(connector_id):
+            return connector
+    raise RuntimeError(f'Missing connector {connector_id!r} on component {component_entry.get("component_id")!r}')
+
+
+def _freecad_subname_for_kind(kind, index):
+    # Convert a 0-based index into a FreeCAD sub-element name string.
+    kind_lower = str(kind).lower()
+    prefix_map = {'vertex': 'Vertex', 'edge': 'Edge', 'wire': 'Wire', 'face': 'Face', 'solid': 'Solid'}
+    prefix = prefix_map.get(kind_lower, 'Face')
+    return f'{prefix}{index + 1}'
+
+
+def _resolve_connector_subname(component_entry, connector_payload):
+    # Resolve the FreeCAD sub-element name (e.g. Face3) for a connector geometry_ref.
+    # Uses the geo_selector to match against the component link shape.
+    # Returns a tuple (subname1, subname2) suitable for FreeCAD Reference1/Reference2.
+    geometry_ref = connector_payload.get('geometry_ref') or {}
+    geo_selector = geometry_ref.get('geo_selector') or {}
+    kind = str(geometry_ref.get('kind') or geo_selector.get('kind') or '').lower()
+    if not kind:
+        return '', ''
+    link = component_entry.get('link')
+    if link is None:
+        return '', ''
+    linked_obj = getattr(link, 'LinkedObject', None) or link
+    shape = getattr(linked_obj, 'Shape', None)
+    if shape is None:
+        return '', ''
+    try:
+        index = _selection_index_for_selector(shape, geo_selector)
+        subname = _freecad_subname_for_kind(kind, index)
+        return subname, subname
+    except Exception:
+        return '', ''
+
+
+def _make_simplecad_joint(assembly_value, constraint_payload, object_name, label):
+    assembly_container = assembly_value.get('container')
+    if assembly_container is None:
+        raise RuntimeError('Assembly value has no container for constraint translation')
+    connector_a = constraint_payload.get('connector_a') or {}
+    connector_b = constraint_payload.get('connector_b') or {}
+    component_a = _find_component_entry(assembly_value, connector_a.get('component_id'))
+    component_b = _find_component_entry(assembly_value, connector_b.get('component_id'))
+    connector_a_payload = _connector_payload_for(component_a, connector_a.get('connector_id'))
+    connector_b_payload = _connector_payload_for(component_b, connector_b.get('connector_id'))
+    joint_type = {'fixed': 'Fixed', 'revolute': 'Revolute', 'prismatic': 'Slider'}.get(str(constraint_payload.get('constraint_kind')))
+    if not joint_type:
+        raise RuntimeError(f"Unsupported SimpleCAD constraint kind {constraint_payload.get('constraint_kind')!r}")
+    joint_group = _joint_group_for(assembly_container)
+    joint = joint_group.newObject('App::FeaturePython', object_name)
+    joint.Label = str(label or constraint_payload.get('constraint_id') or object_name)
+    type_index = {'Fixed': 0, 'Revolute': 1, 'Slider': 3}[joint_type]
+    native_status = 'metadata_only'
+    if JointObject is not None:
+        JointObject.Joint(joint, type_index)
+        native_status = 'native_equivalent'
+        if getattr(App, 'GuiUp', False) and hasattr(joint, 'ViewObject') and joint.ViewObject is not None:
+            try:
+                JointObject.ViewProviderJoint(joint.ViewObject)
+            except Exception:
+                pass
+    else:
+        _ensure_string_property(joint, 'JointType')
+        joint.JointType = joint_type
+    try:
+        link_a = component_a.get('link')
+        link_b = component_b.get('link')
+        sub_a1, sub_a2 = _resolve_connector_subname(component_a, connector_a_payload)
+        sub_b1, sub_b2 = _resolve_connector_subname(component_b, connector_b_payload)
+        if hasattr(joint, 'Reference1'):
+            joint.Reference1 = (link_a, [sub_a1, sub_a2])
+            joint.Reference2 = (link_b, [sub_b1, sub_b2])
+            joint.Detach1 = False
+            joint.Detach2 = False
+    except Exception:
+        native_status = 'native_partial'
+    if joint_type == 'Revolute' and constraint_payload.get('drive_angle_degrees') is not None:
+        try:
+            joint.Angle = float(constraint_payload.get('drive_angle_degrees'))
+        except Exception:
+            native_status = 'native_partial'
+    if joint_type == 'Slider' and constraint_payload.get('drive_distance') is not None:
+        try:
+            joint.Distance = float(constraint_payload.get('drive_distance'))
+        except Exception:
+            native_status = 'native_partial'
+    angle_limit = constraint_payload.get('angle_limit')
+    if angle_limit:
+        try:
+            joint.EnableAngleMin = True
+            joint.EnableAngleMax = True
+            joint.AngleMin = float(angle_limit.get('lower_value'))
+            joint.AngleMax = float(angle_limit.get('upper_value'))
+        except Exception:
+            native_status = 'native_partial'
+    distance_limit = constraint_payload.get('distance_limit')
+    if distance_limit:
+        try:
+            joint.EnableLengthMin = True
+            joint.EnableLengthMax = True
+            joint.LengthMin = float(distance_limit.get('lower_value'))
+            joint.LengthMax = float(distance_limit.get('upper_value'))
+        except Exception:
+            native_status = 'native_partial'
+    _ensure_string_property(joint, 'SimpleCADConstraint')
+    _ensure_string_property(joint, 'SimpleCADConstraintTranslationStatus')
+    joint.SimpleCADConstraint = json.dumps(constraint_payload, ensure_ascii=True, sort_keys=True)
+    joint.SimpleCADConstraintTranslationStatus = native_status
+    _set_visibility(joint, True)
+    try:
+        SIMPLECAD_JOINT_OBJECTS[str(joint.Name)] = joint_type
+    except Exception:
+        pass
+    return joint
+
+
+def _make_simplecad_grounded_joint(assembly_value, component_id):
+    assembly_container = assembly_value.get('container')
+    if assembly_container is None:
+        raise RuntimeError('Assembly value has no container for grounded joint translation')
+    component_entry = _find_component_entry(assembly_value, component_id)
+    link = component_entry.get('link')
+    if link is None:
+        raise RuntimeError(f'Missing component link for grounded component {component_id!r}')
+    joint_group = _joint_group_for(assembly_container)
+    ground = joint_group.newObject('App::FeaturePython', 'GroundedJoint_' + str(component_id))
+    ground.Label = 'GroundedJoint_' + str(component_id)
+    native_status = 'metadata_only'
+    if JointObject is not None:
+        JointObject.GroundedJoint(ground, link)
+        native_status = 'native_equivalent'
+    else:
+        _ensure_string_property(ground, 'ObjectToGround')
+    _ensure_string_property(ground, 'SimpleCADGroundedComponent')
+    ground.SimpleCADGroundedComponent = str(component_id)
+    _set_visibility(ground, True)
+    try:
+        SIMPLECAD_JOINT_OBJECTS[str(ground.Name)] = 'Grounded'
+    except Exception:
+        pass
+    return ground
+
+
+PRODUCT_LIBRARY_GROUP = None
+CONSTRUCTION_GROUP = None
+
+
+def _named_document_group(name, label):
+    existing = doc.getObject(name)
+    if existing is not None:
+        return existing
+    group = doc.addObject('App::DocumentObjectGroup', name)
+    group.Label = label
+    _set_visibility(group, False)
+    return group
+
+
+def _product_library_group():
+    global PRODUCT_LIBRARY_GROUP
+    if PRODUCT_LIBRARY_GROUP is None:
+        PRODUCT_LIBRARY_GROUP = _named_document_group('SimpleCADProductLibrary', 'SimpleCAD Product Library')
+    return PRODUCT_LIBRARY_GROUP
+
+
+def _construction_group():
+    global CONSTRUCTION_GROUP
+    if CONSTRUCTION_GROUP is None:
+        CONSTRUCTION_GROUP = _named_document_group('SimpleCADConstruction', 'SimpleCAD Construction')
+    return CONSTRUCTION_GROUP
+
+
+def _group_contains(group, obj):
+    return obj in list(getattr(group, 'Group', []) or [])
+
+
+def _add_to_group(group, obj):
+    if obj is None or obj is group:
+        return
+    if not _group_contains(group, obj):
+        try:
+            group.addObject(obj)
+        except Exception:
+            pass
+
+
+def _hide_origin_tree(container):
+    for child in list(getattr(container, 'Group', []) or []):
+        if getattr(child, 'TypeId', '') == 'App::Origin' or str(getattr(child, 'Name', '')).startswith('Origin'):
+            _set_visibility(child, False)
+            for nested in list(getattr(child, 'OutListRecursive', []) or []):
+                _set_visibility(nested, False)
+
+
+def _move_to_construction_group(obj):
+    group = _construction_group()
+    for candidate in [obj] + list(getattr(obj, 'OutListRecursive', []) or []):
+        if candidate is None:
+            continue
+        if getattr(candidate, 'TypeId', '') in {'App::Origin', 'App::Line', 'App::Plane', 'App::Point'}:
+            continue
+        _add_to_group(group, candidate)
+        _set_visibility(candidate, False)
+    _set_visibility(group, False)
+
+
+def _move_product_source_to_library(product_item):
+    container = product_item.get('container') if isinstance(product_item, dict) else None
+    if container is None:
+        return
+    group = _product_library_group()
+    _add_to_group(group, container)
+    _set_visibility(container, False)
+    _hide_origin_tree(container)
+    _set_visibility(group, False)
+
+
+def _make_part_body_copy(part_container, source_obj, source_node_id):
+    doc.recompute()
+    if source_obj is None or not hasattr(source_obj, 'Shape'):
+        raise RuntimeError('Part body source has no shape')
+    body = part_container.newObject('Part::Feature', 'Body')
+    body.Label = 'Body'
+    body.Shape = source_obj.Shape.copy()
+    _ensure_string_property(body, 'SimpleCADSourceBodyNodeId')
+    body.SimpleCADSourceBodyNodeId = str(source_node_id)
+    _set_visibility(body, True)
+    _move_to_construction_group(source_obj)
+    return body
+
+
+def _make_assembly_component_link(assembly_container, product_item, name, label, placement):
+    link_type = 'Assembly::AssemblyLink' if product_item.get('kind') == 'assembly' else 'App::Link'
+    link = assembly_container.newObject(link_type, name)
+    link.Label = str(label)
+    _move_product_source_to_library(product_item)
+    link.LinkedObject = product_item.get('container')
+    if product_item.get('kind') == 'part':
+        link.LinkedObject = product_item.get('container') or product_item.get('body')
+    link.Placement = _placement_from_axes_payload(placement)
+    if link_type == 'Assembly::AssemblyLink':
+        try:
+            link.Rigid = True
+        except Exception:
+            pass
+    return link
+
+
 def _node_object(node_id, index=0):
-    node_value = GRAPH_NODES.get(node_id)
-    if node_value is not None and not hasattr(node_value, 'Shape'):
-        raise RuntimeError(f'Graph node {node_id!r} stores a non-document value, not a FreeCAD object')
     outputs = GRAPH_OUTPUTS.get(node_id, [])
     if not outputs:
         raise RuntimeError(f'Missing graph output object for node {node_id!r}')
@@ -748,11 +1304,15 @@ def _node_object(node_id, index=0):
 
 
 def _set_visibility(obj, visible):
+    if obj is not None:
+        try:
+            GUI_VISIBILITY_BY_NAME[str(obj.Name)] = bool(visible)
+        except Exception:
+            pass
     try:
         view = getattr(obj, 'ViewObject', None)
         if view is not None and hasattr(view, 'Visibility'):
             view.Visibility = bool(visible)
-            return
     except Exception:
         pass
     try:
@@ -762,16 +1322,268 @@ def _set_visibility(obj, visible):
         pass
 
 
+def _set_expanded(obj, expanded=True):
+    try:
+        GUI_EXPANDED_BY_NAME[str(obj.Name)] = bool(expanded)
+    except Exception:
+        pass
+
+
+def _xml_attr(value):
+    return str(value).replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def _visibility_for_gui(obj):
+    try:
+        name = str(obj.Name)
+    except Exception:
+        return False
+    if name in GUI_VISIBILITY_BY_NAME:
+        return bool(GUI_VISIBILITY_BY_NAME[name])
+    try:
+        return bool(obj.Visibility)
+    except Exception:
+        return False
+
+
+def _write_gui_document_xml(fcstd_path):
+    object_rows = []
+    for obj in list(getattr(doc, 'Objects', []) or []):
+        try:
+            name = str(obj.Name)
+        except Exception:
+            continue
+        object_rows.append((name, _visibility_for_gui(obj), bool(GUI_EXPANDED_BY_NAME.get(name, False))))
+    lines = [
+        "<?xml version='1.0' encoding='utf-8'?>",
+        '<!--',
+        ' FreeCAD Document, see https://www.freecad.org for more information...',
+        '-->',
+        '<Document SchemaVersion="1">',
+        f'    <ViewProviderData Count="{len(object_rows)}">',
+    ]
+    for name, visible, expanded in object_rows:
+        joint_type = SIMPLECAD_JOINT_OBJECTS.get(name)
+        if joint_type is not None:
+            vp_class = 'ViewProviderGroundedJoint' if joint_type == 'Grounded' else 'ViewProviderJoint'
+            lines.extend([
+                f'        <ViewProvider name="{_xml_attr(name)}" expanded="{1 if expanded else 0}">',
+                '            <Properties Count="2">',
+                '                <Property name="Visibility" type="App::PropertyBool">',
+                f'                    <Bool value="{str(bool(visible)).lower()}"/>',
+                '                </Property>',
+                '                <Property name="Proxy" type="App::PropertyPythonObject" status="67108864">',
+                f'                    <Python value="bnVsbA==" encoded="yes" module="JointObject" class="{vp_class}"/>',
+                '                </Property>',
+                '            </Properties>',
+                '        </ViewProvider>',
+            ])
+        else:
+            lines.extend([
+                f'        <ViewProvider name="{_xml_attr(name)}" expanded="{1 if expanded else 0}">',
+                '            <Properties Count="1">',
+                '                <Property name="Visibility" type="App::PropertyBool">',
+                f'                    <Bool value="{str(bool(visible)).lower()}"/>',
+                '                </Property>',
+                '            </Properties>',
+                '        </ViewProvider>',
+            ])
+    lines.extend([
+        '    </ViewProviderData>',
+        '    <Camera settings="  OrthographicCamera { viewportMapping ADJUST_CAMERA position 0 -0 20000 orientation 0 0 1 0 nearDistance 1 farDistance 100000 aspectRatio 1 focalDistance 20000 height 1000 } "/>',
+        '</Document>',
+        '',
+    ])
+    gui_document = '\\n'.join(lines).encode('utf-8')
+    tmp_path = str(fcstd_path) + '.simplecad_tmp'
+    with zipfile.ZipFile(fcstd_path, 'r') as source:
+        infos = source.infolist()
+        with zipfile.ZipFile(tmp_path, 'w', compression=zipfile.ZIP_DEFLATED) as target:
+            wrote_gui = False
+            for info in infos:
+                if info.filename == 'GuiDocument.xml':
+                    target.writestr(info, gui_document)
+                    wrote_gui = True
+                else:
+                    target.writestr(info, source.read(info.filename))
+            if not wrote_gui:
+                target.writestr('GuiDocument.xml', gui_document)
+    os.replace(tmp_path, fcstd_path)
+
+
+def _save_fcstd_with_gui_visibility(output_path):
+    doc.recompute()
+    doc.saveAs(output_path)
+    _write_gui_document_xml(output_path)
+
+
+def _placement_for_rotation(origin, axis, angle_degrees):
+    center = _vec(origin)
+    rotation = App.Rotation(_vec(axis), float(angle_degrees))
+    to_center = App.Placement(center, rotation)
+    from_center = App.Placement(App.Vector(-center.x, -center.y, -center.z), App.Rotation())
+    return to_center.multiply(from_center)
+
+
+def _fold_object_placement(obj, placement):
+    obj.Placement = placement.multiply(obj.Placement)
+    return obj
+
+
+def _set_part_body_visibility(product_value, visible):
+    container = product_value.get('container') if isinstance(product_value, dict) else None
+    if container is None:
+        return
+    for child in list(getattr(container, 'Group', []) or []):
+        if getattr(child, 'TypeId', '') == 'App::Origin' or str(getattr(child, 'Name', '')).startswith('Origin'):
+            _set_visibility(child, False)
+            continue
+        _set_visibility(child, visible)
+
+
+def _set_product_tree_visibility(product_value, visible, *, show_source_container=True):
+    if not isinstance(product_value, dict):
+        return
+    kind = product_value.get('kind')
+    container = product_value.get('container')
+    if kind == 'part':
+        if container is not None:
+            _set_visibility(container, visible if show_source_container else False)
+            _set_expanded(container, bool(visible and show_source_container))
+            _hide_origin_tree(container)
+        _set_part_body_visibility(product_value, visible)
+        return
+    if kind == 'assembly':
+        if container is not None:
+            _set_visibility(container, visible if show_source_container else False)
+            _set_expanded(container, bool(visible and show_source_container))
+            _hide_origin_tree(container)
+        for component in product_value.get('components', []):
+            link = component.get('link')
+            if link is not None:
+                _set_visibility(link, visible)
+                _set_expanded(link, bool(visible))
+            item = component.get('item')
+            _set_product_tree_visibility(item, visible, show_source_container=False)
+
+
+def _apply_product_result_visibility(visible_ids):
+    product_ids = set()
+    product_ids.update(str(node_id) for node_id in visible_ids if str(node_id) in PRODUCT_VALUES)
+    product_ids.update(
+        str(source_id)
+        for node_id, source_id in ASSEMBLY_PROJECTION_INPUTS.items()
+        if str(node_id) in visible_ids
+    )
+    for node_id in product_ids:
+        _set_product_tree_visibility(PRODUCT_VALUES.get(node_id), True)
+    if PRODUCT_LIBRARY_GROUP is not None:
+        _set_visibility(PRODUCT_LIBRARY_GROUP, False)
+    if CONSTRUCTION_GROUP is not None:
+        _set_visibility(CONSTRUCTION_GROUP, False)
+
+
+def _result_product_container(result_node_ids):
+    for node_id in result_node_ids or []:
+        product_value = PRODUCT_VALUES.get(str(node_id))
+        if isinstance(product_value, dict) and product_value.get('container') is not None:
+            return product_value.get('container')
+        source_id = ASSEMBLY_PROJECTION_INPUTS.get(str(node_id))
+        product_value = PRODUCT_VALUES.get(str(source_id))
+        if isinstance(product_value, dict) and product_value.get('container') is not None:
+            return product_value.get('container')
+    return None
+
+
+def _set_active_result_object(result_node_ids):
+    obj = _result_product_container(result_node_ids)
+    if obj is None:
+        result_objects = [candidate for node_id in (result_node_ids or []) for candidate in GRAPH_OUTPUTS.get(str(node_id), [])]
+        obj = result_objects[0] if result_objects else None
+    if obj is None:
+        return
+    try:
+        doc.ActiveObject = obj
+    except Exception:
+        pass
+    try:
+        import FreeCADGui as Gui
+        if getattr(App, 'GuiUp', False) and Gui.ActiveDocument is not None:
+            Gui.ActiveDocument.ActiveView.setActiveObject('part', obj)
+    except Exception:
+        pass
+
+
 def _apply_result_visibility(result_node_ids):
     visible_ids = {str(node_id) for node_id in (result_node_ids or [])}
+    projection_visible_ids = {str(source_id) for node_id, source_id in ASSEMBLY_PROJECTION_INPUTS.items() if str(node_id) in visible_ids}
     for node_id, outputs in GRAPH_OUTPUTS.items():
-        is_visible = str(node_id) in visible_ids
+        is_visible = str(node_id) in visible_ids or str(node_id) in projection_visible_ids
+        if str(node_id) in ASSEMBLY_PROJECTION_INPUTS:
+            is_visible = False
         for obj in outputs:
             _set_visibility(obj, is_visible)
+    _apply_product_result_visibility(visible_ids)
 
 
 def _vec(v):
     return App.Vector(float(v[0]), float(v[1]), float(v[2]))
+
+
+def _placement_from_axes_payload(payload):
+    origin = payload.get('origin', (0.0, 0.0, 0.0))
+    x_axis = payload.get('x_axis', (1.0, 0.0, 0.0))
+    y_axis = payload.get('y_axis', (0.0, 1.0, 0.0))
+    z_axis = payload.get('z_axis')
+    if z_axis is None:
+        x = _vec(x_axis)
+        y = _vec(y_axis)
+        z = x.cross(y)
+        length = float(getattr(z, 'Length', 0.0))
+        if length == 0.0:
+            raise RuntimeError('Placement axes do not form a frame')
+        z_axis = (z.x / length, z.y / length, z.z / length)
+    matrix = App.Matrix()
+    matrix.A11 = float(x_axis[0]); matrix.A12 = float(y_axis[0]); matrix.A13 = float(z_axis[0]); matrix.A14 = float(origin[0])
+    matrix.A21 = float(x_axis[1]); matrix.A22 = float(y_axis[1]); matrix.A23 = float(z_axis[1]); matrix.A24 = float(origin[1])
+    matrix.A31 = float(x_axis[2]); matrix.A32 = float(y_axis[2]); matrix.A33 = float(z_axis[2]); matrix.A34 = float(origin[2])
+    return App.Placement(matrix)
+
+
+def _shape_from_component_link(link):
+    source = getattr(link, 'LinkedObject', None)
+    if source is None or not hasattr(source, 'Shape'):
+        raise RuntimeError('Component link has no shape-bearing linked object')
+    shape = source.Shape.copy()
+    try:
+        shape.Placement = link.Placement.multiply(shape.Placement)
+    except Exception:
+        pass
+    return shape
+
+
+def _placed_shape_from_body(body, placement):
+    if body is None or not hasattr(body, 'Shape'):
+        raise RuntimeError('Part product value has no shape-bearing body')
+    shape = body.Shape.copy()
+    try:
+        shape.Placement = placement.multiply(shape.Placement)
+    except Exception:
+        pass
+    return shape
+
+
+def _shapes_from_product_value(value, placement=None):
+    placement = placement or App.Placement()
+    if value.get('kind') == 'part':
+        return [_placed_shape_from_body(value.get('body'), placement)]
+    if value.get('kind') == 'assembly':
+        shapes = []
+        for component in value.get('components', []):
+            component_placement = component.get('link').Placement if component.get('link') is not None else _placement_from_axes_payload(component.get('placement') or {})
+            shapes.extend(_shapes_from_product_value(component.get('item'), placement.multiply(component_placement)))
+        return shapes
+    raise RuntimeError('Unsupported product value for shape projection')
 
 
 def _normalized_vec(v):
@@ -1255,34 +2067,24 @@ def _local_angle_arc(circle_center, radius, start_angle, end_angle, normal, orig
     return Part.Arc(start_local, mid_local, end_local)
 
 
-def _select_fit_samples(points, target_count=6):
-    pts = [tuple(float(v) for v in point) for point in points]
-    if len(pts) <= 2 or target_count <= 2 or len(pts) <= target_count:
-        return pts
-    result = [pts[0]]
-    interior_count = int(target_count) - 2
-    last_index = len(pts) - 1
-    for i in range(1, interior_count + 1):
-        idx = round(i * last_index / (interior_count + 1))
-        idx = max(1, min(last_index - 1, int(idx)))
-        result.append(pts[idx])
-    result.append(pts[-1])
-    deduped = []
-    for point in result:
-        if not deduped or point != deduped[-1]:
-            deduped.append(point)
-    return deduped if len(deduped) >= 2 else pts[:2]
-
-
-def _fit_bspline_curve(points, target_count=6):
-    selected = _select_fit_samples(points, target_count)
-    return Part.BSplineCurve([_vec(point) for point in selected])
-
-
-def _interpolate_bspline_curve(points, target_count=6):
-    selected = _select_fit_samples(points, target_count)
+def _bspline_curve_from_params(params, transform_point=None):
+    poles = []
+    for point in params.get('control_points') or []:
+        point3 = tuple(point) + (0.0,) if len(tuple(point)) == 2 else tuple(point)
+        pole = transform_point(point3) if transform_point is not None else _vec(point3)
+        poles.append(pole)
+    if not poles:
+        raise RuntimeError('B-spline has no control points')
+    mults = tuple(int(value) for value in (params.get('multiplicities') or []))
+    knots = tuple(float(value) for value in (params.get('knots') or []))
+    degree = int(params.get('degree', 3))
+    periodic = bool(params.get('periodic', False))
+    weights = params.get('weights')
     curve = Part.BSplineCurve()
-    curve.interpolate([_vec(point) for point in selected])
+    if weights is None:
+        curve.buildFromPolesMultsKnots(poles, mults, knots, periodic, degree)
+    else:
+        curve.buildFromPolesMultsKnots(poles, mults, knots, periodic, degree, tuple(float(value) for value in weights))
     return curve
 
 
@@ -1353,6 +2155,619 @@ def _register_ir_node(name, *, node_id, op, params, inputs, tags, context, outpu
         semantic_delta=semantic_delta,
         topo_delta=topo_delta,
     )
+
+
+def _placement_from_frame(origin, x_axis, y_axis, z_axis):
+    m = App.Matrix()
+    m.A11, m.A21, m.A31 = x_axis.x, x_axis.y, x_axis.z
+    m.A12, m.A22, m.A32 = y_axis.x, y_axis.y, y_axis.z
+    m.A13, m.A23, m.A33 = z_axis.x, z_axis.y, z_axis.z
+    return App.Placement(origin, App.Rotation(m))
+
+
+def _sketch_plane_frame(plane):
+    if isinstance(plane, str):
+        token = plane.upper()
+        if token == 'XY':
+            origin = App.Vector(0.0, 0.0, 0.0)
+            x_axis = App.Vector(1.0, 0.0, 0.0)
+            y_axis = App.Vector(0.0, 1.0, 0.0)
+            z_axis = App.Vector(0.0, 0.0, 1.0)
+            return origin, x_axis, y_axis, z_axis
+        if token == 'XZ':
+            origin = App.Vector(0.0, 0.0, 0.0)
+            x_axis = App.Vector(1.0, 0.0, 0.0)
+            y_axis = App.Vector(0.0, 0.0, 1.0)
+            z_axis = App.Vector(0.0, -1.0, 0.0)
+            return origin, x_axis, y_axis, z_axis
+        if token == 'YZ':
+            origin = App.Vector(0.0, 0.0, 0.0)
+            x_axis = App.Vector(0.0, 1.0, 0.0)
+            y_axis = App.Vector(0.0, 0.0, 1.0)
+            z_axis = App.Vector(1.0, 0.0, 0.0)
+            return origin, x_axis, y_axis, z_axis
+    if isinstance(plane, dict):
+        origin = _vec(plane.get('origin', (0.0, 0.0, 0.0)))
+        x_axis = _normalized_vec(plane.get('x_axis', (1.0, 0.0, 0.0)))
+        y_axis = _normalized_vec(plane.get('y_axis', (0.0, 1.0, 0.0)))
+        z_axis = x_axis.cross(y_axis)
+        z_len = float(getattr(z_axis, 'Length', 0.0))
+        if z_len == 0.0:
+            raise RuntimeError('Sketch plane x_axis and y_axis must not be parallel')
+        z_axis = App.Vector(z_axis.x / z_len, z_axis.y / z_len, z_axis.z / z_len)
+        y_axis = z_axis.cross(x_axis)
+        y_len = float(getattr(y_axis, 'Length', 0.0))
+        y_axis = App.Vector(y_axis.x / y_len, y_axis.y / y_len, y_axis.z / y_len)
+        return origin, x_axis, y_axis, z_axis
+    raise RuntimeError(f'Unsupported sketch plane payload: {plane!r}')
+
+
+def _sketch_entity_maps(sketch_payload):
+    entities = list(sketch_payload.get('entities') or []) if isinstance(sketch_payload, dict) else []
+    return entities, {str(entity.get('id')): entity for entity in entities if isinstance(entity, dict) and entity.get('id') is not None}
+
+
+def _sketch_solved_point(point_id, sketch_payload, solve_snapshot):
+    solved = (solve_snapshot or {}).get('solved_points', {}) if isinstance(solve_snapshot, dict) else {}
+    if point_id in solved:
+        point = solved[point_id]
+        return (float(point[0]), float(point[1]))
+    _entities, by_id = _sketch_entity_maps(sketch_payload)
+    entity = by_id.get(str(point_id))
+    if isinstance(entity, dict) and entity.get('kind') == 'point':
+        return (float(entity.get('x', 0.0)), float(entity.get('y', 0.0)))
+    raise RuntimeError(f'Missing solved sketch point {point_id!r}')
+
+
+def _sketch_solved_radius(entity_id, entity, solve_snapshot):
+    key = f'circle:{entity_id}:radius'
+    scalars = (solve_snapshot or {}).get('solved_scalars', {}) if isinstance(solve_snapshot, dict) else {}
+    if key in scalars:
+        return float(scalars[key])
+    return float(entity.get('radius', 0.0))
+
+
+def _sketch_profile_entity_ids(params, sketch_payload):
+    promotion_map = params.get('promotion_map') if isinstance(params, dict) else None
+    if isinstance(promotion_map, dict):
+        edges = promotion_map.get('edges') or []
+        ids = [str(edge.get('entity_id')) for edge in edges if isinstance(edge, dict) and edge.get('entity_id') is not None]
+        if ids:
+            return ids
+    entities, _by_id = _sketch_entity_maps(sketch_payload)
+    return [
+        str(entity.get('id'))
+        for entity in entities
+        if entity.get('kind') in {'line', 'circle', 'arc', 'bspline'} and not bool(entity.get('construction', False))
+    ]
+
+
+def _sketch_world_point(point_id, sketch_payload, solve_snapshot, origin, x_axis, y_axis):
+    x, y = _sketch_solved_point(point_id, sketch_payload, solve_snapshot)
+    return App.Vector(
+        origin.x + x * x_axis.x + y * y_axis.x,
+        origin.y + x * x_axis.y + y * y_axis.y,
+        origin.z + x * x_axis.z + y * y_axis.z,
+    )
+
+
+def _sketch_xy_to_world(x, y, origin, x_axis, y_axis):
+    # Convert raw 2-D sketch coordinates to a 3-D world App.Vector.
+    return App.Vector(
+        origin.x + x * x_axis.x + y * y_axis.x,
+        origin.y + x * x_axis.y + y * y_axis.y,
+        origin.z + x * x_axis.z + y * y_axis.z,
+    )
+
+
+def _sketch_local_point(point_id, sketch_payload, solve_snapshot):
+    x, y = _sketch_solved_point(point_id, sketch_payload, solve_snapshot)
+    return App.Vector(x, y, 0.0)
+
+
+def _sketch_wire_shape_from_promotion(params):
+    sketch_payload = params.get('sketch') or {}
+    solve_snapshot = params.get('solve_snapshot') or {}
+    origin, x_axis, y_axis, z_axis = _sketch_plane_frame(sketch_payload.get('plane', 'XY'))
+    _entities, by_id = _sketch_entity_maps(sketch_payload)
+    edge_shapes = []
+    for entity_id in _sketch_profile_entity_ids(params, sketch_payload):
+        entity = by_id.get(str(entity_id))
+        if not isinstance(entity, dict):
+            continue
+        kind = str(entity.get('kind'))
+        if kind == 'line':
+            start = _sketch_world_point(str(entity.get('start')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
+            end = _sketch_world_point(str(entity.get('end')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
+            edge_shapes.append(Part.LineSegment(start, end).toShape())
+        elif kind == 'circle':
+            center = _sketch_world_point(str(entity.get('center')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
+            edge_shapes.append(Part.Circle(center, z_axis, _sketch_solved_radius(str(entity_id), entity, solve_snapshot)).toShape())
+        elif kind == 'arc':
+            start = _sketch_world_point(str(entity.get('start')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
+            end = _sketch_world_point(str(entity.get('end')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
+            center = _sketch_world_point(str(entity.get('center')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
+            import math as _math
+            radius = _math.hypot(start.x - center.x, start.y - center.y)
+            edge_shapes.append(Part.ArcOfCircle(Part.Circle(center, z_axis, radius), _math.atan2(start.y - center.y, start.x - center.x), _math.atan2(end.y - center.y, end.x - center.x)).toShape())
+        elif kind == 'bspline':
+            cps_data = entity.get('control_points', [])
+            degree = int(entity.get('degree', 3))
+            knots = entity.get('knots')
+            mults = entity.get('multiplicities')
+            weights = entity.get('weights')
+            periodic = bool(entity.get('periodic', False))
+            cps = [_sketch_xy_to_world(float(p[0]), float(p[1]), origin, x_axis, y_axis) for p in cps_data]
+            curve = Part.BSplineCurve()
+            if weights:
+                curve.buildFromPolesMultsKnots(cps, mults, knots, periodic, degree, weights)
+            else:
+                curve.buildFromPolesMultsKnots(cps, mults, knots, periodic, degree)
+            edge_shapes.append(curve.toShape())
+    if not edge_shapes:
+        raise RuntimeError('Sketch promotion has no profile geometry to materialize')
+    return Part.Wire(edge_shapes)
+
+
+def _sketch_entity_expr(param_exprs, entity_index, *path):
+    expr_meta = _nested_expr_ref(param_exprs or {}, 'sketch', 'entities', int(entity_index))
+    if expr_meta is None:
+        return None
+    return _nested_expr_ref(expr_meta, *path)
+
+
+def _sketch_constraint_value_expr(param_exprs, constraint_index):
+    return _nested_expr_ref(param_exprs or {}, 'sketch', 'constraints', int(constraint_index), 'value')
+
+
+def _sketch_constraint_status_append(status, source, mapped, **payload):
+    entry = {'id': source.get('id') if isinstance(source, dict) else None, 'kind': source.get('kind') if isinstance(source, dict) else None}
+    entry.update(payload)
+    status['mapped' if mapped else 'skipped'].append(entry)
+
+
+def _sketch_constraint_priority(item):
+    _index, constraint = item
+    kind = str(constraint.get('kind')) if isinstance(constraint, dict) else ''
+    priorities = {
+        'coincident': 0,
+        'connect': 0,
+        'point_on': 1,
+        'fix': 2,
+        'horizontal': 3,
+        'vertical': 3,
+        'distance': 4,
+        'distance_x': 4,
+        'distance_y': 4,
+        'length': 4,
+        'radius': 4,
+        'diameter': 4,
+        'angle': 4,
+        'parallel': 5,
+        'perpendicular': 5,
+        'collinear': 5,
+        'tangent': 5,
+        'concentric': 5,
+        'equal_length': 5,
+        'equal_radius': 5,
+        'midpoint': 6,
+        'symmetric': 6,
+    }
+    return priorities.get(kind, 9), int(_index)
+
+
+def _validate_sketch_constraint(sketch_obj, idx):
+    try:
+        result = sketch_obj.solve()
+    except Exception as exc:
+        return False, f'FreeCAD Sketcher solver raised {exc!r}'
+    try:
+        result_int = int(result)
+    except Exception:
+        return True, ''
+    if result_int < 0:
+        return False, f'FreeCAD Sketcher solver rejected constraint with result {result_int}'
+    return True, ''
+
+
+def _remove_sketch_constraint(sketch_obj, idx):
+    try:
+        if hasattr(sketch_obj, 'setExpression'):
+            sketch_obj.setExpression(f'Constraints[{int(idx)}]', None)
+    except Exception:
+        pass
+    try:
+        sketch_obj.delConstraint(int(idx))
+    except Exception:
+        pass
+
+
+def _safe_add_sketch_constraint(sketch_obj, status, source, freecad_kind, *args, expr_ref=None, synthetic=False):
+    if Sketcher is None:
+        _sketch_constraint_status_append(status, source, False, freecad_kind=freecad_kind, reason='Sketcher module is unavailable', synthetic=bool(synthetic))
+        return None
+    try:
+        idx = sketch_obj.addConstraint(Sketcher.Constraint(freecad_kind, *args))
+    except Exception as exc:
+        _sketch_constraint_status_append(status, source, False, freecad_kind=freecad_kind, reason=str(exc), synthetic=bool(synthetic))
+        return None
+    if expr_ref is not None:
+        _bind_expression(sketch_obj, f'Constraints[{int(idx)}]', expr_ref)
+    ok, reason = _validate_sketch_constraint(sketch_obj, idx)
+    if not ok:
+        _remove_sketch_constraint(sketch_obj, idx)
+        _sketch_constraint_status_append(status, source, False, freecad_kind=freecad_kind, reason=reason, synthetic=bool(synthetic))
+        return None
+    serializable_args = [int(arg) if isinstance(arg, int) and not isinstance(arg, bool) else arg for arg in args]
+    _sketch_constraint_status_append(status, source, True, freecad_kind=freecad_kind, index=int(idx), args=serializable_args, synthetic=bool(synthetic))
+    return int(idx)
+
+
+def _target_point_id(target, by_id):
+    if not isinstance(target, dict):
+        return None
+    entity_id = str(target.get('entity_id'))
+    subentity = str(target.get('subentity', 'geometry'))
+    entity = by_id.get(entity_id)
+    if not isinstance(entity, dict):
+        return None
+    kind = str(entity.get('kind'))
+    if kind == 'point':
+        return entity_id
+    if kind == 'line' and subentity in {'start', 'end'}:
+        return str(entity.get(subentity))
+    if kind == 'circle' and subentity == 'center':
+        return str(entity.get('center'))
+    return None
+
+
+def _target_point_ref(target, by_id, point_refs):
+    point_id = _target_point_id(target, by_id)
+    if point_id is None:
+        return None
+    refs = point_refs.get(point_id) or []
+    return refs[0] if refs else None
+
+
+def _target_entity_ref(target, by_id, geom_by_entity):
+    if not isinstance(target, dict):
+        return None
+    entity_id = str(target.get('entity_id'))
+    entity = by_id.get(entity_id)
+    if not isinstance(entity, dict):
+        return None
+    geom_index = geom_by_entity.get(entity_id)
+    if geom_index is None:
+        return None
+    return int(geom_index), str(entity.get('kind'))
+
+
+def _fix_point_constraint(sketch_obj, status, source, point_ref, x_value, y_value, x_expr=None, y_expr=None):
+    if point_ref is None:
+        _sketch_constraint_status_append(status, source, False, reason='Target point is not represented by safe Sketcher geometry')
+        return
+    geom_index, pos = point_ref
+    _safe_add_sketch_constraint(sketch_obj, status, source, 'DistanceX', int(geom_index), int(pos), float(x_value), expr_ref=x_expr)
+    _safe_add_sketch_constraint(sketch_obj, status, source, 'DistanceY', int(geom_index), int(pos), float(y_value), expr_ref=y_expr)
+
+
+def _materialize_sketch_constraints(sketch_obj, sketch_payload, params, param_exprs, geom_by_entity, point_refs):
+    status = {'mapped': [], 'skipped': []}
+    entities, by_id = _sketch_entity_maps(sketch_payload)
+    entity_index_by_id = {str(entity.get('id')): idx for idx, entity in enumerate(entities)}
+    solve_snapshot = params.get('solve_snapshot') or {}
+
+    for point_id, refs in sorted(point_refs.items()):
+        if len(refs) < 2:
+            continue
+        first_geom, first_pos = refs[0]
+        for geom_index, pos in refs[1:]:
+            _safe_add_sketch_constraint(
+                sketch_obj,
+                status,
+                {'id': f'point_identity:{point_id}', 'kind': 'coincident'},
+                'Coincident',
+                int(first_geom),
+                int(first_pos),
+                int(geom_index),
+                int(pos),
+                synthetic=True,
+            )
+
+    constraints = list(sketch_payload.get('constraints') or []) if isinstance(sketch_payload, dict) else []
+    for constraint_index, constraint in sorted(enumerate(constraints), key=_sketch_constraint_priority):
+        if not isinstance(constraint, dict):
+            continue
+        kind = str(constraint.get('kind'))
+        targets = list(constraint.get('targets') or [])
+        value = constraint.get('value')
+        value_expr = _sketch_constraint_value_expr(param_exprs, constraint_index)
+
+        if kind in {'coincident', 'connect'} and len(targets) == 2:
+            a = _target_point_ref(targets[0], by_id, point_refs)
+            b = _target_point_ref(targets[1], by_id, point_refs)
+            if a is None or b is None:
+                _sketch_constraint_status_append(status, constraint, False, reason='Coincident target is not represented by safe Sketcher geometry')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Coincident', int(a[0]), int(a[1]), int(b[0]), int(b[1]))
+            continue
+
+        if kind == 'point_on' and len(targets) == 2:
+            point_ref = _target_point_ref(targets[0], by_id, point_refs)
+            entity_ref = _target_entity_ref(targets[1], by_id, geom_by_entity)
+            if point_ref is None or entity_ref is None:
+                _sketch_constraint_status_append(status, constraint, False, reason='Point-on target is not represented by safe Sketcher geometry')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'PointOnObject', int(point_ref[0]), int(point_ref[1]), int(entity_ref[0]))
+            continue
+
+        if kind in {'horizontal', 'vertical'} and len(targets) == 1:
+            entity_ref = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            if entity_ref is None or entity_ref[1] != 'line':
+                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} requires a materialized line')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Horizontal' if kind == 'horizontal' else 'Vertical', int(entity_ref[0]))
+            continue
+
+        if kind in {'parallel', 'perpendicular', 'equal_length', 'angle'} and len(targets) == 2:
+            a = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            b = _target_entity_ref(targets[1], by_id, geom_by_entity)
+            if a is None or b is None or a[1] != 'line' or b[1] != 'line':
+                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} requires two materialized lines')
+                continue
+            if kind == 'parallel':
+                _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Parallel', int(a[0]), int(b[0]))
+            elif kind == 'perpendicular':
+                _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Perpendicular', int(a[0]), int(b[0]))
+            elif kind == 'equal_length':
+                _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Equal', int(a[0]), int(b[0]))
+            else:
+                _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Angle', int(a[0]), int(b[0]), float(value), expr_ref=value_expr)
+            continue
+
+        if kind == 'collinear' and len(targets) == 2:
+            a = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            b_target = targets[1]
+            b = _target_entity_ref(b_target, by_id, geom_by_entity)
+            if a is None or b is None or a[1] != 'line' or b[1] != 'line':
+                _sketch_constraint_status_append(status, constraint, False, reason='collinear requires two materialized lines')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Parallel', int(a[0]), int(b[0]))
+            b_entity = by_id.get(str(b_target.get('entity_id')))
+            if isinstance(b_entity, dict):
+                for point_id in (str(b_entity.get('start')), str(b_entity.get('end'))):
+                    refs = point_refs.get(point_id) or []
+                    if refs:
+                        _safe_add_sketch_constraint(sketch_obj, status, constraint, 'PointOnObject', int(refs[0][0]), int(refs[0][1]), int(a[0]))
+            continue
+
+        if kind in {'equal_radius', 'concentric'} and len(targets) == 2:
+            a = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            b = _target_entity_ref(targets[1], by_id, geom_by_entity)
+            if a is None or b is None or a[1] != 'circle' or b[1] != 'circle':
+                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} requires two materialized circles')
+                continue
+            if kind == 'equal_radius':
+                _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Equal', int(a[0]), int(b[0]))
+            else:
+                _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Coincident', int(a[0]), 3, int(b[0]), 3)
+            continue
+
+        if kind == 'tangent' and len(targets) == 2:
+            a = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            b = _target_entity_ref(targets[1], by_id, geom_by_entity)
+            if a is None or b is None or a[1] not in {'line', 'circle'} or b[1] not in {'line', 'circle'}:
+                _sketch_constraint_status_append(status, constraint, False, reason='tangent requires two materialized line/circle entities')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Tangent', int(a[0]), int(b[0]))
+            continue
+
+        if kind in {'distance', 'distance_x', 'distance_y'} and len(targets) == 2:
+            a = _target_point_ref(targets[0], by_id, point_refs)
+            b = _target_point_ref(targets[1], by_id, point_refs)
+            if a is None or b is None:
+                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} target is not represented by safe Sketcher geometry')
+                continue
+            fc_kind = {'distance': 'Distance', 'distance_x': 'DistanceX', 'distance_y': 'DistanceY'}[kind]
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, fc_kind, int(a[0]), int(a[1]), int(b[0]), int(b[1]), float(value), expr_ref=value_expr)
+            continue
+
+        if kind == 'length' and len(targets) == 1:
+            entity_ref = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            if entity_ref is None or entity_ref[1] != 'line':
+                _sketch_constraint_status_append(status, constraint, False, reason='length requires a materialized line')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Distance', int(entity_ref[0]), float(value), expr_ref=value_expr)
+            continue
+
+        if kind in {'radius', 'diameter'} and len(targets) == 1:
+            entity_ref = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            if entity_ref is None or entity_ref[1] != 'circle':
+                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} requires a materialized circle')
+                continue
+            _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Radius' if kind == 'radius' else 'Diameter', int(entity_ref[0]), float(value), expr_ref=value_expr)
+            continue
+
+        if kind == 'fix' and len(targets) == 1:
+            target = targets[0]
+            entity_id = str(target.get('entity_id')) if isinstance(target, dict) else ''
+            entity = by_id.get(entity_id)
+            if not isinstance(entity, dict):
+                _sketch_constraint_status_append(status, constraint, False, reason='fix target entity is missing')
+                continue
+            entity_kind = str(entity.get('kind'))
+            if entity_kind == 'point':
+                point_id = entity_id
+                x_value, y_value = _sketch_solved_point(point_id, sketch_payload, solve_snapshot)
+                expr_meta = _sketch_entity_expr(param_exprs, entity_index_by_id[point_id])
+                _fix_point_constraint(sketch_obj, status, constraint, _target_point_ref(target, by_id, point_refs), x_value, y_value, _nested_expr_ref(expr_meta, 'x'), _nested_expr_ref(expr_meta, 'y'))
+            elif entity_kind == 'line':
+                for point_key in ('start', 'end'):
+                    point_id = str(entity.get(point_key))
+                    x_value, y_value = _sketch_solved_point(point_id, sketch_payload, solve_snapshot)
+                    point_entity_index = entity_index_by_id.get(point_id)
+                    expr_meta = _sketch_entity_expr(param_exprs, point_entity_index) if point_entity_index is not None else None
+                    refs = point_refs.get(point_id) or []
+                    _fix_point_constraint(sketch_obj, status, constraint, refs[0] if refs else None, x_value, y_value, _nested_expr_ref(expr_meta, 'x'), _nested_expr_ref(expr_meta, 'y'))
+            elif entity_kind == 'circle':
+                center_id = str(entity.get('center'))
+                x_value, y_value = _sketch_solved_point(center_id, sketch_payload, solve_snapshot)
+                center_entity_index = entity_index_by_id.get(center_id)
+                expr_meta = _sketch_entity_expr(param_exprs, center_entity_index) if center_entity_index is not None else None
+                refs = point_refs.get(center_id) or []
+                _fix_point_constraint(sketch_obj, status, constraint, refs[0] if refs else None, x_value, y_value, _nested_expr_ref(expr_meta, 'x'), _nested_expr_ref(expr_meta, 'y'))
+                entity_ref = _target_entity_ref(target, by_id, geom_by_entity)
+                if entity_ref is not None:
+                    circle_index = entity_index_by_id.get(entity_id)
+                    radius_expr = _nested_expr_ref(_sketch_entity_expr(param_exprs, circle_index) if circle_index is not None else None, 'radius')
+                    _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Radius', int(entity_ref[0]), _sketch_solved_radius(entity_id, entity, solve_snapshot), expr_ref=radius_expr)
+            else:
+                _sketch_constraint_status_append(status, constraint, False, reason=f'Cannot fix unsupported sketch entity kind {entity_kind!r}')
+            continue
+
+        if kind in {'midpoint', 'symmetric'}:
+            _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} has no crash-safe FreeCAD Sketcher mapping in this translator')
+            continue
+
+        _sketch_constraint_status_append(status, constraint, False, reason=f'Unsupported sketch constraint kind {kind!r}')
+    return status
+
+
+def _attach_sketch_promotion_metadata(obj, params, constraint_status):
+    _ensure_string_property(obj, 'SimpleCADSketch')
+    _ensure_string_property(obj, 'SimpleCADSketchSolve')
+    _ensure_string_property(obj, 'SimpleCADSketchPromotion')
+    _ensure_string_property(obj, 'SimpleCADSketchConstraints')
+    obj.SimpleCADSketch = json.dumps(params.get('sketch') or {}, ensure_ascii=True, sort_keys=True)
+    obj.SimpleCADSketchSolve = json.dumps(params.get('solve_snapshot') or {}, ensure_ascii=True, sort_keys=True)
+    obj.SimpleCADSketchPromotion = json.dumps(params.get('promotion_map') or {}, ensure_ascii=True, sort_keys=True)
+    obj.SimpleCADSketchConstraints = json.dumps(constraint_status or {}, ensure_ascii=True, sort_keys=True)
+
+
+def _make_sketch_promotion_object(name, *, node_id, op, params, inputs, tags, context, output_count, param_exprs=None, semantic_delta=None, topo_delta=None):
+    sketch_payload = params.get('sketch') or {}
+    solve_snapshot = params.get('solve_snapshot') or {}
+    if Sketcher is None:
+        obj = doc.addObject('Part::Feature', name)
+        obj.Shape = _sketch_wire_shape_from_promotion(params)
+        constraint_status = {'mapped': [], 'skipped': [{'reason': 'Sketcher module is unavailable'}]}
+        _attach_sketch_promotion_metadata(obj, params, constraint_status)
+        return _register_graph_object(
+            obj,
+            node_id=node_id,
+            op=op,
+            params=params,
+            inputs=inputs,
+            tags=tags,
+            context=context,
+            output_count=output_count,
+            param_exprs=param_exprs,
+            semantic_delta=semantic_delta,
+            topo_delta=topo_delta,
+        )
+
+    obj = doc.addObject('Sketcher::SketchObject', name)
+    origin, x_axis, y_axis, z_axis = _sketch_plane_frame(sketch_payload.get('plane', 'XY'))
+    obj.Placement = _placement_from_frame(origin, x_axis, y_axis, z_axis)
+    profile_ids = set(_sketch_profile_entity_ids(params, sketch_payload))
+    entities, _by_id = _sketch_entity_maps(sketch_payload)
+    geom_by_entity = {}
+    point_refs = {}
+
+    for entity in entities:
+        entity_id = str(entity.get('id'))
+        kind = str(entity.get('kind'))
+        construction = bool(entity.get('construction', False)) or (kind in {'line', 'circle', 'arc', 'bspline'} and entity_id not in profile_ids)
+        if kind == 'line':
+            start_id = str(entity.get('start'))
+            end_id = str(entity.get('end'))
+            start = _sketch_local_point(start_id, sketch_payload, solve_snapshot)
+            end = _sketch_local_point(end_id, sketch_payload, solve_snapshot)
+            geom_index = int(obj.addGeometry(Part.LineSegment(start, end), construction))
+            geom_by_entity[entity_id] = geom_index
+            point_refs.setdefault(start_id, []).append((geom_index, 1))
+            point_refs.setdefault(end_id, []).append((geom_index, 2))
+        elif kind == 'circle':
+            center_id = str(entity.get('center'))
+            center = _sketch_local_point(center_id, sketch_payload, solve_snapshot)
+            radius = _sketch_solved_radius(entity_id, entity, solve_snapshot)
+            geom_index = int(obj.addGeometry(Part.Circle(center, App.Vector(0.0, 0.0, 1.0), radius), construction))
+            geom_by_entity[entity_id] = geom_index
+            point_refs.setdefault(center_id, []).append((geom_index, 3))
+        elif kind == 'arc':
+            start_id = str(entity.get('start'))
+            end_id = str(entity.get('end'))
+            center_id = str(entity.get('center'))
+            start = _sketch_local_point(start_id, sketch_payload, solve_snapshot)
+            end = _sketch_local_point(end_id, sketch_payload, solve_snapshot)
+            center = _sketch_local_point(center_id, sketch_payload, solve_snapshot)
+            import math as _math
+            radius = _math.hypot(start.x - center.x, start.y - center.y)
+            arc = Part.ArcOfCircle(Part.Circle(center, App.Vector(0.0, 0.0, 1.0), radius), _math.atan2(start.y - center.y, start.x - center.x), _math.atan2(end.y - center.y, end.x - center.x))
+            geom_index = int(obj.addGeometry(arc, construction))
+            geom_by_entity[entity_id] = geom_index
+            point_refs.setdefault(start_id, []).append((geom_index, 1))
+            point_refs.setdefault(end_id, []).append((geom_index, 2))
+        elif kind == 'bspline':
+            cps_data = entity.get('control_points', [])
+            degree = int(entity.get('degree', 3))
+            knots = entity.get('knots')
+            mults = entity.get('multiplicities')
+            weights = entity.get('weights')
+            periodic = bool(entity.get('periodic', False))
+            cps = [App.Vector(float(p[0]), float(p[1]), 0.0) for p in cps_data]
+            curve = Part.BSplineCurve()
+            if weights:
+                curve.buildFromPolesMultsKnots(cps, mults, knots, periodic, degree, weights)
+            else:
+                curve.buildFromPolesMultsKnots(cps, mults, knots, periodic, degree)
+            geom_index = int(obj.addGeometry(curve, construction))
+            geom_by_entity[entity_id] = geom_index
+            start_id = str(entity.get('start'))
+            end_id = str(entity.get('end'))
+            point_refs.setdefault(start_id, []).append((geom_index, 1))
+            point_refs.setdefault(end_id, []).append((geom_index, 2))
+
+    if not geom_by_entity:
+        raise RuntimeError('Sketch promotion contains no materialized line or circle geometry')
+    constraint_status = _materialize_sketch_constraints(obj, sketch_payload, params, param_exprs or {}, geom_by_entity, point_refs)
+    try:
+        obj.solve()
+    except Exception:
+        pass
+    try:
+        doc.recompute()
+    except Exception:
+        pass
+    _attach_sketch_promotion_metadata(obj, params, constraint_status)
+    _attach_simplecad_metadata(
+        obj,
+        node_id=node_id,
+        op=op,
+        params=params,
+        inputs=inputs,
+        tags=tags,
+        context=context,
+        output_count=output_count,
+        param_exprs=param_exprs,
+        semantic_delta=semantic_delta,
+        topo_delta=topo_delta,
+    )
+    SKETCH_REGISTRY.append({'node_id': node_id, 'op': op, 'object': obj.Name, 'constraint_status': constraint_status})
+    registered = _register_graph_object(
+        obj,
+        node_id=node_id,
+        op=op,
+        params=params,
+        inputs=inputs,
+        tags=tags,
+        context=context,
+        output_count=output_count,
+        param_exprs=param_exprs,
+        semantic_delta=semantic_delta,
+        topo_delta=topo_delta,
+    )
+    return registered
 
 
 def _sanitize_expr_alias(expr_id, prefix='expr'):
@@ -1957,6 +3372,187 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"{var_name} = _register_graph_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(source_node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
 
+        if node.op == "make_material_rmaterial":
+            return [
+                f"{var_name} = dict({rp})",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'material', 'material': {var_name}}}",
+                f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op in {"make_placement_rplacement", "make_identity_placement_rplacement"}:
+            return [
+                f"{var_name} = dict({rp})",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'placement', 'placement': {var_name}}}",
+                f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_part_rpart" and len(inputs) == 1:
+            lines = [
+                f"{var_name} = doc.addObject('App::Part', {_json_ascii(object_name)})",
+                f"{var_name}.Label = str({rp}.get('name') or {rp}.get('part_id') or {_json_ascii(object_name)})",
+                f"{var_name}_source_body = GRAPH_NODES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_body = _make_part_body_copy({var_name}, {var_name}_source_body, {_json_ascii(inputs[0])})",
+                f"{var_name}.addObject({var_name}_body)",
+                f"_ensure_string_property({var_name}, 'SimpleCADPartId')",
+                f"{var_name}.SimpleCADPartId = str({rp}.get('part_id', ''))",
+                f"_hide_origin_tree({var_name})",
+            ]
+            lines.extend(finish())
+            lines.append(
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'part', 'part_id': str({rp}.get('part_id', '')), 'body': {var_name}_body, 'container': {var_name}, 'material': None, 'connectors': []}}"
+            )
+            return lines
+
+        if node.op == "make_assign_material_rpart" and len(inputs) >= 2:
+            lines = [
+                f"{var_name}_part = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_material = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['material']",
+                f"{var_name} = {var_name}_part['container']",
+                f"_ensure_string_property({var_name}, 'SimpleCADMaterial')",
+                f"{var_name}.SimpleCADMaterial = json.dumps({var_name}_material, ensure_ascii=True, sort_keys=True)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_part)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['material'] = {var_name}_material",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+            return lines
+
+        if node.op == "make_assembly_rassembly":
+            lines = [
+                f"{var_name} = _make_native_assembly({_json_ascii(object_name)}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+                f"{var_name}.Label = str({rp}.get('name') or {rp}.get('assembly_id') or {_json_ascii(object_name)})",
+                f"_ensure_string_property({var_name}, 'SimpleCADAssemblyId')",
+                f"{var_name}.SimpleCADAssemblyId = str({rp}.get('assembly_id', ''))",
+            ]
+            lines.append(
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'assembly', 'assembly_id': str({rp}.get('assembly_id', '')), 'container': {var_name}, 'components': [], 'connectors': [], 'constraints': [], 'grounded_component_ids': []}}"
+            )
+            return lines
+
+        if node.op == "make_add_component_rassembly" and len(inputs) >= 3:
+            lines = [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_item = PRODUCT_VALUES[{_json_ascii(inputs[1])}]",
+                f"{var_name}_placement = PRODUCT_VALUES[{_json_ascii(inputs[2])}]['placement']",
+                f"{var_name} = {var_name}_assembly['container']",
+                f"{var_name}_link_label = str({rp}.get('name') or {rp}.get('component_id') or {_json_ascii(object_name)})",
+                f"{var_name}_link = _make_assembly_component_link({var_name}, {var_name}_item, {_json_ascii(object_name + '_component')}, {var_name}_link_label, {var_name}_placement)",
+                f"_ensure_string_property({var_name}_link, 'SimpleCADComponentId')",
+                f"{var_name}_link.SimpleCADComponentId = str({rp}.get('component_id', ''))",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['components'] = list({var_name}_assembly.get('components', [])) + [{{'component_id': str({rp}.get('component_id', '')), 'link': {var_name}_link, 'placement': {var_name}_placement, 'item': {var_name}_item}}]",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+            return lines
+
+        if node.op == "make_place_component_rassembly" and len(inputs) >= 2:
+            lines = [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_placement = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['placement']",
+                f"{var_name} = {var_name}_assembly['container']",
+                f"{var_name}_components = []",
+                f"for _component in {var_name}_assembly.get('components', []):",
+                f"    if str(_component.get('component_id')) == str({rp}.get('component_id')):",
+                f"        _component = dict(_component)",
+                f"        _component['placement'] = {var_name}_placement",
+                f"        _component['link'].Placement = _placement_from_axes_payload({var_name}_placement)",
+                f"    {var_name}_components.append(_component)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['components'] = {var_name}_components",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+            return lines
+
+        if node.op in {"make_face_connector_rconnector", "make_edge_connector_rconnector", "make_vertex_connector_rconnector"}:
+            return [
+                f"{var_name} = dict({rp})",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'connector', 'connector': {var_name}}}",
+                f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_add_connector_rpart" and len(inputs) >= 2:
+            return [
+                f"{var_name}_part = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_connector = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['connector']",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_part)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['connectors'] = list({var_name}_part.get('connectors', [])) + [{var_name}_connector]",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_add_connector_rassembly" and len(inputs) >= 2:
+            return [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_connector = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['connector']",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['connectors'] = list({var_name}_assembly.get('connectors', [])) + [{var_name}_connector]",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_connector_ref_rconnectorref":
+            return [
+                f"{var_name} = dict({rp})",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'connector_ref', 'connector_ref': {var_name}}}",
+                f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_scalar_limit_rscalarlimit":
+            return [
+                f"{var_name} = dict({rp})",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'scalar_limit', 'scalar_limit': {var_name}}}",
+                f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op in {"make_ground_component_rassembly", "make_unground_component_rassembly"} and len(inputs) >= 1:
+            action = "add" if node.op == "make_ground_component_rassembly" else "remove"
+            return [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"{var_name}_grounded = list({var_name}_assembly.get('grounded_component_ids', []))",
+                f"{var_name}_component_id = str({rp}.get('component_id', ''))",
+                f"{var_name}_grounded = (list({var_name}_grounded) if {_json_ascii(action)} == 'add' else [component_id for component_id in {var_name}_grounded if component_id != {var_name}_component_id])",
+                f"if {_json_ascii(action)} == 'add' and {var_name}_component_id not in {var_name}_grounded: {var_name}_grounded.append({var_name}_component_id)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['grounded_component_ids'] = {var_name}_grounded",
+                f"if {_json_ascii(action)} == 'add': _make_simplecad_grounded_joint({var_name}_assembly, {var_name}_component_id)",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op in {"make_fixed_constraint_rassembly", "make_revolute_constraint_rassembly", "make_prismatic_constraint_rassembly"} and len(inputs) >= 3:
+            return [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_constraint = dict({rp})",
+                f"{var_name}_constraint['connector_a'] = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['connector_ref']",
+                f"{var_name}_constraint['connector_b'] = PRODUCT_VALUES[{_json_ascii(inputs[2])}]['connector_ref']",
+                f"{var_name}_joint = _make_simplecad_joint({var_name}_assembly, {var_name}_constraint, {_json_ascii(object_name)}, str({rp}.get('name') or {rp}.get('constraint_id') or {_json_ascii(object_name)}))",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['constraints'] = list({var_name}_assembly.get('constraints', [])) + [{var_name}_constraint]",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_solve_assembly_constraints_rassembly" and len(inputs) >= 1:
+            return [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"{var_name}_placements = dict({rp}.get('component_placements') or {{}})",
+                f"{var_name}_components = []",
+                f"for _component in {var_name}_assembly.get('components', []):",
+                f"    _component = dict(_component)",
+                f"    _component_id = str(_component.get('component_id'))",
+                f"    if _component_id in {var_name}_placements:",
+                f"        _component['placement'] = {var_name}_placements[_component_id]",
+                f"        _component['link'].Placement = _placement_from_axes_payload(_component['placement'])",
+                f"    {var_name}_components.append(_component)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['components'] = {var_name}_components",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_compound_from_assembly_rcompound" and len(inputs) == 1:
+            return [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"ASSEMBLY_PROJECTION_INPUTS[{_json_ascii(node.node_id)}] = {_json_ascii(inputs[0])}",
+                "doc.recompute()",
+                f"{var_name}_shapes = _shapes_from_product_value({var_name}_assembly)",
+                f"{var_name} = _make_feature({_json_ascii(object_name)}, Part.makeCompound({var_name}_shapes), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
         if node.op in {
             "make_select_rvertex",
             "make_select_redge",
@@ -1967,6 +3563,45 @@ def _resolve_vec3_param(params, param_exprs, key):
             return [
                 f"{var_name} = _register_geo_selection_node(node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
+
+        if node.op in {
+            "make_sketch_rsketch",
+            "make_add_point_rsketch",
+            "make_add_line_rsketch",
+            "make_add_circle_rsketch",
+            "make_add_arc_rsketch",
+            "make_add_bspline_rsketch",
+            "make_constrain_coincident_rsketch",
+            "make_constrain_point_on_rsketch",
+            "make_constrain_horizontal_rsketch",
+            "make_constrain_vertical_rsketch",
+            "make_constrain_parallel_rsketch",
+            "make_constrain_perpendicular_rsketch",
+            "make_constrain_collinear_rsketch",
+            "make_constrain_tangent_rsketch",
+            "make_constrain_concentric_rsketch",
+            "make_constrain_midpoint_rsketch",
+            "make_constrain_symmetric_rsketch",
+            "make_constrain_equal_length_rsketch",
+            "make_constrain_equal_radius_rsketch",
+            "make_constrain_distance_rsketch",
+            "make_constrain_distance_x_rsketch",
+            "make_constrain_distance_y_rsketch",
+            "make_constrain_length_rsketch",
+            "make_constrain_angle_rsketch",
+            "make_constrain_radius_rsketch",
+            "make_constrain_diameter_rsketch",
+            "make_constrain_fix_rsketch",
+        }:
+            return finish_ir()
+
+        if node.op in {"make_wire_from_sketch_rwire", "make_face_from_sketch_rface"}:
+            return [
+                f"{var_name} = _make_sketch_promotion_object({_json_ascii(object_name)}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+            ]
+
+        if node.node_id in self._suppressed_profile_node_ids:
+            return finish_ir()
 
         if node.op == "make_line_redge":
             lines = [
@@ -1995,7 +3630,7 @@ def _resolve_vec3_param(params, param_exprs, key):
 
         if node.op == "make_spline_redge":
             lines = [
-                f"{var_name} = _register_graph_value(Part.BSplineCurve([_vec(point) for point in _select_fit_samples({rp}['points'], 6)]).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+                f"{var_name} = _register_graph_value(_bspline_curve_from_params({rp}).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
             return lines
 
@@ -2197,7 +3832,7 @@ def _resolve_vec3_param(params, param_exprs, key):
                         )
                     elif input_node.op == "make_spline_redge":
                         lines.append(
-                            f"{var_name}.addGeometry(_fit_bspline_curve([tuple(_local_point_on_frame(point, {var_name}_origin, {var_name}_xaxis, {var_name}_yaxis)) for point in {edge_var}_params['points']], 6), False)"
+                            f"{var_name}.addGeometry(_bspline_curve_from_params({edge_var}_params, transform_point=lambda point: _local_point_on_frame(point, {var_name}_origin, {var_name}_xaxis, {var_name}_yaxis)), False)"
                         )
                     elif input_node.op == "make_three_point_arc_redge":
                         lines.append(
@@ -2223,8 +3858,9 @@ def _resolve_vec3_param(params, param_exprs, key):
                 lines.append(
                     f"{var_name}.SimpleCADExprLimitation = json.dumps({var_name}_expr_limitations, ensure_ascii=True, sort_keys=True) if {var_name}_expr_limitations else {var_name}.SimpleCADExprLimitation"
                 )
+                lines.append(f"if {var_name}_expr_limitations:")
                 lines.append(
-                    f"GRAPH_LIMITATIONS[{_json_ascii(node.node_id)}] = {{'op': {_json_ascii(node.op)}, 'reason': json.dumps({var_name}_expr_limitations, ensure_ascii=True, sort_keys=True)}} if {var_name}_expr_limitations else GRAPH_LIMITATIONS.get({_json_ascii(node.node_id)})"
+                    f"    GRAPH_LIMITATIONS[{_json_ascii(node.node_id)}] = {{'op': {_json_ascii(node.op)}, 'reason': json.dumps({var_name}_expr_limitations, ensure_ascii=True, sort_keys=True)}}"
                 )
                 return lines
             lines = [
@@ -2246,9 +3882,12 @@ def _resolve_vec3_param(params, param_exprs, key):
             return lines
 
         if node.op == "make_face_from_wire_rface":
+            if inputs:
+                return [
+                    f"{var_name} = _make_feature({_json_ascii(object_name)}, _face_shape_from_wire_shape(GRAPH_NODES[{_json_ascii(inputs[0])}], {_json_ascii(node.op)}), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+                ]
             input_node = graph.get_node(inputs[0]) if inputs else None
             if input_node is not None and input_node.op == "make_wire_from_edges_rwire":
-                return finish_alias(inputs[0])
                 edge_nodes = [graph.get_node(inp.node_id) for inp in input_node.inputs]
                 if edge_nodes and all(
                     ed is not None and ed.op == "make_line_redge" for ed in edge_nodes
@@ -2298,7 +3937,7 @@ def _resolve_vec3_param(params, param_exprs, key):
                     spline_var = _safe_name(spline_node.node_id)
                     lines = [
                         f"{var_name} = doc.addObject('Sketcher::SketchObject', {_json_ascii(object_name)})",
-                        f"{var_name}.addGeometry(_fit_bspline_curve({spline_var}_params['points'], 6), False)",
+                        f"{var_name}.addGeometry(_bspline_curve_from_params({spline_var}_params), False)",
                     ]
                     lines.extend(finish())
                     return lines
@@ -2316,11 +3955,49 @@ def _resolve_vec3_param(params, param_exprs, key):
                     lines.extend(finish())
                     return lines
 
+        if node.op == "make_face_from_wires_rface" and len(inputs) >= 1:
+            return [
+                "doc.recompute()",
+                f"{var_name} = _make_feature({_json_ascii(object_name)}, _face_shape_from_wire_shapes(GRAPH_NODES[{_json_ascii(inputs[0])}], [GRAPH_NODES[node_id] for node_id in {var_name}_inputs[1:]], {_json_ascii(node.op)}), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
         if node.op == "make_extrude_rsolid" and len(inputs) == 1:
             base_node = graph.get_node(inputs[0])
+            profile_node = base_node
+            if (
+                profile_node is not None
+                and profile_node.op == "make_face_from_wire_rface"
+                and profile_node.inputs
+            ):
+                profile_node = graph.get_node(profile_node.inputs[0].node_id)
+            circle_node = None
+            if (
+                profile_node is not None
+                and profile_node.op == "make_wire_from_edges_rwire"
+                and len(profile_node.inputs) == 1
+            ):
+                edge_node = graph.get_node(profile_node.inputs[0].node_id)
+                if edge_node is not None and edge_node.op == "make_circle_redge":
+                    circle_node = edge_node
+            if circle_node is not None:
+                circle_var = _safe_name(circle_node.node_id)
+                lines = [
+                    f"{var_name} = doc.addObject('Part::Cylinder', {_json_ascii(object_name)})",
+                    f"{var_name}.Radius = float(_resolve_param_value({circle_var}_params, {circle_var}_param_exprs, 'radius'))",
+                    f"{var_name}.Height = float(_resolve_param_value({rp}, {re}, 'distance'))",
+                    f"{var_name}.Placement = App.Placement(_vec(_resolve_vec3_param({circle_var}_params, {circle_var}_param_exprs, 'center')), App.Rotation(App.Vector(0.0, 0.0, 1.0), _normalized_vec(_resolve_vec3_param({rp}, {re}, 'direction'))))",
+                ]
+                lines.extend(finish())
+                return lines
             if base_node is not None and base_node.op in {
                 "make_face_from_wire_rface",
+                "make_face_from_wires_rface",
                 "make_wire_from_edges_rwire",
+                "make_face_from_sketch_rface",
+                "make_wire_from_sketch_rwire",
+                "make_2d_cut_rface",
+                "make_2d_union_rface",
+                "make_2d_intersect_rface",
             }:
                 sketch_node_id = inputs[0]
                 if base_node.op == "make_face_from_wire_rface" and base_node.inputs:
@@ -2389,38 +4066,64 @@ def _resolve_vec3_param(params, param_exprs, key):
             return lines
 
         if node.op == "make_cut_rsolid" and len(inputs) >= 2:
-            lines: List[str]
             if len(inputs) == 2:
                 lines = [
+                    "doc.recompute()",
                     f"{var_name} = doc.addObject('Part::Cut', {_json_ascii(object_name)})",
                     f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
                     f"{var_name}.Tool = GRAPH_NODES[{_json_ascii(inputs[1])}]",
                 ]
             else:
-                tool_var = f"{var_name}_tools"
-                lines = [
-                    f"{tool_var} = doc.addObject('Part::MultiFuse', {_json_ascii(_safe_name(f'{object_name}_tools', prefix='tools'))})",
-                    f"{tool_var}.Shapes = [GRAPH_NODES[node_id] for node_id in {var_name}_inputs[1:]]",
-                    f"_set_visibility({tool_var}, False)",
-                    f"{var_name} = doc.addObject('Part::Cut', {_json_ascii(object_name)})",
-                    f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
-                    f"{var_name}.Tool = {tool_var}",
-                ]
+                lines = ["doc.recompute()"]
+                previous_expr = f"GRAPH_NODES[{_json_ascii(inputs[0])}]"
+                for index, tool_node_id in enumerate(inputs[1:], start=1):
+                    is_last = index == len(inputs) - 1
+                    step_var = var_name if is_last else f"{var_name}_step_{index}"
+                    step_name = object_name if is_last else _safe_name(
+                        f"{object_name}_step_{index}", prefix="step"
+                    )
+                    lines.extend(
+                        [
+                            f"{step_var} = doc.addObject('Part::Cut', {_json_ascii(step_name)})",
+                            f"{step_var}.Base = {previous_expr}",
+                            f"{step_var}.Tool = GRAPH_NODES[{_json_ascii(tool_node_id)}]",
+                        ]
+                    )
+                    if not is_last:
+                        lines.append(f"_set_visibility({step_var}, False)")
+                        lines.append("doc.recompute()")
+                    previous_expr = step_var
             lines.extend(finish())
             return lines
 
         if node.op == "make_union_rsolid" and len(inputs) >= 2:
             if len(inputs) == 2:
                 lines = [
+                    "doc.recompute()",
                     f"{var_name} = doc.addObject('Part::Fuse', {_json_ascii(object_name)})",
                     f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
                     f"{var_name}.Tool = GRAPH_NODES[{_json_ascii(inputs[1])}]",
                 ]
             else:
-                lines = [
-                    f"{var_name} = doc.addObject('Part::MultiFuse', {_json_ascii(object_name)})",
-                    f"{var_name}.Shapes = [GRAPH_NODES[node_id] for node_id in {var_name}_inputs]",
-                ]
+                lines = ["doc.recompute()"]
+                previous_expr = f"GRAPH_NODES[{_json_ascii(inputs[0])}]"
+                for index, tool_node_id in enumerate(inputs[1:], start=1):
+                    is_last = index == len(inputs) - 1
+                    step_var = var_name if is_last else f"{var_name}_step_{index}"
+                    step_name = object_name if is_last else _safe_name(
+                        f"{object_name}_step_{index}", prefix="step"
+                    )
+                    lines.extend(
+                        [
+                            f"{step_var} = doc.addObject('Part::Fuse', {_json_ascii(step_name)})",
+                            f"{step_var}.Base = {previous_expr}",
+                            f"{step_var}.Tool = GRAPH_NODES[{_json_ascii(tool_node_id)}]",
+                        ]
+                    )
+                    if not is_last:
+                        lines.append(f"_set_visibility({step_var}, False)")
+                        lines.append("doc.recompute()")
+                    previous_expr = step_var
             lines.extend(finish())
             return lines
 
@@ -2437,6 +4140,13 @@ def _resolve_vec3_param(params, param_exprs, key):
                     f"{var_name}.Shapes = [GRAPH_NODES[node_id] for node_id in {var_name}_inputs]",
                 ]
             lines.extend(finish())
+            return lines
+
+        if node.op in {"make_2d_cut_rface", "make_2d_union_rface", "make_2d_intersect_rface"} and len(inputs) >= 2:
+            lines = [
+                "doc.recompute()",
+                f"{var_name} = _make_feature({_json_ascii(object_name)}, _face_boolean_shape({_json_ascii(node.op)}, GRAPH_NODES[{_json_ascii(inputs[0])}], GRAPH_NODES[{_json_ascii(inputs[1])}]), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
             return lines
 
         if node.op == "make_fillet_rsolid" and len(inputs) >= 1:
@@ -2494,10 +4204,30 @@ def _resolve_vec3_param(params, param_exprs, key):
             vector = node.params.get("vector")
             if isinstance(vector, (list, tuple)) and len(vector) == 3:
                 try:
-                    if all(abs(float(v)) <= 1e-12 for v in vector):
+                    if all(abs(float(v)) <= 1e-12 for v in vector) and not _contains_expr_refs(dict(node.param_exprs)):
                         return finish_alias(inputs[0])
                 except Exception:
                     pass
+            if self._can_fold_transform_into_input(node):
+                lines = [
+                    f"{var_name} = GRAPH_NODES[{_json_ascii(inputs[0])}]",
+                    f"_fold_object_placement({var_name}, App.Placement(_vec(_resolve_vec3_param({rp}, {re}, 'vector')), App.Rotation()))",
+                ]
+                lines.append(
+                    f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
+                )
+                lines.append(
+                    f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+                )
+                return lines
+            if self._should_materialize_transform_for_loft_section(node):
+                lines = [
+                    f"{var_name}_shape = _shape_from_graph_node({_json_ascii(inputs[0])}).copy()",
+                    f"{var_name}_placement = App.Placement(_vec(_resolve_vec3_param({rp}, {re}, 'vector')), App.Rotation())",
+                    f"{var_name}_shape.Placement = {var_name}_placement.multiply({var_name}_shape.Placement)",
+                    f"{var_name} = _make_feature({_json_ascii(object_name)}, {var_name}_shape, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+                ]
+                return lines
             lines = [
                 f"{var_name} = doc.addObject('App::Link', {_json_ascii(object_name)})",
                 f"{var_name}.LinkedObject = GRAPH_NODES[{_json_ascii(inputs[0])}]",
@@ -2510,6 +4240,26 @@ def _resolve_vec3_param(params, param_exprs, key):
             return lines
 
         if node.op == "make_rotate_rshape" and len(inputs) == 1:
+            if self._can_fold_transform_into_input(node):
+                lines = [
+                    f"{var_name} = GRAPH_NODES[{_json_ascii(inputs[0])}]",
+                    f"_fold_object_placement({var_name}, _placement_for_rotation(_resolve_vec3_param({rp}, {re}, 'origin') if 'origin' in {rp} else (0.0, 0.0, 0.0), _resolve_vec3_param({rp}, {re}, 'axis') if 'axis' in {rp} else (0.0, 0.0, 1.0), _resolve_param_value({rp}, {re}, 'angle')))",
+                ]
+                lines.append(
+                    f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
+                )
+                lines.append(
+                    f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+                )
+                return lines
+            if self._should_materialize_transform_for_loft_section(node):
+                lines = [
+                    f"{var_name}_shape = _shape_from_graph_node({_json_ascii(inputs[0])}).copy()",
+                    f"{var_name}_placement = _placement_for_rotation(_resolve_vec3_param({rp}, {re}, 'origin') if 'origin' in {rp} else (0.0, 0.0, 0.0), _resolve_vec3_param({rp}, {re}, 'axis') if 'axis' in {rp} else (0.0, 0.0, 1.0), _resolve_param_value({rp}, {re}, 'angle'))",
+                    f"{var_name}_shape.Placement = {var_name}_placement.multiply({var_name}_shape.Placement)",
+                    f"{var_name} = _make_feature({_json_ascii(object_name)}, {var_name}_shape, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+                ]
+                return lines
             lines = [
                 f"{var_name} = doc.addObject('App::Link', {_json_ascii(object_name)})",
                 f"{var_name}.LinkedObject = GRAPH_NODES[{_json_ascii(inputs[0])}]",
@@ -2567,7 +4317,14 @@ def translate_model_json_to_freecad_script(
     json_str: str,
     document_name: str = "SimpleCADModel",
 ) -> str:
-    """Translate exported model JSON into a FreeCAD Python script."""
+    """Translate exported model JSON into a FreeCAD Python script.
+
+    Part/Assembly product nodes are emitted as editable FreeCAD document
+    structure: parts use `App::Part`, assemblies use native
+    `Assembly::AssemblyObject`, part components use `App::Link`, and
+    subassembly components use `Assembly::AssemblyLink` when the Assembly
+    workbench module is available.
+    """
 
     return FreeCADScriptTranslator(
         document_name=document_name
@@ -2581,7 +4338,21 @@ def translate_model_json_to_fcstd(
     document_name: str = "SimpleCADModel",
     freecad_cmd: Optional[str] = None,
 ) -> str:
-    """Translate canonical model JSON to `.FCStd` via FreeCADCmd/FreeCAD."""
+    """Translate canonical model JSON to `.FCStd` via FreeCADCmd/FreeCAD.
+
+    Functional sketch promotions are written as visible `Sketcher::SketchObject`
+    nodes with mapped/skipped constraint evidence. Exact B-spline edges are
+    exported to FreeCAD using `Part.BSplineCurve().buildFromPolesMultsKnots(...)`.
+    Safe single-use profile transforms such as section rotate/translate chains are
+    folded into the section object's placement so downstream `Part::Loft` receives
+    already-positioned sections instead of placement-bearing `App::Link` proxies.
+    Part/Assembly product nodes are written as editable FreeCAD assembly structure:
+    parts use `App::Part`, assemblies use native `Assembly::AssemblyObject`, part
+    components use `App::Link`, and nested assembly components use
+    `Assembly::AssemblyLink`. Explicit assembly-to-compound projections remain in
+    the document for geometry workflows but do not replace the visible assembly
+    tree.
+    """
 
     import subprocess
 
@@ -2604,10 +4375,12 @@ def translate_model_json_to_fcstd(
     script = translate_model_json_to_freecad_script(
         json_str, document_name=document_name
     )
+    resolved_output_path = os.path.abspath(output_path)
     save_tail = (
-        f"\nOUTPUT_PATH = {_json_ascii(output_path)}\n"
-        "doc.recompute()\n"
-        "doc.saveAs(OUTPUT_PATH)\n"
+        f"\nOUTPUT_PATH = {_json_ascii(resolved_output_path)}\n"
+        "_apply_result_visibility(RESULT_NODE_IDS)\n"
+        "_set_active_result_object(RESULT_NODE_IDS)\n"
+        "_save_fcstd_with_gui_visibility(OUTPUT_PATH)\n"
         "print(OUTPUT_PATH)\n"
     )
 
@@ -2619,12 +4392,17 @@ def translate_model_json_to_fcstd(
         handle.write(save_tail)
 
     try:
-        subprocess.run(
+        completed = subprocess.run(
             [freecad_exe, temp_script_path],
             check=True,
             text=True,
             capture_output=True,
         )
+        if not os.path.exists(resolved_output_path) or os.path.getsize(resolved_output_path) <= 0:
+            raise RuntimeError(
+                "FreeCAD export completed without creating a non-empty .FCStd file. "
+                f"stderr={completed.stderr.strip()!r}"
+            )
         return output_path
     except Exception as e:
         raise_harness_error(
