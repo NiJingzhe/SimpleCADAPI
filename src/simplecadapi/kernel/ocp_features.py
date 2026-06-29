@@ -7,6 +7,7 @@ from typing import Any, Iterable, Sequence
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_Transform
 from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell, BRepOffsetAPI_ThruSections
 from OCP.gp import gp_Trsf, gp_Vec
+from OCP.TopoDS import TopoDS
 
 from .ocp_curves import make_helix_wire
 
@@ -15,6 +16,17 @@ def make_face_from_wire(wire):
     builder = BRepBuilderAPI_MakeFace(wire, True)
     if not builder.IsDone():
         raise ValueError("OCP face builder failed")
+    return builder.Face()
+
+
+def make_face_from_wires(outer_wire, inner_wires: Sequence[Any]):
+    builder = BRepBuilderAPI_MakeFace(outer_wire, True)
+    if not builder.IsDone():
+        raise ValueError("OCP face builder failed for outer wire")
+    for inner_wire in inner_wires:
+        builder.Add(TopoDS.Wire_s(inner_wire.Reversed()))
+        if not builder.IsDone():
+            raise ValueError("OCP face builder failed while adding inner wire")
     return builder.Face()
 
 

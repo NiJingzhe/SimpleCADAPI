@@ -297,6 +297,8 @@ class Sketch(TaggedMixin, TopoMixein):
             valid_subentities = {
                 "line": {"start", "end"},
                 "circle": {"center"},
+                "arc": {"start", "end"},
+                "bspline": {"start", "end"},
             }.get(entity.kind, set())
             if subentity not in valid_subentities:
                 raise ValueError(
@@ -391,6 +393,77 @@ class Sketch(TaggedMixin, TopoMixein):
         )
         return self
 
+    def add_arc(
+        self,
+        entity_id: str,
+        start: SketchRef,
+        end: SketchRef,
+        center: SketchRef,
+        *,
+        construction: bool = False,
+    ) -> "Sketch":
+        """Add an arc edge defined by start point, end point, and center point."""
+        start_id = self.resolve_point_id(start)
+        end_id = self.resolve_point_id(end)
+        center_id = self.resolve_point_id(center)
+        if start_id == end_id:
+            raise ValueError("A sketch arc requires two distinct endpoint refs")
+        self._add_entity(
+            SketchEntity(
+                entity_id,
+                "arc",
+                {"start": start_id, "end": end_id, "center": center_id},
+                construction=construction,
+            )
+        )
+        return self
+
+    def add_bspline(
+        self,
+        entity_id: str,
+        start: SketchRef,
+        end: SketchRef,
+        control_points: Sequence[Sequence[float]],
+        degree: int = 3,
+        knots: Optional[Sequence[float]] = None,
+        multiplicities: Optional[Sequence[int]] = None,
+        weights: Optional[Sequence[float]] = None,
+        periodic: bool = False,
+        *,
+        construction: bool = False,
+    ) -> "Sketch":
+        """Add a B-spline curve edge defined by control points.
+
+        The start/end point refs link the B-spline into the profile loop.
+        Control points are stored as literal 2-D coordinates (not point
+        entity ids) so the solver does not modify them.
+        """
+        start_id = self.resolve_point_id(start)
+        end_id = self.resolve_point_id(end)
+        if start_id == end_id:
+            raise ValueError("A sketch bspline requires two distinct endpoint refs")
+        if len(control_points) < degree + 1:
+            raise ValueError(f"bspline requires at least degree+1 control points, got {len(control_points)}")
+        literal_cps = [[float(p[0]), float(p[1])] for p in control_points]
+        self._add_entity(
+            SketchEntity(
+                entity_id,
+                "bspline",
+                {
+                    "start": start_id,
+                    "end": end_id,
+                    "control_points": literal_cps,
+                    "degree": int(degree),
+                    "knots": list(knots) if knots is not None else None,
+                    "multiplicities": list(multiplicities) if multiplicities is not None else None,
+                    "weights": list(weights) if weights is not None else None,
+                    "periodic": bool(periodic),
+                },
+                construction=construction,
+            )
+        )
+        return self
+
     def add_constraint(
         self,
         kind: str,
@@ -465,7 +538,74 @@ class Sketch(TaggedMixin, TopoMixein):
                 for index in range(len(points))
             ]
             return make_wire_from_edges_rwire(edges)
+        if profile_payload["kind"] == "edge_loop":
+            return self._wire_from_edge_loop(profile_payload)
         raise ValueError(f"Unsupported sketch profile kind '{profile_payload['kind']}'")
+
+    def _wire_from_edge_loop(self, profile_payload: Mapping[str, Any]) -> Wire:
+        """Build a wire from a mixed-edge profile (line + arc + bspline)."""
+        from .operations import (
+            make_angle_arc_redge,
+            make_line_redge,
+            make_spline_redge,
+            make_wire_from_edges_rwire,
+        )
+
+        entity_ids = profile_payload["entity_ids"]
+        result: SketchSolveResult = profile_payload["solve_result"]
+        # Build a point_id → 3-D coordinate map from the solve result
+        # (includes ALL points, not just loop vertices — needed for arc centers)
+        point_map: Dict[str, Tuple[float, float, float]] = {}
+        for pid, pt in result.solved_points.items():
+            point_map[pid] = self._point3(pt)
+
+        edges = []
+        for eid in entity_ids:
+            entity = self.entities[eid]
+            if entity.kind == "line":
+                start_id, end_id = str(entity.data["start"]), str(entity.data["end"])
+                edges.append(make_line_redge(point_map[start_id], point_map[end_id]))
+            elif entity.kind == "arc":
+                start_id = str(entity.data["start"])
+                end_id = str(entity.data["end"])
+                center_id = str(entity.data["center"])
+                sp = point_map[start_id]
+                ep = point_map[end_id]
+                cp = point_map[center_id]
+                import math as _math
+                start_angle = _math.atan2(sp[1] - cp[1], sp[0] - cp[0])
+                end_angle = _math.atan2(ep[1] - cp[1], ep[0] - cp[0])
+                radius = _math.hypot(sp[0] - cp[0], sp[1] - cp[1])
+                if abs(end_angle - start_angle) < 1e-12:
+                    end_angle += 2.0 * _math.pi
+                edges.append(
+                    make_angle_arc_redge(
+                        center=cp, radius=radius,
+                        start_angle=start_angle, end_angle=end_angle,
+                        normal=(0.0, 0.0, 1.0),
+                    )
+                )
+            elif entity.kind == "bspline":
+                cps_2d = entity.data["control_points"]
+                degree = int(entity.data.get("degree", 3))
+                knots = entity.data.get("knots")
+                multiplicities = entity.data.get("multiplicities")
+                weights = entity.data.get("weights")
+                periodic = bool(entity.data.get("periodic", False))
+                cps_3d = [(p[0], p[1], 0.0) for p in cps_2d]
+                edges.append(
+                    make_spline_redge(
+                        control_points=cps_3d,
+                        degree=degree,
+                        knots=knots,
+                        multiplicities=multiplicities,
+                        weights=weights,
+                        periodic=periodic,
+                    )
+                )
+            else:
+                raise ValueError(f"Unsupported edge kind '{entity.kind}' in edge_loop profile")
+        return make_wire_from_edges_rwire(edges)
 
     def make_face(
         self,
@@ -493,7 +633,7 @@ class Sketch(TaggedMixin, TopoMixein):
             raise ValueError(f"Unknown sketch entity '{ref.entity_id}'")
         if ref.kind == "point":
             self.resolve_point_id(ref)
-        elif ref.kind in {"line", "circle"}:
+        elif ref.kind in {"line", "circle", "arc", "bspline"}:
             entity = self.entities[ref.entity_id]
             if entity.kind != ref.kind:
                 raise ValueError(
@@ -512,6 +652,8 @@ class Sketch(TaggedMixin, TopoMixein):
             return str(entity.data[ref.subentity])
         if entity.kind == "circle" and ref.subentity == "center":
             return str(entity.data["center"])
+        if entity.kind in {"arc", "bspline"} and ref.subentity in {"start", "end"}:
+            return str(entity.data[ref.subentity])
         raise ValueError(f"Cannot resolve {ref!r} to a sketch point")
 
     def _constraint_refs(self, constraint: SketchConstraint) -> List[SketchRef]:
@@ -602,93 +744,100 @@ class Sketch(TaggedMixin, TopoMixein):
                         "normal": self._plane_normal_tuple(),
                     }
                 )
-        profiles.extend(self._line_loop_profiles(result))
+        profiles.extend(self._edge_loop_profiles(result))
         return profiles
 
-    def _line_loop_profiles(self, result: SketchSolveResult) -> List[Dict[str, Any]]:
-        line_ids = [
+    # --- Edge kinds that participate in closed-loop profiles ---
+    _EDGE_KINDS = frozenset({"line", "arc", "bspline"})
+
+    @staticmethod
+    def _edge_endpoints(entity: SketchEntity) -> Tuple[str, str]:
+        """Extract (start_point_id, end_point_id) from any edge entity."""
+        return str(entity.data["start"]), str(entity.data["end"])
+
+    def _edge_loop_profiles(self, result: SketchSolveResult) -> List[Dict[str, Any]]:
+        edge_ids = [
             entity_id
             for entity_id in self.entity_order
-            if self.entities[entity_id].kind == "line" and not self.entities[entity_id].construction
+            if self.entities[entity_id].kind in self._EDGE_KINDS
+            and not self.entities[entity_id].construction
         ]
-        unused = set(line_ids)
+        unused = set(edge_ids)
         profiles: List[Dict[str, Any]] = []
         while unused:
-            first_line = min(unused, key=self.entity_order.index)
-            component = self._line_component(first_line, unused)
+            first_edge = min(unused, key=self.entity_order.index)
+            component = self._edge_component(first_edge, unused)
             unused.difference_update(component)
-            ordered = self._ordered_line_loop(component)
+            ordered = self._ordered_edge_loop(component)
             if ordered is None:
                 continue
-            point_ids, ordered_line_ids = ordered
+            point_ids, ordered_edge_ids = ordered
             profiles.append(
                 {
                     "id": component[0],
-                    "kind": "line_loop",
-                    "entity_ids": list(ordered_line_ids),
+                    "kind": "edge_loop",
+                    "entity_ids": list(ordered_edge_ids),
                     "point_ids": list(point_ids),
                     "points": [self._point3(result.solved_points[pid]) for pid in point_ids],
+                    "solve_result": result,
                 }
             )
         return profiles
 
-    def _line_component(self, first_line: str, candidates: set[str]) -> List[str]:
-        queue = [first_line]
-        seen_lines: set[str] = set()
+    def _edge_component(self, first_edge: str, candidates: set[str]) -> List[str]:
+        queue = [first_edge]
+        seen_edges: set[str] = set()
         seen_points: set[str] = set()
         while queue:
-            line_id = queue.pop(0)
-            if line_id in seen_lines:
+            edge_id = queue.pop(0)
+            if edge_id in seen_edges:
                 continue
-            seen_lines.add(line_id)
-            entity = self.entities[line_id]
-            for point_id in (str(entity.data["start"]), str(entity.data["end"])):
+            seen_edges.add(edge_id)
+            entity = self.entities[edge_id]
+            for point_id in self._edge_endpoints(entity):
                 if point_id in seen_points:
                     continue
                 seen_points.add(point_id)
                 for other_id in candidates:
                     other = self.entities[other_id]
-                    if point_id in {str(other.data["start"]), str(other.data["end"])}:
+                    if point_id in set(self._edge_endpoints(other)):
                         queue.append(other_id)
-        return sorted(seen_lines, key=self.entity_order.index)
+        return sorted(seen_edges, key=self.entity_order.index)
 
-    def _ordered_line_loop(self, line_ids: Sequence[str]) -> Optional[Tuple[List[str], List[str]]]:
+    def _ordered_edge_loop(self, edge_ids: Sequence[str]) -> Optional[Tuple[List[str], List[str]]]:
         adjacency: Dict[str, List[str]] = {}
-        for line_id in line_ids:
-            entity = self.entities[line_id]
-            start = str(entity.data["start"])
-            end = str(entity.data["end"])
-            adjacency.setdefault(start, []).append(line_id)
-            adjacency.setdefault(end, []).append(line_id)
-        if not adjacency or any(len(lines) != 2 for lines in adjacency.values()):
+        for edge_id in edge_ids:
+            entity = self.entities[edge_id]
+            start, end = self._edge_endpoints(entity)
+            adjacency.setdefault(start, []).append(edge_id)
+            adjacency.setdefault(end, []).append(edge_id)
+        if not adjacency or any(len(edges) != 2 for edges in adjacency.values()):
             return None
 
-        start_line = line_ids[0]
-        entity = self.entities[start_line]
-        start_point = str(entity.data["start"])
-        current_point = str(entity.data["end"])
-        used_lines = {start_line}
+        start_edge = edge_ids[0]
+        entity = self.entities[start_edge]
+        start_point, current_point = self._edge_endpoints(entity)
+        used_edges = {start_edge}
         ordered_points = [start_point, current_point]
-        ordered_line_ids = [start_line]
+        ordered_edge_ids = [start_edge]
 
         while current_point != start_point:
-            options = [line_id for line_id in adjacency[current_point] if line_id not in used_lines]
+            options = [eid for eid in adjacency[current_point] if eid not in used_edges]
             if not options:
                 return None
-            next_line = options[0]
-            used_lines.add(next_line)
-            ordered_line_ids.append(next_line)
-            next_entity = self.entities[next_line]
-            next_start = str(next_entity.data["start"])
-            next_end = str(next_entity.data["end"])
+            next_edge = options[0]
+            used_edges.add(next_edge)
+            ordered_edge_ids.append(next_edge)
+            next_entity = self.entities[next_edge]
+            next_start, next_end = self._edge_endpoints(next_entity)
             current_point = next_end if next_start == current_point else next_start
             if current_point != start_point:
                 ordered_points.append(current_point)
-            if len(used_lines) > len(line_ids):
+            if len(used_edges) > len(edge_ids):
                 return None
-        if len(used_lines) != len(line_ids):
+        if len(used_edges) != len(edge_ids):
             return None
-        return ordered_points, ordered_line_ids
+        return ordered_points, ordered_edge_ids
 
 
 class _SketchSolver:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -1045,6 +1046,76 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertTrue(result["wire_closed"])
         self.assertTrue(result["wire_valid"])
         self.assertTrue(result["face_valid"])
+
+    def test_translate_model_json_2d_cut_face_extrudes_hole_fcstd_valid(self):
+        with GraphSession() as session:
+            outer = scad.make_circle_rface(center=(0.0, 0.0, 0.0), radius=5.0)
+            inner = scad.make_circle_rface(center=(0.0, 0.0, 0.0), radius=2.0)
+            ring_face = scad.make_2d_cut_rface(outer, inner)
+            scad.extrude_rsolid(ring_face, (0.0, 0.0, 1.0), 3.0)
+
+        payload = scad.export_model_json(session)
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+cut_faces = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_2d_cut_rface']
+extrusions = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_extrude_rsolid']
+cut_shape = cut_faces[-1].Shape
+solid_shape = extrusions[-1].Shape
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'cut_count': len(cut_faces),
+        'cut_shape_type': cut_shape.ShapeType,
+        'cut_face_count': len(cut_shape.Faces),
+        'cut_wire_count': len(cut_shape.Wires),
+        'solid_count': len(solid_shape.Solids),
+        'volume': float(solid_shape.Volume),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["cut_count"], 1)
+        self.assertEqual(result["cut_shape_type"], "Face")
+        self.assertEqual(result["cut_face_count"], 1)
+        self.assertEqual(result["cut_wire_count"], 2)
+        self.assertEqual(result["solid_count"], 1)
+        self.assertAlmostEqual(result["volume"], math.pi * (25.0 - 4.0) * 3.0, places=2)
+
+    def test_translate_model_json_multi_loop_face_extrudes_hole_fcstd_valid(self):
+        with GraphSession() as session:
+            outer = scad.make_circle_rwire(center=(0.0, 0.0, 0.0), radius=5.0)
+            inner = scad.make_circle_rwire(center=(0.0, 0.0, 0.0), radius=2.0)
+            ring_face = scad.make_face_from_wires_rface(outer, [inner])
+            scad.extrude_rsolid(ring_face, (0.0, 0.0, 1.0), 3.0)
+
+        payload = scad.export_model_json(session)
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+faces = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_face_from_wires_rface']
+extrusions = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_extrude_rsolid']
+face_shape = faces[-1].Shape
+solid_shape = extrusions[-1].Shape
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'face_count': len(faces),
+        'face_shape_type': face_shape.ShapeType,
+        'face_wire_count': len(face_shape.Wires),
+        'solid_count': len(solid_shape.Solids),
+        'volume': float(solid_shape.Volume),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["face_count"], 1)
+        self.assertEqual(result["face_shape_type"], "Face")
+        self.assertEqual(result["face_wire_count"], 2)
+        self.assertEqual(result["solid_count"], 1)
+        self.assertAlmostEqual(result["volume"], math.pi * (25.0 - 4.0) * 3.0, places=2)
 
     def test_translate_model_json_multi_tool_cut_affects_fcstd_result(self):
         with GraphSession() as session:
@@ -2119,6 +2190,61 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
                 for prop, expr in expr_map.items()
             )
         )
+
+    def test_translate_model_json_large_sketch_promotion_fcstd_stays_sketcher_object(self):
+        segment_count = 60
+        radius = 5.0
+        with GraphSession() as session:
+            sketch = scad.make_sketch_rsketch("large_fcstd_profile")
+            for idx in range(segment_count):
+                angle = 2.0 * math.pi * idx / segment_count
+                sketch = scad.add_point_rsketch(
+                    sketch,
+                    f"p{idx}",
+                    radius * math.cos(angle),
+                    radius * math.sin(angle),
+                )
+            for idx in range(segment_count):
+                sketch = scad.add_line_rsketch(
+                    sketch,
+                    f"l{idx}",
+                    f"p{idx}",
+                    f"p{(idx + 1) % segment_count}",
+                )
+            face = scad.make_face_from_sketch_rface(sketch)
+            scad.extrude_rsolid(face, (0.0, 0.0, 1.0), 0.5)
+        payload = scad.export_model_json(session)
+
+        script = scad.translate_model_json_to_freecad_script(payload)
+        self.assertNotIn("Large sketch (>50 entities)", script)
+        self.assertNotIn("materialised as Part::Feature for performance", script)
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+sketches = [obj for obj in doc.Objects if getattr(obj, 'TypeId', '') == 'Sketcher::SketchObject' and getattr(obj, 'SimpleCADOp', '') == 'make_face_from_sketch_rface']
+bridge_features = [obj for obj in doc.Objects if getattr(obj, 'TypeId', '') == 'Part::Feature' and getattr(obj, 'SimpleCADOp', '') == 'make_face_from_sketch_rface']
+extrusions = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_extrude_rsolid']
+sketch = sketches[-1]
+extrusion = extrusions[-1]
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'sketch_count': len(sketches),
+        'bridge_feature_count': len(bridge_features),
+        'geom_count': len(list(sketch.Geometry)),
+        'extrusion_base_type': getattr(extrusion.Base, 'TypeId', ''),
+        'solid_count': 0 if extrusion.Shape.isNull() else len(extrusion.Shape.Solids),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["sketch_count"], 1)
+        self.assertEqual(result["bridge_feature_count"], 0)
+        self.assertEqual(result["geom_count"], segment_count)
+        self.assertEqual(result["extrusion_base_type"], "Sketcher::SketchObject")
+        self.assertEqual(result["solid_count"], 1)
 
     def test_translate_model_json_functional_circle_sketch_promotion_fcstd_valid(self):
         radius = scad.var("fcstd_circle_radius", 1.5)

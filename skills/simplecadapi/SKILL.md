@@ -5,9 +5,9 @@ license: MIT
 compatibility: Documentation/reference bundle for current SimpleCADAPI surfaces.
 metadata:
   project: simplecadapi
-  version: 2.0.0b4
+  version: 2.0.1
   package-name: simplecadapi
-  package-version: 2.0.0b4
+  package-version: 2.0.1
 ---
 
 # SimpleCAD SDK Skill
