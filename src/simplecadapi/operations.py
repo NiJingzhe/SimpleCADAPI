@@ -99,6 +99,7 @@ from .kernel.ocp_curves import (
 )
 from .kernel.ocp_features import (
     make_face_from_wire as make_face_from_wire_ocp,
+    make_face_from_wires as make_face_from_wires_ocp,
     make_helical_sweep_solid,
     make_loft_solid,
     make_sweep_solid,
@@ -109,7 +110,8 @@ from .kernel.ocp_transforms import (
     place_shape_ocp,
     translate_shape_ocp,
 )
-from .kernel.ocp_booleans import common_shapes, fuse_shapes, solids_of
+from .kernel.ocp_booleans import common_shapes, cut_shapes, fuse_shapes, solids_of
+from .kernel.ocp_topology import faces_of as faces_of_ocp
 from .kernel.ocp_export import export_step_shapes, export_stl_shape, make_compound, make_compound_always
 from .kernel.ocp_mesh import tessellate_face
 from .kernel.ocp_properties import bounding_box, distance as ocp_distance
@@ -130,6 +132,7 @@ _OP_MAKE_SPLINE_REDGE = "make_spline_redge"
 _OP_MAKE_HELIX_REDGE = "make_helix_redge"
 _OP_MAKE_WIRE_FROM_EDGES_RWIRE = "make_wire_from_edges_rwire"
 _OP_MAKE_FACE_FROM_WIRE_RFACE = "make_face_from_wire_rface"
+_OP_MAKE_FACE_FROM_WIRES_RFACE = "make_face_from_wires_rface"
 _OP_MAKE_TRANSLATE_RSHAPE = "make_translate_rshape"
 _OP_MAKE_ROTATE_RSHAPE = "make_rotate_rshape"
 _OP_MAKE_MIRROR_RSHAPE = "make_mirror_rshape"
@@ -140,6 +143,9 @@ _OP_MAKE_SWEEP_RSOLID = "make_sweep_rsolid"
 _OP_MAKE_UNION_RSOLID = "make_union_rsolid"
 _OP_MAKE_CUT_RSOLID = "make_cut_rsolid"
 _OP_MAKE_INTERSECT_RSOLID = "make_intersect_rsolid"
+_OP_MAKE_CUT_RFACE = "make_2d_cut_rface"
+_OP_MAKE_UNION_RFACE = "make_2d_union_rface"
+_OP_MAKE_INTERSECT_RFACE = "make_2d_intersect_rface"
 _OP_MAKE_FILLET_RSOLID = "make_fillet_rsolid"
 _OP_MAKE_CHAMFER_RSOLID = "make_chamfer_rsolid"
 _OP_MAKE_SHELL_RSOLID = "make_shell_rsolid"
@@ -1560,6 +1566,129 @@ def add_circle_rsketch(
         )
 
 
+def add_bspline_rsketch(
+    sketch: Sketch,
+    entity_id: str,
+    start: Union[SketchRef, str],
+    end: Union[SketchRef, str],
+    control_points: Sequence[Sequence[float]],
+    degree: int = 3,
+    knots: Optional[Sequence[float]] = None,
+    multiplicities: Optional[Sequence[int]] = None,
+    weights: Optional[Sequence[float]] = None,
+    periodic: bool = False,
+    *,
+    construction: bool = False,
+) -> Sketch:
+    """Add a B-spline curve entity to a sketch.
+
+    The start/end point refs link the B-spline into a closed profile
+    loop.  Control points are stored as literal 2-D coordinates.
+    """
+    try:
+        start_ref = _resolve_sketch_target(sketch, start, expected="point")
+        end_ref = _resolve_sketch_target(sketch, end, expected="point")
+        updated = sketch.clone(include_solve=False)
+        updated.add_bspline(
+            entity_id, start_ref, end_ref,
+            control_points=control_points,
+            degree=degree,
+            knots=knots,
+            multiplicities=multiplicities,
+            weights=weights,
+            periodic=periodic,
+            construction=construction,
+        )
+        return cast(
+            Sketch,
+            _finalize_runtime_object(
+                updated,
+                op="make_add_bspline_rsketch",
+                params={
+                    "sketch_id": updated.sketch_id,
+                    "entity_id": entity_id,
+                    "start": _sketch_target_to_path(start_ref),
+                    "end": _sketch_target_to_path(end_ref),
+                    "degree": degree,
+                    "control_point_count": len(control_points),
+                    "periodic": periodic,
+                    "construction": construction,
+                },
+                input_objects=[sketch],
+                tags={"sketch", "bspline"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_bspline_rsketch",
+            what_happened="Failed to add a B-spline to the sketch.",
+            possible_causes=[
+                "The entity id is duplicated.",
+                "The start or end ref does not belong to this sketch.",
+                "Too few control points for the requested degree.",
+            ],
+            how_to_fix=[
+                "Use a unique entity id.",
+                "Create start and end points with add_point_rsketch(...) first.",
+                "Pass at least degree+1 control points.",
+            ],
+            error=e,
+        )
+
+
+def add_arc_rsketch(
+    sketch: Sketch,
+    entity_id: str,
+    start: Union[SketchRef, str],
+    end: Union[SketchRef, str],
+    center: Union[SketchRef, str],
+    *,
+    construction: bool = False,
+) -> Sketch:
+    """Add an arc entity to a sketch."""
+    try:
+        start_ref = _resolve_sketch_target(sketch, start, expected="point")
+        end_ref = _resolve_sketch_target(sketch, end, expected="point")
+        center_ref = _resolve_sketch_target(sketch, center, expected="point")
+        updated = sketch.clone(include_solve=False)
+        updated.add_arc(
+            entity_id, start_ref, end_ref, center_ref,
+            construction=construction,
+        )
+        return cast(
+            Sketch,
+            _finalize_runtime_object(
+                updated,
+                op="make_add_arc_rsketch",
+                params={
+                    "sketch_id": updated.sketch_id,
+                    "entity_id": entity_id,
+                    "start": _sketch_target_to_path(start_ref),
+                    "end": _sketch_target_to_path(end_ref),
+                    "center": _sketch_target_to_path(center_ref),
+                    "construction": construction,
+                },
+                input_objects=[sketch],
+                tags={"sketch", "arc"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_arc_rsketch",
+            what_happened="Failed to add an arc to the sketch.",
+            possible_causes=[
+                "The entity id is duplicated.",
+                "The start, end, or center ref does not belong to this sketch.",
+                "The start and end points are the same.",
+            ],
+            how_to_fix=[
+                "Use a unique entity id.",
+                "Create start, end, and center points with add_point_rsketch(...) first.",
+            ],
+            error=e,
+        )
+
+
 def _constrain_rsketch(
     sketch: Sketch,
     kind: str,
@@ -2367,6 +2496,76 @@ def make_face_from_wire_rface(
                 "Pass a Wire object, not an Edge or a list of points.",
                 "Ensure the wire is closed before calling this API.",
                 "If the wire was assembled from edges, verify the edges connect end-to-end.",
+            ],
+            error=e,
+        )
+
+
+def make_face_from_wires_rface(
+    outer_wire: Wire,
+    inner_wires: Sequence[Wire],
+    normal: Tuple[float, float, float] = (0, 0, 1),
+) -> Face:
+    """Create a face from one outer closed wire and optional inner closed wires."""
+    try:
+        if not isinstance(outer_wire, Wire):
+            raise ValueError("outer_wire must be a Wire")
+        if not outer_wire.is_closed():
+            raise ValueError("outer_wire must be closed")
+
+        inner_list = list(inner_wires or [])
+        for inner_wire in inner_list:
+            if not isinstance(inner_wire, Wire):
+                raise ValueError("inner_wires must contain only Wire objects")
+            if not inner_wire.is_closed():
+                raise ValueError("inner wires must be closed")
+
+        cs = get_current_cs()
+        global_normal = cs.transform_point(np.array(normal)) - cs.origin
+        normal_norm = float(np.linalg.norm(global_normal))
+        if normal_norm <= 1e-15 or not np.isfinite(normal_norm):
+            raise ValueError("normal must be a non-zero finite vector")
+        normal_vec = global_normal / normal_norm
+
+        face_shape = make_face_from_wires_ocp(
+            outer_wire.wrapped,
+            [inner_wire.wrapped for inner_wire in inner_list],
+        )
+        face = Face(face_shape)
+
+        face_normal = face.get_normal_at()
+        face_normal_vec = np.array([face_normal.x, face_normal.y, face_normal.z])
+        dot_product = float(np.dot(normal_vec, face_normal_vec))
+        if dot_product < 0:
+            print(f"警告: 创建的面的法向量与期望方向相反 (点积: {dot_product:.3f})")
+
+        face._tags = outer_wire._tags.copy()
+        face._metadata = outer_wire._metadata.copy()
+
+        return cast(
+            Face,
+            _finalize_derived_shape(
+                face,
+                op=_OP_MAKE_FACE_FROM_WIRES_RFACE,
+                params={"normal": normal, "inner_wire_count": len(inner_list)},
+                input_shapes=[outer_wire, *inner_list],
+                tags={"derived", "face"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_face_from_wires_rface",
+            what_happened="Failed to create a face from the input outer and inner wires.",
+            possible_causes=[
+                "The outer wire is not a Wire instance or is not closed.",
+                "One or more inner wires are not Wire instances or are not closed.",
+                "The inner wires are not contained by the outer wire or are geometrically invalid.",
+                "The kernel rejected the multi-loop face definition.",
+            ],
+            how_to_fix=[
+                "Pass one closed outer Wire and zero or more closed inner Wire objects.",
+                "Ensure every inner wire lies inside the outer wire and does not intersect other loops.",
+                "Use a valid non-zero normal vector.",
             ],
             error=e,
         )
@@ -4440,6 +4639,188 @@ def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
                 "Pass only valid Solid objects.",
                 "Verify that the solids truly overlap in space.",
                 "Move the solids so they share a meaningful overlap volume before intersecting.",
+            ],
+            error=e,
+        )
+
+
+# =============================================================================
+# 2D Face boolean operations
+# =============================================================================
+
+
+def _extract_single_face(shape_ocp, operation: str) -> Face:
+    """Extract exactly one Face from an OCP shape result."""
+    result_faces = faces_of_ocp(shape_ocp)
+    if len(result_faces) != 1:
+        raise ValueError(
+            f"{operation} expected exactly 1 face in the result, got {len(result_faces)}"
+        )
+    return Face(result_faces[0])
+
+
+def make_2d_cut_rface(body: Face, tool: Face) -> Face:
+    """Subtract one 2D face from another (2D boolean difference).
+
+    Parameters
+    ----------
+    body : Face
+        The face to subtract from.
+    tool : Face
+        The face to subtract (the cutter).
+
+    Returns
+    -------
+    Face
+        The resulting face after subtraction.  The result may contain
+        inner wires (holes) if the tool was fully inside the body.
+    """
+    try:
+        if not isinstance(body, Face):
+            raise ValueError("body must be a Face")
+        if not isinstance(tool, Face):
+            raise ValueError("tool must be a Face")
+
+        result_shape = cut_shapes(body.wrapped, [tool.wrapped])
+        result_face = _extract_single_face(result_shape, "make_2d_cut_rface")
+
+        result_face._tags = body._tags.copy()
+        result_face._metadata = body._metadata.copy()
+
+        return cast(
+            Face,
+            _finalize_derived_shape(
+                result_face,
+                op=_OP_MAKE_CUT_RFACE,
+                params={},
+                input_shapes=[body, tool],
+                tags={"derived", "face"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_2d_cut_rface",
+            what_happened="Failed to subtract one face from another.",
+            possible_causes=[
+                "The body or tool is not a Face.",
+                "The faces do not overlap or are not coplanar.",
+                "The kernel could not compute a stable 2D difference.",
+            ],
+            how_to_fix=[
+                "Pass two valid Face objects.",
+                "Ensure both faces lie on the same plane.",
+                "Verify the tool face overlaps the body face.",
+            ],
+            error=e,
+        )
+
+
+def make_2d_union_rface(face_a: Face, face_b: Face) -> Face:
+    """Compute the boolean union of two 2D faces.
+
+    Parameters
+    ----------
+    face_a : Face
+        First face.
+    face_b : Face
+        Second face.
+
+    Returns
+    -------
+    Face
+        The merged face.  Both inputs must overlap or touch so that the
+        result is a single connected face.
+    """
+    try:
+        if not isinstance(face_a, Face):
+            raise ValueError("face_a must be a Face")
+        if not isinstance(face_b, Face):
+            raise ValueError("face_b must be a Face")
+
+        result_shape = fuse_shapes([face_a.wrapped, face_b.wrapped], clean=True)
+        result_face = _extract_single_face(result_shape, "make_2d_union_rface")
+
+        result_face._tags = face_a._tags | face_b._tags
+        result_face._metadata = {**face_a._metadata, **face_b._metadata}
+
+        return cast(
+            Face,
+            _finalize_derived_shape(
+                result_face,
+                op=_OP_MAKE_UNION_RFACE,
+                params={},
+                input_shapes=[face_a, face_b],
+                tags={"derived", "face"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_2d_union_rface",
+            what_happened="Failed to union two faces.",
+            possible_causes=[
+                "One or both inputs are not Face objects.",
+                "The faces do not overlap or touch.",
+                "The faces are not coplanar.",
+            ],
+            how_to_fix=[
+                "Pass two valid Face objects.",
+                "Ensure the faces overlap or share a boundary.",
+                "Ensure both faces lie on the same plane.",
+            ],
+            error=e,
+        )
+
+
+def make_2d_intersect_rface(face_a: Face, face_b: Face) -> Face:
+    """Compute the boolean intersection of two 2D faces.
+
+    Parameters
+    ----------
+    face_a : Face
+        First face.
+    face_b : Face
+        Second face.
+
+    Returns
+    -------
+    Face
+        The overlapping region of the two faces.
+    """
+    try:
+        if not isinstance(face_a, Face):
+            raise ValueError("face_a must be a Face")
+        if not isinstance(face_b, Face):
+            raise ValueError("face_b must be a Face")
+
+        result_shape = common_shapes([face_a.wrapped, face_b.wrapped])
+        result_face = _extract_single_face(result_shape, "make_2d_intersect_rface")
+
+        result_face._tags = face_a._tags & face_b._tags
+        result_face._metadata = {**face_a._metadata, **face_b._metadata}
+
+        return cast(
+            Face,
+            _finalize_derived_shape(
+                result_face,
+                op=_OP_MAKE_INTERSECT_RFACE,
+                params={},
+                input_shapes=[face_a, face_b],
+                tags={"derived", "face"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_2d_intersect_rface",
+            what_happened="Failed to intersect two faces.",
+            possible_causes=[
+                "One or both inputs are not Face objects.",
+                "The faces do not overlap.",
+                "The faces are not coplanar.",
+            ],
+            how_to_fix=[
+                "Pass two valid Face objects.",
+                "Ensure the faces have a non-empty overlap region.",
+                "Ensure both faces lie on the same plane.",
             ],
             error=e,
         )
