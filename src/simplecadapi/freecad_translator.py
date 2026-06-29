@@ -67,6 +67,7 @@ _OP_EXPRESSION_BINDINGS: Dict[str, Tuple[Tuple[str, Tuple[Any, ...]], ...]] = {
         ("Placement.Base.z", ("center", 2)),
     ),
     "make_face_from_wire_rface": (),
+    "make_face_from_wires_rface": (),
     "make_extrude_rsolid": (
         ("LengthFwd", ("distance",)),
         ("Dir.x", ("direction", 0)),
@@ -620,6 +621,42 @@ class FreeCADScriptTranslator:
             return False
         return True
 
+    def _should_materialize_transform_for_loft_section(self, node: OperationNode) -> bool:
+        graph = self._source_graph
+        if graph is None or node.op not in {"make_translate_rshape", "make_rotate_rshape"} or len(node.inputs) != 1:
+            return False
+        if not self._transform_feeds_only_loft(node.node_id, set()):
+            return False
+        source = node.inputs[0]
+        return source.op in {
+            "make_wire_from_edges_rwire",
+            "make_face_from_wire_rface",
+            "make_wire_from_sketch_rwire",
+            "make_face_from_sketch_rface",
+            "make_translate_rshape",
+            "make_rotate_rshape",
+        }
+
+    def _transform_feeds_only_loft(self, node_id: str, seen: Set[str]) -> bool:
+        graph = self._source_graph
+        if graph is None or node_id in seen:
+            return False
+        seen.add(node_id)
+        downstream = graph.downstream_nodes(node_id)
+        if not downstream:
+            return False
+        for downstream_id in downstream:
+            downstream_node = graph.get_node(downstream_id)
+            if downstream_node is None:
+                return False
+            if downstream_node.op == "make_loft_rsolid":
+                continue
+            if downstream_node.op in {"make_translate_rshape", "make_rotate_rshape"}:
+                if self._transform_feeds_only_loft(downstream_id, seen):
+                    continue
+            return False
+        return True
+
     def _script_helpers(self) -> str:
         return """
 class SimpleCADUnsupportedOpError(RuntimeError):
@@ -853,6 +890,100 @@ def _make_feature(name, shape, *, node_id, op, params, inputs, tags, context, ou
         semantic_delta=semantic_delta,
         topo_delta=topo_delta,
     )
+
+
+def _single_face_shape(shape, operation):
+    if hasattr(shape, 'Shape'):
+        shape = shape.Shape
+    if shape is None or shape.isNull():
+        raise RuntimeError(f'{operation} produced no valid shape')
+    if getattr(shape, 'ShapeType', '') == 'Face':
+        return shape
+    faces = list(getattr(shape, 'Faces', []) or [])
+    if len(faces) == 1:
+        return faces[0]
+    raise RuntimeError(f'{operation} expected exactly one face, got {len(faces)}')
+
+
+def _face_shape_from_wire_shape(shape, operation='make_face_from_wire_rface'):
+    source_obj = shape
+    if hasattr(shape, 'Shape'):
+        shape = shape.Shape
+    try:
+        shape_invalid = shape is None or shape.isNull()
+    except Exception:
+        shape_invalid = shape is None
+    if shape_invalid and hasattr(source_obj, 'Shape'):
+        try:
+            doc.recompute()
+        except Exception:
+            pass
+        shape = getattr(source_obj, 'Shape', None)
+    try:
+        shape_invalid = shape is None or shape.isNull()
+    except Exception:
+        shape_invalid = shape is None
+    if shape_invalid:
+        raise RuntimeError(f'{operation} source has no valid shape')
+    if getattr(shape, 'ShapeType', '') == 'Face':
+        return shape
+    if getattr(shape, 'ShapeType', '') == 'Wire':
+        return Part.Face(shape)
+    wires = list(getattr(shape, 'Wires', []) or [])
+    if len(wires) == 1:
+        return Part.Face(wires[0])
+    return _single_face_shape(shape, operation)
+
+
+def _wire_shape_from_object(obj, operation):
+    source_obj = obj
+    shape = getattr(obj, 'Shape', obj)
+    try:
+        shape_invalid = shape is None or shape.isNull()
+    except Exception:
+        shape_invalid = shape is None
+    if shape_invalid and hasattr(source_obj, 'Shape'):
+        try:
+            doc.recompute()
+        except Exception:
+            pass
+        shape = getattr(source_obj, 'Shape', None)
+    try:
+        shape_invalid = shape is None or shape.isNull()
+    except Exception:
+        shape_invalid = shape is None
+    if shape_invalid:
+        raise RuntimeError(f'{operation} source has no valid shape')
+    if getattr(shape, 'ShapeType', '') == 'Wire':
+        return shape
+    wires = list(getattr(shape, 'Wires', []) or [])
+    if len(wires) == 1:
+        return wires[0]
+    raise RuntimeError(f'{operation} expected exactly one wire, got {len(wires)}')
+
+
+def _face_shape_from_wire_shapes(outer_obj, inner_objs, operation='make_face_from_wires_rface'):
+    wires = [_wire_shape_from_object(outer_obj, operation + ' outer')]
+    for inner_obj in inner_objs:
+        wires.append(_wire_shape_from_object(inner_obj, operation + ' inner').reversed())
+    face = Part.Face(wires)
+    if face is None or face.isNull() or not face.isValid():
+        raise RuntimeError(f'{operation} produced an invalid multi-loop face')
+    return face
+
+
+def _face_boolean_shape(operation, base_obj, tool_obj):
+    base_shape = _face_shape_from_wire_shape(base_obj, operation + ' base')
+    tool_shape = _face_shape_from_wire_shape(tool_obj, operation + ' tool')
+    if operation == 'make_2d_cut_rface':
+        result = base_shape.cut(tool_shape)
+    elif operation == 'make_2d_union_rface':
+        result = base_shape.fuse(tool_shape)
+    elif operation == 'make_2d_intersect_rface':
+        result = base_shape.common(tool_shape)
+    else:
+        raise RuntimeError(f'Unsupported 2D face boolean {operation!r}')
+    return _single_face_shape(result, operation)
 
 
 def _make_native_object(type_id, name, *, node_id, op, params, inputs, tags, context, output_count, param_exprs=None, semantic_delta=None, topo_delta=None):
@@ -2107,12 +2238,21 @@ def _sketch_profile_entity_ids(params, sketch_payload):
     return [
         str(entity.get('id'))
         for entity in entities
-        if entity.get('kind') in {'line', 'circle'} and not bool(entity.get('construction', False))
+        if entity.get('kind') in {'line', 'circle', 'arc', 'bspline'} and not bool(entity.get('construction', False))
     ]
 
 
 def _sketch_world_point(point_id, sketch_payload, solve_snapshot, origin, x_axis, y_axis):
     x, y = _sketch_solved_point(point_id, sketch_payload, solve_snapshot)
+    return App.Vector(
+        origin.x + x * x_axis.x + y * y_axis.x,
+        origin.y + x * x_axis.y + y * y_axis.y,
+        origin.z + x * x_axis.z + y * y_axis.z,
+    )
+
+
+def _sketch_xy_to_world(x, y, origin, x_axis, y_axis):
+    # Convert raw 2-D sketch coordinates to a 3-D world App.Vector.
     return App.Vector(
         origin.x + x * x_axis.x + y * y_axis.x,
         origin.y + x * x_axis.y + y * y_axis.y,
@@ -2143,6 +2283,27 @@ def _sketch_wire_shape_from_promotion(params):
         elif kind == 'circle':
             center = _sketch_world_point(str(entity.get('center')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
             edge_shapes.append(Part.Circle(center, z_axis, _sketch_solved_radius(str(entity_id), entity, solve_snapshot)).toShape())
+        elif kind == 'arc':
+            start = _sketch_world_point(str(entity.get('start')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
+            end = _sketch_world_point(str(entity.get('end')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
+            center = _sketch_world_point(str(entity.get('center')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
+            import math as _math
+            radius = _math.hypot(start.x - center.x, start.y - center.y)
+            edge_shapes.append(Part.ArcOfCircle(Part.Circle(center, z_axis, radius), _math.atan2(start.y - center.y, start.x - center.x), _math.atan2(end.y - center.y, end.x - center.x)).toShape())
+        elif kind == 'bspline':
+            cps_data = entity.get('control_points', [])
+            degree = int(entity.get('degree', 3))
+            knots = entity.get('knots')
+            mults = entity.get('multiplicities')
+            weights = entity.get('weights')
+            periodic = bool(entity.get('periodic', False))
+            cps = [_sketch_xy_to_world(float(p[0]), float(p[1]), origin, x_axis, y_axis) for p in cps_data]
+            curve = Part.BSplineCurve()
+            if weights:
+                curve.buildFromPolesMultsKnots(cps, mults, knots, periodic, degree, weights)
+            else:
+                curve.buildFromPolesMultsKnots(cps, mults, knots, periodic, degree)
+            edge_shapes.append(curve.toShape())
     if not edge_shapes:
         raise RuntimeError('Sketch promotion has no profile geometry to materialize')
     return Part.Wire(edge_shapes)
@@ -2516,7 +2677,7 @@ def _make_sketch_promotion_object(name, *, node_id, op, params, inputs, tags, co
     for entity in entities:
         entity_id = str(entity.get('id'))
         kind = str(entity.get('kind'))
-        construction = bool(entity.get('construction', False)) or (kind in {'line', 'circle'} and entity_id not in profile_ids)
+        construction = bool(entity.get('construction', False)) or (kind in {'line', 'circle', 'arc', 'bspline'} and entity_id not in profile_ids)
         if kind == 'line':
             start_id = str(entity.get('start'))
             end_id = str(entity.get('end'))
@@ -2533,6 +2694,39 @@ def _make_sketch_promotion_object(name, *, node_id, op, params, inputs, tags, co
             geom_index = int(obj.addGeometry(Part.Circle(center, App.Vector(0.0, 0.0, 1.0), radius), construction))
             geom_by_entity[entity_id] = geom_index
             point_refs.setdefault(center_id, []).append((geom_index, 3))
+        elif kind == 'arc':
+            start_id = str(entity.get('start'))
+            end_id = str(entity.get('end'))
+            center_id = str(entity.get('center'))
+            start = _sketch_local_point(start_id, sketch_payload, solve_snapshot)
+            end = _sketch_local_point(end_id, sketch_payload, solve_snapshot)
+            center = _sketch_local_point(center_id, sketch_payload, solve_snapshot)
+            import math as _math
+            radius = _math.hypot(start.x - center.x, start.y - center.y)
+            arc = Part.ArcOfCircle(Part.Circle(center, App.Vector(0.0, 0.0, 1.0), radius), _math.atan2(start.y - center.y, start.x - center.x), _math.atan2(end.y - center.y, end.x - center.x))
+            geom_index = int(obj.addGeometry(arc, construction))
+            geom_by_entity[entity_id] = geom_index
+            point_refs.setdefault(start_id, []).append((geom_index, 1))
+            point_refs.setdefault(end_id, []).append((geom_index, 2))
+        elif kind == 'bspline':
+            cps_data = entity.get('control_points', [])
+            degree = int(entity.get('degree', 3))
+            knots = entity.get('knots')
+            mults = entity.get('multiplicities')
+            weights = entity.get('weights')
+            periodic = bool(entity.get('periodic', False))
+            cps = [App.Vector(float(p[0]), float(p[1]), 0.0) for p in cps_data]
+            curve = Part.BSplineCurve()
+            if weights:
+                curve.buildFromPolesMultsKnots(cps, mults, knots, periodic, degree, weights)
+            else:
+                curve.buildFromPolesMultsKnots(cps, mults, knots, periodic, degree)
+            geom_index = int(obj.addGeometry(curve, construction))
+            geom_by_entity[entity_id] = geom_index
+            start_id = str(entity.get('start'))
+            end_id = str(entity.get('end'))
+            point_refs.setdefault(start_id, []).append((geom_index, 1))
+            point_refs.setdefault(end_id, []).append((geom_index, 2))
 
     if not geom_by_entity:
         raise RuntimeError('Sketch promotion contains no materialized line or circle geometry')
@@ -3375,6 +3569,8 @@ def _resolve_vec3_param(params, param_exprs, key):
             "make_add_point_rsketch",
             "make_add_line_rsketch",
             "make_add_circle_rsketch",
+            "make_add_arc_rsketch",
+            "make_add_bspline_rsketch",
             "make_constrain_coincident_rsketch",
             "make_constrain_point_on_rsketch",
             "make_constrain_horizontal_rsketch",
@@ -3686,9 +3882,12 @@ def _resolve_vec3_param(params, param_exprs, key):
             return lines
 
         if node.op == "make_face_from_wire_rface":
+            if inputs:
+                return [
+                    f"{var_name} = _make_feature({_json_ascii(object_name)}, _face_shape_from_wire_shape(GRAPH_NODES[{_json_ascii(inputs[0])}], {_json_ascii(node.op)}), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+                ]
             input_node = graph.get_node(inputs[0]) if inputs else None
             if input_node is not None and input_node.op == "make_wire_from_edges_rwire":
-                return finish_alias(inputs[0])
                 edge_nodes = [graph.get_node(inp.node_id) for inp in input_node.inputs]
                 if edge_nodes and all(
                     ed is not None and ed.op == "make_line_redge" for ed in edge_nodes
@@ -3756,6 +3955,12 @@ def _resolve_vec3_param(params, param_exprs, key):
                     lines.extend(finish())
                     return lines
 
+        if node.op == "make_face_from_wires_rface" and len(inputs) >= 1:
+            return [
+                "doc.recompute()",
+                f"{var_name} = _make_feature({_json_ascii(object_name)}, _face_shape_from_wire_shapes(GRAPH_NODES[{_json_ascii(inputs[0])}], [GRAPH_NODES[node_id] for node_id in {var_name}_inputs[1:]], {_json_ascii(node.op)}), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
         if node.op == "make_extrude_rsolid" and len(inputs) == 1:
             base_node = graph.get_node(inputs[0])
             profile_node = base_node
@@ -3786,9 +3991,13 @@ def _resolve_vec3_param(params, param_exprs, key):
                 return lines
             if base_node is not None and base_node.op in {
                 "make_face_from_wire_rface",
+                "make_face_from_wires_rface",
                 "make_wire_from_edges_rwire",
                 "make_face_from_sketch_rface",
                 "make_wire_from_sketch_rwire",
+                "make_2d_cut_rface",
+                "make_2d_union_rface",
+                "make_2d_intersect_rface",
             }:
                 sketch_node_id = inputs[0]
                 if base_node.op == "make_face_from_wire_rface" and base_node.inputs:
@@ -3933,6 +4142,13 @@ def _resolve_vec3_param(params, param_exprs, key):
             lines.extend(finish())
             return lines
 
+        if node.op in {"make_2d_cut_rface", "make_2d_union_rface", "make_2d_intersect_rface"} and len(inputs) >= 2:
+            lines = [
+                "doc.recompute()",
+                f"{var_name} = _make_feature({_json_ascii(object_name)}, _face_boolean_shape({_json_ascii(node.op)}, GRAPH_NODES[{_json_ascii(inputs[0])}], GRAPH_NODES[{_json_ascii(inputs[1])}]), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+            return lines
+
         if node.op == "make_fillet_rsolid" and len(inputs) >= 1:
             lines = [
                 f"{var_name} = doc.addObject('Part::Fillet', {_json_ascii(object_name)})",
@@ -4004,6 +4220,14 @@ def _resolve_vec3_param(params, param_exprs, key):
                     f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
                 )
                 return lines
+            if self._should_materialize_transform_for_loft_section(node):
+                lines = [
+                    f"{var_name}_shape = _shape_from_graph_node({_json_ascii(inputs[0])}).copy()",
+                    f"{var_name}_placement = App.Placement(_vec(_resolve_vec3_param({rp}, {re}, 'vector')), App.Rotation())",
+                    f"{var_name}_shape.Placement = {var_name}_placement.multiply({var_name}_shape.Placement)",
+                    f"{var_name} = _make_feature({_json_ascii(object_name)}, {var_name}_shape, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+                ]
+                return lines
             lines = [
                 f"{var_name} = doc.addObject('App::Link', {_json_ascii(object_name)})",
                 f"{var_name}.LinkedObject = GRAPH_NODES[{_json_ascii(inputs[0])}]",
@@ -4027,6 +4251,14 @@ def _resolve_vec3_param(params, param_exprs, key):
                 lines.append(
                     f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
                 )
+                return lines
+            if self._should_materialize_transform_for_loft_section(node):
+                lines = [
+                    f"{var_name}_shape = _shape_from_graph_node({_json_ascii(inputs[0])}).copy()",
+                    f"{var_name}_placement = _placement_for_rotation(_resolve_vec3_param({rp}, {re}, 'origin') if 'origin' in {rp} else (0.0, 0.0, 0.0), _resolve_vec3_param({rp}, {re}, 'axis') if 'axis' in {rp} else (0.0, 0.0, 1.0), _resolve_param_value({rp}, {re}, 'angle'))",
+                    f"{var_name}_shape.Placement = {var_name}_placement.multiply({var_name}_shape.Placement)",
+                    f"{var_name} = _make_feature({_json_ascii(object_name)}, {var_name}_shape, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+                ]
                 return lines
             lines = [
                 f"{var_name} = doc.addObject('App::Link', {_json_ascii(object_name)})",

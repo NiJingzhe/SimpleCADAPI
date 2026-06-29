@@ -29,6 +29,7 @@ from .operations import (
     make_cylinder_rsolid,
     make_face_from_sketch_rface,
     make_face_from_wire_rface,
+    make_face_from_wires_rface,
     make_helix_redge,
     make_helix_rwire,
     make_line_redge,
@@ -73,6 +74,8 @@ from .operations import (
     add_point_rsketch,
     add_circle_rsketch,
     add_line_rsketch,
+    add_arc_rsketch,
+    add_bspline_rsketch,
     constrain_angle_rsketch,
     constrain_coincident_rsketch,
     constrain_collinear_rsketch,
@@ -115,8 +118,11 @@ from .operations import (
     select_faces_by_tag,
     # 布尔运算
     cut_rsolid,
+    make_2d_cut_rface,
     intersect_rsolid,
+    make_2d_intersect_rface,
     union_rsolid,
+    make_2d_union_rface,
     # 导出
     export_step,
     export_stl,
@@ -183,6 +189,7 @@ from .errors import SimpleCADError
 
 from . import ql
 from . import math
+from .std import gear as std_gear
 
 # Avoid advertising internal implementation submodules from the top-level package
 # namespace. They remain importable as `simplecadapi.<module>` when needed.
@@ -206,6 +213,7 @@ create_circle_face = make_circle_rface
 create_circle_wire = make_circle_rwire
 create_cylinder = make_cylinder_rsolid
 create_face_from_wire = make_face_from_wire_rface
+create_face_from_wires = make_face_from_wires_rface
 create_helix = make_helix_redge
 create_helix_wire = make_helix_rwire
 create_line = make_line_redge
@@ -264,6 +272,7 @@ __all__ = [
     "make_cylinder_rsolid",
     "make_face_from_sketch_rface",
     "make_face_from_wire_rface",
+    "make_face_from_wires_rface",
     "make_helix_redge",
     "make_helix_rwire",
     "make_line_redge",
@@ -309,6 +318,8 @@ __all__ = [
     "add_point_rsketch",
     "add_circle_rsketch",
     "add_line_rsketch",
+    "add_arc_rsketch",
+    "add_bspline_rsketch",
     "constrain_angle_rsketch",
     "constrain_coincident_rsketch",
     "constrain_collinear_rsketch",
@@ -351,8 +362,11 @@ __all__ = [
     "select_faces_by_tag",
     # 布尔运算
     "cut_rsolid",
+    "make_2d_cut_rface",
     "intersect_rsolid",
+    "make_2d_intersect_rface",
     "union_rsolid",
+    "make_2d_union_rface",
     # 导出
     "export_step",
     "export_stl",
@@ -370,6 +384,7 @@ __all__ = [
     "make_threaded_rod_rsolid",
     "radial_pattern_rsolidlist",
     "ql",
+    "std_gear",
     # Graph/session + serialization APIs
     "GraphSession",
     "suspend_graph_recording",
@@ -429,6 +444,7 @@ __all__ = [
     "create_circle_wire",
     "create_cylinder",
     "create_face_from_wire",
+    "create_face_from_wires",
     "create_helix",
     "create_helix_wire",
     "create_line",

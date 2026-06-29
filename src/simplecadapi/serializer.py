@@ -73,6 +73,7 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "reason": "Composite convenience API that should lower into low-level line/wire/face operations.",
     },
     "make_face_from_wire_rface": {"status": "replayable", "op": "make_face_from_wire_rface"},
+    "make_face_from_wires_rface": {"status": "replayable", "op": "make_face_from_wires_rface"},
     "make_wire_from_edges_rwire": {
         "status": "replayable",
         "op": "make_wire_from_edges_rwire",
@@ -81,6 +82,8 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     "add_point_rsketch": {"status": "replayable", "op": "make_add_point_rsketch"},
     "add_line_rsketch": {"status": "replayable", "op": "make_add_line_rsketch"},
     "add_circle_rsketch": {"status": "replayable", "op": "make_add_circle_rsketch"},
+    "add_arc_rsketch": {"status": "replayable", "op": "make_add_arc_rsketch"},
+    "add_bspline_rsketch": {"status": "replayable", "op": "make_add_bspline_rsketch"},
     "constrain_coincident_rsketch": {"status": "replayable", "op": "make_constrain_coincident_rsketch"},
     "constrain_connect_rsketch": {"status": "replayable", "op": "make_constrain_coincident_rsketch"},
     "constrain_point_on_rsketch": {"status": "replayable", "op": "make_constrain_point_on_rsketch"},
@@ -197,6 +200,9 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     "union_rsolid": {"status": "replayable", "op": "make_union_rsolid"},
     "cut_rsolid": {"status": "replayable", "op": "make_cut_rsolid"},
     "intersect_rsolid": {"status": "replayable", "op": "make_intersect_rsolid"},
+    "make_2d_cut_rface": {"status": "replayable", "op": "make_2d_cut_rface"},
+    "make_2d_union_rface": {"status": "replayable", "op": "make_2d_union_rface"},
+    "make_2d_intersect_rface": {"status": "replayable", "op": "make_2d_intersect_rface"},
     "fillet_rsolid": {"status": "replayable", "op": "make_fillet_rsolid"},
     "chamfer_rsolid": {"status": "replayable", "op": "make_chamfer_rsolid"},
     "shell_rsolid": {"status": "replayable", "op": "make_shell_rsolid"},
@@ -239,10 +245,13 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_helix_redge",
     "make_wire_from_edges_rwire",
     "make_face_from_wire_rface",
+    "make_face_from_wires_rface",
     "make_sketch_rsketch",
     "make_add_point_rsketch",
     "make_add_line_rsketch",
     "make_add_circle_rsketch",
+    "make_add_arc_rsketch",
+    "make_add_bspline_rsketch",
     "make_constrain_coincident_rsketch",
     "make_constrain_point_on_rsketch",
     "make_constrain_horizontal_rsketch",
@@ -298,6 +307,9 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_cut_rsolid",
     "make_union_rsolid",
     "make_intersect_rsolid",
+    "make_2d_cut_rface",
+    "make_2d_union_rface",
+    "make_2d_intersect_rface",
     "make_fillet_rsolid",
     "make_chamfer_rsolid",
     "make_shell_rsolid",
@@ -585,6 +597,7 @@ def export_model_json(
                 "make_helix_redge",
                 "make_wire_from_edges_rwire",
                 "make_face_from_wire_rface",
+                "make_face_from_wires_rface",
                 "make_wire_from_sketch_rwire",
                 "make_face_from_sketch_rface",
             }:
@@ -1511,6 +1524,41 @@ def _execute_graph(
                             _store_outputs(node, result)
                         continue
 
+                    if op_name == "make_add_arc_rsketch":
+                        ctx.require_params(node.node_id, op_name, params, ("entity_id", "start", "end", "center"))
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.add_arc_rsketch(
+                                cast(Sketch, sketch_outputs[0]),
+                                str(params["entity_id"]),
+                                str(params["start"]),
+                                str(params["end"]),
+                                str(params["center"]),
+                                construction=bool(params.get("construction", False)),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_add_bspline_rsketch":
+                        ctx.require_params(node.node_id, op_name, params, ("entity_id", "start", "end", "degree"))
+                        sketch_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if sketch_outputs:
+                            result = ops.add_bspline_rsketch(
+                                cast(Sketch, sketch_outputs[0]),
+                                str(params["entity_id"]),
+                                str(params["start"]),
+                                str(params["end"]),
+                                control_points=cast(Any, params.get("control_points", [])),
+                                degree=int(params.get("degree", 3)),
+                                knots=cast(Any, params.get("knots")),
+                                multiplicities=cast(Any, params.get("multiplicities")),
+                                weights=cast(Any, params.get("weights")),
+                                periodic=bool(params.get("periodic", False)),
+                                construction=bool(params.get("construction", False)),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
                     if op_name in _SKETCH_CONSTRAINT_KIND_BY_OP:
                         ctx.require_params(node.node_id, op_name, params, ("targets",))
                         sketch_outputs = _input_outputs(ctx, outputs, node, 0)
@@ -1921,6 +1969,48 @@ def _execute_graph(
                             )
                         continue
 
+                    if op_name == "make_2d_cut_rface":
+                        face_outputs = _all_input_outputs(ctx, outputs, node)
+                        if len(face_outputs) >= 2:
+                            result = ops.make_2d_cut_rface(
+                                cast(Any, face_outputs[0]),
+                                cast(Any, face_outputs[1]),
+                            )
+                            _store_outputs(node, result)
+                        elif ctx.strict:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) requires two face inputs"
+                            )
+                        continue
+
+                    if op_name == "make_2d_union_rface":
+                        face_outputs = _all_input_outputs(ctx, outputs, node)
+                        if len(face_outputs) >= 2:
+                            result = ops.make_2d_union_rface(
+                                cast(Any, face_outputs[0]),
+                                cast(Any, face_outputs[1]),
+                            )
+                            _store_outputs(node, result)
+                        elif ctx.strict:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) requires two face inputs"
+                            )
+                        continue
+
+                    if op_name == "make_2d_intersect_rface":
+                        face_outputs = _all_input_outputs(ctx, outputs, node)
+                        if len(face_outputs) >= 2:
+                            result = ops.make_2d_intersect_rface(
+                                cast(Any, face_outputs[0]),
+                                cast(Any, face_outputs[1]),
+                            )
+                            _store_outputs(node, result)
+                        elif ctx.strict:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) requires two face inputs"
+                            )
+                        continue
+
                     if op_name == "make_face_from_wire_rface":
                         ctx.require_params(node.node_id, op_name, params, ("normal",))
                         wire_outputs = _input_outputs(ctx, outputs, node, 0)
@@ -1930,6 +2020,24 @@ def _execute_graph(
                                 normal=cast(Any, tuple(params["normal"])),
                             )
                             _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_face_from_wires_rface":
+                        ctx.require_params(
+                            node.node_id, op_name, params, ("normal", "inner_wire_count")
+                        )
+                        wire_outputs = _all_input_outputs(ctx, outputs, node)
+                        if wire_outputs:
+                            result = ops.make_face_from_wires_rface(
+                                cast(Any, wire_outputs[0]),
+                                cast(Any, wire_outputs[1:]),
+                                normal=cast(Any, tuple(params["normal"])),
+                            )
+                            _store_outputs(node, result)
+                        elif ctx.strict:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) requires wire inputs"
+                            )
                         continue
 
                     if op_name == "make_wire_from_edges_rwire":
