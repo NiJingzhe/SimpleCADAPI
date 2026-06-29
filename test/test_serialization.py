@@ -232,10 +232,13 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_helix_redge",
             "make_wire_from_edges_rwire",
             "make_face_from_wire_rface",
+            "make_face_from_wires_rface",
             "make_sketch_rsketch",
             "make_add_point_rsketch",
             "make_add_line_rsketch",
             "make_add_circle_rsketch",
+            "make_add_arc_rsketch",
+            "make_add_bspline_rsketch",
             "make_constrain_coincident_rsketch",
             "make_constrain_point_on_rsketch",
             "make_constrain_horizontal_rsketch",
@@ -291,6 +294,9 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_cut_rsolid",
             "make_union_rsolid",
             "make_intersect_rsolid",
+            "make_2d_cut_rface",
+            "make_2d_union_rface",
+            "make_2d_intersect_rface",
             "make_fillet_rsolid",
             "make_chamfer_rsolid",
             "make_shell_rsolid",
@@ -411,6 +417,21 @@ class TestReplay(unittest.TestCase):
             wire = scad.make_wire_from_edges_rwire([e1, e2, e3, e4])
             face = scad.make_face_from_wire_rface(wire)
             solid = scad.extrude_rsolid(face, (0, 0, 1), 2.0)
+
+        graph_json = export_graph_json(session.graph)
+        restored = import_graph_json(graph_json)
+        results = replay_graph(restored)
+
+        self.assertEqual(len(results), 1)
+        self.assertIsInstance(results[0], scad.Solid)
+        self.assertAlmostEqual(results[0].get_volume(), solid.get_volume(), places=5)
+
+    def test_replay_multi_loop_face_extrude_roundtrip(self):
+        with scad.GraphSession() as session:
+            outer = scad.make_circle_rwire(center=(0, 0, 0), radius=5.0)
+            inner = scad.make_circle_rwire(center=(0, 0, 0), radius=2.0)
+            face = scad.make_face_from_wires_rface(outer, [inner])
+            solid = scad.extrude_rsolid(face, (0, 0, 1), 3.0)
 
         graph_json = export_graph_json(session.graph)
         restored = import_graph_json(graph_json)

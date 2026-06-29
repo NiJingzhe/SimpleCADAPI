@@ -24,6 +24,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_face_connector_rconnector](make_face_connector_rconnector.md) *(from operations.py)* `top-level`
 - [make_face_from_sketch_rface](make_face_from_sketch_rface.md) *(from operations.py)* `top-level`
 - [make_face_from_wire_rface](make_face_from_wire_rface.md) *(from operations.py)* `top-level`
+- [make_face_from_wires_rface](make_face_from_wires_rface.md) *(from operations.py)* `top-level`
 - [make_helix_redge](make_helix_redge.md) *(from operations.py)* `top-level`
 - [make_helix_rwire](make_helix_rwire.md) *(from operations.py)* `top-level`
 - [make_line_redge](make_line_redge.md) *(from operations.py)* `top-level`
