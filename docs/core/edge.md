@@ -149,8 +149,10 @@ arc = make_three_point_arc_redge(
 )
 apply_tag(arc, "arc_segment")
 
-# 样条边
-spline = make_spline_redge(points=[(0, 0, 0), (1, 1, 0), (2, 0, 0), (3, 1, 0)])
+# 样条边：control_points 是 B-spline poles，不是采样点
+spline = make_spline_redge(
+    control_points=[(0, 0, 0), (1, 1, 0), (2, 1, 0), (3, 0, 0)]
+)
 apply_tag(spline, "smooth_curve")
 
 # 打印边的信息

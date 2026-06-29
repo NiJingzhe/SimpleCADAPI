@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union, cast
 import math
 import numpy as np
@@ -20,6 +21,7 @@ from .core import (
     Wire,
     Face,
     Solid,
+    Compound,
     AnyShape,
     get_current_cs,
 )
@@ -33,6 +35,27 @@ from .graph import (
     suspend_graph_recording,
 )
 from .ql import ShapeSelector
+from .product import (
+    Assembly,
+    Component,
+    Connector,
+    ConnectorRef,
+    Constraint,
+    ConstraintReport,
+    ConstraintResidual,
+    GeometryRef,
+    Material,
+    Part,
+    Placement,
+    ScalarLimit,
+    compose_placements,
+    identity_placement,
+    inspect_assembly_constraints,
+    measure_constraint_residual,
+    solve_assembly_constraints,
+)
+from .sketch import Sketch, SketchRef, SketchSolveResult
+from .tagging import normalize_tag
 from .topology import (
     SemanticDelta,
     SemanticRef,
@@ -76,6 +99,7 @@ from .kernel.ocp_curves import (
 )
 from .kernel.ocp_features import (
     make_face_from_wire as make_face_from_wire_ocp,
+    make_face_from_wires as make_face_from_wires_ocp,
     make_helical_sweep_solid,
     make_loft_solid,
     make_sweep_solid,
@@ -83,10 +107,12 @@ from .kernel.ocp_features import (
 from .kernel.ocp_transforms import (
     mirror_shape_ocp,
     rotate_shape_ocp,
+    place_shape_ocp,
     translate_shape_ocp,
 )
-from .kernel.ocp_booleans import common_shapes, fuse_shapes, solids_of
-from .kernel.ocp_export import export_step_shapes, export_stl_shape, make_compound
+from .kernel.ocp_booleans import common_shapes, cut_shapes, fuse_shapes, solids_of
+from .kernel.ocp_topology import faces_of as faces_of_ocp
+from .kernel.ocp_export import export_step_shapes, export_stl_shape, make_compound, make_compound_always
 from .kernel.ocp_mesh import tessellate_face
 from .kernel.ocp_properties import bounding_box, distance as ocp_distance
 
@@ -106,6 +132,7 @@ _OP_MAKE_SPLINE_REDGE = "make_spline_redge"
 _OP_MAKE_HELIX_REDGE = "make_helix_redge"
 _OP_MAKE_WIRE_FROM_EDGES_RWIRE = "make_wire_from_edges_rwire"
 _OP_MAKE_FACE_FROM_WIRE_RFACE = "make_face_from_wire_rface"
+_OP_MAKE_FACE_FROM_WIRES_RFACE = "make_face_from_wires_rface"
 _OP_MAKE_TRANSLATE_RSHAPE = "make_translate_rshape"
 _OP_MAKE_ROTATE_RSHAPE = "make_rotate_rshape"
 _OP_MAKE_MIRROR_RSHAPE = "make_mirror_rshape"
@@ -116,6 +143,9 @@ _OP_MAKE_SWEEP_RSOLID = "make_sweep_rsolid"
 _OP_MAKE_UNION_RSOLID = "make_union_rsolid"
 _OP_MAKE_CUT_RSOLID = "make_cut_rsolid"
 _OP_MAKE_INTERSECT_RSOLID = "make_intersect_rsolid"
+_OP_MAKE_CUT_RFACE = "make_2d_cut_rface"
+_OP_MAKE_UNION_RFACE = "make_2d_union_rface"
+_OP_MAKE_INTERSECT_RFACE = "make_2d_intersect_rface"
 _OP_MAKE_FILLET_RSOLID = "make_fillet_rsolid"
 _OP_MAKE_CHAMFER_RSOLID = "make_chamfer_rsolid"
 _OP_MAKE_SHELL_RSOLID = "make_shell_rsolid"
@@ -124,6 +154,60 @@ _OP_MAKE_SELECT_REDGE = "make_select_redge"
 _OP_MAKE_SELECT_RWIRE = "make_select_rwire"
 _OP_MAKE_SELECT_RFACE = "make_select_rface"
 _OP_MAKE_SELECT_RSOLID = "make_select_rsolid"
+_OP_MAKE_SKETCH_RSKETCH = "make_sketch_rsketch"
+_OP_MAKE_ADD_POINT_RSKETCH = "make_add_point_rsketch"
+_OP_MAKE_ADD_LINE_RSKETCH = "make_add_line_rsketch"
+_OP_MAKE_ADD_CIRCLE_RSKETCH = "make_add_circle_rsketch"
+_OP_MAKE_WIRE_FROM_SKETCH_RWIRE = "make_wire_from_sketch_rwire"
+_OP_MAKE_FACE_FROM_SKETCH_RFACE = "make_face_from_sketch_rface"
+_OP_MAKE_MATERIAL_RMATERIAL = "make_material_rmaterial"
+_OP_MAKE_PLACEMENT_RPLACEMENT = "make_placement_rplacement"
+_OP_MAKE_IDENTITY_PLACEMENT_RPLACEMENT = "make_identity_placement_rplacement"
+_OP_MAKE_PART_RPART = "make_part_rpart"
+_OP_MAKE_ASSIGN_MATERIAL_RPART = "make_assign_material_rpart"
+_OP_MAKE_ASSEMBLY_RASSEMBLY = "make_assembly_rassembly"
+_OP_MAKE_ADD_COMPONENT_RASSEMBLY = "make_add_component_rassembly"
+_OP_MAKE_PLACE_COMPONENT_RASSEMBLY = "make_place_component_rassembly"
+_OP_MAKE_COMPOUND_FROM_ASSEMBLY_RCOMPOUND = "make_compound_from_assembly_rcompound"
+_OP_MAKE_FACE_CONNECTOR_RCONNECTOR = "make_face_connector_rconnector"
+_OP_MAKE_EDGE_CONNECTOR_RCONNECTOR = "make_edge_connector_rconnector"
+_OP_MAKE_VERTEX_CONNECTOR_RCONNECTOR = "make_vertex_connector_rconnector"
+_OP_MAKE_ADD_CONNECTOR_RPART = "make_add_connector_rpart"
+_OP_MAKE_ADD_CONNECTOR_RASSEMBLY = "make_add_connector_rassembly"
+_OP_MAKE_CONNECTOR_REF_RCONNECTORREF = "make_connector_ref_rconnectorref"
+_OP_MAKE_SCALAR_LIMIT_RSCALARLIMIT = "make_scalar_limit_rscalarlimit"
+_OP_MAKE_GROUND_COMPONENT_RASSEMBLY = "make_ground_component_rassembly"
+_OP_MAKE_UNGROUND_COMPONENT_RASSEMBLY = "make_unground_component_rassembly"
+_OP_MAKE_FIXED_CONSTRAINT_RASSEMBLY = "make_fixed_constraint_rassembly"
+_OP_MAKE_REVOLUTE_CONSTRAINT_RASSEMBLY = "make_revolute_constraint_rassembly"
+_OP_MAKE_PRISMATIC_CONSTRAINT_RASSEMBLY = "make_prismatic_constraint_rassembly"
+_OP_MAKE_SOLVE_ASSEMBLY_CONSTRAINTS_RASSEMBLY = "make_solve_assembly_constraints_rassembly"
+
+
+_SKETCH_CONSTRAINT_OPS = {
+    "coincident": "make_constrain_coincident_rsketch",
+    "connect": "make_constrain_coincident_rsketch",
+    "point_on": "make_constrain_point_on_rsketch",
+    "horizontal": "make_constrain_horizontal_rsketch",
+    "vertical": "make_constrain_vertical_rsketch",
+    "parallel": "make_constrain_parallel_rsketch",
+    "perpendicular": "make_constrain_perpendicular_rsketch",
+    "collinear": "make_constrain_collinear_rsketch",
+    "tangent": "make_constrain_tangent_rsketch",
+    "concentric": "make_constrain_concentric_rsketch",
+    "midpoint": "make_constrain_midpoint_rsketch",
+    "symmetric": "make_constrain_symmetric_rsketch",
+    "equal_length": "make_constrain_equal_length_rsketch",
+    "equal_radius": "make_constrain_equal_radius_rsketch",
+    "distance": "make_constrain_distance_rsketch",
+    "distance_x": "make_constrain_distance_x_rsketch",
+    "distance_y": "make_constrain_distance_y_rsketch",
+    "length": "make_constrain_length_rsketch",
+    "angle": "make_constrain_angle_rsketch",
+    "radius": "make_constrain_radius_rsketch",
+    "diameter": "make_constrain_diameter_rsketch",
+    "fix": "make_constrain_fix_rsketch",
+}
 
 
 def _orthonormal_plane_axes(
@@ -213,6 +297,91 @@ def _wrap_public_api_error(
         how_to_fix=how_to_fix,
         error=error,
     )
+
+
+def _semantic_id_registry(kind: str) -> Set[str]:
+    session = get_active_session()
+    if session is None:
+        return set()
+    registry = getattr(session, "_simplecad_semantic_ids", None)
+    if registry is None:
+        registry = {}
+        setattr(session, "_simplecad_semantic_ids", registry)
+    return cast(Set[str], registry.setdefault(kind, set()))
+
+
+def _reserve_semantic_id(kind: str, value: str) -> None:
+    session = get_active_session()
+    if session is None:
+        return
+    registry = _semantic_id_registry(kind)
+    if value in registry:
+        raise ValueError(f"duplicate {kind} id in active GraphSession: {value}")
+    registry.add(value)
+
+
+def _semantic_created(entity_type: str, entity_id: str, metadata: Optional[Dict[str, Any]] = None) -> SemanticDelta:
+    return SemanticDelta(
+        created=(
+            SemanticRef(
+                graph_id="pending",
+                node_id="pending",
+                entity_type=entity_type,
+                entity_id=entity_id,
+            ),
+        ),
+        metadata=dict(metadata or {}),
+    )
+
+
+def _semantic_modified(entity_type: str, entity_id: str, metadata: Optional[Dict[str, Any]] = None) -> SemanticDelta:
+    return SemanticDelta(
+        modified=(
+            SemanticRef(
+                graph_id="pending",
+                node_id="pending",
+                entity_type=entity_type,
+                entity_id=entity_id,
+            ),
+        ),
+        metadata=dict(metadata or {}),
+    )
+
+
+def _material_params(material: Material) -> Dict[str, object]:
+    return material.to_dict()
+
+
+def _placement_params(placement: Placement) -> Dict[str, object]:
+    return {
+        "origin": placement.origin,
+        "x_axis": placement.x_axis,
+        "y_axis": placement.y_axis,
+    }
+
+
+def _part_params(part: Part) -> Dict[str, object]:
+    return {"part_id": part.part_id, "name": part.name}
+
+
+def _assembly_params(assembly: Assembly) -> Dict[str, object]:
+    return {"assembly_id": assembly.assembly_id, "name": assembly.name}
+
+
+def _connector_params(connector: Connector) -> Dict[str, object]:
+    return connector.to_dict()
+
+
+def _connector_ref_params(connector_ref: ConnectorRef) -> Dict[str, object]:
+    return connector_ref.to_dict()
+
+
+def _scalar_limit_params(limit: ScalarLimit) -> Dict[str, object]:
+    return limit.to_dict()
+
+
+def _constraint_params(constraint: Constraint) -> Dict[str, object]:
+    return constraint.to_dict()
 
 
 def _resolve_union_tol(
@@ -437,6 +606,14 @@ def _make_selector_hint(shape: AnyShape) -> Dict[str, object]:
             "min": (float(bb.xmin), float(bb.ymin), float(bb.zmin)),
             "max": (float(bb.xmax), float(bb.ymax), float(bb.zmax)),
         }
+    elif isinstance(shape, Compound):
+        hint["volume"] = float(shape.get_volume())
+        hint["solid_count"] = len(shape.get_solids())
+        bb = bounding_box(shape.wrapped)
+        hint["bbox"] = {
+            "min": (float(bb.xmin), float(bb.ymin), float(bb.zmin)),
+            "max": (float(bb.xmax), float(bb.ymax), float(bb.zmax)),
+        }
 
     return hint
 
@@ -540,6 +717,8 @@ def _shape_kind_token(shape: AnyShape) -> str:
         return "face"
     if isinstance(shape, Solid):
         return "solid"
+    if isinstance(shape, Compound):
+        return "compound"
     return type(shape).__name__.lower()
 
 
@@ -563,7 +742,7 @@ def _candidate_shapes_for_selection(source: AnyShape, kind: str) -> List[AnyShap
             return list(source.get_edges())
         return [source] if isinstance(source, Edge) else []
     if kind == "face":
-        if isinstance(source, Solid):
+        if isinstance(source, (Solid, Compound)):
             return list(source.get_faces())
         return [source] if isinstance(source, Face) else []
     if kind == "wire":
@@ -587,7 +766,11 @@ def _candidate_shapes_for_selection(source: AnyShape, kind: str) -> List[AnyShap
             ]
         return [source] if isinstance(source, Vertex) else []
     if kind == "solid":
+        if isinstance(source, Compound):
+            return cast(List[AnyShape], source.get_solids())
         return [source] if isinstance(source, Solid) else []
+    if kind == "compound":
+        return [source] if isinstance(source, Compound) else []
     return []
 
 
@@ -658,6 +841,9 @@ def _make_geo_selector(
         center = shape.get_center() if hasattr(shape, "get_center") else None
         if center is not None:
             selector["center"] = [float(center.x), float(center.y), float(center.z)]
+    elif isinstance(shape, Compound):
+        selector["volume"] = float(shape.get_volume())
+        selector["solid_count"] = len(shape.get_solids())
     return selector
 
 
@@ -887,6 +1073,16 @@ def _semantic_delta_for_output(
         }:
             resolved_entity_type = "Point"
         elif op in {
+            _OP_MAKE_SKETCH_RSKETCH,
+            _OP_MAKE_ADD_POINT_RSKETCH,
+            _OP_MAKE_ADD_LINE_RSKETCH,
+            _OP_MAKE_ADD_CIRCLE_RSKETCH,
+            _OP_MAKE_WIRE_FROM_SKETCH_RWIRE,
+            _OP_MAKE_FACE_FROM_SKETCH_RFACE,
+            *_SKETCH_CONSTRAINT_OPS.values(),
+        }:
+            resolved_entity_type = "Sketch"
+        elif op in {
             "make_line",
             "make_circle_edge",
             "make_circle_wire",
@@ -1047,6 +1243,27 @@ def _finalize_derived_shape(
     return shape
 
 
+def _finalize_runtime_object(
+    output: object,
+    *,
+    op: str,
+    params: Dict[str, object],
+    input_objects: Optional[Sequence[object]] = None,
+    tags: Optional[Set[str]] = None,
+    entity_type: str = "Sketch",
+) -> object:
+    record_operation_if_active(
+        op=op,
+        params=params,
+        outputs=output,
+        input_shapes=input_objects,
+        semantic_delta=_semantic_delta_for_output(op, entity_type=entity_type),
+        context=_current_context_metadata(),
+        tags=tags,
+    )
+    return output
+
+
 def _finalize_tracked_solid(
     solid: Solid,
     *,
@@ -1118,6 +1335,742 @@ def make_point_rvertex(x: ScalarLike, y: ScalarLike, z: ScalarLike) -> Vertex:
             ],
             error=e,
         )
+
+
+def make_sketch_rsketch(
+    name: Optional[str] = None,
+    *,
+    plane: Any = "XY",
+    sketch_id: Optional[str] = None,
+) -> Sketch:
+    """Create an empty declarative sketch document.
+
+    Use this API, not concrete edge/wire constructors, when the intent is to
+    build a sketch profile with constraints.
+    """
+    try:
+        sketch = Sketch(name=name, plane=plane, sketch_id=sketch_id)
+        return cast(
+            Sketch,
+            _finalize_runtime_object(
+                sketch,
+                op=_OP_MAKE_SKETCH_RSKETCH,
+                params={"name": name, "plane": plane, "sketch_id": sketch.sketch_id},
+                tags={"sketch"},
+                entity_type="Sketch",
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_sketch_rsketch",
+            what_happened="Failed to create a sketch document.",
+            possible_causes=["The sketch name or plane payload is invalid."],
+            how_to_fix=["Use plane='XY', 'XZ', 'YZ', or a valid plane mapping."],
+            error=e,
+        )
+
+
+def _safe_semantic_tag(prefix: str, value: object) -> str:
+    raw = str(value or "unnamed").strip().lower()
+    raw = re.sub(r"[^a-z0-9_-]+", ".", raw).strip(".")
+    raw = re.sub(r"\.+", ".", raw)
+    segments: List[str] = []
+    for segment in raw.split("."):
+        if not segment:
+            continue
+        if not segment[0].isalpha():
+            segment = f"id_{segment}"
+        segments.append(segment)
+    if not segments:
+        segments = ["unnamed"]
+    return normalize_tag(f"{prefix}.{'.'.join(segments)}", strict=True)
+
+
+def _sketch_target_to_path(target: SketchRef) -> str:
+    if target.kind == "point" and target.subentity != "geometry":
+        return f"{target.entity_id}.{target.subentity}"
+    return target.entity_id
+
+
+def _resolve_sketch_target(
+    sketch: Sketch,
+    target: Union[SketchRef, str],
+    *,
+    expected: Optional[Union[str, Sequence[str]]] = None,
+) -> SketchRef:
+    return sketch.resolve_target(target, expected=expected)
+
+
+def _resolve_sketch_targets(
+    sketch: Sketch,
+    targets: Sequence[Union[SketchRef, str]],
+    *,
+    expected: Optional[Sequence[Optional[Union[str, Sequence[str]]]]] = None,
+) -> List[SketchRef]:
+    refs: List[SketchRef] = []
+    for index, target in enumerate(targets):
+        target_expected = expected[index] if expected is not None else None
+        refs.append(_resolve_sketch_target(sketch, target, expected=target_expected))
+    return refs
+
+
+def add_point_rsketch(
+    sketch: Sketch,
+    point_id: str,
+    x: ScalarLike,
+    y: ScalarLike,
+) -> Sketch:
+    """Add a named point entity and return an updated sketch document."""
+    try:
+        updated = sketch.clone(include_solve=False)
+        updated.add_point(point_id, x, y)
+        return cast(
+            Sketch,
+            _finalize_runtime_object(
+                updated,
+                op=_OP_MAKE_ADD_POINT_RSKETCH,
+                params={
+                    "sketch_id": updated.sketch_id,
+                    "point_id": point_id,
+                    "x": x,
+                    "y": y,
+                },
+                input_objects=[sketch],
+                tags={"sketch", "point"},
+                entity_type="Sketch",
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_point_rsketch",
+            what_happened="Failed to add a point to the sketch.",
+            possible_causes=[
+                "The sketch is invalid.",
+                "The point id is duplicated.",
+                "The x or y value is not a valid scalar or expression.",
+            ],
+            how_to_fix=[
+                "Use a unique point id within the sketch.",
+                "Pass numeric x/y values or valid scalar expressions.",
+            ],
+            error=e,
+        )
+
+
+def get_sketch_entity_rsketchref(
+    sketch: Sketch,
+    entity_id: str,
+) -> SketchRef:
+    """Return a stable ref for a named sketch entity."""
+    return sketch.ref(entity_id)
+
+
+def get_sketch_point_rsketchref(
+    sketch: Sketch,
+    point_path: str,
+) -> SketchRef:
+    """Return a stable ref for a sketch point or endpoint path."""
+    return sketch.point_ref(point_path)
+
+
+def add_line_rsketch(
+    sketch: Sketch,
+    entity_id: str,
+    start: Union[SketchRef, str],
+    end: Union[SketchRef, str],
+    *,
+    construction: bool = False,
+) -> Sketch:
+    """Add a named line entity and return an updated sketch document."""
+    try:
+        start_ref = _resolve_sketch_target(sketch, start, expected="point")
+        end_ref = _resolve_sketch_target(sketch, end, expected="point")
+        updated = sketch.clone(include_solve=False)
+        updated.add_line(entity_id, start_ref, end_ref, construction=construction)
+        return cast(
+            Sketch,
+            _finalize_runtime_object(
+                updated,
+                op=_OP_MAKE_ADD_LINE_RSKETCH,
+                params={
+                    "sketch_id": updated.sketch_id,
+                    "entity_id": entity_id,
+                    "start": _sketch_target_to_path(start_ref),
+                    "end": _sketch_target_to_path(end_ref),
+                    "construction": construction,
+                },
+                input_objects=[sketch],
+                tags={"sketch", "line"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_line_rsketch",
+            what_happened="Failed to add a line to the sketch.",
+            possible_causes=[
+                "The line id is duplicated.",
+                "One of the endpoint refs does not belong to this sketch.",
+                "Both endpoints resolve to the same point.",
+            ],
+            how_to_fix=[
+                "Use a unique line id.",
+                "Create endpoints with add_point_rsketch(...) and refer to them by id.",
+            ],
+            error=e,
+        )
+
+
+def add_circle_rsketch(
+    sketch: Sketch,
+    entity_id: str,
+    center: Union[SketchRef, str],
+    radius: ScalarLike,
+    *,
+    construction: bool = False,
+) -> Sketch:
+    """Add a named circle entity and return an updated sketch document."""
+    try:
+        center_ref = _resolve_sketch_target(sketch, center, expected="point")
+        updated = sketch.clone(include_solve=False)
+        updated.add_circle(entity_id, center_ref, radius, construction=construction)
+        return cast(
+            Sketch,
+            _finalize_runtime_object(
+                updated,
+                op=_OP_MAKE_ADD_CIRCLE_RSKETCH,
+                params={
+                    "sketch_id": updated.sketch_id,
+                    "entity_id": entity_id,
+                    "center": _sketch_target_to_path(center_ref),
+                    "radius": radius,
+                    "construction": construction,
+                },
+                input_objects=[sketch],
+                tags={"sketch", "circle"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_circle_rsketch",
+            what_happened="Failed to add a circle to the sketch.",
+            possible_causes=[
+                "The circle id is duplicated.",
+                "The center ref does not belong to this sketch.",
+                "The radius is not positive.",
+            ],
+            how_to_fix=[
+                "Use a unique circle id and a positive radius.",
+                "Create the center with add_point_rsketch(...) and refer to it by id.",
+            ],
+            error=e,
+        )
+
+
+def add_bspline_rsketch(
+    sketch: Sketch,
+    entity_id: str,
+    start: Union[SketchRef, str],
+    end: Union[SketchRef, str],
+    control_points: Sequence[Sequence[float]],
+    degree: int = 3,
+    knots: Optional[Sequence[float]] = None,
+    multiplicities: Optional[Sequence[int]] = None,
+    weights: Optional[Sequence[float]] = None,
+    periodic: bool = False,
+    *,
+    construction: bool = False,
+) -> Sketch:
+    """Add a B-spline curve entity to a sketch.
+
+    The start/end point refs link the B-spline into a closed profile
+    loop.  Control points are stored as literal 2-D coordinates.
+    """
+    try:
+        start_ref = _resolve_sketch_target(sketch, start, expected="point")
+        end_ref = _resolve_sketch_target(sketch, end, expected="point")
+        updated = sketch.clone(include_solve=False)
+        updated.add_bspline(
+            entity_id, start_ref, end_ref,
+            control_points=control_points,
+            degree=degree,
+            knots=knots,
+            multiplicities=multiplicities,
+            weights=weights,
+            periodic=periodic,
+            construction=construction,
+        )
+        return cast(
+            Sketch,
+            _finalize_runtime_object(
+                updated,
+                op="make_add_bspline_rsketch",
+                params={
+                    "sketch_id": updated.sketch_id,
+                    "entity_id": entity_id,
+                    "start": _sketch_target_to_path(start_ref),
+                    "end": _sketch_target_to_path(end_ref),
+                    "degree": degree,
+                    "control_point_count": len(control_points),
+                    "periodic": periodic,
+                    "construction": construction,
+                },
+                input_objects=[sketch],
+                tags={"sketch", "bspline"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_bspline_rsketch",
+            what_happened="Failed to add a B-spline to the sketch.",
+            possible_causes=[
+                "The entity id is duplicated.",
+                "The start or end ref does not belong to this sketch.",
+                "Too few control points for the requested degree.",
+            ],
+            how_to_fix=[
+                "Use a unique entity id.",
+                "Create start and end points with add_point_rsketch(...) first.",
+                "Pass at least degree+1 control points.",
+            ],
+            error=e,
+        )
+
+
+def add_arc_rsketch(
+    sketch: Sketch,
+    entity_id: str,
+    start: Union[SketchRef, str],
+    end: Union[SketchRef, str],
+    center: Union[SketchRef, str],
+    *,
+    construction: bool = False,
+) -> Sketch:
+    """Add an arc entity to a sketch."""
+    try:
+        start_ref = _resolve_sketch_target(sketch, start, expected="point")
+        end_ref = _resolve_sketch_target(sketch, end, expected="point")
+        center_ref = _resolve_sketch_target(sketch, center, expected="point")
+        updated = sketch.clone(include_solve=False)
+        updated.add_arc(
+            entity_id, start_ref, end_ref, center_ref,
+            construction=construction,
+        )
+        return cast(
+            Sketch,
+            _finalize_runtime_object(
+                updated,
+                op="make_add_arc_rsketch",
+                params={
+                    "sketch_id": updated.sketch_id,
+                    "entity_id": entity_id,
+                    "start": _sketch_target_to_path(start_ref),
+                    "end": _sketch_target_to_path(end_ref),
+                    "center": _sketch_target_to_path(center_ref),
+                    "construction": construction,
+                },
+                input_objects=[sketch],
+                tags={"sketch", "arc"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_arc_rsketch",
+            what_happened="Failed to add an arc to the sketch.",
+            possible_causes=[
+                "The entity id is duplicated.",
+                "The start, end, or center ref does not belong to this sketch.",
+                "The start and end points are the same.",
+            ],
+            how_to_fix=[
+                "Use a unique entity id.",
+                "Create start, end, and center points with add_point_rsketch(...) first.",
+            ],
+            error=e,
+        )
+
+
+def _constrain_rsketch(
+    sketch: Sketch,
+    kind: str,
+    targets: Sequence[Union[SketchRef, str]],
+    *,
+    value: Any = None,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+    metadata: Optional[Dict[str, Any]] = None,
+    expected: Optional[Sequence[Optional[Union[str, Sequence[str]]]]] = None,
+) -> Sketch:
+    target_refs = _resolve_sketch_targets(sketch, targets, expected=expected)
+    updated = sketch.clone(include_solve=False)
+    updated.add_constraint(
+        kind,
+        target_refs,
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        metadata=metadata,
+    )
+    op = _SKETCH_CONSTRAINT_OPS[kind]
+    return cast(
+        Sketch,
+        _finalize_runtime_object(
+            updated,
+            op=op,
+            params={
+                "sketch_id": updated.sketch_id,
+                "kind": kind,
+                "targets": [_sketch_target_to_path(target) for target in target_refs],
+                "value": value,
+                "constraint_id": constraint_id,
+                "driving": driving,
+                "metadata": metadata or {},
+            },
+            input_objects=[sketch],
+            tags={"sketch", "constraint"},
+        ),
+    )
+
+
+def constrain_coincident_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch points to be coincident."""
+    return _constrain_rsketch(sketch, "coincident", [a, b], constraint_id=constraint_id, expected=["point", "point"])
+
+
+def constrain_connect_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Alias for `constrain_coincident_rsketch` using connection wording."""
+    return _constrain_rsketch(sketch, "coincident", [a, b], constraint_id=constraint_id, expected=["point", "point"])
+
+
+def constrain_point_on_rsketch(sketch: Sketch, point: Union[SketchRef, str], entity: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain a sketch point to lie on a line or circle."""
+    return _constrain_rsketch(sketch, "point_on", [point, entity], constraint_id=constraint_id, expected=["point", ("line", "circle")])
+
+
+def constrain_horizontal_rsketch(sketch: Sketch, line: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain a sketch line to be horizontal."""
+    return _constrain_rsketch(sketch, "horizontal", [line], constraint_id=constraint_id, expected=["line"])
+
+
+def constrain_vertical_rsketch(sketch: Sketch, line: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain a sketch line to be vertical."""
+    return _constrain_rsketch(sketch, "vertical", [line], constraint_id=constraint_id, expected=["line"])
+
+
+def constrain_parallel_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch lines to be parallel."""
+    return _constrain_rsketch(sketch, "parallel", [a, b], constraint_id=constraint_id, expected=["line", "line"])
+
+
+def constrain_perpendicular_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch lines to be perpendicular."""
+    return _constrain_rsketch(sketch, "perpendicular", [a, b], constraint_id=constraint_id, expected=["line", "line"])
+
+
+def constrain_collinear_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch lines to lie on the same infinite line."""
+    return _constrain_rsketch(sketch, "collinear", [a, b], constraint_id=constraint_id, expected=["line", "line"])
+
+
+def constrain_tangent_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain supported sketch curves to be tangent."""
+    return _constrain_rsketch(sketch, "tangent", [a, b], constraint_id=constraint_id, expected=[("line", "circle"), ("line", "circle")])
+
+
+def constrain_concentric_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch circles to share a center."""
+    return _constrain_rsketch(sketch, "concentric", [a, b], constraint_id=constraint_id, expected=["circle", "circle"])
+
+
+def constrain_midpoint_rsketch(sketch: Sketch, point: Union[SketchRef, str], line: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain a sketch point to the midpoint of a line."""
+    return _constrain_rsketch(sketch, "midpoint", [point, line], constraint_id=constraint_id, expected=["point", "line"])
+
+
+def constrain_symmetric_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], axis: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch points to be symmetric about a line axis."""
+    return _constrain_rsketch(sketch, "symmetric", [a, b, axis], constraint_id=constraint_id, expected=["point", "point", "line"])
+
+
+def constrain_equal_length_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch lines to have equal length."""
+    return _constrain_rsketch(sketch, "equal_length", [a, b], constraint_id=constraint_id, expected=["line", "line"])
+
+
+def constrain_equal_radius_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Constrain two sketch circles to have equal radius."""
+    return _constrain_rsketch(sketch, "equal_radius", [a, b], constraint_id=constraint_id, expected=["circle", "circle"])
+
+
+def constrain_distance_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving point-to-point distance constraint."""
+    return _constrain_rsketch(sketch, "distance", [a, b], value=value, constraint_id=constraint_id, driving=driving, expected=["point", "point"])
+
+
+def constrain_distance_x_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving horizontal distance constraint."""
+    return _constrain_rsketch(sketch, "distance_x", [a, b], value=value, constraint_id=constraint_id, driving=driving, expected=["point", "point"])
+
+
+def constrain_distance_y_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving vertical distance constraint."""
+    return _constrain_rsketch(sketch, "distance_y", [a, b], value=value, constraint_id=constraint_id, driving=driving, expected=["point", "point"])
+
+
+def constrain_length_rsketch(sketch: Sketch, line: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving line length constraint."""
+    return _constrain_rsketch(sketch, "length", [line], value=value, constraint_id=constraint_id, driving=driving, expected=["line"])
+
+
+def constrain_angle_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving angle constraint between two sketch lines."""
+    return _constrain_rsketch(sketch, "angle", [a, b], value=value, constraint_id=constraint_id, driving=driving, expected=["line", "line"])
+
+
+def constrain_radius_rsketch(sketch: Sketch, circle: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving circle radius constraint."""
+    return _constrain_rsketch(sketch, "radius", [circle], value=value, constraint_id=constraint_id, driving=driving, expected=["circle"])
+
+
+def constrain_diameter_rsketch(sketch: Sketch, circle: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+    """Add a driving circle diameter constraint."""
+    return _constrain_rsketch(sketch, "diameter", [circle], value=value, constraint_id=constraint_id, driving=driving, expected=["circle"])
+
+
+def constrain_fix_rsketch(sketch: Sketch, target: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+    """Fix a sketch point or entity to its initial coordinates."""
+    return _constrain_rsketch(sketch, "fix", [target], constraint_id=constraint_id)
+
+
+def inspect_sketch_rsketchresult(
+    sketch: Sketch,
+    *,
+    require_fully_constrained: bool = False,
+    strict: bool = True,
+    tolerance: float = 1e-7,
+    max_iterations: int = 80,
+) -> SketchSolveResult:
+    """Inspect sketch constraints by running the solver without recording graph nodes."""
+    try:
+        result = sketch.clone(include_solve=False).solve(
+            require_fully_constrained=require_fully_constrained,
+            strict=strict,
+            tolerance=tolerance,
+            max_iterations=max_iterations,
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="inspect_sketch_rsketchresult",
+            what_happened="Failed to inspect the sketch constraints.",
+            possible_causes=[
+                "The sketch has invalid, conflicting, or underconstrained constraints.",
+                "A constraint references a missing or wrong-kind entity.",
+            ],
+            how_to_fix=[
+                "Inspect diagnostics with strict=False if needed.",
+                "Add fix/dimension constraints until the intended profile is fully constrained.",
+            ],
+            error=e,
+        )
+
+
+def _sketch_solve_snapshot(result: SketchSolveResult) -> Dict[str, Any]:
+    return result.to_dict()
+
+
+def _sketch_source_metadata(
+    sketch: Sketch,
+    profile: int | str,
+    profile_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "sketch_id": sketch.sketch_id,
+        "name": sketch.name,
+        "plane": sketch.plane,
+        "profile": profile,
+        "profile_id": profile_payload.get("id"),
+        "profile_kind": profile_payload.get("kind"),
+    }
+
+
+def _sketch_edge_metadata(
+    sketch: Sketch,
+    entity_id: str,
+    profile: int | str,
+    profile_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    entity = sketch.entities[str(entity_id)]
+    return {
+        "sketch_id": sketch.sketch_id,
+        "sketch_name": sketch.name,
+        "entity_id": str(entity_id),
+        "kind": entity.kind,
+        "profile": profile,
+        "profile_id": profile_payload.get("id"),
+    }
+
+
+def _sketch_promotion_tags(
+    sketch: Sketch,
+    profile_payload: Dict[str, Any],
+) -> Tuple[str, str]:
+    sketch_tag = _safe_semantic_tag("sketch", sketch.name or sketch.sketch_id)
+    profile_tag = _safe_semantic_tag("sketch_profile", profile_payload.get("id", "profile"))
+    return sketch_tag, profile_tag
+
+
+def _sketch_promotion_map(
+    sketch: Sketch,
+    profile: int | str,
+    profile_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    sketch_tag, profile_tag = _sketch_promotion_tags(sketch, profile_payload)
+    edges: List[Dict[str, Any]] = []
+    for entity_id in profile_payload.get("entity_ids", []):
+        entity_tag = _safe_semantic_tag("sketch_entity", entity_id)
+        edges.append(
+            {
+                "entity_id": str(entity_id),
+                "target_kind": "edge",
+                "tags": [sketch_tag, profile_tag, entity_tag],
+                "metadata": {
+                    "sketch_ref": _sketch_edge_metadata(sketch, str(entity_id), profile, profile_payload)
+                },
+            }
+        )
+    return {
+        "profile": profile,
+        "profile_id": profile_payload.get("id"),
+        "profile_kind": profile_payload.get("kind"),
+        "tags": [sketch_tag, profile_tag],
+        "edges": edges,
+    }
+
+
+def _apply_sketch_promotion_metadata(
+    shape: Union[Wire, Face],
+    *,
+    sketch: Sketch,
+    profile: int | str,
+    profile_payload: Dict[str, Any],
+    solve_snapshot: Dict[str, Any],
+) -> None:
+    source_sketch = _sketch_source_metadata(sketch, profile, profile_payload)
+    promotion_map = _sketch_promotion_map(sketch, profile, profile_payload)
+    sketch_tag, profile_tag = _sketch_promotion_tags(sketch, profile_payload)
+
+    shape.set_metadata("source_sketch", source_sketch)
+    shape.set_metadata("sketch_solve", solve_snapshot)
+    shape.set_metadata("sketch_promotion", promotion_map)
+    shape._apply_tag(sketch_tag, propagate=False)
+    shape._apply_tag(profile_tag, propagate=False)
+
+    wires: List[Wire] = []
+    if isinstance(shape, Wire):
+        wires = [shape]
+    elif isinstance(shape, Face):
+        wires = cast(List[Wire], shape.get_wires())
+
+    for wire in wires:
+        wire.set_metadata("source_sketch", source_sketch)
+        wire.set_metadata("sketch_solve", solve_snapshot)
+        wire.set_metadata("sketch_promotion", promotion_map)
+        wire._apply_tag(sketch_tag, propagate=False)
+        wire._apply_tag(profile_tag, propagate=False)
+
+    if isinstance(shape, Face):
+        edges = cast(List[Edge], shape.get_edges())
+    else:
+        edges = cast(List[Edge], shape.get_edges())
+
+    for edge, entity_id in zip(edges, profile_payload.get("entity_ids", [])):
+        entity_tag = _safe_semantic_tag("sketch_entity", entity_id)
+        edge.set_metadata("sketch_ref", _sketch_edge_metadata(sketch, str(entity_id), profile, profile_payload))
+        edge.set_metadata("source_sketch", source_sketch)
+        edge._apply_tag(sketch_tag, propagate=False)
+        edge._apply_tag(profile_tag, propagate=False)
+        edge._apply_tag(entity_tag, propagate=False)
+
+
+def _promote_sketch_profile(
+    sketch: Sketch,
+    profile: int | str,
+    *,
+    target_kind: str,
+    require_fully_constrained: bool,
+    strict: bool,
+    tolerance: float,
+    max_iterations: int,
+) -> Tuple[Union[Wire, Face], SketchSolveResult, Dict[str, Any]]:
+    working = sketch.clone(include_solve=False)
+    solve_result = working.solve(
+        require_fully_constrained=require_fully_constrained,
+        strict=strict,
+        tolerance=tolerance,
+        max_iterations=max_iterations,
+    )
+    profile_payload = sketch._profile_payload(profile, solve_result=solve_result)
+    solve_snapshot = _sketch_solve_snapshot(solve_result)
+    with suspend_graph_recording():
+        if target_kind == "wire":
+            shape = sketch._wire_from_profile_payload(profile_payload)
+        elif target_kind == "face":
+            wire = sketch._wire_from_profile_payload(profile_payload)
+            shape = make_face_from_wire_rface(wire, normal=sketch._plane_normal_tuple())
+        else:
+            raise ValueError(f"Unsupported sketch promotion target kind '{target_kind}'")
+    _apply_sketch_promotion_metadata(
+        cast(Union[Wire, Face], shape),
+        sketch=sketch,
+        profile=profile,
+        profile_payload=profile_payload,
+        solve_snapshot=solve_snapshot,
+    )
+    return cast(Union[Wire, Face], shape), solve_result, profile_payload
+
+
+def _assert_sketch_solve_snapshot_matches(
+    result: SketchSolveResult,
+    snapshot: Dict[str, Any],
+    *,
+    tolerance: float = 1e-7,
+) -> None:
+    _assert_sketch_solve_snapshot_dict_matches(result.to_dict(), snapshot, tolerance=tolerance)
+
+
+def _assert_sketch_solve_snapshot_dict_matches(
+    actual: Dict[str, Any],
+    snapshot: Dict[str, Any],
+    *,
+    tolerance: float = 1e-7,
+) -> None:
+    if str(actual.get("status")) != str(snapshot.get("status")):
+        raise ValueError(
+            f"Sketch solve status changed from {snapshot.get('status')!r} to {actual.get('status')!r}"
+        )
+    if int(actual.get("dof", -1)) != int(snapshot.get("dof", -1)):
+        raise ValueError(
+            f"Sketch solve DOF changed from {snapshot.get('dof')!r} to {actual.get('dof')!r}"
+        )
+    if abs(float(actual.get("residual_norm", 0.0)) - float(snapshot.get("residual_norm", 0.0))) > tolerance:
+        raise ValueError("Sketch solve residual changed beyond recorded tolerance")
+
+    actual_points = cast(Dict[str, Any], actual.get("solved_points", {}))
+    expected_points = cast(Dict[str, Any], snapshot.get("solved_points", {}))
+    if set(actual_points) != set(expected_points):
+        raise ValueError("Sketch solve point set changed")
+    for point_id, point in actual_points.items():
+        expected = expected_points[point_id]
+        if math.dist((float(point[0]), float(point[1])), (float(expected[0]), float(expected[1]))) > tolerance:
+            raise ValueError(f"Sketch solve point '{point_id}' changed beyond recorded tolerance")
+
+    actual_scalars = cast(Dict[str, Any], actual.get("solved_scalars", {}))
+    expected_scalars = cast(Dict[str, Any], snapshot.get("solved_scalars", {}))
+    if set(actual_scalars) != set(expected_scalars):
+        raise ValueError("Sketch solve scalar set changed")
+    for scalar_id, value in actual_scalars.items():
+        if abs(float(value) - float(expected_scalars[scalar_id])) > tolerance:
+            raise ValueError(f"Sketch solve scalar '{scalar_id}' changed beyond recorded tolerance")
 
 
 def make_line_redge(
@@ -1548,6 +2501,76 @@ def make_face_from_wire_rface(
         )
 
 
+def make_face_from_wires_rface(
+    outer_wire: Wire,
+    inner_wires: Sequence[Wire],
+    normal: Tuple[float, float, float] = (0, 0, 1),
+) -> Face:
+    """Create a face from one outer closed wire and optional inner closed wires."""
+    try:
+        if not isinstance(outer_wire, Wire):
+            raise ValueError("outer_wire must be a Wire")
+        if not outer_wire.is_closed():
+            raise ValueError("outer_wire must be closed")
+
+        inner_list = list(inner_wires or [])
+        for inner_wire in inner_list:
+            if not isinstance(inner_wire, Wire):
+                raise ValueError("inner_wires must contain only Wire objects")
+            if not inner_wire.is_closed():
+                raise ValueError("inner wires must be closed")
+
+        cs = get_current_cs()
+        global_normal = cs.transform_point(np.array(normal)) - cs.origin
+        normal_norm = float(np.linalg.norm(global_normal))
+        if normal_norm <= 1e-15 or not np.isfinite(normal_norm):
+            raise ValueError("normal must be a non-zero finite vector")
+        normal_vec = global_normal / normal_norm
+
+        face_shape = make_face_from_wires_ocp(
+            outer_wire.wrapped,
+            [inner_wire.wrapped for inner_wire in inner_list],
+        )
+        face = Face(face_shape)
+
+        face_normal = face.get_normal_at()
+        face_normal_vec = np.array([face_normal.x, face_normal.y, face_normal.z])
+        dot_product = float(np.dot(normal_vec, face_normal_vec))
+        if dot_product < 0:
+            print(f"警告: 创建的面的法向量与期望方向相反 (点积: {dot_product:.3f})")
+
+        face._tags = outer_wire._tags.copy()
+        face._metadata = outer_wire._metadata.copy()
+
+        return cast(
+            Face,
+            _finalize_derived_shape(
+                face,
+                op=_OP_MAKE_FACE_FROM_WIRES_RFACE,
+                params={"normal": normal, "inner_wire_count": len(inner_list)},
+                input_shapes=[outer_wire, *inner_list],
+                tags={"derived", "face"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_face_from_wires_rface",
+            what_happened="Failed to create a face from the input outer and inner wires.",
+            possible_causes=[
+                "The outer wire is not a Wire instance or is not closed.",
+                "One or more inner wires are not Wire instances or are not closed.",
+                "The inner wires are not contained by the outer wire or are geometrically invalid.",
+                "The kernel rejected the multi-loop face definition.",
+            ],
+            how_to_fix=[
+                "Pass one closed outer Wire and zero or more closed inner Wire objects.",
+                "Ensure every inner wire lies inside the outer wire and does not intersect other loops.",
+                "Use a valid non-zero normal vector.",
+            ],
+            error=e,
+        )
+
+
 def make_wire_from_edges_rwire(edges: List[Edge]) -> Wire:
     """Create a wire from a list of connected edges."""
     try:
@@ -1578,6 +2601,124 @@ def make_wire_from_edges_rwire(edges: List[Edge]) -> Wire:
                 "Pass a non-empty list of Edge objects.",
                 "Ensure consecutive edges share matching endpoints.",
                 "Inspect the edge order if the wire should form a closed loop.",
+            ],
+            error=e,
+        )
+
+
+def make_wire_from_sketch_rwire(
+    sketch: Sketch,
+    profile: int | str = 0,
+    *,
+    require_fully_constrained: bool = False,
+    strict: bool = True,
+    tolerance: float = 1e-7,
+    max_iterations: int = 80,
+) -> Wire:
+    """Promote a sketch profile to a concrete wire, solving internally."""
+    try:
+        if not isinstance(sketch, Sketch):
+            raise ValueError("Input must be a Sketch")
+        wire, solve_result, profile_payload = _promote_sketch_profile(
+            sketch,
+            profile,
+            target_kind="wire",
+            require_fully_constrained=require_fully_constrained,
+            strict=strict,
+            tolerance=tolerance,
+            max_iterations=max_iterations,
+        )
+        solve_snapshot = _sketch_solve_snapshot(solve_result)
+        return cast(
+            Wire,
+            _finalize_derived_shape(
+                cast(Wire, wire),
+                op=_OP_MAKE_WIRE_FROM_SKETCH_RWIRE,
+                params={
+                    "profile": profile,
+                    "sketch": sketch.to_dict(),
+                    "require_fully_constrained": require_fully_constrained,
+                    "strict": strict,
+                    "tolerance": tolerance,
+                    "max_iterations": max_iterations,
+                    "solve_snapshot": solve_snapshot,
+                    "promotion_map": _sketch_promotion_map(sketch, profile, profile_payload),
+                },
+                input_shapes=cast(Sequence[AnyShape], [sketch]),
+                tags={"derived", "wire", "sketch"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_wire_from_sketch_rwire",
+            what_happened="Failed to create a wire from the sketch.",
+            possible_causes=[
+                "The sketch has no closed non-construction profile.",
+                "The sketch constraints are conflicting or invalid.",
+                "The requested profile index or id does not exist.",
+            ],
+            how_to_fix=[
+                "Build sketch profiles only through sketch APIs and close all profile loops.",
+                "Call inspect_sketch_rsketchresult(..., strict=False) to inspect diagnostics.",
+            ],
+            error=e,
+        )
+
+
+def make_face_from_sketch_rface(
+    sketch: Sketch,
+    profile: int | str = 0,
+    *,
+    require_fully_constrained: bool = False,
+    strict: bool = True,
+    tolerance: float = 1e-7,
+    max_iterations: int = 80,
+) -> Face:
+    """Promote a sketch profile to a concrete face, solving internally."""
+    try:
+        if not isinstance(sketch, Sketch):
+            raise ValueError("Input must be a Sketch")
+        face, solve_result, profile_payload = _promote_sketch_profile(
+            sketch,
+            profile,
+            target_kind="face",
+            require_fully_constrained=require_fully_constrained,
+            strict=strict,
+            tolerance=tolerance,
+            max_iterations=max_iterations,
+        )
+        solve_snapshot = _sketch_solve_snapshot(solve_result)
+        return cast(
+            Face,
+            _finalize_derived_shape(
+                cast(Face, face),
+                op=_OP_MAKE_FACE_FROM_SKETCH_RFACE,
+                params={
+                    "profile": profile,
+                    "sketch": sketch.to_dict(),
+                    "require_fully_constrained": require_fully_constrained,
+                    "strict": strict,
+                    "tolerance": tolerance,
+                    "max_iterations": max_iterations,
+                    "solve_snapshot": solve_snapshot,
+                    "promotion_map": _sketch_promotion_map(sketch, profile, profile_payload),
+                },
+                input_shapes=cast(Sequence[AnyShape], [sketch]),
+                tags={"derived", "face", "sketch"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_face_from_sketch_rface",
+            what_happened="Failed to create a face from the sketch.",
+            possible_causes=[
+                "The sketch has no closed non-construction profile.",
+                "The sketch constraints are conflicting or invalid.",
+                "The requested profile index or id does not exist.",
+            ],
+            how_to_fix=[
+                "Build a closed profile with add_line_rsketch(...) or add_circle_rsketch(...).",
+                "Add constraints until the profile can solve cleanly.",
             ],
             error=e,
         )
@@ -2240,49 +3381,199 @@ def make_angle_arc_rwire(
         )
 
 
+def _normalize_bspline_control_points(
+    control_points: Sequence[Sequence[ScalarLike]],
+) -> Tuple[Tuple[float, float, float], ...]:
+    points = list(control_points)
+    if not points:
+        raise ValueError("control_points must contain at least one point")
+    normalized: List[Tuple[float, float, float]] = []
+    for index, point in enumerate(points):
+        value = cast(Sequence[float], evaluate_value(point))
+        if len(value) == 2:
+            coords = (float(value[0]), float(value[1]), 0.0)
+        elif len(value) == 3:
+            coords = (float(value[0]), float(value[1]), float(value[2]))
+        else:
+            raise ValueError(f"control point {index} must be 2D or 3D")
+        if not all(math.isfinite(component) for component in coords):
+            raise ValueError(f"control point {index} contains a non-finite coordinate")
+        normalized.append(coords)
+    return tuple(normalized)
+
+
+def _collapse_knot_vector(knots: Sequence[ScalarLike]) -> Tuple[Tuple[float, ...], Tuple[int, ...]]:
+    values = [float(evaluate_scalar(knot)) for knot in knots]
+    if not values:
+        raise ValueError("knots must not be empty")
+    if any(not math.isfinite(value) for value in values):
+        raise ValueError("knots must contain only finite values")
+    for previous, current in zip(values, values[1:]):
+        if current < previous:
+            raise ValueError("knots must be non-decreasing when passed as a full knot vector")
+    unique: List[float] = []
+    multiplicities: List[int] = []
+    for value in values:
+        if unique and abs(value - unique[-1]) <= 1e-12:
+            multiplicities[-1] += 1
+        else:
+            unique.append(value)
+            multiplicities.append(1)
+    return tuple(unique), tuple(multiplicities)
+
+
+def _default_bspline_knots(
+    control_count: int, degree: int, periodic: bool
+) -> Tuple[Tuple[float, ...], Tuple[int, ...]]:
+    if periodic:
+        knot_count = control_count + 1
+        return (
+            tuple(index / (knot_count - 1) for index in range(knot_count)),
+            tuple(1 for _ in range(knot_count)),
+        )
+    knot_count = control_count - degree + 1
+    if knot_count < 2:
+        raise ValueError("control point count must be at least degree + 1")
+    knots = tuple(index / (knot_count - 1) for index in range(knot_count))
+    multiplicities = [degree + 1]
+    multiplicities.extend(1 for _ in range(max(0, knot_count - 2)))
+    multiplicities.append(degree + 1)
+    return knots, tuple(multiplicities)
+
+
+def _normalize_bspline_knots(
+    *,
+    control_count: int,
+    degree: int,
+    periodic: bool,
+    knots: Optional[Sequence[ScalarLike]],
+    multiplicities: Optional[Sequence[int]],
+) -> Tuple[Tuple[float, ...], Tuple[int, ...]]:
+    if knots is None:
+        if multiplicities is not None:
+            raise ValueError("multiplicities require explicit knots")
+        unique_knots, mults = _default_bspline_knots(control_count, degree, periodic)
+    elif multiplicities is None:
+        unique_knots, mults = _collapse_knot_vector(knots)
+    else:
+        unique_knots = tuple(float(evaluate_scalar(knot)) for knot in knots)
+        mults = tuple(int(value) for value in multiplicities)
+
+    if len(unique_knots) != len(mults):
+        raise ValueError("knots and multiplicities must have the same length")
+    if len(unique_knots) < 2:
+        raise ValueError("at least two unique knots are required")
+    if any(not math.isfinite(knot) for knot in unique_knots):
+        raise ValueError("knots must contain only finite values")
+    for previous, current in zip(unique_knots, unique_knots[1:]):
+        if current <= previous:
+            raise ValueError("unique knots must be strictly increasing")
+    if any(multiplicity <= 0 for multiplicity in mults):
+        raise ValueError("multiplicities must be positive integers")
+    if any(multiplicity > degree + 1 for multiplicity in mults):
+        raise ValueError("multiplicities must not exceed degree + 1")
+
+    expected_sum = control_count + (1 if periodic else degree + 1)
+    actual_sum = sum(mults)
+    if actual_sum != expected_sum:
+        raise ValueError(
+            "sum(multiplicities) must equal "
+            f"{expected_sum} for this {'periodic' if periodic else 'non-periodic'} B-spline"
+        )
+    return tuple(unique_knots), tuple(mults)
+
+
+def _normalize_bspline_weights(
+    weights: Optional[Sequence[ScalarLike]], control_count: int
+) -> Optional[Tuple[float, ...]]:
+    if weights is None:
+        return None
+    values = tuple(float(evaluate_scalar(weight)) for weight in weights)
+    if len(values) != control_count:
+        raise ValueError("weights must contain exactly one value per control point")
+    if any(not math.isfinite(value) or value <= 0.0 for value in values):
+        raise ValueError("weights must be finite positive values")
+    return values
+
+
 def make_spline_redge(
-    points: List[Tuple[float, float, float]],
-    tangents: Optional[List[Tuple[float, float, float]]] = None,
+    *,
+    control_points: Sequence[Sequence[ScalarLike]],
+    degree: int = 3,
+    knots: Optional[Sequence[ScalarLike]] = None,
+    multiplicities: Optional[Sequence[int]] = None,
+    weights: Optional[Sequence[ScalarLike]] = None,
+    periodic: bool = False,
 ) -> Edge:
-    """Create a spline edge through control points."""
+    """Create an exact B-spline edge from named control-point parameters.
+
+    Pass sampled curve points through `fit_cubic_bspline_control_points(...)` first,
+    then pass the result fields explicitly as `control_points=...`, `knots=...`,
+    and `multiplicities=...`. `control_points` are poles, not interpolation
+    points; the curve generally does not pass through interior poles.
+    """
     try:
-        if len(points) < 2:
-            raise ValueError("至少需要2个控制点")
+        if isinstance(degree, bool) or int(degree) != degree:
+            raise ValueError("degree must be an integer")
+        degree_value = int(degree)
+        if degree_value < 1:
+            raise ValueError("degree must be at least 1")
+        if degree_value > 25:
+            raise ValueError("degree must be 25 or lower")
+        periodic_value = bool(periodic)
+
+        local_control_points = _normalize_bspline_control_points(control_points)
+        if len(local_control_points) < degree_value + 1:
+            raise ValueError("control point count must be at least degree + 1")
+        resolved_knots, resolved_multiplicities = _normalize_bspline_knots(
+            control_count=len(local_control_points),
+            degree=degree_value,
+            periodic=periodic_value,
+            knots=knots,
+            multiplicities=multiplicities,
+        )
+        resolved_weights = _normalize_bspline_weights(weights, len(local_control_points))
 
         cs = get_current_cs()
-
-        # 转换控制点到全局坐标系
-        global_points = []
-        for point in points:
-            point_value = cast(Tuple[float, float, float], evaluate_value(point))
-            global_point = cs.transform_point(np.array(point_value))
-            global_points.append(tuple(float(v) for v in global_point))
-
-        # 转换切线向量（如果提供）
-        global_tangents = None
-        if tangents:
-            if len(tangents) != len(points):
-                raise ValueError("切线向量数量必须与控制点数量一致")
-            global_tangents = []
-            for tangent in tangents:
-                tangent_value = cast(
-                    Tuple[float, float, float], evaluate_value(tangent)
-                )
-                global_tangent = cs.transform_point(np.array(tangent_value)) - cs.origin
-                global_tangents.append(tuple(float(v) for v in global_tangent))
-
-        point_tuples = [(float(point[0]), float(point[1]), float(point[2])) for point in global_points]
-        tangent_tuples = (
-            [(float(t[0]), float(t[1]), float(t[2])) for t in global_tangents] if global_tangents else None
+        global_control_points = tuple(
+            tuple(float(component) for component in cs.transform_point(np.array(point)))
+            for point in local_control_points
         )
-        edge_shape = make_bspline_edge(point_tuples, tangent_tuples)
+        edge_shape = make_bspline_edge(
+            control_points=global_control_points,
+            degree=degree_value,
+            knots=resolved_knots,
+            multiplicities=resolved_multiplicities,
+            weights=resolved_weights,
+            periodic=periodic_value,
+        )
+        edge = Edge(edge_shape)
+        edge.set_metadata(
+            "geo",
+            {
+                "type": "bspline",
+                "degree": degree_value,
+                "control_points": [list(point) for point in global_control_points],
+                "knots": list(resolved_knots),
+                "multiplicities": list(resolved_multiplicities),
+                "weights": list(resolved_weights) if resolved_weights is not None else None,
+                "periodic": periodic_value,
+            },
+        )
 
         return cast(
             Edge,
             _finalize_primitive_shape(
-                Edge(edge_shape),
+                edge,
                 op=_OP_MAKE_SPLINE_REDGE,
-                params={"points": points, "tangents": tangents},
+                params={
+                    "control_points": control_points,
+                    "degree": degree_value,
+                    "knots": resolved_knots,
+                    "multiplicities": resolved_multiplicities,
+                    "weights": weights,
+                    "periodic": periodic_value,
+                },
                 tags={"primitive", "edge"},
             ),
         )
@@ -2291,52 +3582,52 @@ def make_spline_redge(
             operation="make_spline_redge",
             what_happened="Failed to create a spline edge.",
             possible_causes=[
-                "Fewer than two control points were provided.",
-                "One or more control points or tangents are invalid.",
-                "The tangent list length does not match the point count.",
+                "The exact B-spline definition is inconsistent.",
+                "Control points, knots, multiplicities, or weights are invalid.",
+                "A sampled-point list was passed directly instead of fitted control points.",
             ],
             how_to_fix=[
-                "Pass at least two finite 3D control points.",
-                "If tangents are provided, make sure there is exactly one tangent per point.",
-                "Log the evaluated control points and tangents before retrying.",
+                "Pass keyword arguments such as control_points=..., degree=3, knots=..., multiplicities=....",
+                "Use fit_cubic_bspline_control_points(sample_points) for sampled curves, then pass its result fields explicitly.",
+                "Ensure sum(multiplicities) matches the exact B-spline degree/control-count rule.",
             ],
             error=e,
         )
 
 
 def make_spline_rwire(
-    points: List[Tuple[float, float, float]],
-    tangents: Optional[List[Tuple[float, float, float]]] = None,
-    closed: bool = False,
+    *,
+    control_points: Sequence[Sequence[ScalarLike]],
+    degree: int = 3,
+    knots: Optional[Sequence[ScalarLike]] = None,
+    multiplicities: Optional[Sequence[int]] = None,
+    weights: Optional[Sequence[ScalarLike]] = None,
+    periodic: bool = False,
 ) -> Wire:
-    """Create a spline wire through control points."""
+    """Create a wire containing one exact B-spline edge."""
     try:
+        edge_kwargs = {
+            "control_points": control_points,
+            "degree": degree,
+            "knots": knots,
+            "multiplicities": multiplicities,
+            "weights": weights,
+            "periodic": periodic,
+        }
         if get_active_session() is not None:
-            if closed:
-                return make_polyline_rwire(cast(Any, points), closed=True)
-            edge = make_spline_redge(points, tangents)
+            edge = make_spline_redge(**edge_kwargs)
             return make_wire_from_edges_rwire([edge])
 
         with suspend_graph_recording():
-            edge = make_spline_redge(points, tangents)
-        cs = get_current_cs()
-        wire_points = []
-        for point in points:
-            point_value = cast(Tuple[float, float, float], evaluate_value(point))
-            global_point = cs.transform_point(np.array(point_value))
-            wire_points.append(tuple(float(v) for v in global_point))
-        wire_shape = (
-            make_polyline_wire(wire_points, closed=closed)
-            if closed
-            else make_wire_from_edges_ocp([edge.wrapped])
-        )
+            edge = make_spline_redge(**edge_kwargs)
+        wire_shape = make_wire_from_edges_ocp([edge.wrapped])
         rv = Wire(wire_shape)
         return cast(
             Wire,
             _finalize_primitive_shape(
                 rv,
                 op="make_spline_wire",
-                params={"points": points, "tangents": tangents, "closed": closed},
+                params=edge_kwargs,
                 tags={"primitive", "wire"},
             ),
         )
@@ -2346,12 +3637,12 @@ def make_spline_rwire(
             what_happened="Failed to create a spline wire.",
             possible_causes=[
                 "The spline edge could not be created.",
-                "The closed-wire fallback received invalid points.",
+                "The exact B-spline definition is inconsistent.",
                 "The kernel rejected the resulting wire geometry.",
             ],
             how_to_fix=[
-                "Validate the spline control points first.",
-                "If closed=True, ensure the point sequence forms a valid loop.",
+                "Validate the B-spline control points, degree, knots, multiplicities, and weights first.",
+                "For sampled curves, call fit_cubic_bspline_control_points(...) and pass the result fields explicitly.",
                 "Retry after inspecting the evaluated spline inputs.",
             ],
             error=e,
@@ -3354,11 +4645,1142 @@ def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
 
 
 # =============================================================================
+# 2D Face boolean operations
+# =============================================================================
+
+
+def _extract_single_face(shape_ocp, operation: str) -> Face:
+    """Extract exactly one Face from an OCP shape result."""
+    result_faces = faces_of_ocp(shape_ocp)
+    if len(result_faces) != 1:
+        raise ValueError(
+            f"{operation} expected exactly 1 face in the result, got {len(result_faces)}"
+        )
+    return Face(result_faces[0])
+
+
+def make_2d_cut_rface(body: Face, tool: Face) -> Face:
+    """Subtract one 2D face from another (2D boolean difference).
+
+    Parameters
+    ----------
+    body : Face
+        The face to subtract from.
+    tool : Face
+        The face to subtract (the cutter).
+
+    Returns
+    -------
+    Face
+        The resulting face after subtraction.  The result may contain
+        inner wires (holes) if the tool was fully inside the body.
+    """
+    try:
+        if not isinstance(body, Face):
+            raise ValueError("body must be a Face")
+        if not isinstance(tool, Face):
+            raise ValueError("tool must be a Face")
+
+        result_shape = cut_shapes(body.wrapped, [tool.wrapped])
+        result_face = _extract_single_face(result_shape, "make_2d_cut_rface")
+
+        result_face._tags = body._tags.copy()
+        result_face._metadata = body._metadata.copy()
+
+        return cast(
+            Face,
+            _finalize_derived_shape(
+                result_face,
+                op=_OP_MAKE_CUT_RFACE,
+                params={},
+                input_shapes=[body, tool],
+                tags={"derived", "face"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_2d_cut_rface",
+            what_happened="Failed to subtract one face from another.",
+            possible_causes=[
+                "The body or tool is not a Face.",
+                "The faces do not overlap or are not coplanar.",
+                "The kernel could not compute a stable 2D difference.",
+            ],
+            how_to_fix=[
+                "Pass two valid Face objects.",
+                "Ensure both faces lie on the same plane.",
+                "Verify the tool face overlaps the body face.",
+            ],
+            error=e,
+        )
+
+
+def make_2d_union_rface(face_a: Face, face_b: Face) -> Face:
+    """Compute the boolean union of two 2D faces.
+
+    Parameters
+    ----------
+    face_a : Face
+        First face.
+    face_b : Face
+        Second face.
+
+    Returns
+    -------
+    Face
+        The merged face.  Both inputs must overlap or touch so that the
+        result is a single connected face.
+    """
+    try:
+        if not isinstance(face_a, Face):
+            raise ValueError("face_a must be a Face")
+        if not isinstance(face_b, Face):
+            raise ValueError("face_b must be a Face")
+
+        result_shape = fuse_shapes([face_a.wrapped, face_b.wrapped], clean=True)
+        result_face = _extract_single_face(result_shape, "make_2d_union_rface")
+
+        result_face._tags = face_a._tags | face_b._tags
+        result_face._metadata = {**face_a._metadata, **face_b._metadata}
+
+        return cast(
+            Face,
+            _finalize_derived_shape(
+                result_face,
+                op=_OP_MAKE_UNION_RFACE,
+                params={},
+                input_shapes=[face_a, face_b],
+                tags={"derived", "face"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_2d_union_rface",
+            what_happened="Failed to union two faces.",
+            possible_causes=[
+                "One or both inputs are not Face objects.",
+                "The faces do not overlap or touch.",
+                "The faces are not coplanar.",
+            ],
+            how_to_fix=[
+                "Pass two valid Face objects.",
+                "Ensure the faces overlap or share a boundary.",
+                "Ensure both faces lie on the same plane.",
+            ],
+            error=e,
+        )
+
+
+def make_2d_intersect_rface(face_a: Face, face_b: Face) -> Face:
+    """Compute the boolean intersection of two 2D faces.
+
+    Parameters
+    ----------
+    face_a : Face
+        First face.
+    face_b : Face
+        Second face.
+
+    Returns
+    -------
+    Face
+        The overlapping region of the two faces.
+    """
+    try:
+        if not isinstance(face_a, Face):
+            raise ValueError("face_a must be a Face")
+        if not isinstance(face_b, Face):
+            raise ValueError("face_b must be a Face")
+
+        result_shape = common_shapes([face_a.wrapped, face_b.wrapped])
+        result_face = _extract_single_face(result_shape, "make_2d_intersect_rface")
+
+        result_face._tags = face_a._tags & face_b._tags
+        result_face._metadata = {**face_a._metadata, **face_b._metadata}
+
+        return cast(
+            Face,
+            _finalize_derived_shape(
+                result_face,
+                op=_OP_MAKE_INTERSECT_RFACE,
+                params={},
+                input_shapes=[face_a, face_b],
+                tags={"derived", "face"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_2d_intersect_rface",
+            what_happened="Failed to intersect two faces.",
+            possible_causes=[
+                "One or both inputs are not Face objects.",
+                "The faces do not overlap.",
+                "The faces are not coplanar.",
+            ],
+            how_to_fix=[
+                "Pass two valid Face objects.",
+                "Ensure the faces have a non-empty overlap region.",
+                "Ensure both faces lie on the same plane.",
+            ],
+            error=e,
+        )
+
+
+# =============================================================================
+# Product semantic functions
+# =============================================================================
+
+
+def make_material_rmaterial(
+    material_id: str,
+    name: Optional[str] = None,
+    density: Optional[float] = None,
+    density_unit: Optional[str] = None,
+    color: Optional[Tuple[float, float, float]] = None,
+) -> Material:
+    """Create a material definition for later Part assignment.
+
+    Material is deliberately separate from `make_part_rpart(...)`; the only
+    correct workflow is to create a material and then assign it to a Part with
+    `assign_material_rpart(...)`.
+    """
+
+    try:
+        material = Material(
+            material_id,
+            name=name,
+            density=density,
+            density_unit=density_unit,
+            color=color,
+        )
+        _reserve_semantic_id("material", material.material_id)
+        record_operation_if_active(
+            _OP_MAKE_MATERIAL_RMATERIAL,
+            _material_params(material),
+            outputs=material,
+            semantic_delta=_semantic_created(
+                "Material", material.material_id, material.to_dict()
+            ),
+            context=_current_context_metadata(),
+        )
+        return material
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_material_rmaterial",
+            what_happened="Failed to create the material definition.",
+            possible_causes=[
+                "The material_id is empty or uses unsupported characters.",
+                "The density is non-finite, non-positive, or missing a density_unit.",
+                "The color is not a 3-tuple in the [0.0, 1.0] range.",
+            ],
+            how_to_fix=[
+                "Use a stable identifier such as 'aluminum_6061'.",
+                "Provide density and density_unit together, or omit both.",
+                "Pass RGB color components as floats between 0.0 and 1.0.",
+            ],
+            error=e,
+        )
+
+
+def make_placement_rplacement(
+    origin: Tuple[float, float, float],
+    x_axis: Tuple[float, float, float] = (1.0, 0.0, 0.0),
+    y_axis: Tuple[float, float, float] = (0.0, 1.0, 0.0),
+) -> Placement:
+    """Create a canonical right-handed component placement.
+
+    The placement maps child-local coordinates into parent assembly coordinates
+    using one representation only: origin plus child x/y axes in parent space.
+    """
+
+    try:
+        placement = Placement(origin, x_axis=x_axis, y_axis=y_axis)
+        record_operation_if_active(
+            _OP_MAKE_PLACEMENT_RPLACEMENT,
+            _placement_params(placement),
+            outputs=placement,
+            context=_current_context_metadata(),
+        )
+        return placement
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_placement_rplacement",
+            what_happened="Failed to create the placement.",
+            possible_causes=[
+                "The origin is not a finite 3D point.",
+                "One of the axes is zero-length or non-finite.",
+                "x_axis and y_axis are not orthogonal.",
+            ],
+            how_to_fix=[
+                "Pass origin, x_axis, and y_axis as finite 3-element tuples.",
+                "Use one canonical representation; do not mix Euler, quaternion, or axis-angle payloads.",
+                "Make sure x_axis and y_axis form a right-handed frame.",
+            ],
+            error=e,
+        )
+
+
+def identity_placement_rplacement() -> Placement:
+    """Create an identity placement."""
+
+    try:
+        placement = identity_placement()
+        record_operation_if_active(
+            _OP_MAKE_IDENTITY_PLACEMENT_RPLACEMENT,
+            _placement_params(placement),
+            outputs=placement,
+            context=_current_context_metadata(),
+        )
+        return placement
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="identity_placement_rplacement",
+            what_happened="Failed to create the identity placement.",
+            possible_causes=["Internal placement validation failed."],
+            how_to_fix=["Report this as a SimpleCADAPI bug if it reproduces."],
+            error=e,
+        )
+
+
+def make_part_rpart(
+    part_id: str,
+    body: Solid,
+    name: Optional[str] = None,
+) -> Part:
+    """Wrap exactly one Solid as a semantic single-body Part."""
+
+    try:
+        part = Part(part_id, body, name=name)
+        _reserve_semantic_id("part", part.part_id)
+        record_operation_if_active(
+            _OP_MAKE_PART_RPART,
+            _part_params(part),
+            outputs=part,
+            input_shapes=[body],
+            semantic_delta=_semantic_created("Part", part.part_id, part.to_dict()),
+            context=_current_context_metadata(),
+        )
+        return part
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_part_rpart",
+            what_happened="Failed to create the single-body Part.",
+            possible_causes=[
+                "The part_id is empty or uses unsupported characters.",
+                "The body is not a Solid.",
+                "A Part with the same part_id already exists in the active GraphSession.",
+            ],
+            how_to_fix=[
+                "Pass a stable part_id such as 'base_plate'.",
+                "Union intended multiple bodies into one Solid before creating the Part.",
+                "Do not pass material to make_part_rpart; use assign_material_rpart instead.",
+            ],
+            error=e,
+        )
+
+
+def assign_material_rpart(part: Part, material: Material) -> Part:
+    """Assign a Material to a Part and return the updated Part."""
+
+    try:
+        if not isinstance(part, Part):
+            raise TypeError("part must be a Part")
+        if not isinstance(material, Material):
+            raise TypeError("material must be a Material")
+        result = part.with_material(material)
+        record_operation_if_active(
+            _OP_MAKE_ASSIGN_MATERIAL_RPART,
+            {
+                "part_id": part.part_id,
+                "material_id": material.material_id,
+            },
+            outputs=result,
+            input_shapes=[part, material],
+            semantic_delta=_semantic_modified(
+                "Part",
+                part.part_id,
+                {"material_id": material.material_id},
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="assign_material_rpart",
+            what_happened="Failed to assign the material to the Part.",
+            possible_causes=[
+                "The part input is not a Part.",
+                "The material input is not a Material.",
+            ],
+            how_to_fix=[
+                "Create parts with make_part_rpart(...).",
+                "Create materials with make_material_rmaterial(...).",
+            ],
+            error=e,
+        )
+
+
+def make_assembly_rassembly(
+    assembly_id: str,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Create an empty assembly product structure."""
+
+    try:
+        assembly = Assembly(assembly_id, name=name)
+        _reserve_semantic_id("assembly", assembly.assembly_id)
+        record_operation_if_active(
+            _OP_MAKE_ASSEMBLY_RASSEMBLY,
+            _assembly_params(assembly),
+            outputs=assembly,
+            semantic_delta=_semantic_created(
+                "Assembly", assembly.assembly_id, assembly.to_dict()
+            ),
+            context=_current_context_metadata(),
+        )
+        return assembly
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_assembly_rassembly",
+            what_happened="Failed to create the assembly.",
+            possible_causes=[
+                "The assembly_id is empty or uses unsupported characters.",
+                "An Assembly with the same assembly_id already exists in the active GraphSession.",
+            ],
+            how_to_fix=["Pass a stable assembly_id such as 'fixture_assembly'."],
+            error=e,
+        )
+
+
+def add_component_rassembly(
+    assembly: Assembly,
+    item: Union[Part, Assembly],
+    component_id: str,
+    placement: Placement,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Add a placed Part or subassembly component instance to an Assembly."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        if not isinstance(item, (Part, Assembly)):
+            raise TypeError("item must be a Part or Assembly")
+        if not isinstance(placement, Placement):
+            raise TypeError("placement must be a Placement")
+        component = Component(component_id, item, placement, name=name)
+        result = assembly.with_component(component)
+        item_kind = "assembly" if isinstance(item, Assembly) else "part"
+        item_id = item.assembly_id if isinstance(item, Assembly) else item.part_id
+        record_operation_if_active(
+            _OP_MAKE_ADD_COMPONENT_RASSEMBLY,
+            {
+                "assembly_id": assembly.assembly_id,
+                "component_id": component.component_id,
+                "name": component.name,
+                "item_kind": item_kind,
+                "item_id": item_id,
+            },
+            outputs=result,
+            input_shapes=[assembly, item, placement],
+            semantic_delta=SemanticDelta(
+                created=(
+                    SemanticRef(
+                        graph_id="pending",
+                        node_id="pending",
+                        entity_type="Component",
+                        entity_id=f"{assembly.assembly_id}:{component.component_id}",
+                    ),
+                ),
+                modified=(
+                    SemanticRef(
+                        graph_id="pending",
+                        node_id="pending",
+                        entity_type="Assembly",
+                        entity_id=assembly.assembly_id,
+                    ),
+                ),
+                metadata={"component": component.to_dict()},
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_component_rassembly",
+            what_happened="Failed to add the component to the assembly.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "The item input is not a Part or Assembly.",
+                "The component_id is empty, malformed, or duplicated in the assembly.",
+                "The placement is invalid or missing.",
+                "Adding this subassembly would create an assembly cycle.",
+            ],
+            how_to_fix=[
+                "Wrap solids explicitly with make_part_rpart before adding them to assemblies.",
+                "Use a unique component_id within the parent assembly.",
+                "Create placements with make_placement_rplacement or identity_placement_rplacement.",
+            ],
+            error=e,
+        )
+
+
+def place_component_rassembly(
+    assembly: Assembly,
+    component_id: str,
+    placement: Placement,
+) -> Assembly:
+    """Move an existing assembly component by replacing its placement."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        if not isinstance(placement, Placement):
+            raise TypeError("placement must be a Placement")
+        result = assembly.with_component_placement(component_id, placement)
+        record_operation_if_active(
+            _OP_MAKE_PLACE_COMPONENT_RASSEMBLY,
+            {
+                "assembly_id": assembly.assembly_id,
+                "component_id": component_id,
+            },
+            outputs=result,
+            input_shapes=[assembly, placement],
+            semantic_delta=_semantic_modified(
+                "Component", f"{assembly.assembly_id}:{component_id}", {"placement": placement.to_dict()}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="place_component_rassembly",
+            what_happened="Failed to place the assembly component.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "The component_id does not exist in the assembly.",
+                "The placement is invalid or missing.",
+            ],
+            how_to_fix=[
+                "Use add_component_rassembly before placing a component.",
+                "Use a component_id returned in assembly.component_ids().",
+                "Create placements with make_placement_rplacement.",
+            ],
+            error=e,
+        )
+
+
+def _make_geometry_backed_connector(
+    connector_id: str,
+    shape: AnyShape,
+    *,
+    op: str,
+    operation_name: str,
+    name: Optional[str] = None,
+    flip: bool = False,
+) -> Connector:
+    source_shape = _selection_source_for_shape(shape) or shape
+    node_ids = _ensure_geo_selection_node_ids(source_shape, [shape])
+    source_node_id = node_ids[0] if node_ids else None
+    geo_selector = _make_geo_selector(shape, source_shape=source_shape)
+    kind = _shape_kind_token(shape)
+    geometry_ref = GeometryRef(
+        kind=kind,
+        source_node_id=source_node_id,
+        geo_selector=geo_selector,
+        flip=bool(flip),
+    )
+    connector = Connector(connector_id, geometry_ref, name=name)
+    record_operation_if_active(
+        op,
+        {
+            "connector_id": connector.connector_id,
+            "geometry_ref": geometry_ref.to_dict(),
+            "name": connector.name,
+        },
+        outputs=connector,
+        input_shapes=[shape],
+        context=_current_context_metadata(),
+    )
+    return connector
+
+
+def make_face_connector_rconnector(
+    connector_id: str,
+    face: Face,
+    name: Optional[str] = None,
+    flip: bool = False,
+) -> Connector:
+    """Create a connector anchored to a Face.
+
+    Z axis follows the face normal; origin is the face center.
+    Set flip=True to negate the Z axis (point it opposite to the normal).
+    """
+    try:
+        if not isinstance(face, Face):
+            raise TypeError("face must be a Face")
+        return _make_geometry_backed_connector(
+            connector_id,
+            face,
+            op=_OP_MAKE_FACE_CONNECTOR_RCONNECTOR,
+            operation_name="make_face_connector_rconnector",
+            name=name,
+            flip=flip,
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_face_connector_rconnector",
+            what_happened="Failed to create the face connector.",
+            possible_causes=[
+                "The connector_id is empty or malformed.",
+                "The face is not a valid Face object.",
+            ],
+            how_to_fix=[
+                "Use a stable connector_id such as 'mount_face'.",
+                "Select a face via ql.faces().resolve(solid) or solid.get_faces()[i].",
+            ],
+            error=e,
+        )
+
+
+def make_edge_connector_rconnector(
+    connector_id: str,
+    edge: Edge,
+    name: Optional[str] = None,
+    flip: bool = False,
+) -> Connector:
+    """Create a connector anchored to an Edge.
+
+    Z axis follows the edge direction (start->end); origin is the edge midpoint.
+    Set flip=True to negate the Z axis.
+    """
+    try:
+        if not isinstance(edge, Edge):
+            raise TypeError("edge must be an Edge")
+        return _make_geometry_backed_connector(
+            connector_id,
+            edge,
+            op=_OP_MAKE_EDGE_CONNECTOR_RCONNECTOR,
+            operation_name="make_edge_connector_rconnector",
+            name=name,
+            flip=flip,
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_edge_connector_rconnector",
+            what_happened="Failed to create the edge connector.",
+            possible_causes=[
+                "The connector_id is empty or malformed.",
+                "The edge is not a valid Edge object.",
+            ],
+            how_to_fix=[
+                "Use a stable connector_id such as 'hinge_axis'.",
+                "Select an edge via ql.edges().resolve(solid) or solid.get_edges()[i].",
+            ],
+            error=e,
+        )
+
+
+def make_vertex_connector_rconnector(
+    connector_id: str,
+    vertex: Vertex,
+    name: Optional[str] = None,
+    flip: bool = False,
+) -> Connector:
+    """Create a connector anchored to a Vertex.
+
+    Origin is the vertex point; axes are identity.
+    flip has no effect on vertex connectors (no direction).
+    """
+    try:
+        if not isinstance(vertex, Vertex):
+            raise TypeError("vertex must be a Vertex")
+        return _make_geometry_backed_connector(
+            connector_id,
+            vertex,
+            op=_OP_MAKE_VERTEX_CONNECTOR_RCONNECTOR,
+            operation_name="make_vertex_connector_rconnector",
+            name=name,
+            flip=flip,
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_vertex_connector_rconnector",
+            what_happened="Failed to create the vertex connector.",
+            possible_causes=[
+                "The connector_id is empty or malformed.",
+                "The vertex is not a valid Vertex object.",
+            ],
+            how_to_fix=[
+                "Use a stable connector_id such as 'pivot_point'.",
+                "Select a vertex via ql.vertices().resolve(solid) or solid.get_vertices()[i].",
+            ],
+            error=e,
+        )
+
+
+def add_connector_rpart(part: Part, connector: Connector) -> Part:
+    """Attach a connector datum frame to a Part definition."""
+
+    try:
+        if not isinstance(part, Part):
+            raise TypeError("part must be a Part")
+        result = part.with_connector(connector)
+        record_operation_if_active(
+            _OP_MAKE_ADD_CONNECTOR_RPART,
+            {"part_id": part.part_id, "connector_id": connector.connector_id},
+            outputs=result,
+            input_shapes=[part, connector],
+            semantic_delta=_semantic_modified(
+                "Part", part.part_id, {"connector": connector.to_dict()}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_connector_rpart",
+            what_happened="Failed to add the connector to the Part.",
+            possible_causes=[
+                "The part input is not a Part.",
+                "The connector input is not a Connector.",
+                "The connector_id is duplicated in the Part.",
+            ],
+            how_to_fix=[
+                "Create a connector with make_face_connector_rconnector, make_edge_connector_rconnector, or make_vertex_connector_rconnector.",
+                "Use unique connector ids within one Part.",
+            ],
+            error=e,
+        )
+
+
+def add_connector_rassembly(assembly: Assembly, connector: Connector) -> Assembly:
+    """Attach a connector datum frame to an Assembly definition."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        result = assembly.with_connector(connector)
+        record_operation_if_active(
+            _OP_MAKE_ADD_CONNECTOR_RASSEMBLY,
+            {"assembly_id": assembly.assembly_id, "connector_id": connector.connector_id},
+            outputs=result,
+            input_shapes=[assembly, connector],
+            semantic_delta=_semantic_modified(
+                "Assembly", assembly.assembly_id, {"connector": connector.to_dict()}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_connector_rassembly",
+            what_happened="Failed to add the connector to the Assembly.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "The connector input is not a Connector.",
+                "The connector_id is duplicated in the Assembly.",
+            ],
+            how_to_fix=[
+                "Create a connector with make_face_connector_rconnector, make_edge_connector_rconnector, or make_vertex_connector_rconnector.",
+                "Use unique connector ids within one Assembly.",
+            ],
+            error=e,
+        )
+
+
+def make_connector_ref_rconnectorref(
+    component_id: str, connector_id: str
+) -> ConnectorRef:
+    """Reference a connector through a component instance."""
+
+    try:
+        connector_ref = ConnectorRef(component_id, connector_id)
+        record_operation_if_active(
+            _OP_MAKE_CONNECTOR_REF_RCONNECTORREF,
+            _connector_ref_params(connector_ref),
+            outputs=connector_ref,
+            context=_current_context_metadata(),
+        )
+        return connector_ref
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_connector_ref_rconnectorref",
+            what_happened="Failed to create the connector reference.",
+            possible_causes=["The component_id or connector_id is empty or malformed."],
+            how_to_fix=["Use stable ids from the owning Assembly and component item."],
+            error=e,
+        )
+
+
+def make_scalar_limit_rscalarlimit(
+    lower_value: float, upper_value: float
+) -> ScalarLimit:
+    """Create a closed scalar limit for driven constraint coordinates."""
+
+    try:
+        limit = ScalarLimit(lower_value, upper_value)
+        record_operation_if_active(
+            _OP_MAKE_SCALAR_LIMIT_RSCALARLIMIT,
+            _scalar_limit_params(limit),
+            outputs=limit,
+            context=_current_context_metadata(),
+        )
+        return limit
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_scalar_limit_rscalarlimit",
+            what_happened="Failed to create the scalar limit.",
+            possible_causes=[
+                "One of the limit values is non-finite.",
+                "lower_value is greater than upper_value.",
+            ],
+            how_to_fix=["Pass finite lower and upper values in increasing order."],
+            error=e,
+        )
+
+
+def ground_component_rassembly(assembly: Assembly, component_id: str) -> Assembly:
+    """Ground a component at its current authored placement."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        result = assembly.with_grounded_component(component_id)
+        record_operation_if_active(
+            _OP_MAKE_GROUND_COMPONENT_RASSEMBLY,
+            {"assembly_id": assembly.assembly_id, "component_id": component_id},
+            outputs=result,
+            input_shapes=[assembly],
+            semantic_delta=_semantic_modified(
+                "Assembly", assembly.assembly_id, {"grounded_component_id": component_id}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="ground_component_rassembly",
+            what_happened="Failed to ground the assembly component.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "The component_id does not exist in the Assembly.",
+            ],
+            how_to_fix=["Use a component_id already added to the Assembly."],
+            error=e,
+        )
+
+
+def unground_component_rassembly(assembly: Assembly, component_id: str) -> Assembly:
+    """Remove a component grounding marker."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        result = assembly.without_grounded_component(component_id)
+        record_operation_if_active(
+            _OP_MAKE_UNGROUND_COMPONENT_RASSEMBLY,
+            {"assembly_id": assembly.assembly_id, "component_id": component_id},
+            outputs=result,
+            input_shapes=[assembly],
+            semantic_delta=_semantic_modified(
+                "Assembly", assembly.assembly_id, {"ungrounded_component_id": component_id}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="unground_component_rassembly",
+            what_happened="Failed to unground the assembly component.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "The component_id does not exist in the Assembly.",
+            ],
+            how_to_fix=["Use a component_id already added to the Assembly."],
+            error=e,
+        )
+
+
+def add_fixed_constraint_rassembly(
+    assembly: Assembly,
+    constraint_id: str,
+    connector_a: ConnectorRef,
+    connector_b: ConnectorRef,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Constrain two component connectors to the same frame."""
+
+    return _add_constraint_rassembly(
+        assembly,
+        Constraint(
+            constraint_id,
+            "fixed",
+            connector_a,
+            connector_b,
+            name=name,
+        ),
+        _OP_MAKE_FIXED_CONSTRAINT_RASSEMBLY,
+        "add_fixed_constraint_rassembly",
+    )
+
+
+def add_revolute_constraint_rassembly(
+    assembly: Assembly,
+    constraint_id: str,
+    connector_a: ConnectorRef,
+    connector_b: ConnectorRef,
+    drive_angle_degrees: Optional[float] = None,
+    angle_limit: Optional[ScalarLimit] = None,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Constrain two connectors as a revolute axis pair."""
+
+    return _add_constraint_rassembly(
+        assembly,
+        Constraint(
+            constraint_id,
+            "revolute",
+            connector_a,
+            connector_b,
+            drive_angle_degrees=drive_angle_degrees,
+            angle_limit=angle_limit,
+            name=name,
+        ),
+        _OP_MAKE_REVOLUTE_CONSTRAINT_RASSEMBLY,
+        "add_revolute_constraint_rassembly",
+    )
+
+
+def add_prismatic_constraint_rassembly(
+    assembly: Assembly,
+    constraint_id: str,
+    connector_a: ConnectorRef,
+    connector_b: ConnectorRef,
+    drive_distance: Optional[float] = None,
+    distance_limit: Optional[ScalarLimit] = None,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Constrain two connectors as a prismatic slider pair."""
+
+    return _add_constraint_rassembly(
+        assembly,
+        Constraint(
+            constraint_id,
+            "prismatic",
+            connector_a,
+            connector_b,
+            drive_distance=drive_distance,
+            distance_limit=distance_limit,
+            name=name,
+        ),
+        _OP_MAKE_PRISMATIC_CONSTRAINT_RASSEMBLY,
+        "add_prismatic_constraint_rassembly",
+    )
+
+
+def _add_constraint_rassembly(
+    assembly: Assembly,
+    constraint: Constraint,
+    op_name: str,
+    public_name: str,
+) -> Assembly:
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        result = assembly.with_constraint(constraint)
+        inputs: List[object] = [assembly, constraint.connector_a, constraint.connector_b]
+        if constraint.distance_limit is not None:
+            inputs.append(constraint.distance_limit)
+        if constraint.angle_limit is not None:
+            inputs.append(constraint.angle_limit)
+        record_operation_if_active(
+            op_name,
+            _constraint_params(constraint),
+            outputs=result,
+            input_shapes=inputs,
+            semantic_delta=_semantic_modified(
+                "Assembly", assembly.assembly_id, {"constraint": constraint.to_dict()}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation=public_name,
+            what_happened="Failed to add the assembly constraint.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "A connector ref references a missing component or connector.",
+                "The constraint_id is duplicated in the Assembly.",
+                "A drive value violates its scalar limit.",
+            ],
+            how_to_fix=[
+                "Create connector refs with make_connector_ref_rconnectorref.",
+                "Add connectors to Parts or Assemblies before adding constrained components.",
+                "Use unique constraint ids within one Assembly.",
+            ],
+            error=e,
+        )
+
+
+def solve_assembly_constraints_rassembly(
+    assembly: Assembly, strict: bool = True
+) -> Assembly:
+    """Solve fixed, revolute, and prismatic assembly constraints.
+
+    Solving is limit-aware: when a constraint carries a ``ScalarLimit``
+    (``angle_limit`` or ``distance_limit``), the drive scalar is clamped
+    into the closed range before placement propagation.  When no drive
+    scalar is present but a limit exists, the current relative-frame
+    scalar is projected into the bounds.  Unresolvable closed kinematic
+    loops fall back to a golden-section search over the limit bounds.
+
+    A ``ConstraintReport`` is recorded on the returned assembly under the
+    ``constraint_report`` runtime key for later inspection via
+    ``inspect_assembly_constraints_rassembly``.
+    """
+
+    try:
+        result = solve_assembly_constraints(assembly, strict=bool(strict))
+        solved_component_placements = {
+            component.component_id: component.placement.to_dict()
+            for component in result.components
+        }
+        record_operation_if_active(
+            _OP_MAKE_SOLVE_ASSEMBLY_CONSTRAINTS_RASSEMBLY,
+            {
+                "assembly_id": assembly.assembly_id,
+                "strict": bool(strict),
+                "component_placements": solved_component_placements,
+            },
+            outputs=result,
+            input_shapes=[assembly],
+            semantic_delta=_semantic_modified(
+                "Assembly", assembly.assembly_id, {"constraints_solved": True}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="solve_assembly_constraints_rassembly",
+            what_happened="Failed to solve the assembly constraints.",
+            possible_causes=[
+                "No component is grounded.",
+                "A constraint graph references missing connectors.",
+                "A connected component cannot be reached from a grounded component.",
+                "A closed-loop residual exceeds tolerance.",
+            ],
+            how_to_fix=[
+                "Ground at least one component with ground_component_rassembly.",
+                "Ensure every constrained component has the required connectors.",
+                "Inspect constraint residuals before strict solving.",
+            ],
+            error=e,
+        )
+
+
+def measure_constraint_residual_rconstraintresidual(
+    assembly: Assembly, constraint_id: str
+) -> ConstraintResidual:
+    """Measure residual for one assembly constraint without mutating the assembly."""
+
+    return measure_constraint_residual(assembly, constraint_id)
+
+
+def inspect_assembly_constraints_rconstraintreport(
+    assembly: Assembly,
+) -> ConstraintReport:
+    """Inspect all assembly constraint residuals without mutating the assembly."""
+
+    return inspect_assembly_constraints(assembly)
+
+
+def _placed_solids_from_item(item: Union[Part, Assembly], placement: Placement) -> List[Solid]:
+    if isinstance(item, Part):
+        placed = place_shape_ocp(
+            item.body,
+            placement.origin,
+            placement.x_axis,
+            placement.y_axis,
+            placement.z_axis,
+        )
+        return [cast(Solid, placed)]
+    if isinstance(item, Assembly):
+        solids: List[Solid] = []
+        for component in item.components:
+            solids.extend(
+                _placed_solids_from_item(
+                    component.item,
+                    compose_placements(placement, component.placement),
+                )
+            )
+        return solids
+    raise TypeError("item must be a Part or Assembly")
+
+
+def make_compound_from_assembly_rcompound(assembly: Assembly) -> Compound:
+    """Project an Assembly into an explicit flattened Compound geometry value."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        if not assembly.components:
+            raise ValueError("assembly must contain at least one component to project")
+        solids = _placed_solids_from_item(assembly, identity_placement())
+        if not solids:
+            raise ValueError("assembly projection produced no solids")
+        compound = Compound(make_compound_always([solid.wrapped for solid in solids]))
+        compound.set_metadata(
+            "assembly_projection",
+            {
+                "assembly_id": assembly.assembly_id,
+                "component_count": len(assembly.components),
+                "solid_count": len(solids),
+            },
+        )
+        record_operation_if_active(
+            _OP_MAKE_COMPOUND_FROM_ASSEMBLY_RCOMPOUND,
+            {
+                "assembly_id": assembly.assembly_id,
+                "component_count": len(assembly.components),
+            },
+            outputs=compound,
+            input_shapes=[assembly],
+            semantic_delta=_semantic_modified(
+                "Assembly",
+                assembly.assembly_id,
+                {"projection": "compound", "solid_count": len(solids)},
+            ),
+            context=_current_context_metadata(),
+        )
+        return compound
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_compound_from_assembly_rcompound",
+            what_happened="Failed to project the assembly into a Compound.",
+            possible_causes=[
+                "The input is not an Assembly.",
+                "The assembly has no components.",
+                "A component placement is invalid.",
+                "The kernel could not transform or combine the component bodies.",
+            ],
+            how_to_fix=[
+                "Create an assembly with make_assembly_rassembly and add at least one component.",
+                "Ensure every component references a valid Part or subassembly.",
+                "Validate placements before projection.",
+            ],
+            error=e,
+        )
+
+
+# =============================================================================
 # 导出函数
 # =============================================================================
 
 
-_EXPORTABLE_TYPES = (Solid, Face, Wire, Edge, Vertex)
+_EXPORTABLE_TYPES = (Compound, Solid, Face, Wire, Edge, Vertex)
 
 
 def _normalize_shape_input(
@@ -3376,7 +5798,7 @@ def _normalize_shape_input(
         return normalized
 
     raise ValueError(
-        "export 函数只支持 Solid、Face、Wire、Edge、Vertex 或其序列类型的输入"
+        "export 函数只支持 Compound、Solid、Face、Wire、Edge、Vertex 或其序列类型的输入"
     )
 
 
@@ -3419,7 +5841,7 @@ def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> N
                 "The exporter rejected the provided geometry.",
             ],
             how_to_fix=[
-                "Pass Solid, Face, Wire, Edge, Vertex, or sequences of those types.",
+                "Pass Compound, Solid, Face, Wire, Edge, Vertex, or sequences of those types.",
                 "Use a writable file path ending in .step or .stp.",
                 "If export still fails, inspect each input shape individually.",
             ],
@@ -3431,7 +5853,7 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
     """Export shapes to STL.
 
     Args:
-        shapes: A single Solid or Face, or any nested sequence of Solid/Face.
+        shapes: A single Compound, Solid, or Face, or any nested sequence of those.
             Lists of Solid are supported directly, including pattern or explicitly
             collected multi-shape results.
         filename: Output STL file path.
@@ -3440,7 +5862,7 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
         None: Writes the provided shapes into one STL file.
 
     Usage:
-        Use this function when you want to export one solid or many solids/faces into
+        Use this function when you want to export one compound, solid, or face into
         the same STL file. Passing `List[Solid]` is valid for pattern outputs or
         explicit shape collections. Boolean operations return a single `Solid`.
 
@@ -3456,8 +5878,8 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
         shape_list = _normalize_shape_input(shapes)
 
         for shape in shape_list:
-            if not isinstance(shape, (Solid, Face)):
-                raise ValueError("export_stl函数只支持Solid和Face类型的几何体")
+            if not isinstance(shape, (Compound, Solid, Face)):
+                raise ValueError("export_stl函数只支持Compound、Solid和Face类型的几何体")
         export_stl_shape(make_compound([shape.wrapped for shape in shape_list]), filename)
     except Exception as e:
         _wrap_public_api_error(

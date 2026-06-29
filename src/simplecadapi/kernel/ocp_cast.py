@@ -59,6 +59,13 @@ def as_solid(shape: TopoDS_Shape):
     raise ValueError(f"Expected a solid-compatible OCP shape, got {shape_type_name(shape)}")
 
 
+def as_compound(shape: TopoDS_Shape):
+    st = shape.ShapeType()
+    if st == TopAbs_COMPOUND:
+        return TopoDS.Compound_s(shape)
+    raise ValueError(f"Expected a compound OCP shape, got {shape_type_name(shape)}")
+
+
 def require_shape(value: Any) -> TopoDS_Shape:
     if isinstance(value, TopoDS_Shape):
         return value

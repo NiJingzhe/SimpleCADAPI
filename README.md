@@ -6,7 +6,7 @@ in a compact public API for creating solids, applying features, tagging semantic
 intent, querying topology, exporting manufacturing files, and translating recorded
 models into FreeCAD workflows.
 
-Current beta: `simplecadapi==2.0.0b3`.
+Current release: `simplecadapi==2.0.1`.
 
 ## What It Provides
 
@@ -134,6 +134,10 @@ If FreeCAD or FreeCADCmd is available, the same model JSON can be written as an
 scad.translate_model_json_to_fcstd(model_json, "bracket.FCStd")
 ```
 
+Part/Assembly models are written as editable FreeCAD assembly structure: parts are
+`App::Part`, assemblies are `Assembly::AssemblyObject`, and components are links.
+Explicit compound projections remain available for geometry-only STEP export.
+
 ## Examples
 
 Run examples from the source checkout:
@@ -145,6 +149,9 @@ uv run python examples/03_expressions.py
 uv run python examples/05_loft_sweep_revolve.py
 uv run python examples/06_parametric_gear_model.py
 uv run python examples/07_serialization_operation_tree.py
+uv run python examples/08_constrained_sketch.py
+uv run python examples/09_naca0016_blade_freecad.py
+uv run python examples/10_part_assembly.py
 ```
 
 ## Documentation
