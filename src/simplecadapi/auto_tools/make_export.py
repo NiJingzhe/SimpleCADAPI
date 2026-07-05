@@ -305,7 +305,7 @@ def generate_all_list(
             all_lines.append(f'    "{func}",')
         all_lines.append("")
 
-    all_lines.extend(['    "ql",', "", "    # 别名"])
+    all_lines.extend(['    "ql",', '    "translator",', "", "    # 别名"])
 
     aliases = sorted(
         ALIAS_RULES[func] for func in public_functions if func in ALIAS_RULES
@@ -348,6 +348,7 @@ def generate_init_file(inventory: Dict[str, ModuleInventory]) -> str:
     lines.extend(
         [
             "from . import ql",
+            "from . import translator",
             "",
             '__author__ = "SimpleCAD API Team"',
             '__description__ = "Simplified OCP-native CAD modeling Python API"',
@@ -408,7 +409,7 @@ def extract_existing_auto_exports(file_path: Path = INIT_FILE) -> List[str]:
 
         if node.module is None:
             for alias in node.names:
-                if alias.name in {"field", "ql"}:
+                if alias.name in {"field", "ql", "translator"}:
                     symbols.append(alias.name)
 
     return sorted(dict.fromkeys(symbols))
@@ -511,6 +512,7 @@ def _target_symbols(inventory: Dict[str, ModuleInventory]) -> List[str]:
         symbols.extend(inventory[module_name].functions)
         symbols.extend(inventory[module_name].classes)
     symbols.append("ql")
+    symbols.append("translator")
     return symbols
 
 

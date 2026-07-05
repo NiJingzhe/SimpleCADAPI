@@ -124,14 +124,14 @@ print("replayed_outputs", len(rebuilt))
 Recorded model JSON can be translated into a FreeCAD Python script:
 
 ```python
-script = scad.translate_model_json_to_freecad_script(model_json)
+script = scad.translator.freecad_translator.translate_model_json_to_freecad_script(model_json)
 ```
 
 If FreeCAD or FreeCADCmd is available, the same model JSON can be written as an
 `.FCStd` file:
 
 ```python
-scad.translate_model_json_to_fcstd(model_json, "bracket.FCStd")
+scad.translator.freecad_translator.translate_model_json_to_fcstd(model_json, "bracket.FCStd")
 ```
 
 Part/Assembly models are written as editable FreeCAD assembly structure: parts are

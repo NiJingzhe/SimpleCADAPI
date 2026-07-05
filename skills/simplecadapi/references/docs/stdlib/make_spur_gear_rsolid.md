@@ -1,0 +1,54 @@
+# make_spur_gear_rsolid
+
+## API Definition
+
+```python
+def make_spur_gear_rsolid(n_teeth: int, module: float, pressure_angle: float = 20.0, gear_height: float = 6.0, *, addendum_factor: float = 1.0, clearance_factor: float = 0.25, backlash: float = 0.0) -> Solid
+```
+
+*Source: std/gear.py*
+
+## Import Surface
+
+- standard library: `import simplecadapi as scad` then `scad.std.gear.make_spur_gear_rsolid(...)`; direct submodule import: `from simplecadapi.std.gear import make_spur_gear_rsolid`
+
+## Description
+
+Create an involute spur gear (straight teeth, helix angle = 0).
+
+## Parameters
+
+### n_teeth
+
+- **Type**: `int`
+- **Description**: Number of teeth (>= 3).
+
+### module
+
+- **Type**: `float`
+- **Description**: Gear module in mm (pitch diameter = module * n_teeth).
+
+### pressure_angle
+
+- **Type**: `float, default 20`
+- **Description**: Pressure angle in degrees.
+
+### gear_height
+
+- **Type**: `float, default 6.0`
+- **Description**: Gear thickness / extrusion height along Z in mm.
+
+### addendum_factor
+
+- **Type**: `float, default 1.0`
+- **Description**: Tooth addendum as a multiple of module, matching FreeCAD's tooth height factor default.
+
+### clearance_factor
+
+- **Type**: `float, default 0.25`
+- **Description**: Root clearance beyond the addendum, as a multiple of module.
+
+### backlash
+
+- **Type**: `float, default 0.0`
+- **Description**: Circumferential tooth-thickness reduction at the pitch circle in mm.

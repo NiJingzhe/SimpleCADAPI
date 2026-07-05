@@ -6,9 +6,13 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 - Entries marked `top-level` are exported from `simplecadapi` and can be imported with `from simplecadapi import <name>`.
 - Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.
+- Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.
 
 ## Basic Creation
 
+- [make_2d_cut_rface](make_2d_cut_rface.md) *(from operations.py)* `top-level`
+- [make_2d_intersect_rface](make_2d_intersect_rface.md) *(from operations.py)* `top-level`
+- [make_2d_union_rface](make_2d_union_rface.md) *(from operations.py)* `top-level`
 - [make_angle_arc_redge](make_angle_arc_redge.md) *(from operations.py)* `top-level`
 - [make_angle_arc_rwire](make_angle_arc_rwire.md) *(from operations.py)* `top-level`
 - [make_assembly_rassembly](make_assembly_rassembly.md) *(from operations.py)* `top-level`
@@ -24,6 +28,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_face_connector_rconnector](make_face_connector_rconnector.md) *(from operations.py)* `top-level`
 - [make_face_from_sketch_rface](make_face_from_sketch_rface.md) *(from operations.py)* `top-level`
 - [make_face_from_wire_rface](make_face_from_wire_rface.md) *(from operations.py)* `top-level`
+- [make_face_from_wires_rface](make_face_from_wires_rface.md) *(from operations.py)* `top-level`
 - [make_helix_redge](make_helix_redge.md) *(from operations.py)* `top-level`
 - [make_helix_rwire](make_helix_rwire.md) *(from operations.py)* `top-level`
 - [make_line_redge](make_line_redge.md) *(from operations.py)* `top-level`
@@ -80,8 +85,9 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 ## FreeCAD Translation
 
-- [translate_model_json_to_fcstd](translate_model_json_to_fcstd.md) *(from freecad_translator.py)* `top-level`
-- [translate_model_json_to_freecad_script](translate_model_json_to_freecad_script.md) *(from freecad_translator.py)* `top-level`
+- [FreeCADScriptTranslator](FreeCADScriptTranslator.md) *(from translator/freecad_translator/script_translator.py)* `translator backend`
+- [translate_model_json_to_fcstd](translate_model_json_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
+- [translate_model_json_to_freecad_script](translate_model_json_to_freecad_script.md) *(from translator/freecad_translator/api.py)* `translator backend`
 
 ## Math Helpers
 
@@ -148,14 +154,19 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [ScalarLimit](ScalarLimit.md) *(from product.py)* `top-level`
 - [SemanticDelta](SemanticDelta.md) *(from topology.py)* `top-level`
 - [SemanticRef](SemanticRef.md) *(from topology.py)* `top-level`
+- [add_arc_rsketch](add_arc_rsketch.md) *(from operations.py)* `top-level`
+- [add_belt_constraint_rassembly](add_belt_constraint_rassembly.md) *(from operations.py)* `top-level`
+- [add_bspline_rsketch](add_bspline_rsketch.md) *(from operations.py)* `top-level`
 - [add_circle_rsketch](add_circle_rsketch.md) *(from operations.py)* `top-level`
 - [add_component_rassembly](add_component_rassembly.md) *(from operations.py)* `top-level`
 - [add_connector_rassembly](add_connector_rassembly.md) *(from operations.py)* `top-level`
 - [add_connector_rpart](add_connector_rpart.md) *(from operations.py)* `top-level`
 - [add_fixed_constraint_rassembly](add_fixed_constraint_rassembly.md) *(from operations.py)* `top-level`
+- [add_gear_constraint_rassembly](add_gear_constraint_rassembly.md) *(from operations.py)* `top-level`
 - [add_line_rsketch](add_line_rsketch.md) *(from operations.py)* `top-level`
 - [add_point_rsketch](add_point_rsketch.md) *(from operations.py)* `top-level`
 - [add_prismatic_constraint_rassembly](add_prismatic_constraint_rassembly.md) *(from operations.py)* `top-level`
+- [add_rack_pinion_constraint_rassembly](add_rack_pinion_constraint_rassembly.md) *(from operations.py)* `top-level`
 - [add_revolute_constraint_rassembly](add_revolute_constraint_rassembly.md) *(from operations.py)* `top-level`
 - [and_](and_.md) *(from ql.py)* `submodule:ql`
 - [assign_material_rpart](assign_material_rpart.md) *(from operations.py)* `top-level`

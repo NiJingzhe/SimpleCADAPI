@@ -148,6 +148,43 @@ class TestSketchApi(unittest.TestCase):
         self.assertIsInstance(replayed[0], scad.Face)
         self.assertAlmostEqual(replayed[0].get_area(), face.get_area(), places=6)
 
+    def test_graph_replay_preserves_sketch_bspline_definition(self):
+        with scad.GraphSession() as session:
+            sketch = scad.make_sketch_rsketch("spline")
+            sketch = scad.add_point_rsketch(sketch, "p0", 0.0, 0.0)
+            sketch = scad.add_point_rsketch(sketch, "p1", 4.0, 0.0)
+            sketch = scad.add_bspline_rsketch(
+                sketch,
+                "curve",
+                "p0",
+                "p1",
+                control_points=[
+                    [0.0, 0.0],
+                    [1.0, 1.5],
+                    [3.0, 1.5],
+                    [4.0, 0.0],
+                ],
+                degree=3,
+                knots=[0.0, 1.0],
+                multiplicities=[4, 4],
+            )
+
+        payload = json.loads(scad.export_model_json(session))
+        spline_node = next(
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_add_bspline_rsketch"
+        )
+        self.assertEqual(len(spline_node["params"]["control_points"]), 4)
+        self.assertEqual(spline_node["params"]["knots"], [0.0, 1.0])
+        self.assertEqual(spline_node["params"]["multiplicities"], [4, 4])
+
+        replayed = scad.replay_model_json(json.dumps(payload))
+        self.assertEqual(len(replayed), 1)
+        self.assertIsInstance(replayed[0], scad.Sketch)
+        self.assertEqual(
+            replayed[0].entities["curve"].data["control_points"],
+            sketch.entities["curve"].data["control_points"],
+        )
+
     def test_strict_replay_requires_sketch_solve_snapshot(self):
         with scad.GraphSession() as session:
             sketch = self._make_constrained_rectangle()

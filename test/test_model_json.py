@@ -136,18 +136,14 @@ class TestModelJson(unittest.TestCase):
             replayed[0].get_volume(), original.get_volume(), places=4
         )
 
-    def test_graph_lowers_make_box_to_profile_plus_extrude(self):
+    def test_graph_records_make_box_as_direct_primitive(self):
         with GraphSession() as session:
             scad.make_box_rsolid(2.0, 3.0, 4.0, bottom_face_center=(1.0, 2.0, 3.0))
 
         payload = json.loads(scad.export_model_json(session))
         core_ops = [node["op"] for node in payload["graph"]["nodes"]]
 
-        self.assertIn("make_line_redge", core_ops)
-        self.assertIn("make_wire_from_edges_rwire", core_ops)
-        self.assertIn("make_face_from_wire_rface", core_ops)
-        self.assertIn("make_extrude_rsolid", core_ops)
-        self.assertNotIn("make_box", core_ops)
+        self.assertEqual(core_ops, ["make_box_rsolid"])
 
     def test_graph_lowers_make_circle_face_to_wire_plus_face(self):
         with GraphSession() as session:
@@ -161,58 +157,42 @@ class TestModelJson(unittest.TestCase):
         self.assertIn("make_face_from_wire_rface", core_ops)
         self.assertNotIn("make_circle_face", core_ops)
 
-    def test_graph_lowers_make_cylinder_to_circle_face_plus_extrude(self):
+    def test_graph_records_make_cylinder_as_direct_primitive(self):
         with GraphSession() as session:
             scad.make_cylinder_rsolid(1.0, 3.0, bottom_face_center=(0.0, 0.0, 0.0))
 
         payload = json.loads(scad.export_model_json(session))
         core_ops = [node["op"] for node in payload["graph"]["nodes"]]
 
-        self.assertIn("make_circle_redge", core_ops)
-        self.assertIn("make_wire_from_edges_rwire", core_ops)
-        self.assertIn("make_face_from_wire_rface", core_ops)
-        self.assertIn("make_extrude_rsolid", core_ops)
-        self.assertNotIn("make_cylinder", core_ops)
+        self.assertEqual(core_ops, ["make_cylinder_rsolid"])
 
-    def test_graph_lowers_rectangle_face_further_to_wire_plus_face(self):
+    def test_graph_box_primitive_does_not_emit_rectangle_profile(self):
         with GraphSession() as session:
             scad.make_box_rsolid(2.0, 3.0, 4.0)
 
         payload = json.loads(scad.export_model_json(session))
         core_ops = [node["op"] for node in payload["graph"]["nodes"]]
 
-        self.assertIn("make_line_redge", core_ops)
-        self.assertIn("make_wire_from_edges_rwire", core_ops)
-        self.assertIn("make_face_from_wire_rface", core_ops)
+        self.assertEqual(core_ops, ["make_box_rsolid"])
         self.assertNotIn("make_rectangle_face", core_ops)
 
-    def test_graph_lowers_make_sphere_to_revolve_chain(self):
+    def test_graph_records_make_sphere_as_direct_primitive(self):
         with GraphSession() as session:
             scad.make_sphere_rsolid(2.0, center=(0.0, 0.0, 0.0))
 
         payload = json.loads(scad.export_model_json(session))
         core_ops = [node["op"] for node in payload["graph"]["nodes"]]
 
-        self.assertIn("make_revolve_rsolid", core_ops)
-        self.assertIn("make_line_redge", core_ops)
-        self.assertIn("make_wire_from_edges_rwire", core_ops)
-        self.assertIn("make_face_from_wire_rface", core_ops)
-        self.assertNotIn("make_polyline_wire", core_ops)
-        self.assertNotIn("make_sphere", core_ops)
+        self.assertEqual(core_ops, ["make_sphere_rsolid"])
 
-    def test_graph_lowers_make_cone_to_revolve_chain(self):
+    def test_graph_records_make_cone_as_direct_primitive(self):
         with GraphSession() as session:
             scad.make_cone_rsolid(2.0, 4.0, top_radius=0.5)
 
         payload = json.loads(scad.export_model_json(session))
         core_ops = [node["op"] for node in payload["graph"]["nodes"]]
 
-        self.assertIn("make_revolve_rsolid", core_ops)
-        self.assertIn("make_line_redge", core_ops)
-        self.assertIn("make_wire_from_edges_rwire", core_ops)
-        self.assertIn("make_face_from_wire_rface", core_ops)
-        self.assertNotIn("make_polyline_wire", core_ops)
-        self.assertNotIn("make_cone", core_ops)
+        self.assertEqual(core_ops, ["make_cone_rsolid"])
 
     def test_graph_lowers_rectangle_wire_to_lines_plus_wire_assembly(self):
         with GraphSession() as session:
@@ -346,9 +326,9 @@ class TestModelJson(unittest.TestCase):
         core_ops = {node["op"] for node in payload["graph"]["nodes"]}
 
         self.assertTrue(core_ops.issubset(set(contract["core_op_set"])))
-        self.assertNotIn("make_box", core_ops)
-        self.assertNotIn("make_cylinder", core_ops)
-        self.assertNotIn("make_sphere", core_ops)
+        self.assertIn("make_box_rsolid", core_ops)
+        self.assertIn("make_cylinder_rsolid", core_ops)
+        self.assertIn("make_sphere_rsolid", core_ops)
         self.assertNotIn("helical_sweep", core_ops)
         self.assertNotIn("make_polyline_wire", core_ops)
 
@@ -373,7 +353,7 @@ class TestModelJson(unittest.TestCase):
                 "nodes": [
                     {
                         "node_id": "n1",
-                        "op": "make_box",
+                        "op": "make_legacy_box",
                         "params": {"w": 1, "h": 1, "d": 1},
                         "inputs": [],
                         "output_count": 1,

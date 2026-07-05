@@ -20,7 +20,8 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "evolve.py",
     "ql.py",
     "serializer.py",
-    "freecad_translator.py",
+    "translator/freecad_translator/api.py",
+    "translator/freecad_translator/script_translator.py",
     "math.py",
     "product.py",
     "expr.py",
@@ -28,6 +29,11 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "sketch.py",
     "errors.py",
     "topology.py",
+)
+
+DEFAULT_STDLIB_SOURCE_FILENAMES: tuple[str, ...] = (
+    "std/bearing.py",
+    "std/gear.py",
 )
 
 FULL_PUBLIC_FUNCTION_MODULES = frozenset(
@@ -41,11 +47,18 @@ FULL_PUBLIC_FUNCTION_MODULES = frozenset(
 )
 
 EXPORTED_FUNCTION_MODULES = frozenset(
-    {"serializer.py", "freecad_translator.py", "graph.py", "expr.py", "errors.py"}
+    {"serializer.py", "graph.py", "expr.py", "errors.py"}
 )
 
 EXPORTED_CALLABLE_MODULES = frozenset(
     {"expr.py", "graph.py", "sketch.py", "errors.py", "topology.py", "math.py", "product.py"}
+)
+
+TRANSLATOR_PUBLIC_MODULES = frozenset(
+    {
+        "translator/freecad_translator/api.py",
+        "translator/freecad_translator/script_translator.py",
+    }
 )
 
 MISSING = object()
@@ -71,6 +84,10 @@ def _default_source_files(package_root: Path) -> List[Path]:
     return [package_root / name for name in DEFAULT_SOURCE_FILENAMES]
 
 
+def _default_stdlib_source_files(package_root: Path) -> List[Path]:
+    return [package_root / name for name in DEFAULT_STDLIB_SOURCE_FILENAMES]
+
+
 def _default_output_dirs(package_root: Path, cwd: Path | None = None) -> List[Path]:
     project_root = _source_checkout_root(package_root)
     if project_root is not None:
@@ -78,6 +95,18 @@ def _default_output_dirs(package_root: Path, cwd: Path | None = None) -> List[Pa
 
     base_dir = cwd if cwd is not None else Path.cwd()
     return [base_dir / "docs/api"]
+
+
+def _default_stdlib_output_dirs(
+    package_root: Path,
+    cwd: Path | None = None,
+) -> List[Path]:
+    project_root = _source_checkout_root(package_root)
+    if project_root is not None:
+        return [project_root / "docs/stdlib"]
+
+    base_dir = cwd if cwd is not None else Path.cwd()
+    return [base_dir / "docs/stdlib"]
 
 
 @dataclass
@@ -128,7 +157,7 @@ class APIDocumentGenerator:
             self.log(f"  正在处理 {file_path}...")
             source = file_path.read_text(encoding="utf-8")
             tree = ast.parse(source, filename=str(file_path))
-            module_name = file_path.name
+            module_name = self._module_name_for(file_path)
 
             file_count = 0
             for node in tree.body:
@@ -144,6 +173,13 @@ class APIDocumentGenerator:
         self.apis = self._assign_doc_filenames(extracted)
         self.log(f"成功总共提取到 {len(self.apis)} 个API")
         return self.apis
+
+    def _module_name_for(self, file_path: Path) -> str:
+        try:
+            return file_path.resolve().relative_to(_package_root_from()).as_posix()
+        except ValueError:
+            pass
+        return file_path.name
 
     @staticmethod
     def _assign_doc_filenames(apis: List[ApiInfo]) -> List[ApiInfo]:
@@ -226,6 +262,8 @@ class APIDocumentGenerator:
             return False
         if module_name in FULL_PUBLIC_FUNCTION_MODULES:
             return True
+        if module_name in TRANSLATOR_PUBLIC_MODULES:
+            return True
         if module_name in EXPORTED_FUNCTION_MODULES:
             if not exported_names:
                 return True
@@ -240,6 +278,8 @@ class APIDocumentGenerator:
     ) -> bool:
         if name.startswith("_"):
             return False
+        if module_name in TRANSLATOR_PUBLIC_MODULES:
+            return True
         if module_name not in EXPORTED_CALLABLE_MODULES:
             return False
         if not exported_names:
@@ -273,6 +313,12 @@ class APIDocumentGenerator:
     def _import_surface_for(self, name: str, module_name: str) -> str:
         if name in self.exported_names:
             return f"top-level: `from simplecadapi import {name}`"
+
+        if module_name.startswith("translator/freecad_translator/"):
+            return (
+                "translator backend: "
+                f"`from simplecadapi.translator.freecad_translator import {name}`"
+            )
 
         module_stem = module_name.removesuffix(".py")
         if module_stem in {"field", "ql"}:
@@ -439,7 +485,7 @@ class APIDocumentGenerator:
                 categories["Modeling Graph and Replay"].append(api)
                 continue
 
-            if api.source_file == "freecad_translator.py":
+            if api.source_file.startswith("translator/freecad_translator/"):
                 categories["FreeCAD Translation"].append(api)
                 continue
 
@@ -483,6 +529,7 @@ class APIDocumentGenerator:
             "",
             "- Entries marked `top-level` are exported from `simplecadapi` and can be imported with `from simplecadapi import <name>`.",
             "- Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.",
+            "- Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.",
             "",
         ]
 
@@ -493,11 +540,12 @@ class APIDocumentGenerator:
             md_lines.append("")
             for api in sorted(api_list, key=lambda item: item.name):
                 source_info = f" *(from {api.source_file})*"
-                surface_info = (
-                    " `top-level`"
-                    if api.name in self.exported_names
-                    else f" `submodule:{api.source_file.removesuffix('.py')}`"
-                )
+                if api.name in self.exported_names:
+                    surface_info = " `top-level`"
+                elif api.source_file.startswith("translator/"):
+                    surface_info = " `translator backend`"
+                else:
+                    surface_info = f" `submodule:{api.source_file.removesuffix('.py')}`"
                 doc_filename = api.doc_filename or f"{api.name}.md"
                 md_lines.append(
                     f"- [{api.name}]({doc_filename}){source_info}{surface_info}"
@@ -619,6 +667,9 @@ class APIDocumentGenerator:
                     if open_index < close_index:
                         name = left[:open_index].strip()
                         type_info = left[open_index + 1 : close_index].strip()
+                elif self._looks_like_type_annotation(description):
+                    type_info = description
+                    description = ""
 
                 current = {"name": name, "type": type_info, "description": description}
                 continue
@@ -630,6 +681,37 @@ class APIDocumentGenerator:
             args.append(current)
 
         return args
+
+    @staticmethod
+    def _looks_like_type_annotation(text: str) -> bool:
+        stripped = text.strip()
+        if not stripped or stripped.endswith("."):
+            return False
+
+        first = stripped.split(",", 1)[0].strip()
+        first_word = first.split()[0] if first else ""
+        return first_word.startswith(
+            (
+                "int",
+                "float",
+                "str",
+                "bool",
+                "tuple",
+                "list",
+                "dict",
+                "Sequence",
+                "Iterable",
+                "Optional",
+                "Solid",
+                "Face",
+                "Wire",
+                "Edge",
+                "Vertex",
+                "Placement",
+                "Part",
+                "Assembly",
+            )
+        )
 
     def _parse_raises_section(self, lines: Iterable[str]) -> List[Dict[str, str]]:
         raises: List[Dict[str, str]] = []
@@ -823,6 +905,105 @@ class APIDocumentGenerator:
         return fields
 
 
+class StdlibDocumentGenerator(APIDocumentGenerator):
+    """Generate markdown docs for standard-library part factories."""
+
+    def _module_name_for(self, file_path: Path) -> str:
+        if file_path.parent.name == "std":
+            return f"std/{file_path.name}"
+        return file_path.name
+
+    @staticmethod
+    def _should_include_function(
+        name: str,
+        module_name: str,
+        exported_names: set[str],
+    ) -> bool:
+        return not name.startswith("_")
+
+    @staticmethod
+    def _should_include_class(
+        name: str,
+        module_name: str,
+        exported_names: set[str],
+    ) -> bool:
+        return False
+
+    def _import_surface_for(self, name: str, module_name: str) -> str:
+        if module_name == "std/bearing.py":
+            return (
+                "standard library: `import simplecadapi as scad` then "
+                f"`scad.std.bearing.{name}(...)`; direct submodule import: "
+                f"`from simplecadapi.std.bearing import {name}`"
+            )
+        if module_name == "std/gear.py":
+            return (
+                "standard library: `import simplecadapi as scad` then "
+                f"`scad.std.gear.{name}(...)`; direct submodule import: "
+                f"`from simplecadapi.std.gear import {name}`"
+            )
+
+        module_stem = module_name.removesuffix(".py").replace("/", ".")
+        return f"standard library: `from simplecadapi.{module_stem} import {name}`"
+
+    def _build_api_index_markdown(self) -> str:
+        categories: Dict[str, List[ApiInfo]] = {
+            "Bearing Assemblies": [],
+            "External Gears": [],
+            "Internal Ring Gears": [],
+            "Cycloidal Reducer Discs": [],
+            "Racks": [],
+            "Other Standard Parts": [],
+        }
+
+        for api in self.apis:
+            name = api.name
+            if api.source_file == "std/bearing.py":
+                categories["Bearing Assemblies"].append(api)
+            elif "cycloidal_disc" in name:
+                categories["Cycloidal Reducer Discs"].append(api)
+            elif "_ring_gear_" in name:
+                categories["Internal Ring Gears"].append(api)
+            elif "_rack_" in name:
+                categories["Racks"].append(api)
+            elif "_gear_" in name:
+                categories["External Gears"].append(api)
+            else:
+                categories["Other Standard Parts"].append(api)
+
+        md_lines: List[str] = [
+            "# SimpleCAD Standard Library Index",
+            "",
+            "This index includes generated docs for standard part factory functions. Use these functions first when a task needs a standard mechanical part and does not require complex custom geometry changes.",
+            "",
+            "## Import Surfaces",
+            "",
+            "- Recommended package-level module export: `import simplecadapi as scad`, then call functions through submodules such as `scad.std.gear.<function>(...)` and `scad.std.bearing.<function>(...)`.",
+            "- Direct submodule import is also supported, for example `from simplecadapi.std.gear import make_spur_gear_rsolid` or `from simplecadapi.std.bearing import make_ball_bearing_rassembly`.",
+            "",
+            "## Usage Guidance",
+            "",
+            "- Prefer standard-library factories for standard bearings, gears, ring gears, and racks before hand-modeling profiles with core geometry APIs.",
+            "- Standard parts return normal SimpleCAD shapes or product assemblies, so they can be transformed, tagged, assembled, exported, or combined with core geometry operations.",
+            "- Switch to core geometry APIs only when the requested standard part needs substantial custom geometry beyond the factory parameters.",
+            "",
+        ]
+
+        for category, api_list in categories.items():
+            if not api_list:
+                continue
+            md_lines.append(f"## {category}")
+            md_lines.append("")
+            for api in sorted(api_list, key=lambda item: item.name):
+                doc_filename = api.doc_filename or f"{api.name}.md"
+                md_lines.append(
+                    f"- [{api.name}]({doc_filename}) *(from {api.source_file})* `stdlib`"
+                )
+            md_lines.append("")
+
+        return "\n".join(md_lines).rstrip() + "\n"
+
+
 def _parse_cli_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="SimpleCAD API markdown docs generator"
@@ -873,10 +1054,32 @@ def _resolve_output_dirs(
     return [path.resolve() for path in _default_output_dirs(package_root, cwd)]
 
 
+def _resolve_stdlib_source_files(
+    cli_sources: Sequence[str] | None,
+    module_file: Path | str | None = None,
+) -> List[Path]:
+    if cli_sources:
+        return [Path(item).resolve() for item in cli_sources]
+    package_root = _package_root_from(module_file)
+    return [path.resolve() for path in _default_stdlib_source_files(package_root)]
+
+
+def _resolve_stdlib_output_dirs(
+    cli_output_dirs: Sequence[str] | None,
+    module_file: Path | str | None = None,
+    cwd: Path | None = None,
+) -> List[Path]:
+    if cli_output_dirs:
+        return [Path(item).resolve() for item in cli_output_dirs]
+    package_root = _package_root_from(module_file)
+    return [path.resolve() for path in _default_stdlib_output_dirs(package_root, cwd)]
+
+
 def main() -> None:
     args = _parse_cli_args()
     source_files = _resolve_source_files(args.sources)
     output_dirs = _resolve_output_dirs(args.output_dirs)
+    generate_default_stdlib_docs = not args.sources and not args.output_dirs
 
     generator = APIDocumentGenerator(
         source_files=source_files,
@@ -892,12 +1095,30 @@ def main() -> None:
 
     generator.generate_markdown_docs()
 
+    stdlib_api_count = 0
+    if generate_default_stdlib_docs:
+        stdlib_generator = StdlibDocumentGenerator(
+            source_files=_resolve_stdlib_source_files(None),
+            output_dirs=_resolve_stdlib_output_dirs(None),
+            clean_stale=not args.no_clean,
+            quiet=args.quiet,
+        )
+        stdlib_apis = stdlib_generator.extract_apis()
+        stdlib_api_count = len(stdlib_apis)
+        if stdlib_apis:
+            stdlib_generator.generate_markdown_docs()
+
     if not args.quiet:
         print("\n✅ 文档生成完成！")
         print(f"📄 共处理 {len(apis)} 个API")
+        if generate_default_stdlib_docs:
+            print(f"📦 共处理 {stdlib_api_count} 个标准库API")
         print("📁 输出目录:")
         for path in output_dirs:
             print(f"  - {path}")
+        if generate_default_stdlib_docs:
+            for path in _resolve_stdlib_output_dirs(None):
+                print(f"  - {path}")
 
 
 if __name__ == "__main__":
