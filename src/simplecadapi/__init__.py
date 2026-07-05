@@ -68,6 +68,9 @@ from .operations import (
     add_fixed_constraint_rassembly,
     add_revolute_constraint_rassembly,
     add_prismatic_constraint_rassembly,
+    add_gear_constraint_rassembly,
+    add_belt_constraint_rassembly,
+    add_rack_pinion_constraint_rassembly,
     solve_assembly_constraints_rassembly,
     measure_constraint_residual_rconstraintresidual,
     inspect_assembly_constraints_rconstraintreport,
@@ -147,10 +150,6 @@ from .graph import GraphSession, suspend_graph_recording
 from .serializer import export_graph_json, import_graph_json, replay_graph
 from .serializer import export_session_json, import_session_json
 from .serializer import export_model_json, import_model_json, replay_model_json
-from .freecad_translator import (
-    translate_model_json_to_fcstd,
-    translate_model_json_to_freecad_script,
-)
 from .expr import (
     Expr,
     Var,
@@ -189,7 +188,8 @@ from .errors import SimpleCADError
 
 from . import ql
 from . import math
-from .std import gear as std_gear
+from . import std
+from . import translator
 
 # Avoid advertising internal implementation submodules from the top-level package
 # namespace. They remain importable as `simplecadapi.<module>` when needed.
@@ -311,6 +311,9 @@ __all__ = [
     "add_fixed_constraint_rassembly",
     "add_revolute_constraint_rassembly",
     "add_prismatic_constraint_rassembly",
+    "add_gear_constraint_rassembly",
+    "add_belt_constraint_rassembly",
+    "add_rack_pinion_constraint_rassembly",
     "solve_assembly_constraints_rassembly",
     "measure_constraint_residual_rconstraintresidual",
     "inspect_assembly_constraints_rconstraintreport",
@@ -384,7 +387,8 @@ __all__ = [
     "make_threaded_rod_rsolid",
     "radial_pattern_rsolidlist",
     "ql",
-    "std_gear",
+    "std",
+    "translator",
     # Graph/session + serialization APIs
     "GraphSession",
     "suspend_graph_recording",
@@ -395,8 +399,6 @@ __all__ = [
     "import_session_json",
     "export_model_json",
     "import_model_json",
-    "translate_model_json_to_freecad_script",
-    "translate_model_json_to_fcstd",
     "Expr",
     "Var",
     "Const",

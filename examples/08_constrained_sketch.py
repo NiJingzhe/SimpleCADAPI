@@ -311,7 +311,7 @@ rebuilt = scad.replay_model_json(model_json)
 scad.export_step(rebuilt, str(STEP_PATH))
 
 freecad_cmd = str(FREECAD_CMD) if FREECAD_CMD.exists() else None
-scad.translate_model_json_to_fcstd(
+scad.translator.freecad_translator.translate_model_json_to_fcstd(
     model_json,
     str(FCSTD_PATH),
     document_name="SimpleCADConstrainedSketchDemo",
