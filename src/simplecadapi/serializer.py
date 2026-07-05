@@ -133,6 +133,9 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     "add_fixed_constraint_rassembly": {"status": "replayable", "op": "make_fixed_constraint_rassembly"},
     "add_revolute_constraint_rassembly": {"status": "replayable", "op": "make_revolute_constraint_rassembly"},
     "add_prismatic_constraint_rassembly": {"status": "replayable", "op": "make_prismatic_constraint_rassembly"},
+    "add_gear_constraint_rassembly": {"status": "replayable", "op": "make_gear_constraint_rassembly"},
+    "add_belt_constraint_rassembly": {"status": "replayable", "op": "make_belt_constraint_rassembly"},
+    "add_rack_pinion_constraint_rassembly": {"status": "replayable", "op": "make_rack_pinion_constraint_rassembly"},
     "solve_assembly_constraints_rassembly": {"status": "replayable", "op": "make_solve_assembly_constraints_rassembly"},
     "measure_constraint_residual_rconstraintresidual": {
         "status": "diagnostic",
@@ -143,20 +146,20 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "reason": "Inspects current constraint state without changing model state.",
     },
     "make_box_rsolid": {
-        "status": "macro",
-        "reason": "Composite convenience API that should lower into low-level sketch + make_extrude_rsolid operations.",
+        "status": "replayable",
+        "op": "make_box_rsolid",
     },
     "make_cylinder_rsolid": {
-        "status": "macro",
-        "reason": "Composite convenience API that should lower into low-level circle/face + make_extrude_rsolid operations.",
+        "status": "replayable",
+        "op": "make_cylinder_rsolid",
     },
     "make_cone_rsolid": {
-        "status": "macro",
-        "reason": "Composite convenience API that should lower into low-level profile + make_revolve_rsolid operations.",
+        "status": "replayable",
+        "op": "make_cone_rsolid",
     },
     "make_sphere_rsolid": {
-        "status": "macro",
-        "reason": "Composite convenience API that should lower into low-level profile + make_revolve_rsolid operations.",
+        "status": "replayable",
+        "op": "make_sphere_rsolid",
     },
     "make_three_point_arc_redge": {
         "status": "replayable",
@@ -275,6 +278,10 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_constrain_fix_rsketch",
     "make_wire_from_sketch_rwire",
     "make_face_from_sketch_rface",
+    "make_box_rsolid",
+    "make_cylinder_rsolid",
+    "make_cone_rsolid",
+    "make_sphere_rsolid",
     "make_material_rmaterial",
     "make_placement_rplacement",
     "make_identity_placement_rplacement",
@@ -296,6 +303,9 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_fixed_constraint_rassembly",
     "make_revolute_constraint_rassembly",
     "make_prismatic_constraint_rassembly",
+    "make_gear_constraint_rassembly",
+    "make_belt_constraint_rassembly",
+    "make_rack_pinion_constraint_rassembly",
     "make_solve_assembly_constraints_rassembly",
     "make_extrude_rsolid",
     "make_revolve_rsolid",
@@ -862,6 +872,52 @@ def _replay_primitive_or_simple(
             params["radius"],
             center=tuple(params["center"]),
             dir=tuple(params["dir"]),
+        )
+    if op_name == "make_box_rsolid":
+        ctx.require_params(
+            node_id,
+            op_name,
+            params,
+            ("width", "height", "depth", "bottom_face_center"),
+        )
+        return ops.make_box_rsolid(
+            params["width"],
+            params["height"],
+            params["depth"],
+            bottom_face_center=tuple(params["bottom_face_center"]),
+        )
+    if op_name == "make_cylinder_rsolid":
+        ctx.require_params(
+            node_id,
+            op_name,
+            params,
+            ("radius", "height", "bottom_face_center", "axis"),
+        )
+        return ops.make_cylinder_rsolid(
+            params["radius"],
+            params["height"],
+            bottom_face_center=tuple(params["bottom_face_center"]),
+            axis=tuple(params["axis"]),
+        )
+    if op_name == "make_cone_rsolid":
+        ctx.require_params(
+            node_id,
+            op_name,
+            params,
+            ("bottom_radius", "top_radius", "height", "bottom_face_center", "axis"),
+        )
+        return ops.make_cone_rsolid(
+            params["bottom_radius"],
+            params["height"],
+            top_radius=params["top_radius"],
+            bottom_face_center=tuple(params["bottom_face_center"]),
+            axis=tuple(params["axis"]),
+        )
+    if op_name == "make_sphere_rsolid":
+        ctx.require_params(node_id, op_name, params, ("radius", "center"))
+        return ops.make_sphere_rsolid(
+            params["radius"],
+            center=tuple(params["center"]),
         )
     factory = _OP_REGISTRY.get(op_name)
     if factory:
@@ -1540,7 +1596,12 @@ def _execute_graph(
                         continue
 
                     if op_name == "make_add_bspline_rsketch":
-                        ctx.require_params(node.node_id, op_name, params, ("entity_id", "start", "end", "degree"))
+                        ctx.require_params(
+                            node.node_id,
+                            op_name,
+                            params,
+                            ("entity_id", "start", "end", "control_points", "degree"),
+                        )
                         sketch_outputs = _input_outputs(ctx, outputs, node, 0)
                         if sketch_outputs:
                             result = ops.add_bspline_rsketch(
@@ -1548,7 +1609,7 @@ def _execute_graph(
                                 str(params["entity_id"]),
                                 str(params["start"]),
                                 str(params["end"]),
-                                control_points=cast(Any, params.get("control_points", [])),
+                                control_points=cast(Any, params["control_points"]),
                                 degree=int(params.get("degree", 3)),
                                 knots=cast(Any, params.get("knots")),
                                 multiplicities=cast(Any, params.get("multiplicities")),
@@ -1856,6 +1917,72 @@ def _execute_graph(
                                     connector_b,
                                     drive_distance=cast(Optional[float], params.get("drive_distance")),
                                     distance_limit=cast(Optional[ScalarLimit], limit_outputs[0] if limit_outputs else None),
+                                    name=cast(Optional[str], params.get("name")),
+                                )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name in {
+                        "make_gear_constraint_rassembly",
+                        "make_belt_constraint_rassembly",
+                        "make_rack_pinion_constraint_rassembly",
+                    }:
+                        ctx.require_params(node.node_id, op_name, params, ("constraint_id",))
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        connector_a_outputs = _input_outputs(ctx, outputs, node, 1)
+                        connector_b_outputs = _input_outputs(ctx, outputs, node, 2)
+                        if assembly_outputs and connector_a_outputs and connector_b_outputs:
+                            assembly = cast(Assembly, assembly_outputs[0])
+                            connector_a = cast(ConnectorRef, connector_a_outputs[0])
+                            connector_b = cast(ConnectorRef, connector_b_outputs[0])
+                            if op_name == "make_gear_constraint_rassembly":
+                                ctx.require_params(
+                                    node.node_id,
+                                    op_name,
+                                    params,
+                                    ("pitch_radius_a", "pitch_radius_b"),
+                                )
+                                result = ops.add_gear_constraint_rassembly(
+                                    assembly,
+                                    str(params["constraint_id"]),
+                                    connector_a,
+                                    connector_b,
+                                    float(params["pitch_radius_a"]),
+                                    float(params["pitch_radius_b"]),
+                                    phase_offset=cast(Optional[float], params.get("phase_offset")),
+                                    name=cast(Optional[str], params.get("name")),
+                                )
+                            elif op_name == "make_belt_constraint_rassembly":
+                                ctx.require_params(
+                                    node.node_id,
+                                    op_name,
+                                    params,
+                                    ("pulley_radius_a", "pulley_radius_b"),
+                                )
+                                result = ops.add_belt_constraint_rassembly(
+                                    assembly,
+                                    str(params["constraint_id"]),
+                                    connector_a,
+                                    connector_b,
+                                    float(params["pulley_radius_a"]),
+                                    float(params["pulley_radius_b"]),
+                                    phase_offset=cast(Optional[float], params.get("phase_offset")),
+                                    name=cast(Optional[str], params.get("name")),
+                                )
+                            else:
+                                ctx.require_params(
+                                    node.node_id,
+                                    op_name,
+                                    params,
+                                    ("pitch_radius",),
+                                )
+                                result = ops.add_rack_pinion_constraint_rassembly(
+                                    assembly,
+                                    str(params["constraint_id"]),
+                                    connector_a,
+                                    connector_b,
+                                    float(params["pitch_radius"]),
+                                    phase_offset=cast(Optional[float], params.get("phase_offset")),
                                     name=cast(Optional[str], params.get("name")),
                                 )
                             _store_outputs(node, result)

@@ -66,7 +66,7 @@ def build_blade(output_dir: Path, *, freecad_cmd: Path | None = DEFAULT_FREECAD_
     print("wrote", step_path)
 
     if freecad_cmd is not None and freecad_cmd.exists():
-        scad.translate_model_json_to_fcstd(
+        scad.translator.freecad_translator.translate_model_json_to_fcstd(
             model_json,
             str(fcstd_path),
             document_name="NACA0016Blade",

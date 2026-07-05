@@ -8,6 +8,7 @@
 
 - Skill instructions (`SKILL.md`)
 - Documentation references (`references/docs/`)
+- Generated core API docs (`references/docs/api/`) and standard-library docs (`references/docs/stdlib/`)
 - High-level SDK summaries (`references/*.md`)
 
 ## What this skill does not bundle
@@ -19,10 +20,11 @@
 ## Main SDK surfaces
 
 - Geometry and modeling operations in `docs/api/`.
+- Standard parts library in `docs/stdlib/`, including `scad.std.gear` gear, ring gear, rack, and cycloidal disc factories plus `scad.std.bearing` bearing assembly factories.
 - Core shape/type semantics in `docs/core/`.
 - Graph/model serialization and replay APIs.
 - Expression, parameter, and semantic reference types.
-- Functional tagging with `apply_tag(shape, tag)`, `list_tags(shape)`, and QL tag predicates.
+- Functional tagging with `apply_tag(shape=..., tag=...)`, `list_tags(shape=...)`, and QL tag predicates.
 
 ## Preferred replayable workflow
 
