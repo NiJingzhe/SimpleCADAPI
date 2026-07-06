@@ -124,8 +124,10 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     "make_face_connector_rconnector": {"status": "replayable", "op": "make_face_connector_rconnector"},
     "make_edge_connector_rconnector": {"status": "replayable", "op": "make_edge_connector_rconnector"},
     "make_vertex_connector_rconnector": {"status": "replayable", "op": "make_vertex_connector_rconnector"},
+    "make_placement_connector_rconnector": {"status": "replayable", "op": "make_placement_connector_rconnector"},
     "add_connector_rpart": {"status": "replayable", "op": "make_add_connector_rpart"},
     "add_connector_rassembly": {"status": "replayable", "op": "make_add_connector_rassembly"},
+    "forward_connector_rassembly": {"status": "replayable", "op": "make_forward_connector_rassembly"},
     "make_connector_ref_rconnectorref": {"status": "replayable", "op": "make_connector_ref_rconnectorref"},
     "make_scalar_limit_rscalarlimit": {"status": "replayable", "op": "make_scalar_limit_rscalarlimit"},
     "ground_component_rassembly": {"status": "replayable", "op": "make_ground_component_rassembly"},
@@ -294,8 +296,10 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_face_connector_rconnector",
     "make_edge_connector_rconnector",
     "make_vertex_connector_rconnector",
+    "make_placement_connector_rconnector",
     "make_add_connector_rpart",
     "make_add_connector_rassembly",
+    "make_forward_connector_rassembly",
     "make_connector_ref_rconnectorref",
     "make_scalar_limit_rscalarlimit",
     "make_ground_component_rassembly",
@@ -1811,6 +1815,28 @@ def _execute_graph(
                             _store_outputs(node, connector)
                         continue
 
+                    if op_name == "make_placement_connector_rconnector":
+                        ctx.require_params(node.node_id, op_name, params, ("connector_id",))
+                        placement_outputs = _input_outputs(ctx, outputs, node, 0)
+                        placement = None
+                        if placement_outputs:
+                            placement = cast(Placement, placement_outputs[0])
+                        elif isinstance(params.get("placement"), dict):
+                            placement_data = cast(Dict[str, Any], params["placement"])
+                            placement = Placement(
+                                cast(Any, tuple(placement_data.get("origin", (0.0, 0.0, 0.0)))),
+                                x_axis=cast(Any, tuple(placement_data.get("x_axis", (1.0, 0.0, 0.0)))),
+                                y_axis=cast(Any, tuple(placement_data.get("y_axis", (0.0, 1.0, 0.0)))),
+                            )
+                        if placement is not None:
+                            result = ops.make_placement_connector_rconnector(
+                                str(params["connector_id"]),
+                                placement,
+                                name=cast(Optional[str], params.get("name")),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
                     if op_name == "make_add_connector_rpart":
                         part_outputs = _input_outputs(ctx, outputs, node, 0)
                         connector_outputs = _input_outputs(ctx, outputs, node, 1)
@@ -1829,6 +1855,35 @@ def _execute_graph(
                             result = ops.add_connector_rassembly(
                                 cast(Assembly, assembly_outputs[0]),
                                 cast(Connector, connector_outputs[0]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_forward_connector_rassembly":
+                        ctx.require_params(
+                            node.node_id,
+                            op_name,
+                            params,
+                            ("connector_id", "source_component_id", "source_connector_id"),
+                        )
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        offset_outputs = _input_outputs(ctx, outputs, node, 1)
+                        offset = cast(Optional[Placement], offset_outputs[0]) if offset_outputs else None
+                        if offset is None and isinstance(params.get("offset"), dict):
+                            offset_data = cast(Dict[str, Any], params["offset"])
+                            offset = Placement(
+                                cast(Any, tuple(offset_data.get("origin", (0.0, 0.0, 0.0)))),
+                                x_axis=cast(Any, tuple(offset_data.get("x_axis", (1.0, 0.0, 0.0)))),
+                                y_axis=cast(Any, tuple(offset_data.get("y_axis", (0.0, 1.0, 0.0)))),
+                            )
+                        if assembly_outputs:
+                            result = ops.forward_connector_rassembly(
+                                cast(Assembly, assembly_outputs[0]),
+                                str(params["connector_id"]),
+                                str(params["source_component_id"]),
+                                str(params["source_connector_id"]),
+                                name=cast(Optional[str], params.get("name")),
+                                offset=offset,
                             )
                             _store_outputs(node, result)
                         continue

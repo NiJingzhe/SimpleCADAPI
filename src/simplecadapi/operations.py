@@ -39,6 +39,7 @@ from .product import (
     Assembly,
     Component,
     Connector,
+    ConnectorAnchor,
     ConnectorRef,
     Constraint,
     ConstraintReport,
@@ -173,8 +174,10 @@ _OP_MAKE_COMPOUND_FROM_ASSEMBLY_RCOMPOUND = "make_compound_from_assembly_rcompou
 _OP_MAKE_FACE_CONNECTOR_RCONNECTOR = "make_face_connector_rconnector"
 _OP_MAKE_EDGE_CONNECTOR_RCONNECTOR = "make_edge_connector_rconnector"
 _OP_MAKE_VERTEX_CONNECTOR_RCONNECTOR = "make_vertex_connector_rconnector"
+_OP_MAKE_PLACEMENT_CONNECTOR_RCONNECTOR = "make_placement_connector_rconnector"
 _OP_MAKE_ADD_CONNECTOR_RPART = "make_add_connector_rpart"
 _OP_MAKE_ADD_CONNECTOR_RASSEMBLY = "make_add_connector_rassembly"
+_OP_MAKE_FORWARD_CONNECTOR_RASSEMBLY = "make_forward_connector_rassembly"
 _OP_MAKE_CONNECTOR_REF_RCONNECTORREF = "make_connector_ref_rconnectorref"
 _OP_MAKE_SCALAR_LIMIT_RSCALARLIMIT = "make_scalar_limit_rscalarlimit"
 _OP_MAKE_GROUND_COMPONENT_RASSEMBLY = "make_ground_component_rassembly"
@@ -5082,11 +5085,7 @@ def _make_geometry_backed_connector(
     connector = Connector(connector_id, geometry_ref, name=name)
     record_operation_if_active(
         op,
-        {
-            "connector_id": connector.connector_id,
-            "geometry_ref": geometry_ref.to_dict(),
-            "name": connector.name,
-        },
+        _connector_params(connector),
         outputs=connector,
         input_shapes=[shape],
         context=_current_context_metadata(),
@@ -5208,6 +5207,46 @@ def make_vertex_connector_rconnector(
         )
 
 
+def make_placement_connector_rconnector(
+    connector_id: str,
+    placement: Placement,
+    name: Optional[str] = None,
+) -> Connector:
+    """Create a connector anchored to an explicit local placement frame."""
+
+    try:
+        if not isinstance(placement, Placement):
+            raise TypeError("placement must be a Placement")
+        anchor = ConnectorAnchor("placement", placement=placement)
+        connector = Connector(connector_id, None, name=name, anchor=anchor)
+        record_operation_if_active(
+            _OP_MAKE_PLACEMENT_CONNECTOR_RCONNECTOR,
+            {
+                "connector_id": connector.connector_id,
+                "placement": placement.to_dict(),
+                "name": connector.name,
+            },
+            outputs=connector,
+            input_shapes=[placement],
+            context=_current_context_metadata(),
+        )
+        return connector
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_placement_connector_rconnector",
+            what_happened="Failed to create the placement connector.",
+            possible_causes=[
+                "The connector_id is empty or malformed.",
+                "The placement input is not a Placement.",
+            ],
+            how_to_fix=[
+                "Create placements with make_placement_rplacement.",
+                "Use a stable connector_id such as 'bearing_axis'.",
+            ],
+            error=e,
+        )
+
+
 def add_connector_rpart(part: Part, connector: Connector) -> Part:
     """Attach a connector datum frame to a Part definition."""
 
@@ -5273,6 +5312,66 @@ def add_connector_rassembly(assembly: Assembly, connector: Connector) -> Assembl
             how_to_fix=[
                 "Create a connector with make_face_connector_rconnector, make_edge_connector_rconnector, or make_vertex_connector_rconnector.",
                 "Use unique connector ids within one Assembly.",
+            ],
+            error=e,
+        )
+
+
+def forward_connector_rassembly(
+    assembly: Assembly,
+    connector_id: str,
+    source_component_id: str,
+    source_connector_id: str,
+    name: Optional[str] = None,
+    offset: Optional[Placement] = None,
+) -> Assembly:
+    """Expose an internal component connector as an assembly-level connector."""
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        if offset is not None and not isinstance(offset, Placement):
+            raise TypeError("offset must be a Placement")
+        anchor = ConnectorAnchor(
+            "forwarded",
+            source_component_id=source_component_id,
+            source_connector_id=source_connector_id,
+            offset=offset,
+        )
+        connector = Connector(connector_id, None, name=name, anchor=anchor)
+        result = assembly.with_connector(connector)
+        record_operation_if_active(
+            _OP_MAKE_FORWARD_CONNECTOR_RASSEMBLY,
+            {
+                "assembly_id": assembly.assembly_id,
+                "connector_id": connector.connector_id,
+                "source_component_id": anchor.source_component_id,
+                "source_connector_id": anchor.source_connector_id,
+                "name": connector.name,
+                "offset": offset.to_dict() if offset is not None else None,
+            },
+            outputs=result,
+            input_shapes=[assembly] + ([offset] if offset is not None else []),
+            semantic_delta=_semantic_modified(
+                "Assembly", assembly.assembly_id, {"connector": connector.to_dict()}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="forward_connector_rassembly",
+            what_happened="Failed to forward the assembly connector.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "The connector_id is duplicated in the Assembly.",
+                "The source component or source connector does not exist.",
+                "The optional offset is not a Placement.",
+            ],
+            how_to_fix=[
+                "Add the source component before forwarding its connector.",
+                "Use a connector_id unique within the Assembly.",
+                "Create offsets with make_placement_rplacement when needed.",
             ],
             error=e,
         )
