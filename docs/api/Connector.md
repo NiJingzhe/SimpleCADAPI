@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class Connector(connector_id: str, geometry_ref: GeometryRef, name: Optional[str] = None)
+class Connector(connector_id: str, geometry_ref: Optional[GeometryRef] = None, name: Optional[str] = None, anchor: Optional[ConnectorAnchor] = None)
 ```
 
 *Source: product.py*
@@ -14,7 +14,6 @@ class Connector(connector_id: str, geometry_ref: GeometryRef, name: Optional[str
 
 ## Description
 
-Semantic datum frame anchored to a geometry sub-element (Face/Edge/Vertex).
+Semantic datum frame anchored by geometry, placement, or forwarding.
 
-The connector wraps a QL-selected sub-shape.  The Placement is derived
-from the geometry at solve/translate time, not stored directly.
+Geometry connectors derive placement from a selected BREP sub-shape. Placement connectors store an explicit local datum frame. Forwarded connectors expose a component connector as an assembly-level public interface.

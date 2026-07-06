@@ -34,6 +34,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_line_redge](make_line_redge.md) *(from operations.py)* `top-level`
 - [make_material_rmaterial](make_material_rmaterial.md) *(from operations.py)* `top-level`
 - [make_part_rpart](make_part_rpart.md) *(from operations.py)* `top-level`
+- [make_placement_connector_rconnector](make_placement_connector_rconnector.md) *(from operations.py)* `top-level`
 - [make_placement_rplacement](make_placement_rplacement.md) *(from operations.py)* `top-level`
 - [make_point_rvertex](make_point_rvertex.md) *(from operations.py)* `top-level`
 - [make_polyline_rwire](make_polyline_rwire.md) *(from operations.py)* `top-level`
@@ -143,6 +144,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [Assembly](Assembly.md) *(from product.py)* `top-level`
 - [Component](Component.md) *(from product.py)* `top-level`
 - [Connector](Connector.md) *(from product.py)* `top-level`
+- [ConnectorAnchor](ConnectorAnchor.md) *(from product.py)* `top-level`
 - [ConnectorRef](ConnectorRef.md) *(from product.py)* `top-level`
 - [Constraint](Constraint.md) *(from product.py)* `top-level`
 - [ConstraintReport](ConstraintReport.md) *(from product.py)* `top-level`
@@ -192,6 +194,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [constrain_symmetric_rsketch](constrain_symmetric_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_tangent_rsketch](constrain_tangent_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_vertical_rsketch](constrain_vertical_rsketch.md) *(from operations.py)* `top-level`
+- [forward_connector_rassembly](forward_connector_rassembly.md) *(from operations.py)* `top-level`
 - [geo](geo.md) *(from ql.py)* `submodule:ql`
 - [get_sketch_entity_rsketchref](get_sketch_entity_rsketchref.md) *(from operations.py)* `top-level`
 - [get_sketch_point_rsketchref](get_sketch_point_rsketchref.md) *(from operations.py)* `top-level`
