@@ -963,13 +963,20 @@ def _wire_shape_from_object(obj, operation):
 
 
 def _face_shape_from_wire_shapes(outer_obj, inner_objs, operation='make_face_from_wires_rface'):
-    wires = [_wire_shape_from_object(outer_obj, operation + ' outer')]
-    for inner_obj in inner_objs:
-        wires.append(_wire_shape_from_object(inner_obj, operation + ' inner').reversed())
-    face = Part.Face(wires)
-    if face is None or face.isNull() or not face.isValid():
-        raise RuntimeError(f'{operation} produced an invalid multi-loop face')
-    return face
+    outer_wire = _wire_shape_from_object(outer_obj, operation + ' outer')
+    inner_wires = [_wire_shape_from_object(inner_obj, operation + ' inner') for inner_obj in inner_objs]
+    attempts = [
+        [outer_wire] + [wire.reversed() for wire in inner_wires],
+        [outer_wire] + inner_wires,
+    ]
+    for wires in attempts:
+        try:
+            face = Part.Face(wires)
+        except Exception:
+            continue
+        if face is not None and not face.isNull() and face.isValid():
+            return face
+    raise RuntimeError(f'{operation} produced an invalid multi-loop face')
 
 
 def _face_boolean_shape(operation, base_obj, tool_obj):
@@ -1701,12 +1708,22 @@ def _frame_from_points(points, fallback_context=None):
                 fallback_z = None
 
     if fallback_x is not None and fallback_y is not None and fallback_z is not None:
-        m = App.Matrix()
-        m.A11, m.A21, m.A31 = fallback_x.x, fallback_x.y, fallback_x.z
-        m.A12, m.A22, m.A32 = fallback_y.x, fallback_y.y, fallback_y.z
-        m.A13, m.A23, m.A33 = fallback_z.x, fallback_z.y, fallback_z.z
-        placement = App.Placement(origin, App.Rotation(m))
-        return placement, origin, fallback_x, fallback_y
+        scale = 1.0
+        on_fallback_plane = True
+        for point in points[1:]:
+            delta = App.Vector(float(point[0]) - origin.x, float(point[1]) - origin.y, float(point[2]) - origin.z)
+            scale = max(scale, float(getattr(delta, 'Length', 0.0)))
+            offset = abs(float(delta.x * fallback_z.x + delta.y * fallback_z.y + delta.z * fallback_z.z))
+            if offset > max(1e-7, scale * 1e-7):
+                on_fallback_plane = False
+                break
+        if on_fallback_plane:
+            m = App.Matrix()
+            m.A11, m.A21, m.A31 = fallback_x.x, fallback_x.y, fallback_x.z
+            m.A12, m.A22, m.A32 = fallback_y.x, fallback_y.y, fallback_y.z
+            m.A13, m.A23, m.A33 = fallback_z.x, fallback_z.y, fallback_z.z
+            placement = App.Placement(origin, App.Rotation(m))
+            return placement, origin, fallback_x, fallback_y
 
     x_axis = None
     for point in points[1:]:
@@ -1728,7 +1745,9 @@ def _frame_from_points(points, fallback_context=None):
             break
 
     if z_axis is None and fallback_z is not None:
-        z_axis = fallback_z
+        dot = abs(float(x_axis.x * fallback_z.x + x_axis.y * fallback_z.y + x_axis.z * fallback_z.z))
+        if dot < 0.95:
+            z_axis = fallback_z
 
     if z_axis is None:
         z_axis = _pick_perpendicular_axis(x_axis)
@@ -1990,9 +2009,17 @@ def _selected_indices_from_nodes(node_ids, fallback_indices, base_shape=None, ki
 
 
 def _local_line_from_edge(obj, origin, x_axis, y_axis):
+    start_3d = _edge_start_point(obj)
+    end_3d = _edge_end_point(obj)
+    start = _local_point_on_frame(start_3d, origin, x_axis, y_axis)
+    end = _local_point_on_frame(end_3d, origin, x_axis, y_axis)
+    projected_len = float((end - start).Length)
+    source_len = float((_vec(end_3d) - _vec(start_3d)).Length)
+    if source_len > 1e-9 and projected_len <= 1e-9:
+        raise RuntimeError('Projected non-zero edge collapsed to zero length; sketch frame is not coplanar with the source wire')
     return Part.LineSegment(
-        _local_point_on_frame(_edge_start_point(obj), origin, x_axis, y_axis),
-        _local_point_on_frame(_edge_end_point(obj), origin, x_axis, y_axis),
+        start,
+        end,
     )
 
 
@@ -2073,6 +2100,16 @@ def _bspline_curve_from_params(params, transform_point=None):
         point3 = tuple(point) + (0.0,) if len(tuple(point)) == 2 else tuple(point)
         pole = transform_point(point3) if transform_point is not None else _vec(point3)
         poles.append(pole)
+    if not poles and params.get('points'):
+        for point in params.get('points') or []:
+            point3 = tuple(point) + (0.0,) if len(tuple(point)) == 2 else tuple(point)
+            pole = transform_point(point3) if transform_point is not None else _vec(point3)
+            poles.append(pole)
+        if len(poles) < 2:
+            raise RuntimeError('B-spline has fewer than two points')
+        curve = Part.BSplineCurve()
+        curve.interpolate(poles)
+        return curve
     if not poles:
         raise RuntimeError('B-spline has no control points')
     mults = tuple(int(value) for value in (params.get('multiplicities') or []))
@@ -3652,6 +3689,14 @@ def _resolve_vec3_param(params, param_exprs, key):
                 }
                 for inp in input_nodes
             ):
+                if not any(
+                    _contains_expr_refs(dict(inp.param_exprs))
+                    for inp in input_nodes
+                    if inp is not None
+                ):
+                    return [
+                        f"{var_name} = _make_feature({_json_ascii(object_name)}, _wire_shape_from_edge_objects({var_name}_inputs), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+                    ]
                 lines = [
                     f"{var_name} = doc.addObject('Sketcher::SketchObject', {_json_ascii(object_name)})",
                     f"{var_name}_sketch_bindings = []",
