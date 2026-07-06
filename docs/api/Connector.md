@@ -16,4 +16,7 @@ class Connector(connector_id: str, geometry_ref: Optional[GeometryRef] = None, n
 
 Semantic datum frame anchored by geometry, placement, or forwarding.
 
-Geometry connectors derive placement from a selected BREP sub-shape. Placement connectors store an explicit local datum frame. Forwarded connectors expose a component connector as an assembly-level public interface.
+Geometry connectors derive placement from a selected BREP sub-shape.
+Placement connectors store an explicit local datum frame. Forwarded
+connectors expose a component connector as an assembly-level public
+interface.

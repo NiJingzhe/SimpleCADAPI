@@ -15,6 +15,7 @@ output/
 
 # Sandbox artifacts
 sandbox/
+design-doc/
 
 # Generated skills archives
 skills/*.tar.gz

@@ -5212,7 +5212,11 @@ def make_placement_connector_rconnector(
     placement: Placement,
     name: Optional[str] = None,
 ) -> Connector:
-    """Create a connector anchored to an explicit local placement frame."""
+    """Create a connector anchored to an explicit local placement frame.
+
+    Use this when a datum should be defined by a stable coordinate frame
+    instead of a selected BREP face, edge, or vertex.
+    """
 
     try:
         if not isinstance(placement, Placement):
@@ -5325,7 +5329,13 @@ def forward_connector_rassembly(
     name: Optional[str] = None,
     offset: Optional[Placement] = None,
 ) -> Assembly:
-    """Expose an internal component connector as an assembly-level connector."""
+    """Expose an internal component connector as an assembly-level connector.
+
+    The forwarded connector resolves to `source_component.placement *
+    source_connector.placement`, followed by the optional `offset` placement.
+    Parent assemblies can constrain to the subassembly's public connector
+    without depending on its private component structure.
+    """
 
     try:
         if not isinstance(assembly, Assembly):
