@@ -10,13 +10,13 @@ Each gear profile is assembled in a constraint sketch using:
 
 The sketch is solved and promoted to a face via
 ``make_face_from_sketch_rface``.  Spur gears are extruded; helical and
-herringbone gears use multi-section loft with progressively rotated
-    copies of the same profile.  Spur ring gears build a multi-loop face from
-    an outer rim wire and an inward internal-tooth inner wire, then extrude it
-    directly.  Helical and herringbone ring gears loft the internal tooth void
-    and subtract it from an extruded outer rim.  Racks build a trapezoidal-tooth
-    profile along a straight line.  Cycloidal reducer discs build a lobed
-    pin-wheel profile as one fitted cubic B-spline segment per lobe.
+herringbone gears use ruled multi-section lofts with small incremental twist.
+Spur ring gears build a multi-loop face from an outer rim wire and an inward
+internal-tooth inner wire, then extrude it directly.  Helical and herringbone
+ring gears loft the internal tooth void and subtract it from an extruded outer
+rim.  Racks build a trapezoidal-tooth profile along a straight line.  Cycloidal
+reducer discs build a lobed pin-wheel profile as one fitted cubic B-spline
+segment per lobe.
 """
 
 from __future__ import annotations
@@ -563,7 +563,7 @@ def make_helical_gear_rsolid(
         twist = twist_total * frac
         sections.append(_rotate_profile_wire_3d(base_wire, twist, z))
 
-    return loft_rsolid(sections, ruled=False)
+    return loft_rsolid(sections, ruled=True)
 
 
 def make_herringbone_gear_rsolid(
@@ -650,7 +650,7 @@ def make_herringbone_gear_rsolid(
         twist = half_twist * (1.0 - frac)
         sections.append(_rotate_profile_wire_3d(base_wire, twist, z))
 
-    return loft_rsolid(sections, ruled=False)
+    return loft_rsolid(sections, ruled=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1063,7 +1063,7 @@ def make_helical_ring_gear_rsolid(
         twist = twist_total * frac
         inner_sections.append(_rotate_profile_wire_3d(inner_wire, twist, z))
 
-    inner_loft = loft_rsolid(inner_sections, ruled=False)
+    inner_loft = loft_rsolid(inner_sections, ruled=True)
     return cut_rsolid(outer_solid, inner_loft)
 
 
@@ -1160,7 +1160,7 @@ def make_herringbone_ring_gear_rsolid(
         twist = half_twist * (1.0 - frac)
         inner_sections.append(_rotate_profile_wire_3d(inner_wire, twist, z))
 
-    inner_loft = loft_rsolid(inner_sections, ruled=False)
+    inner_loft = loft_rsolid(inner_sections, ruled=True)
     return cut_rsolid(outer_solid, inner_loft)
 
 
