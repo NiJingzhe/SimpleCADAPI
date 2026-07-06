@@ -7,6 +7,14 @@ import unittest
 import simplecadapi as scad
 
 
+def _loft_nodes_for(factory):
+    with scad.GraphSession() as session:
+        factory()
+
+    payload = json.loads(scad.export_model_json(session=session))
+    return [node for node in payload["graph"]["nodes"] if node["op"] == "make_loft_rsolid"]
+
+
 class TestStdGearSurface(unittest.TestCase):
     def test_preferred_nested_std_export_surface(self):
         self.assertFalse(hasattr(scad, "std" + "_gear"))
@@ -204,6 +212,20 @@ class TestHelicalGear(unittest.TestCase):
         with self.assertRaises(Exception):
             scad.std.gear.make_helical_gear_rsolid(n_teeth=2, module=2.0)
 
+    def test_helical_gear_uses_small_step_ruled_loft(self):
+        loft_nodes = _loft_nodes_for(
+            lambda: scad.std.gear.make_helical_gear_rsolid(
+                n_teeth=12,
+                module=2.0,
+                helix_angle=25.0,
+                gear_height=8.0,
+            )
+        )
+
+        self.assertEqual(len(loft_nodes), 1)
+        self.assertEqual(loft_nodes[0]["params"]["profile_count"], 7)
+        self.assertTrue(loft_nodes[0]["params"]["ruled"])
+
 
 class TestHerringboneGear(unittest.TestCase):
     def setUp(self):
@@ -221,6 +243,20 @@ class TestHerringboneGear(unittest.TestCase):
             n_teeth=12, module=2.0, gear_height=8.0, helix_angle=0.0,
         )
         self.assertAlmostEqual(spur.get_volume(), herringbone.get_volume(), places=0)
+
+    def test_herringbone_gear_uses_small_step_ruled_loft(self):
+        loft_nodes = _loft_nodes_for(
+            lambda: scad.std.gear.make_herringbone_gear_rsolid(
+                n_teeth=12,
+                module=2.0,
+                helix_angle=25.0,
+                gear_height=10.0,
+            )
+        )
+
+        self.assertEqual(len(loft_nodes), 1)
+        self.assertEqual(loft_nodes[0]["params"]["profile_count"], 9)
+        self.assertTrue(loft_nodes[0]["params"]["ruled"])
 
 
 class TestSpurRingGear(unittest.TestCase):
@@ -366,6 +402,20 @@ class TestHelicalRingGear(unittest.TestCase):
         )
         self.assertGreater(solid.get_volume(), 0.0)
 
+    def test_helical_ring_uses_small_step_ruled_inner_loft(self):
+        loft_nodes = _loft_nodes_for(
+            lambda: scad.std.gear.make_helical_ring_gear_rsolid(
+                n_teeth=20,
+                module=2.0,
+                helix_angle=20.0,
+                gear_height=8.0,
+            )
+        )
+
+        self.assertEqual(len(loft_nodes), 1)
+        self.assertEqual(loft_nodes[0]["params"]["profile_count"], 7)
+        self.assertTrue(loft_nodes[0]["params"]["ruled"])
+
 
 class TestHerringboneRingGear(unittest.TestCase):
     def setUp(self):
@@ -376,6 +426,20 @@ class TestHerringboneRingGear(unittest.TestCase):
             n_teeth=20, module=2.0, helix_angle=20.0, gear_height=10.0,
         )
         self.assertGreater(solid.get_volume(), 0.0)
+
+    def test_herringbone_ring_uses_small_step_ruled_inner_loft(self):
+        loft_nodes = _loft_nodes_for(
+            lambda: scad.std.gear.make_herringbone_ring_gear_rsolid(
+                n_teeth=20,
+                module=2.0,
+                helix_angle=20.0,
+                gear_height=10.0,
+            )
+        )
+
+        self.assertEqual(len(loft_nodes), 1)
+        self.assertEqual(loft_nodes[0]["params"]["profile_count"], 9)
+        self.assertTrue(loft_nodes[0]["params"]["ruled"])
 
 
 class TestCycloidalDisc(unittest.TestCase):
