@@ -19,7 +19,7 @@ from ..operations import (
     add_revolute_constraint_rassembly,
     apply_tag,
     chamfer_rsolid,
-    ground_component_rassembly,
+    forward_connector_rassembly,
     identity_placement_rplacement,
     make_assembly_rassembly,
     make_connector_ref_rconnectorref,
@@ -32,7 +32,6 @@ from ..operations import (
     make_three_point_arc_redge,
     make_wire_from_edges_rwire,
     revolve_rsolid,
-    solve_assembly_constraints_rassembly,
 )
 from ..core import Face, Solid
 
@@ -390,10 +389,6 @@ def make_ball_bearing_rassembly(
             placement=_ball_placement(ball_pitch_radius, angle_degrees),
         )
 
-    assembly = ground_component_rassembly(assembly, "outer_ring")
-    for component_id in ball_component_ids:
-        assembly = ground_component_rassembly(assembly, component_id)
-
     assembly = add_revolute_constraint_rassembly(
         assembly,
         "inner_outer_revolute",
@@ -401,6 +396,25 @@ def make_ball_bearing_rassembly(
         make_connector_ref_rconnectorref("inner_ring", "axis"),
         drive_angle_degrees=drive_angle_degrees,
         name="Inner ring spins in outer ring",
+    )
+    public_axis_offset = make_placement_rplacement(
+        origin=(0.0, 0.0, -bearing_width_value / 2.0),
+    )
+    assembly = forward_connector_rassembly(
+        assembly,
+        connector_id="outer_axis",
+        source_component_id="outer_ring",
+        source_connector_id="axis",
+        name="Outer ring housing axis",
+        offset=public_axis_offset,
+    )
+    assembly = forward_connector_rassembly(
+        assembly,
+        connector_id="inner_axis",
+        source_component_id="inner_ring",
+        source_connector_id="axis",
+        name="Inner ring shaft axis",
+        offset=public_axis_offset,
     )
     assembly.set_metadata(
         "std.bearing.ball_bearing",
@@ -424,7 +438,9 @@ def make_ball_bearing_rassembly(
             "ball_component_ids": ball_component_ids,
             "ball_angles_degrees": ball_angles,
             "axis_connector_id": "axis",
+            "outer_axis_connector_id": "outer_axis",
+            "inner_axis_connector_id": "inner_axis",
             "revolute_constraint_id": "inner_outer_revolute",
         },
     )
-    return solve_assembly_constraints_rassembly(assembly)
+    return assembly
