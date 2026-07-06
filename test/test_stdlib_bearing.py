@@ -81,6 +81,8 @@ class TestBallBearingAssembly(unittest.TestCase):
             ),
         )
         self.assertEqual(bearing.constraint_ids(), ("inner_outer_revolute",))
+        self.assertEqual(bearing.connector_ids(), ("outer_axis", "inner_axis"))
+        self.assertEqual(bearing.grounded_component_ids, ())
         constraint = bearing.get_constraint("inner_outer_revolute")
         self.assertEqual(constraint.constraint_kind, "revolute")
         self.assertEqual(constraint.connector_a.component_id, "outer_ring")
@@ -136,7 +138,10 @@ class TestBallBearingAssembly(unittest.TestCase):
 
         self.assertEqual(len(preview.get_solids()), 9)
         self.assertGreater(preview.get_volume(), 0.0)
-        self.assertTrue(scad.inspect_assembly_constraints_rconstraintreport(bearing).solved)
+        self.assertTrue(scad.measure_constraint_residual_rconstraintresidual(
+            bearing,
+            "inner_outer_revolute",
+        ).within_tolerance)
 
         payload = json.loads(model_json)
         ops = [node["op"] for node in payload["graph"]["nodes"]]
@@ -144,6 +149,7 @@ class TestBallBearingAssembly(unittest.TestCase):
         self.assertEqual(ops.count("make_three_point_arc_redge"), 2)
         self.assertEqual(ops.count("make_revolve_rsolid"), 2)
         self.assertIn("make_revolute_constraint_rassembly", ops)
+        self.assertEqual(ops.count("make_forward_connector_rassembly"), 2)
         self.assertIn("make_compound_from_assembly_rcompound", ops)
 
     def test_inferred_ball_count_is_recorded(self):
@@ -195,12 +201,67 @@ class TestBallBearingAssembly(unittest.TestCase):
             scad.make_connector_ref_rconnectorref("inner_ring", "axis"),
             scad.make_connector_ref_rconnectorref("shaft", "axis"),
         )
-        bearing = scad.solve_assembly_constraints_rassembly(bearing)
+        bearing = scad.ground_component_rassembly(
+            assembly=bearing,
+            component_id="outer_ring",
+        )
+        bearing = scad.solve_assembly_constraints_rassembly(bearing, strict=False)
 
         self.assertIn("shaft", bearing.component_ids())
         self.assertTrue(scad.measure_constraint_residual_rconstraintresidual(
             bearing,
             "shaft_to_inner_ring",
+        ).within_tolerance)
+
+    def test_parent_assembly_can_bind_to_bearing_forwarded_connectors(self):
+        bearing = scad.std.bearing.make_ball_bearing_rassembly(
+            8.0,
+            22.0,
+            7.0,
+            3.5,
+            7,
+            0.05,
+            0.0,
+            "bearing_parent_bind_test",
+        )
+        shaft = scad.make_cylinder_rsolid(
+            radius=3.8,
+            height=14.0,
+            bottom_face_center=(0.0, 0.0, -7.0),
+            axis=(0.0, 0.0, 1.0),
+        )
+        shaft_part = scad.make_part_rpart("parent_bind_shaft", shaft)
+        top_face = max(
+            shaft.get_faces(),
+            key=lambda face: face.get_center().z if face.get_normal_at().z > 0.7 else -999.0,
+        )
+        shaft_axis = scad.make_face_connector_rconnector("axis", top_face)
+        shaft_part = scad.add_connector_rpart(shaft_part, shaft_axis)
+        parent = scad.make_assembly_rassembly("bearing_parent_bind_asm")
+        parent = scad.add_component_rassembly(
+            parent,
+            shaft_part,
+            component_id="shaft",
+            placement=scad.identity_placement_rplacement(),
+        )
+        parent = scad.add_component_rassembly(
+            parent,
+            bearing,
+            component_id="bearing",
+            placement=scad.identity_placement_rplacement(),
+        )
+        parent = scad.ground_component_rassembly(parent, "shaft")
+        parent = scad.add_fixed_constraint_rassembly(
+            parent,
+            "shaft_to_bearing_inner_axis",
+            scad.make_connector_ref_rconnectorref("shaft", "axis"),
+            scad.make_connector_ref_rconnectorref("bearing", "inner_axis"),
+        )
+        parent = scad.solve_assembly_constraints_rassembly(parent)
+
+        self.assertTrue(scad.measure_constraint_residual_rconstraintresidual(
+            parent,
+            "shaft_to_bearing_inner_axis",
         ).within_tolerance)
 
     def test_invalid_params(self):
