@@ -686,6 +686,11 @@ def _ensure_string_map_property(obj, prop_name, group='SimpleCAD'):
         obj.addProperty('App::PropertyMap', prop_name, group)
 
 
+def _ensure_placement_property(obj, prop_name='Placement', group='SimpleCAD'):
+    if prop_name not in list(getattr(obj, 'PropertiesList', []) or []):
+        obj.addProperty('App::PropertyPlacement', prop_name, group)
+
+
 def _contains_expr_refs(value):
     if isinstance(value, dict):
         if isinstance(value.get('expr_id'), str) and value['expr_id']:
@@ -1118,10 +1123,10 @@ def _find_component_entry(assembly_value, component_id):
 
 def _connector_payload_for(component_entry, connector_id):
     item = component_entry.get('item') or {}
-    for connector in list(item.get('connectors', []) or []):
-        if str(connector.get('connector_id')) == str(connector_id):
-            return connector
-    raise RuntimeError(f'Missing connector {connector_id!r} on component {component_entry.get("component_id")!r}')
+    try:
+        return _connector_payload_for_item(item, connector_id)
+    except Exception as exc:
+        raise RuntimeError(f'Missing connector {connector_id!r} on component {component_entry.get("component_id")!r}') from exc
 
 
 def _freecad_subname_for_kind(kind, index):
@@ -1156,6 +1161,23 @@ def _resolve_connector_subname(component_entry, connector_payload):
         return '', ''
 
 
+def _connector_reference_for_component(assembly_value, component_entry, connector_payload):
+    link = component_entry.get('link')
+    if link is None:
+        raise RuntimeError(f'Missing component link for component {component_entry.get("component_id")!r}')
+    datum = (connector_payload or {}).get('datum')
+    datum_name = str(getattr(datum, 'Name', '') or '')
+    if datum_name:
+        subname = datum_name + '.'
+        return link, [subname, subname], App.Placement(), False
+    anchor = _connector_anchor_payload(connector_payload or {})
+    if str(anchor.get('anchor_kind') or '').lower() == 'geometry':
+        sub_a, sub_b = _resolve_connector_subname(component_entry, connector_payload)
+        if sub_a and sub_b:
+            return link, [sub_a, sub_b], App.Placement(), False
+    return link, ['', ''], _connector_local_placement(component_entry.get('item') or {}, connector_payload), True
+
+
 def _make_simplecad_joint(assembly_value, constraint_payload, object_name, label):
     assembly_container = assembly_value.get('container')
     if assembly_container is None:
@@ -1186,15 +1208,19 @@ def _make_simplecad_joint(assembly_value, constraint_payload, object_name, label
         _ensure_string_property(joint, 'JointType')
         joint.JointType = joint_type
     try:
-        link_a = component_a.get('link')
-        link_b = component_b.get('link')
-        sub_a1, sub_a2 = _resolve_connector_subname(component_a, connector_a_payload)
-        sub_b1, sub_b2 = _resolve_connector_subname(component_b, connector_b_payload)
+        ref_a_obj, ref_a_subs, ref_a_placement, ref_a_detached = _connector_reference_for_component(assembly_value, component_a, connector_a_payload)
+        ref_b_obj, ref_b_subs, ref_b_placement, ref_b_detached = _connector_reference_for_component(assembly_value, component_b, connector_b_payload)
         if hasattr(joint, 'Reference1'):
-            joint.Reference1 = (link_a, [sub_a1, sub_a2])
-            joint.Reference2 = (link_b, [sub_b1, sub_b2])
-            joint.Detach1 = False
-            joint.Detach2 = False
+            if hasattr(joint, 'Detach1'):
+                joint.Detach1 = bool(ref_a_detached)
+            if hasattr(joint, 'Detach2'):
+                joint.Detach2 = bool(ref_b_detached)
+            joint.Reference1 = [ref_a_obj, list(ref_a_subs)]
+            joint.Reference2 = [ref_b_obj, list(ref_b_subs)]
+            if hasattr(joint, 'Placement1'):
+                joint.Placement1 = ref_a_placement
+            if hasattr(joint, 'Placement2'):
+                joint.Placement2 = ref_b_placement
     except Exception:
         native_status = 'native_partial'
     if joint_type == 'Revolute' and constraint_payload.get('drive_angle_degrees') is not None:
@@ -1323,12 +1349,25 @@ def _add_to_group(group, obj):
             pass
 
 
+def _is_origin_object(obj):
+    return getattr(obj, 'TypeId', '') == 'App::Origin' or str(getattr(obj, 'Name', '')).startswith('Origin')
+
+
 def _hide_origin_tree(container):
     for child in list(getattr(container, 'Group', []) or []):
-        if getattr(child, 'TypeId', '') == 'App::Origin' or str(getattr(child, 'Name', '')).startswith('Origin'):
+        if _is_origin_object(child):
             _set_visibility(child, False)
             for nested in list(getattr(child, 'OutListRecursive', []) or []):
                 _set_visibility(nested, False)
+
+
+def _hide_all_origin_trees():
+    for obj in list(getattr(doc, 'Objects', []) or []):
+        if not _is_origin_object(obj):
+            continue
+        _set_visibility(obj, False)
+        for nested in list(getattr(obj, 'OutListRecursive', []) or []):
+            _set_visibility(nested, False)
 
 
 def _move_to_construction_group(obj):
@@ -1505,7 +1544,9 @@ def _write_gui_document_xml(fcstd_path):
 
 def _save_fcstd_with_gui_visibility(output_path):
     doc.recompute()
+    _hide_all_origin_trees()
     doc.saveAs(output_path)
+    _hide_all_origin_trees()
     _write_gui_document_xml(output_path)
 
 
@@ -1527,7 +1568,7 @@ def _set_part_body_visibility(product_value, visible):
     if container is None:
         return
     for child in list(getattr(container, 'Group', []) or []):
-        if getattr(child, 'TypeId', '') == 'App::Origin' or str(getattr(child, 'Name', '')).startswith('Origin'):
+        if _is_origin_object(child):
             _set_visibility(child, False)
             continue
         _set_visibility(child, visible)
@@ -1616,6 +1657,7 @@ def _apply_result_visibility(result_node_ids):
         for obj in outputs:
             _set_visibility(obj, is_visible)
     _apply_product_result_visibility(visible_ids)
+    _hide_all_origin_trees()
 
 
 def _vec(v):
@@ -1640,6 +1682,180 @@ def _placement_from_axes_payload(payload):
     matrix.A21 = float(x_axis[1]); matrix.A22 = float(y_axis[1]); matrix.A23 = float(z_axis[1]); matrix.A24 = float(origin[1])
     matrix.A31 = float(x_axis[2]); matrix.A32 = float(y_axis[2]); matrix.A33 = float(z_axis[2]); matrix.A34 = float(origin[2])
     return App.Placement(matrix)
+
+
+def _connector_tuple3(value, default=(0.0, 0.0, 0.0)):
+    if isinstance(value, (list, tuple)) and len(value) == 3:
+        try:
+            return (float(value[0]), float(value[1]), float(value[2]))
+        except Exception:
+            pass
+    return (float(default[0]), float(default[1]), float(default[2]))
+
+
+def _dot3(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _cross3(a, b):
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
+
+
+def _unit3(value, default=(0.0, 0.0, 1.0)):
+    vec = _connector_tuple3(value, default)
+    length = math.sqrt(_dot3(vec, vec))
+    if length <= 1.0e-12:
+        vec = _connector_tuple3(default, (0.0, 0.0, 1.0))
+        length = math.sqrt(_dot3(vec, vec))
+    return (vec[0] / length, vec[1] / length, vec[2] / length)
+
+
+def _orthogonal_axis3(z_axis):
+    candidates = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+    best = min(candidates, key=lambda candidate: abs(_dot3(z_axis, candidate)))
+    projected = (
+        best[0] - z_axis[0] * _dot3(z_axis, best),
+        best[1] - z_axis[1] * _dot3(z_axis, best),
+        best[2] - z_axis[2] * _dot3(z_axis, best),
+    )
+    return _unit3(projected, (1.0, 0.0, 0.0))
+
+
+def _placement_from_geometry_ref_payload(geometry_ref):
+    geometry_ref = geometry_ref or {}
+    selector = geometry_ref.get('geo_selector') or {}
+    kind = str(geometry_ref.get('kind') or selector.get('kind') or '').lower()
+    flip = bool(geometry_ref.get('flip', False))
+    if kind == 'face':
+        origin = _connector_tuple3(selector.get('center'), (0.0, 0.0, 0.0))
+        z_axis = _unit3(selector.get('normal'), (0.0, 0.0, 1.0))
+        if flip:
+            z_axis = (-z_axis[0], -z_axis[1], -z_axis[2])
+        x_axis = _orthogonal_axis3(z_axis)
+        y_axis = _unit3(_cross3(z_axis, x_axis), (0.0, 1.0, 0.0))
+        return _placement_from_axes_payload({'origin': origin, 'x_axis': x_axis, 'y_axis': y_axis})
+    if kind == 'edge':
+        origin = _connector_tuple3(selector.get('center'), (0.0, 0.0, 0.0))
+        start = selector.get('start')
+        end = selector.get('end')
+        if isinstance(start, (list, tuple)) and isinstance(end, (list, tuple)):
+            s = _connector_tuple3(start)
+            e = _connector_tuple3(end)
+            direction = (e[0] - s[0], e[1] - s[1], e[2] - s[2])
+        else:
+            direction = (1.0, 0.0, 0.0)
+        z_axis = _unit3(direction, (1.0, 0.0, 0.0))
+        if flip:
+            z_axis = (-z_axis[0], -z_axis[1], -z_axis[2])
+        x_axis = _orthogonal_axis3(z_axis)
+        y_axis = _unit3(_cross3(z_axis, x_axis), (0.0, 1.0, 0.0))
+        return _placement_from_axes_payload({'origin': origin, 'x_axis': x_axis, 'y_axis': y_axis})
+    if kind == 'vertex':
+        return _placement_from_axes_payload({'origin': _connector_tuple3(selector.get('coordinates'), (0.0, 0.0, 0.0))})
+    return _placement_from_axes_payload({'origin': _connector_tuple3(selector.get('center'), (0.0, 0.0, 0.0))})
+
+
+def _connector_anchor_payload(connector_payload):
+    anchor = connector_payload.get('anchor') if isinstance(connector_payload, dict) else None
+    if isinstance(anchor, dict):
+        return anchor
+    geometry_ref = connector_payload.get('geometry_ref') if isinstance(connector_payload, dict) else None
+    if isinstance(geometry_ref, dict):
+        return {'anchor_kind': 'geometry', 'geometry_ref': geometry_ref}
+    return {'anchor_kind': 'placement', 'placement': {'origin': (0.0, 0.0, 0.0)}}
+
+
+def _connector_payload_for_item(item, connector_id):
+    for connector in list((item or {}).get('connectors', []) or []):
+        if str(connector.get('connector_id')) == str(connector_id):
+            return connector
+    raise RuntimeError(f'Missing connector {connector_id!r} on product item')
+
+
+def _connector_metadata_payload(connector_payload):
+    payload = dict(connector_payload or {})
+    payload.pop('datum', None)
+    payload.pop('placement', None)
+    return payload
+
+
+def _connector_local_placement(item, connector_payload, seen=None):
+    seen = set(seen or set())
+    connector_id = str((connector_payload or {}).get('connector_id', ''))
+    key = (id(item), connector_id)
+    if key in seen:
+        raise RuntimeError(f'forwarded connector cycle detected at {connector_id!r}')
+    seen.add(key)
+    anchor = _connector_anchor_payload(connector_payload or {})
+    kind = str(anchor.get('anchor_kind') or '').lower()
+    if kind == 'geometry':
+        return _placement_from_geometry_ref_payload(anchor.get('geometry_ref') or (connector_payload or {}).get('geometry_ref'))
+    if kind == 'placement':
+        return _placement_from_axes_payload(anchor.get('placement') or {})
+    if kind == 'forwarded':
+        source_component = _find_component_entry(item or {}, anchor.get('source_component_id'))
+        source_item = source_component.get('item') or {}
+        source_connector = _connector_payload_for_item(source_item, anchor.get('source_connector_id'))
+        source_placement = _placement_from_axes_payload(source_component.get('placement') or {})
+        result = source_placement.multiply(_connector_local_placement(source_item, source_connector, seen))
+        if isinstance(anchor.get('offset'), dict):
+            result = result.multiply(_placement_from_axes_payload(anchor.get('offset')))
+        return result
+    return App.Placement()
+
+
+def _make_connector_datum(container, connector_payload, placement):
+    connector_id = str((connector_payload or {}).get('connector_id') or 'connector')
+    metadata_payload = _connector_metadata_payload(connector_payload)
+    object_name = 'connector_' + _simplecad_slug(connector_id, prefix='connector')
+    datum = None
+    try:
+        datum = container.newObject('PartDesign::CoordinateSystem', object_name)
+    except Exception:
+        datum = container.newObject('App::FeaturePython', object_name)
+    datum.Label = 'connector.' + connector_id
+    _ensure_placement_property(datum)
+    datum.Placement = placement
+    _ensure_string_property(datum, 'SimpleCADConnectorId')
+    _ensure_string_property(datum, 'SimpleCADConnector')
+    datum.SimpleCADConnectorId = connector_id
+    datum.SimpleCADConnector = json.dumps(metadata_payload, ensure_ascii=True, sort_keys=True)
+    _set_visibility(datum, True)
+    return datum
+
+
+def _materialize_product_connector_datums(product_value):
+    container = (product_value or {}).get('container')
+    if container is None:
+        return product_value
+    resolved = []
+    for connector in list((product_value or {}).get('connectors', []) or []):
+        connector = dict(connector)
+        try:
+            placement = _connector_local_placement(product_value, connector)
+            connector['datum'] = _make_connector_datum(container, connector, placement)
+            connector['placement'] = placement
+        except Exception:
+            pass
+        resolved.append(connector)
+    product_value['connectors'] = resolved
+    return product_value
+
+
+def _component_connector_proxy(assembly_value, component_entry, connector_payload):
+    assembly_container = assembly_value.get('container')
+    if assembly_container is None:
+        raise RuntimeError('Assembly value has no container for connector proxy')
+    link = component_entry.get('link')
+    link_placement = getattr(link, 'Placement', App.Placement()) if link is not None else _placement_from_axes_payload(component_entry.get('placement') or {})
+    local_placement = _connector_local_placement(component_entry.get('item') or {}, connector_payload)
+    proxy_payload = dict(connector_payload or {})
+    proxy_payload['connector_id'] = str(component_entry.get('component_id')) + '.' + str(proxy_payload.get('connector_id', 'connector'))
+    return _make_connector_datum(assembly_container, proxy_payload, link_placement.multiply(local_placement))
 
 
 def _shape_from_component_link(link):
@@ -3731,6 +3947,16 @@ def _resolve_vec3_param(params, param_exprs, key):
         if node.op in {"make_face_connector_rconnector", "make_edge_connector_rconnector", "make_vertex_connector_rconnector"}:
             return [
                 f"{var_name} = dict({rp})",
+                f"{var_name}.setdefault('anchor', {{'anchor_kind': 'geometry', 'geometry_ref': {var_name}.get('geometry_ref')}})",
+                f"{var_name}.setdefault('geometry_ref', ({var_name}.get('anchor') or {{}}).get('geometry_ref'))",
+                f"{var_name}.setdefault('name', {rp}.get('name'))",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'connector', 'connector': {var_name}}}",
+                f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_placement_connector_rconnector":
+            return [
+                f"{var_name} = {{'connector_id': str({rp}.get('connector_id', '')), 'name': {rp}.get('name'), 'anchor': {{'anchor_kind': 'placement', 'placement': {rp}.get('placement') or {{}}}}}}",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'connector', 'connector': {var_name}}}",
                 f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
@@ -3741,6 +3967,7 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"{var_name}_connector = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['connector']",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_part)",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['connectors'] = list({var_name}_part.get('connectors', [])) + [{var_name}_connector]",
+                f"_materialize_product_connector_datums(PRODUCT_VALUES[{_json_ascii(node.node_id)}])",
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
 
@@ -3750,6 +3977,17 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"{var_name}_connector = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['connector']",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['connectors'] = list({var_name}_assembly.get('connectors', [])) + [{var_name}_connector]",
+                f"_materialize_product_connector_datums(PRODUCT_VALUES[{_json_ascii(node.node_id)}])",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
+        if node.op == "make_forward_connector_rassembly" and len(inputs) >= 1:
+            return [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_connector = {{'connector_id': str({rp}.get('connector_id', '')), 'name': {rp}.get('name'), 'anchor': {{'anchor_kind': 'forwarded', 'source_component_id': str({rp}.get('source_component_id', '')), 'source_connector_id': str({rp}.get('source_connector_id', '')), 'offset': {rp}.get('offset')}}}}",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['connectors'] = list({var_name}_assembly.get('connectors', [])) + [{var_name}_connector]",
+                f"_materialize_product_connector_datums(PRODUCT_VALUES[{_json_ascii(node.node_id)}])",
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
 
