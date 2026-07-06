@@ -26,6 +26,16 @@ the inner-ring geometry directly, or use connector refs such as
 `make_connector_ref_rconnectorref("inner_ring", "axis")` when adding shaft
 or housing constraints to the same assembly.
 
+The returned bearing assembly also forwards public assembly-level connectors
+`inner_axis` and `outer_axis` from `inner_ring.axis` and `outer_ring.axis`.
+Parent assemblies can constrain to those connectors without depending on the
+bearing's internal component structure. These public axes are offset to the
+bearing center plane.
+
+The returned bearing is not grounded. Ground the parent assembly's housing,
+shaft, or fixture components explicitly; the standard bearing assembly does
+not emit `GroundedJoint` objects that would lock a parent mechanism.
+
 Parameters use explicit SDK-style names rather than compact catalog labels:
 `bore_diameter` maps to common `id`, `outer_diameter` maps to `od`,
 `bearing_width` maps to axial bearing thickness, `ball_diameter` maps to

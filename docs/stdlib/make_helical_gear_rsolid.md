@@ -16,6 +16,11 @@ def make_helical_gear_rsolid(n_teeth: int, module: float, pressure_angle: float 
 
 Create an involute helical gear.
 
+Non-zero helix angles are modeled as small-step ruled lofts through rotated
+copies of one profile. The small angular step keeps closed-wire section
+correspondence stable while ruled faces avoid smooth loft bulging in STEP
+exports.
+
 ## Parameters
 
 ### n_teeth

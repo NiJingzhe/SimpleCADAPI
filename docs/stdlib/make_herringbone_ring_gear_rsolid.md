@@ -16,6 +16,11 @@ def make_herringbone_ring_gear_rsolid(n_teeth: int, module: float, pressure_angl
 
 Create an internal herringbone ring gear.
 
+The outer rim is extruded directly. The internal tooth void is built as two
+small-step ruled loft halves sharing the center herringbone section, then
+subtracted from the rim. Ruled sections avoid smooth loft bulging in STEP
+exports while preserving stable section correspondence.
+
 ## Parameters
 
 ### n_teeth

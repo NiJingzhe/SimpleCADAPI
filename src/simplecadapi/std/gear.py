@@ -500,6 +500,11 @@ def make_helical_gear_rsolid(
 ) -> Solid:
     """Create an involute helical gear.
 
+    Non-zero helix angles are modeled as small-step ruled lofts through rotated
+    copies of one profile. The small angular step keeps closed-wire section
+    correspondence stable while ruled faces avoid smooth loft bulging in STEP
+    exports.
+
     Parameters
     ----------
     n_teeth : int
@@ -578,6 +583,11 @@ def make_herringbone_gear_rsolid(
     backlash: float = 0.0,
 ) -> Solid:
     """Create an involute herringbone (double-helical) gear.
+
+    Each half is modeled as a small-step ruled loft through rotated copies of
+    one profile, with a shared center section forming the herringbone ridge.
+    This keeps closed-wire section correspondence stable while avoiding smooth
+    loft bulging in STEP exports.
 
     Parameters
     ----------
@@ -992,6 +1002,11 @@ def make_helical_ring_gear_rsolid(
 ) -> Solid:
     """Create an internal helical ring gear.
 
+    The outer rim is extruded directly. The internal tooth void is built as a
+    small-step ruled loft through rotated copies of the internal profile, then
+    subtracted from the rim. Ruled sections avoid smooth loft bulging in STEP
+    exports while preserving stable section correspondence.
+
     Parameters
     ----------
     n_teeth : int
@@ -1080,6 +1095,11 @@ def make_herringbone_ring_gear_rsolid(
     clearance_factor: float = 0.25,
 ) -> Solid:
     """Create an internal herringbone ring gear.
+
+    The outer rim is extruded directly. The internal tooth void is built as two
+    small-step ruled loft halves sharing the center herringbone section, then
+    subtracted from the rim. Ruled sections avoid smooth loft bulging in STEP
+    exports while preserving stable section correspondence.
 
     Parameters
     ----------

@@ -267,7 +267,10 @@ class GeometryRef(SemanticValueMixin):
 
 @dataclass(frozen=True)
 class ConnectorAnchor(SemanticValueMixin):
-    """Serializable source for a connector datum frame."""
+    """Serializable source for a connector datum frame.
+
+    Supported `anchor_kind` values are `geometry`, `placement`, and `forwarded`.
+    """
 
     anchor_kind: str
     geometry_ref: Optional[GeometryRef] = None
@@ -339,7 +342,13 @@ class ConnectorAnchor(SemanticValueMixin):
 
 @dataclass(frozen=True)
 class Connector(SemanticValueMixin):
-    """Semantic datum frame anchored by geometry, placement, or forwarding."""
+    """Semantic datum frame anchored by geometry, placement, or forwarding.
+
+    Geometry connectors derive placement from a selected BREP sub-shape.
+    Placement connectors store an explicit local datum frame. Forwarded
+    connectors expose a component connector as an assembly-level public
+    interface.
+    """
 
     connector_id: str
     geometry_ref: Optional[GeometryRef] = None
