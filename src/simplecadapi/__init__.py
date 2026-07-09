@@ -152,6 +152,10 @@ from .freecad_translator import (
     translate_model_json_to_freecad_script,
 )
 from .fusion360_translator import translate_model_json_to_fusion360_script
+from .solidworks_translator import (
+    translate_model_json_to_solidworks_script,
+    translate_model_json_to_solidworks_step,
+)
 from .expr import (
     Expr,
     Var,
@@ -399,6 +403,8 @@ __all__ = [
     "translate_model_json_to_freecad_script",
     "translate_model_json_to_fcstd",
     "translate_model_json_to_fusion360_script",
+    "translate_model_json_to_solidworks_script",
+    "translate_model_json_to_solidworks_step",
     "Expr",
     "Var",
     "Const",
