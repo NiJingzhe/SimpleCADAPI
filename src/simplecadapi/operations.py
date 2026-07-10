@@ -4885,6 +4885,7 @@ def assign_material_rpart(part: Part, material: Material) -> Part:
             {
                 "part_id": part.part_id,
                 "material_id": material.material_id,
+                "material": _material_params(material),
             },
             outputs=result,
             input_shapes=[part, material],

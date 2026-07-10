@@ -1519,6 +1519,7 @@ def _execute_graph(
 
     # Store per-node outputs
     outputs: Dict[str, List[Any]] = {}
+    materials_by_id: Dict[str, Material] = {}
 
     def _store_outputs(node, result: Any) -> None:
         result_list = _normalize_output(result)
@@ -1703,6 +1704,7 @@ def _execute_graph(
                                 else None
                             ),
                         )
+                        materials_by_id[result.material_id] = result
                         _store_outputs(node, result)
                         continue
 
@@ -1735,7 +1737,41 @@ def _execute_graph(
 
                     if op_name == "make_assign_material_rpart":
                         part_outputs = _input_outputs(ctx, outputs, node, 0)
-                        material_outputs = _input_outputs(ctx, outputs, node, 1)
+                        material_outputs = (
+                            _input_outputs(ctx, outputs, node, 1)
+                            if len(node.inputs) > 1
+                            else []
+                        )
+                        if not material_outputs:
+                            material_payload = params.get("material")
+                            if isinstance(material_payload, dict):
+                                material_id = str(material_payload["material_id"])
+                                material = materials_by_id.get(material_id)
+                                if material is None:
+                                    material = ops.make_material_rmaterial(
+                                        material_id,
+                                        name=cast(Optional[str], material_payload.get("name")),
+                                        density=cast(Optional[float], material_payload.get("density")),
+                                        density_unit=cast(Optional[str], material_payload.get("density_unit")),
+                                        color=(
+                                            cast(Any, tuple(material_payload["color"]))
+                                            if material_payload.get("color") is not None
+                                            else None
+                                        ),
+                                    )
+                                    materials_by_id[material_id] = material
+                                material_outputs = [material]
+                            elif params.get("material_id"):
+                                material_id = str(params["material_id"])
+                                material = materials_by_id.get(material_id)
+                                if material is None:
+                                    material = ops.make_material_rmaterial(material_id)
+                                    materials_by_id[material_id] = material
+                                material_outputs = [material]
+                            elif ctx.strict:
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) is missing material data"
+                                )
                         if part_outputs and material_outputs:
                             result = ops.assign_material_rpart(
                                 cast(Part, part_outputs[0]),
