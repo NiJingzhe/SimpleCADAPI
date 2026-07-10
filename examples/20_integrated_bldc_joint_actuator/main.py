@@ -20,6 +20,7 @@ from dimensions import (
     TOTAL_REDUCTION,
     validate_design_dimensions,
 )
+from materials import make_actuator_materials_rdict
 
 
 sys.setrecursionlimit(30000)
@@ -31,8 +32,9 @@ def build_integrated_bldc_joint_actuator():
     """Build the replayable actuator and return product and interchange outputs."""
 
     validate_design_dimensions()
+    materials = make_actuator_materials_rdict()
     with scad.GraphSession(graph_id="integrated_50mm_bldc_joint_actuator") as session:
-        assembly = make_integrated_bldc_joint_actuator_rassembly()
+        assembly = make_integrated_bldc_joint_actuator_rassembly(materials=materials)
         preview = scad.make_compound_from_assembly_rcompound(assembly=assembly)
         ground_compound(label="integrated_actuator_preview", compound=preview)
         session_json = scad.export_session_json(session=session, indent=2)

@@ -4,33 +4,32 @@ from __future__ import annotations
 
 import simplecadapi as scad
 
-from common import make_annulus_rsolid, make_axis_part_rpart, make_z_rotation_rplacement
-from dimensions import BearingSpec, PLANET_COUNT, StageSpec
-from gears import planet_center_xy
+if __package__:
+    from .common import make_annulus_rsolid, make_axis_part_rpart, make_z_rotation_rplacement
+    from .dimensions import BearingSpec, PLANET_COUNT, StageSpec
+    from .gears import planet_center_xy
+else:
+    from common import make_annulus_rsolid, make_axis_part_rpart, make_z_rotation_rplacement
+    from dimensions import BearingSpec, PLANET_COUNT, StageSpec
+    from gears import planet_center_xy
 
 
 def make_standard_planet_bearing_rassembly(
     *,
     bearing_id: str,
     spec: BearingSpec,
+    material: scad.Material,
 ) -> scad.Assembly:
     """Create the reused catalog-style planet ball bearing assembly."""
 
-    bearing = scad.std.bearing.make_ball_bearing_rassembly(
-        bore_diameter=spec.bore_diameter,
-        outer_diameter=spec.outer_diameter,
-        bearing_width=spec.width,
-        ball_diameter=spec.ball_diameter,
-        ball_count=spec.ball_count,
-        raceway_clearance=0.02,
-        edge_chamfer=0.0,
-        assembly_id=bearing_id,
-        drive_angle_degrees=None,
+    bearing = make_main_bearing_rassembly(
+        bearing_id=bearing_id,
+        spec=spec,
+        material=material,
     )
-    metadata = bearing.get_metadata("std.bearing.ball_bearing")
     print(
         f"bearing_{bearing_id}: bore={spec.bore_diameter:.1f} od={spec.outer_diameter:.1f} "
-        f"width={spec.width:.1f} balls={metadata['ball_count']}"
+        f"width={spec.width:.1f} balls={spec.ball_count} material={material.material_id}"
     )
     return bearing
 

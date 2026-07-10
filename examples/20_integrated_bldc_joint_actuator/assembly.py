@@ -4,58 +4,127 @@ from __future__ import annotations
 
 import simplecadapi as scad
 
-from bearings import (
-    make_coaxial_bearing_rplacement,
-    make_main_bearing_rassembly,
-    make_planet_bearing_rplacement,
-    make_standard_planet_bearing_rassembly,
-)
-from common import connector_ref, ground_constraint_report
-from dimensions import (
-    FRONT_MOTOR_BEARING,
-    FRONT_MOTOR_BEARING_CENTER_Z,
-    INTERSTAGE_BEARING,
-    INTERSTAGE_BEARING_CENTER_Z,
-    OUTPUT_BEARING,
-    OUTPUT_BEARING_1_CENTER_Z,
-    OUTPUT_BEARING_2_CENTER_Z,
-    PLANET_BEARING,
-    PLANET_COUNT,
-    REAR_BEARING_CENTER_Z,
-    REAR_MOTOR_BEARING,
-    STAGE_1,
-    STAGE_2,
-    TOTAL_REDUCTION,
-    StageSpec,
-)
-from electronics import make_integrated_controller_rassembly
-from gears import (
-    make_output_carrier_flange_rpart,
-    make_planet_rplacement,
-    make_stage1_carrier_sun_rpart,
-    make_stage_planet_gear_rpart,
-    make_stage_ring_gear_rpart,
-)
-from housing import (
-    make_motor_shell_rpart,
-    make_output_bearing_cap_rpart,
-    make_rear_bearing_spider_rpart,
-    make_rear_electronics_cover_rpart,
-    make_reducer_housing_rpart,
-)
-from materials import make_actuator_materials_rdict
-from motor import make_bldc_rotor_rassembly, make_bldc_stator_rassembly
+try:
+    from .bearings import (
+        make_coaxial_bearing_rplacement,
+        make_main_bearing_rassembly,
+        make_planet_bearing_rplacement,
+        make_standard_planet_bearing_rassembly,
+    )
+    from .common import connector_ref, ground_constraint_report
+    from .dimensions import (
+        FRONT_MOTOR_BEARING,
+        FRONT_MOTOR_BEARING_CENTER_Z,
+        INTERSTAGE_BEARING,
+        INTERSTAGE_BEARING_CENTER_Z,
+        OUTPUT_BEARING,
+        OUTPUT_BEARING_1_CENTER_Z,
+        OUTPUT_BEARING_2_CENTER_Z,
+        PLANET_BEARING,
+        PLANET_COUNT,
+        REAR_BEARING_CENTER_Z,
+        REAR_MOTOR_BEARING,
+        STAGE_1,
+        STAGE_2,
+        TOTAL_REDUCTION,
+        StageSpec,
+    )
+    from .electronics import make_integrated_controller_rassembly
+    from .gears import (
+        make_output_carrier_flange_rpart,
+        make_planet_rplacement,
+        make_stage1_carrier_sun_rpart,
+        make_stage_planet_gear_rpart,
+        make_stage_ring_gear_rpart,
+    )
+    from .housing import (
+        make_motor_shell_rpart,
+        make_output_bearing_cap_rpart,
+        make_rear_bearing_spider_rpart,
+        make_rear_electronics_cover_rpart,
+        make_reducer_housing_rpart,
+    )
+    from .motor import make_bldc_rotor_rassembly, make_bldc_stator_rassembly
+except ImportError:  # Support direct execution from this example directory.
+    from bearings import (
+        make_coaxial_bearing_rplacement,
+        make_main_bearing_rassembly,
+        make_planet_bearing_rplacement,
+        make_standard_planet_bearing_rassembly,
+    )
+    from common import connector_ref, ground_constraint_report
+    from dimensions import (
+        FRONT_MOTOR_BEARING,
+        FRONT_MOTOR_BEARING_CENTER_Z,
+        INTERSTAGE_BEARING,
+        INTERSTAGE_BEARING_CENTER_Z,
+        OUTPUT_BEARING,
+        OUTPUT_BEARING_1_CENTER_Z,
+        OUTPUT_BEARING_2_CENTER_Z,
+        PLANET_BEARING,
+        PLANET_COUNT,
+        REAR_BEARING_CENTER_Z,
+        REAR_MOTOR_BEARING,
+        STAGE_1,
+        STAGE_2,
+        TOTAL_REDUCTION,
+        StageSpec,
+    )
+    from electronics import make_integrated_controller_rassembly
+    from gears import (
+        make_output_carrier_flange_rpart,
+        make_planet_rplacement,
+        make_stage1_carrier_sun_rpart,
+        make_stage_planet_gear_rpart,
+        make_stage_ring_gear_rpart,
+    )
+    from housing import (
+        make_motor_shell_rpart,
+        make_output_bearing_cap_rpart,
+        make_rear_bearing_spider_rpart,
+        make_rear_electronics_cover_rpart,
+        make_reducer_housing_rpart,
+    )
+    from motor import make_bldc_rotor_rassembly, make_bldc_stator_rassembly
 
 
-def make_integrated_bldc_joint_actuator_rassembly() -> scad.Assembly:
+def make_integrated_bldc_joint_actuator_rassembly(
+    *, materials: dict[str, scad.Material]
+) -> scad.Assembly:
     """Build and solve the complete compact 50 mm joint actuator."""
+
+    component_specs = make_integrated_bldc_joint_actuator_components_rtuple(
+        materials=materials
+    )
+    actuator = scad.make_assembly_rassembly(
+        assembly_id="integrated_50mm_bldc_joint_actuator",
+        name="50 mm 12-slot/14-pole BLDC joint actuator with 20:1 reducer and circular ESC",
+    )
+    for component_id, item, placement, name in component_specs:
+        actuator = scad.add_component_rassembly(
+            assembly=actuator,
+            item=item,
+            component_id=component_id,
+            placement=placement,
+            name=name,
+        )
+
+    actuator = _add_public_connectors_rassembly(assembly=actuator)
+    actuator = _add_constraints_rassembly(assembly=actuator)
+    actuator = scad.solve_assembly_constraints_rassembly(assembly=actuator, strict=True)
+    ground_constraint_report(label="actuator", assembly=actuator)
+    return actuator
+
+
+def make_integrated_bldc_joint_actuator_components_rtuple(
+    *, materials: dict[str, scad.Material]
+) -> tuple[tuple[str, scad.Part | scad.Assembly, scad.Placement, str], ...]:
+    """Build the actuator component inventory without creating a parent assembly."""
 
     print(
         f"ratio_plan: stage1={STAGE_1.fixed_ring_ratio:.1f}:1 "
         f"stage2={STAGE_2.fixed_ring_ratio:.1f}:1 total={TOTAL_REDUCTION:.1f}:1"
     )
-    materials = make_actuator_materials_rdict()
-
     reducer_housing = make_reducer_housing_rpart(material=materials["housing"])
     motor_shell = make_motor_shell_rpart(material=materials["housing"])
     rear_spider = make_rear_bearing_spider_rpart(material=materials["carrier"])
@@ -99,6 +168,7 @@ def make_integrated_bldc_joint_actuator_rassembly() -> scad.Assembly:
     planet_bearing = make_standard_planet_bearing_rassembly(
         bearing_id="planet_3x6x3",
         spec=PLANET_BEARING,
+        material=materials["gear"],
     )
     output_bearing = make_main_bearing_rassembly(
         bearing_id="output_16x24x5",
@@ -106,10 +176,6 @@ def make_integrated_bldc_joint_actuator_rassembly() -> scad.Assembly:
         material=materials["gear"],
     )
 
-    actuator = scad.make_assembly_rassembly(
-        assembly_id="integrated_50mm_bldc_joint_actuator",
-        name="50 mm 12-slot/14-pole BLDC joint actuator with 20:1 reducer and circular ESC",
-    )
     fixed_components = (
         ("reducer_housing", reducer_housing, scad.identity_placement_rplacement(), "Fixed reducer housing"),
         ("motor_shell", motor_shell, scad.identity_placement_rplacement(), "Fixed BLDC shell"),
@@ -124,24 +190,18 @@ def make_integrated_bldc_joint_actuator_rassembly() -> scad.Assembly:
         ("stage1_ring", stage1_ring, _stage_rplacement(stage=STAGE_1), "Stage 1 fixed ring insert"),
         ("stage2_ring", stage2_ring, _stage_rplacement(stage=STAGE_2), "Stage 2 fixed ring insert"),
     )
-    for component_id, item, placement, name in fixed_components:
-        actuator = scad.add_component_rassembly(
-            assembly=actuator,
-            item=item,
-            component_id=component_id,
-            placement=placement,
-            name=name,
-        )
     print(f"actuator_base_components: count={len(fixed_components)}")
 
+    planet_components = []
     for stage, planet in ((STAGE_1, stage1_planet), (STAGE_2, stage2_planet)):
         for index in range(PLANET_COUNT):
-            actuator = scad.add_component_rassembly(
-                assembly=actuator,
-                item=planet,
-                component_id=f"{stage.stage_id}_planet_{index + 1}",
-                placement=make_planet_rplacement(stage=stage, index=index),
-                name=f"{stage.label} planet {index + 1}",
+            planet_components.append(
+                (
+                    f"{stage.stage_id}_planet_{index + 1}",
+                    planet,
+                    make_planet_rplacement(stage=stage, index=index),
+                    f"{stage.label} planet {index + 1}",
+                )
             )
 
     bearing_components = (
@@ -176,34 +236,31 @@ def make_integrated_bldc_joint_actuator_rassembly() -> scad.Assembly:
             "Front output bearing",
         ),
     )
-    for component_id, item, placement, name in bearing_components:
-        actuator = scad.add_component_rassembly(
-            assembly=actuator,
-            item=item,
-            component_id=component_id,
-            placement=placement,
-            name=name,
-        )
+    planet_bearing_components = []
     for stage in (STAGE_1, STAGE_2):
         for index in range(PLANET_COUNT):
-            actuator = scad.add_component_rassembly(
-                assembly=actuator,
-                item=planet_bearing,
-                component_id=f"{stage.stage_id}_planet_bearing_{index + 1}",
-                placement=make_planet_bearing_rplacement(stage=stage, index=index),
-                name=f"{stage.label} planet bearing {index + 1}",
+            planet_bearing_components.append(
+                (
+                    f"{stage.stage_id}_planet_bearing_{index + 1}",
+                    planet_bearing,
+                    make_planet_bearing_rplacement(stage=stage, index=index),
+                    f"{stage.label} planet bearing {index + 1}",
+                )
             )
     print(f"bearing_components: motor=2 interstage=1 output=2 planet={PLANET_COUNT * 2}")
-
-    actuator = _add_public_connectors_rassembly(assembly=actuator)
-    actuator = _add_constraints_rassembly(assembly=actuator)
-    actuator = scad.solve_assembly_constraints_rassembly(assembly=actuator, strict=True)
-    ground_constraint_report(label="actuator", assembly=actuator)
-    return actuator
+    return tuple(
+        [
+            *fixed_components,
+            *planet_components,
+            *bearing_components,
+            *planet_bearing_components,
+        ]
+    )
 
 
 def _add_public_connectors_rassembly(*, assembly: scad.Assembly) -> scad.Assembly:
     forwarded = (
+        ("case_clamp_axis", "reducer_housing", "case_clamp_axis", "External split-clamp datum"),
         ("case_mount_axis", "output_bearing_cap", "case_mount_axis", "Fixed actuator case datum"),
         ("output_link_axis", "output_carrier", "output_link_axis", "Rotating six-hole output flange"),
         ("phase_terminal_access", "controller", "phase_access", "Rear phase-terminal service datum"),

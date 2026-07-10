@@ -9,7 +9,10 @@ from pathlib import Path
 import simplecadapi as scad
 
 from leg_assembly import make_leg_wheel_robot_dog_leg_rassembly
+from actuator import make_actuator_materials_rdict
 from leg_common import ground_compound
+from leg_materials import make_leg_materials_rdict
+from leg_dimensions import validate_leg_interface_dimensions
 
 
 # Example 16's reducer graph is intentionally deep because of herringbone gears.
@@ -19,10 +22,20 @@ OUT_DIR = Path("examples/out/leg_wheel_robot_dog_leg")
 
 
 def _build_leg_wheel_robot_dog_leg():
+    validate_leg_interface_dimensions()
+    actuator_materials = make_actuator_materials_rdict()
+    leg_materials = make_leg_materials_rdict()
     with scad.GraphSession(graph_id="leg_wheel_robot_dog_leg") as session:
-        assembly = make_leg_wheel_robot_dog_leg_rassembly()
+        assembly = make_leg_wheel_robot_dog_leg_rassembly(
+            actuator_materials=actuator_materials,
+            leg_materials=leg_materials,
+        )
         preview = scad.make_compound_from_assembly_rcompound(assembly=assembly)
         ground_compound(label="leg_preview", compound=preview)
+        leaf_ops = [node.op for node in session.graph.leaf_nodes()]
+        print(f"leg_graph_results: leaves={len(leaf_ops)} ops={','.join(leaf_ops)}")
+        if leaf_ops != ["make_compound_from_assembly_rcompound"]:
+            raise RuntimeError("Leg graph contains detached source results")
         session_json = scad.export_session_json(session=session)
         model_json = scad.export_model_json(session=session)
     return assembly, preview, model_json, session_json

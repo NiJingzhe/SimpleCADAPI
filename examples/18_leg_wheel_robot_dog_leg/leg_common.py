@@ -142,6 +142,18 @@ def make_axis_placement_rplacement(
             x_axis=(1.0, 0.0, 0.0),
             y_axis=(0.0, 0.0, -1.0),
         )
+    if axis == "-z":
+        return scad.make_placement_rplacement(
+            origin=origin,
+            x_axis=(1.0, 0.0, 0.0),
+            y_axis=(0.0, -1.0, 0.0),
+        )
+    if axis == "x":
+        return scad.make_placement_rplacement(
+            origin=origin,
+            x_axis=(0.0, 1.0, 0.0),
+            y_axis=(0.0, 0.0, 1.0),
+        )
     raise ValueError(f"unsupported axis {axis!r}")
 
 
@@ -164,6 +176,12 @@ def make_actuator_target_rplacement(
             output_axis_origin[0],
             output_axis_origin[1] - output_axis_local_z,
             output_axis_origin[2],
+        )
+    elif axis == "-z":
+        origin = (
+            output_axis_origin[0],
+            output_axis_origin[1],
+            output_axis_origin[2] + output_axis_local_z,
         )
     else:
         raise ValueError(f"unsupported axis {axis!r}")
@@ -302,6 +320,8 @@ def _axis_vector(*, axis: str) -> Point3:
         return (0.0, 1.0, 0.0)
     if axis == "x":
         return (1.0, 0.0, 0.0)
+    if axis == "-z":
+        return (0.0, 0.0, -1.0)
     raise ValueError(f"unsupported axis {axis!r}")
 
 

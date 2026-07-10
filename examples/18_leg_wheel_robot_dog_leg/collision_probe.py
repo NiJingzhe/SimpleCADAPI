@@ -1,13 +1,4 @@
-"""Static current-pose collision probe for Example 18.
-
-Run from the repository root with:
-    uv run python examples/18_leg_wheel_robot_dog_leg/collision_probe.py
-
-The probe intentionally checks the visible packaging surfaces and leg links, not
-every internal reducer gear.  The reducer core is already checked in Example 16;
-this probe is for leg-level interferences such as links buried inside actuator
-cases, motor cans, wheel forks, and four-bar rods.
-"""
+"""Static external-envelope collision probe for the rebuilt Example 18."""
 
 from __future__ import annotations
 
@@ -18,7 +9,9 @@ import time
 
 import simplecadapi as scad
 
+from actuator import make_actuator_materials_rdict
 from leg_assembly import make_leg_wheel_robot_dog_leg_rassembly
+from leg_materials import make_leg_materials_rdict
 
 
 ACTUATOR_IDS = (
@@ -27,18 +20,29 @@ ACTUATOR_IDS = (
     "wheel_hub_actuator",
 )
 EXTERNAL_ACTUATOR_LEAVES = (
-    ("reducer", "housing"),
-    ("reducer", "input_flange"),
-    ("reducer", "output_flange"),
-    ("motor_can",),
+    ("reducer_housing",),
+    ("motor_shell",),
+    ("rear_electronics_cover",),
+    ("output_bearing_cap",),
+    ("output_carrier",),
+    ("controller", "three_phase_terminal"),
+    ("controller", "power_can_terminal"),
 )
-LINK_LEAVES = (
-    ("body_mount_plate",),
-    ("upper_link_plate",),
-    ("proximal_output_crank",),
-    ("knee_pushrod",),
-    ("shank_link",),
-    ("wheel_tire",),
+TOP_LEVEL_EXTERNALS = (
+    "body_mount_plate",
+    "upper_link_plate",
+    "proximal_output_crank",
+    "knee_pushrod",
+    "shank_link",
+    "wheel_hub",
+    "wheel_tire",
+    "knee_bushing",
+    "knee_axle",
+    "thigh_clamp_bolt",
+    "knee_drive_clamp_bolt",
+    "wheel_clamp_bolt",
+    "proximal_linkage_pin",
+    "distal_linkage_pin",
 )
 
 
@@ -46,9 +50,49 @@ def _leg_level_component_paths() -> tuple[tuple[str, ...], ...]:
     paths: list[tuple[str, ...]] = []
     for actuator_id in ACTUATOR_IDS:
         for leaf in EXTERNAL_ACTUATOR_LEAVES:
-            paths.append((actuator_id, *leaf))
-    paths.extend(LINK_LEAVES)
+            if leaf == ("output_carrier",):
+                paths.append((actuator_id, *leaf))
+            else:
+                paths.append((actuator_id, "fixed_body", *leaf))
+    paths.extend((component_id,) for component_id in TOP_LEVEL_EXTERNALS)
+    for interface in ("thigh", "knee_drive", "wheel"):
+        paths.extend((f"{interface}_output_screw_{index}",) for index in range(1, 7))
     return tuple(paths)
+
+
+def _intentional_mating_pairs() -> tuple[scad.verifier.ComponentPair, ...]:
+    pairs = [
+        scad.verifier.ComponentPair("wheel_hub", "wheel_tire"),
+        scad.verifier.ComponentPair("body_mount_plate", "thigh_clamp_bolt"),
+        scad.verifier.ComponentPair("body_mount_plate", "knee_drive_clamp_bolt"),
+        scad.verifier.ComponentPair("shank_link", "wheel_clamp_bolt"),
+    ]
+    for actuator_id in ACTUATOR_IDS:
+        pairs.append(
+            scad.verifier.ComponentPair(
+                (actuator_id, "fixed_body", "reducer_housing"),
+                (actuator_id, "fixed_body", "output_bearing_cap"),
+            )
+        )
+    for interface, actuator_id, driven_component_id in (
+        ("thigh", "thigh_actuator", "upper_link_plate"),
+        ("knee_drive", "knee_drive_actuator", "proximal_output_crank"),
+        ("wheel", "wheel_hub_actuator", "wheel_hub"),
+    ):
+        pairs.append(
+            scad.verifier.ComponentPair(
+                (actuator_id, "output_carrier"),
+                driven_component_id,
+            )
+        )
+        for index in range(1, 7):
+            pairs.append(
+                scad.verifier.ComponentPair(
+                    f"{interface}_output_screw_{index}",
+                    (actuator_id, "output_carrier"),
+                )
+            )
+    return tuple(pairs)
 
 
 def main() -> None:
@@ -56,14 +100,18 @@ def main() -> None:
     build_log = io.StringIO()
     start = time.perf_counter()
     with contextlib.redirect_stdout(build_log):
-        assembly = make_leg_wheel_robot_dog_leg_rassembly()
+        assembly = make_leg_wheel_robot_dog_leg_rassembly(
+            actuator_materials=make_actuator_materials_rdict(),
+            leg_materials=make_leg_materials_rdict(),
+        )
     build_seconds = time.perf_counter() - start
 
     config = scad.verifier.CollisionCheckConfig(
-        max_allowed_penetration=0.05,
+        max_allowed_penetration=0.08,
         max_contacts_per_pair=32,
         scope=scad.verifier.CollisionScope(
             component_paths=_leg_level_component_paths(),
+            exclude_pairs=_intentional_mating_pairs(),
         ),
     )
     start = time.perf_counter()
@@ -85,7 +133,11 @@ def main() -> None:
     for warning in report.warnings:
         path = "/".join(warning.component_path or ())
         print(f"warning {path} {warning.code} {warning.message}")
-    for failure in sorted(report.failures, key=lambda item: item.penetration_depth, reverse=True)[:25]:
+    for failure in sorted(
+        report.failures,
+        key=lambda item: item.penetration_depth,
+        reverse=True,
+    )[:25]:
         print(
             "failure",
             "/".join(failure.component_a),

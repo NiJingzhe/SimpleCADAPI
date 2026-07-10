@@ -12,20 +12,17 @@ from leg_common import (
     make_rounded_bar_rsolid,
     make_rounded_slot_cutter_rsolid,
 )
+from brackets import make_split_case_clamp_rsolid
 from leg_dimensions import (
+    CASE_CLAMP_PINCH_AXIS_RADIUS,
+    CASE_CLAMP_PINCH_HALF_SPAN,
+    CASE_CLAMP_WIDTH,
     DISTAL_CRANK_LENGTH,
     DISTAL_CRANK_THICKNESS,
     DISTAL_CRANK_WIDTH,
     DISTAL_CRANK_Z,
     DISTAL_PUSHROD_PIN,
-    FASTENER_CLEARANCE_RADIUS,
-    HOUSING_MOUNT_BOLT_ANGLES_DEGREES,
-    HOUSING_MOUNT_BOLT_CIRCLE_RADIUS,
-    HOUSING_MOUNT_BOLT_CLEARANCE_RADIUS,
-    HOUSING_MOUNT_COUNTERBORE_RADIUS,
     KNEE_AXIS,
-    KNEE_BEARING_BOLT_CIRCLE_RADIUS,
-    KNEE_BEARING_BOLT_COUNT,
     KNEE_BEARING_BORE_RADIUS,
     KNEE_BEARING_OUTER_RADIUS,
     KNEE_DRIVE_AXIS,
@@ -36,7 +33,6 @@ from leg_dimensions import (
     OUTPUT_FLANGE_BOLT_COUNTERBORE_RADIUS,
     OUTPUT_FLANGE_OUTER_RADIUS,
     OUTPUT_FLANGE_REGISTER_INNER_RADIUS,
-    OUTPUT_FLANGE_REGISTER_OUTER_RADIUS,
     PIN_CLEARANCE_RADIUS,
     PROXIMAL_PUSHROD_PIN,
     PUSHROD_THICKNESS,
@@ -72,6 +68,7 @@ from leg_dimensions import (
     WHEEL_TIRE_BORE_RADIUS,
     WHEEL_TIRE_RADIUS,
     WHEEL_TIRE_WIDTH,
+    WHEEL_CASE_CLAMP_Z,
 )
 
 
@@ -91,7 +88,7 @@ def make_upper_link_plate_rpart(*, material: scad.Material) -> scad.Part:
     z_min = UPPER_LINK_Z - UPPER_LINK_THICKNESS / 2.0
     cutters = [
         scad.make_cylinder_rsolid(
-            radius=OUTPUT_FLANGE_REGISTER_INNER_RADIUS + 0.8,
+            radius=OUTPUT_FLANGE_REGISTER_INNER_RADIUS + 0.05,
             height=UPPER_LINK_THICKNESS + 2.0,
             bottom_face_center=(ROOT_AXIS[0], ROOT_AXIS[1], z_min - 1.0),
             axis=(0.0, 0.0, 1.0),
@@ -112,12 +109,11 @@ def make_upper_link_plate_rpart(*, material: scad.Material) -> scad.Part:
             z_min=z_min - 1.0,
             height=UPPER_LINK_THICKNESS + 2.0,
             counterbore_radius=OUTPUT_FLANGE_BOLT_COUNTERBORE_RADIUS,
-            counterbore_depth=1.0,
+            counterbore_depth=3.0,
             counterbore_from_top=True,
             counterbore_face_z=z_min + UPPER_LINK_THICKNESS,
         )
     )
-    cutters.extend(_make_knee_retainer_cutters(z_min=z_min - 1.0, height=UPPER_LINK_THICKNESS + 2.0))
     cutters.extend(
         _make_link_window_cutters(
             start=ROOT_AXIS,
@@ -135,7 +131,7 @@ def make_upper_link_plate_rpart(*, material: scad.Material) -> scad.Part:
     print(
         f"upper_link_plate: output_holes={len(OUTPUT_FLANGE_BOLT_ANGLES_DEGREES)} "
         f"output_pcd={OUTPUT_FLANGE_BOLT_CIRCLE_RADIUS * 2.0:.1f} "
-        f"knee_retainer_holes={KNEE_BEARING_BOLT_COUNT} faces={len(plate.get_faces())} "
+        f"knee_bushing_bore={KNEE_BEARING_BORE_RADIUS * 2.0:.1f} faces={len(plate.get_faces())} "
         f"volume={plate.get_volume():.3f}"
     )
     return make_part_with_connectors_rpart(
@@ -146,6 +142,7 @@ def make_upper_link_plate_rpart(*, material: scad.Material) -> scad.Part:
         connectors=(
             ("output_axis", ROOT_AXIS, "z", "Actuator output flange datum"),
             ("knee_axis", (KNEE_AXIS[0], KNEE_AXIS[1], KNEE_PIVOT_Z), "z", "Knee bearing datum"),
+            *_output_bolt_connectors(center=ROOT_AXIS, face_z=z_min + UPPER_LINK_THICKNESS, axis="z"),
         ),
     )
 
@@ -166,7 +163,7 @@ def make_proximal_crank_rpart(*, material: scad.Material) -> scad.Part:
     z_min = REMOTE_CRANK_Z - REMOTE_CRANK_THICKNESS / 2.0
     cutters = [
         scad.make_cylinder_rsolid(
-            radius=OUTPUT_FLANGE_REGISTER_INNER_RADIUS + 0.6,
+            radius=OUTPUT_FLANGE_REGISTER_INNER_RADIUS + 0.05,
             height=REMOTE_CRANK_THICKNESS + 2.0,
             bottom_face_center=(KNEE_DRIVE_AXIS[0], KNEE_DRIVE_AXIS[1], z_min - 1.0),
             axis=(0.0, 0.0, 1.0),
@@ -186,6 +183,10 @@ def make_proximal_crank_rpart(*, material: scad.Material) -> scad.Part:
             hole_radius=OUTPUT_FLANGE_BOLT_CLEARANCE_RADIUS,
             z_min=z_min - 1.0,
             height=REMOTE_CRANK_THICKNESS + 2.0,
+            counterbore_radius=OUTPUT_FLANGE_BOLT_COUNTERBORE_RADIUS,
+            counterbore_depth=3.0,
+            counterbore_from_top=True,
+            counterbore_face_z=z_min + REMOTE_CRANK_THICKNESS,
         )
     )
     crank = scad.cut_rsolid(crank, cutters, skip_non_intersecting=False)
@@ -203,6 +204,11 @@ def make_proximal_crank_rpart(*, material: scad.Material) -> scad.Part:
         connectors=(
             ("output_axis", KNEE_DRIVE_AXIS, "z", "Knee-drive actuator output flange datum"),
             ("rod_pin", (PROXIMAL_PUSHROD_PIN[0], PROXIMAL_PUSHROD_PIN[1], ROD_PIN_AXIS_Z), "z", "Proximal pushrod pin datum"),
+            *_output_bolt_connectors(
+                center=KNEE_DRIVE_AXIS,
+                face_z=z_min + REMOTE_CRANK_THICKNESS,
+                axis="z",
+            ),
         ),
     )
 
@@ -276,6 +282,23 @@ def make_shank_link_rpart(*, material: scad.Material) -> scad.Part:
     )
     knee_standoff = scad.cut_rsolid(standoff_outer, standoff_inner, skip_non_intersecting=False)
     shank = scad.union_rsolid([shank, distal_drive_ear, knee_standoff], glue=False)
+    wheel_clamp = make_split_case_clamp_rsolid(
+        center=WHEEL_AXIS,
+        z_center=WHEEL_CASE_CLAMP_Z,
+        tag="role.wheel_actuator_split_clamp",
+    )
+    clamp_z_min = WHEEL_CASE_CLAMP_Z - CASE_CLAMP_WIDTH / 2.0
+    clamp_post_height = z_min + SHANK_LINK_THICKNESS - clamp_z_min
+    clamp_posts = [
+        scad.make_cylinder_rsolid(
+            radius=3.8,
+            height=clamp_post_height,
+            bottom_face_center=(WHEEL_AXIS[0], WHEEL_AXIS[1] + sign * 29.5, clamp_z_min),
+            axis=(0.0, 0.0, 1.0),
+        )
+        for sign in (-1.0, 1.0)
+    ]
+    shank = scad.union_rsolid(shank, wheel_clamp, clamp_posts, glue=False)
     integrated_knee_height = distal_z_top - z_min + 2.0
     cutters = [
         scad.make_cylinder_rsolid(
@@ -297,21 +320,6 @@ def make_shank_link_rpart(*, material: scad.Material) -> scad.Part:
             axis=(0.0, 0.0, 1.0),
         ),
     ]
-    cutters.extend(_make_knee_retainer_cutters(z_min=z_min - 1.0, height=integrated_knee_height))
-    cutters.extend(
-        make_bolt_circle_cutters_rsolidlist(
-            center=WHEEL_AXIS,
-            bolt_circle_radius=HOUSING_MOUNT_BOLT_CIRCLE_RADIUS,
-            angles_degrees=HOUSING_MOUNT_BOLT_ANGLES_DEGREES,
-            hole_radius=HOUSING_MOUNT_BOLT_CLEARANCE_RADIUS,
-            z_min=z_min - 1.0,
-            height=SHANK_LINK_THICKNESS + 2.0,
-            counterbore_radius=HOUSING_MOUNT_COUNTERBORE_RADIUS,
-            counterbore_depth=1.0,
-            counterbore_from_top=True,
-            counterbore_face_z=z_min + SHANK_LINK_THICKNESS,
-        )
-    )
     cutters.extend(
         _make_link_window_cutters(
             start=KNEE_AXIS,
@@ -327,41 +335,82 @@ def make_shank_link_rpart(*, material: scad.Material) -> scad.Part:
     shank = scad.cut_rsolid(shank, cutters, skip_non_intersecting=False)
     shank = scad.apply_tag(shape=shank, tag="role.shank_wheel_plate")
     print(
-        f"shank_link: wheel_case_holes={len(HOUSING_MOUNT_BOLT_ANGLES_DEGREES)} "
-        f"wheel_case_pcd={HOUSING_MOUNT_BOLT_CIRCLE_RADIUS * 2.0:.1f} "
+        "shank_link: wheel_case_mount=split_clamp "
+        f"clamp_bore_d={50.3:.1f} "
         f"integral_pushrod_ear={DISTAL_CRANK_LENGTH:.1f} "
         f"length={SHANK_LENGTH:.1f} faces={len(shank.get_faces())} volume={shank.get_volume():.3f}"
     )
     return make_part_with_connectors_rpart(
         part_id="shank_link",
         body=shank,
-        name="Lower shank plate with integral pushrod ear and wheel actuator housing bolt circle",
+        name="Lower shank plate with integral pushrod ear and wheel actuator split clamp",
         material=material,
         connectors=(
             ("knee_axis", (KNEE_AXIS[0], KNEE_AXIS[1], KNEE_PIVOT_Z), "z", "Knee revolute datum"),
             ("rod_pin", (DISTAL_PUSHROD_PIN[0], DISTAL_PUSHROD_PIN[1], ROD_PIN_AXIS_Z), "z", "Integral shank pushrod pin datum"),
-            ("wheel_case_axis", WHEEL_AXIS, "z", "Wheel hub actuator case datum"),
+            (
+                "wheel_case_axis",
+                (WHEEL_AXIS[0], WHEEL_AXIS[1], WHEEL_CASE_CLAMP_Z),
+                "z",
+                "Wheel hub actuator split-clamp datum",
+            ),
+            (
+                "wheel_clamp_bolt_seat",
+                (
+                    WHEEL_AXIS[0] + CASE_CLAMP_PINCH_AXIS_RADIUS,
+                    WHEEL_AXIS[1] + CASE_CLAMP_PINCH_HALF_SPAN - 0.9,
+                    WHEEL_CASE_CLAMP_Z,
+                ),
+                "y",
+                "Wheel collar M4 bolt head seat",
+            ),
         ),
     )
 
 
 def make_wheel_tire_rpart(*, material: scad.Material) -> scad.Part:
-    """Create a spoked wheel bolted to the actuator output flange."""
+    """Create the rubber tire ring as a separate serviceable part."""
 
+    tire_center_z = -1.5
     tire_outer = scad.make_cylinder_rsolid(
         radius=WHEEL_TIRE_RADIUS,
         height=WHEEL_TIRE_WIDTH,
-        bottom_face_center=(WHEEL_AXIS[0], WHEEL_AXIS[1], -WHEEL_TIRE_WIDTH / 2.0),
+        bottom_face_center=(
+            WHEEL_AXIS[0],
+            WHEEL_AXIS[1],
+            tire_center_z - WHEEL_TIRE_WIDTH / 2.0,
+        ),
         axis=(0.0, 0.0, 1.0),
     )
     tire_bore = scad.make_cylinder_rsolid(
         radius=WHEEL_TIRE_BORE_RADIUS,
         height=WHEEL_TIRE_WIDTH + 2.0,
-        bottom_face_center=(WHEEL_AXIS[0], WHEEL_AXIS[1], -WHEEL_TIRE_WIDTH / 2.0 - 1.0),
+        bottom_face_center=(
+            WHEEL_AXIS[0],
+            WHEEL_AXIS[1],
+            tire_center_z - WHEEL_TIRE_WIDTH / 2.0 - 1.0,
+        ),
         axis=(0.0, 0.0, 1.0),
     )
     tire_ring = scad.cut_rsolid(tire_outer, tire_bore, skip_non_intersecting=False)
-    hub_z = 3.0
+    tire_ring = scad.apply_tag(shape=tire_ring, tag="role.replaceable_rubber_tire")
+    print(
+        f"wheel_tire: tire_radius={WHEEL_TIRE_RADIUS:.1f} width={WHEEL_TIRE_WIDTH:.1f} "
+        f"faces={len(tire_ring.get_faces())} volume={tire_ring.get_volume():.3f}"
+    )
+    return make_part_with_connectors_rpart(
+        part_id="wheel_tire",
+        body=tire_ring,
+        name="Replaceable rubber wheel tire ring",
+        material=material,
+        connectors=(("hub_axis", WHEEL_AXIS, "z", "Wheel hub overmold datum"),),
+    )
+
+
+def make_wheel_hub_rpart(*, material: scad.Material) -> scad.Part:
+    """Create the rigid 7075 hub and spokes bolted to the actuator flange."""
+
+    hub_z = WHEEL_HUB_PLATE_THICKNESS / 2.0
     hub_z_min = hub_z - WHEEL_HUB_PLATE_THICKNESS / 2.0
     hub = scad.make_cylinder_rsolid(
         radius=WHEEL_HUB_PLATE_RADIUS,
@@ -369,11 +418,16 @@ def make_wheel_tire_rpart(*, material: scad.Material) -> scad.Part:
         bottom_face_center=(WHEEL_AXIS[0], WHEEL_AXIS[1], hub_z_min),
         axis=(0.0, 0.0, 1.0),
     )
-    spokes = [_make_wheel_spoke_rsolid(angle_degrees=360.0 * index / WHEEL_SPOKE_COUNT) for index in range(WHEEL_SPOKE_COUNT)]
-    wheel = scad.union_rsolid([tire_ring, hub, spokes], glue=False)
+    spokes = [
+        _make_wheel_spoke_rsolid(
+            angle_degrees=22.5 + 360.0 * index / WHEEL_SPOKE_COUNT
+        )
+        for index in range(WHEEL_SPOKE_COUNT)
+    ]
+    wheel = scad.union_rsolid([hub, spokes], glue=False)
     cutters = [
         scad.make_cylinder_rsolid(
-            radius=OUTPUT_FLANGE_REGISTER_INNER_RADIUS + 0.4,
+            radius=OUTPUT_FLANGE_REGISTER_INNER_RADIUS + 0.05,
             height=WHEEL_HUB_PLATE_THICKNESS + 2.0,
             bottom_face_center=(WHEEL_AXIS[0], WHEEL_AXIS[1], hub_z_min - 1.0),
             axis=(0.0, 0.0, 1.0),
@@ -388,24 +442,32 @@ def make_wheel_tire_rpart(*, material: scad.Material) -> scad.Part:
             z_min=hub_z_min - 1.0,
             height=WHEEL_HUB_PLATE_THICKNESS + 2.0,
             counterbore_radius=OUTPUT_FLANGE_BOLT_COUNTERBORE_RADIUS,
-            counterbore_depth=0.9,
+            counterbore_depth=3.0,
             counterbore_from_top=True,
             counterbore_face_z=hub_z_min + WHEEL_HUB_PLATE_THICKNESS,
         )
     )
     wheel = scad.cut_rsolid(wheel, cutters, skip_non_intersecting=False)
-    wheel = scad.apply_tag(shape=wheel, tag="role.spoked_wheel_tire")
+    wheel = scad.apply_tag(shape=wheel, tag="role.rigid_spoked_wheel_hub")
     print(
-        f"wheel_tire: output_holes={len(OUTPUT_FLANGE_BOLT_ANGLES_DEGREES)} "
-        f"spokes={WHEEL_SPOKE_COUNT} tire_radius={WHEEL_TIRE_RADIUS:.1f} "
+        f"wheel_hub: output_holes={len(OUTPUT_FLANGE_BOLT_ANGLES_DEGREES)} "
+        f"output_pcd={OUTPUT_FLANGE_BOLT_CIRCLE_RADIUS * 2.0:.1f} spokes={WHEEL_SPOKE_COUNT} "
         f"faces={len(wheel.get_faces())} volume={wheel.get_volume():.3f}"
     )
     return make_part_with_connectors_rpart(
-        part_id="wheel_tire",
+        part_id="wheel_hub",
         body=wheel,
-        name="Spoked wheel bolted to the hub actuator output flange",
+        name="7075 spoked wheel hub bolted to the actuator output flange",
         material=material,
-        connectors=(("wheel_axis", WHEEL_AXIS, "z", "Wheel spin datum"),),
+        connectors=(
+            ("wheel_axis", WHEEL_AXIS, "z", "Wheel spin datum"),
+            ("tire_axis", WHEEL_AXIS, "z", "Replaceable tire datum"),
+            *_output_bolt_connectors(
+                center=WHEEL_AXIS,
+                face_z=hub_z_min + WHEEL_HUB_PLATE_THICKNESS,
+                axis="z",
+            ),
+        ),
     )
 
 
@@ -454,18 +516,6 @@ def _make_axis_plate_base_rsolid(
     return scad.apply_tag(shape=plate, tag=tag)
 
 
-def _make_knee_retainer_cutters(*, z_min: float, height: float) -> list[scad.Solid]:
-    angles = tuple(360.0 * index / KNEE_BEARING_BOLT_COUNT for index in range(KNEE_BEARING_BOLT_COUNT))
-    return make_bolt_circle_cutters_rsolidlist(
-        center=KNEE_AXIS,
-        bolt_circle_radius=KNEE_BEARING_BOLT_CIRCLE_RADIUS,
-        angles_degrees=angles,
-        hole_radius=FASTENER_CLEARANCE_RADIUS,
-        z_min=z_min,
-        height=height,
-    )
-
-
 def _make_link_window_cutters(
     *,
     start: tuple[float, float, float],
@@ -502,7 +552,7 @@ def _make_wheel_spoke_rsolid(*, angle_degrees: float) -> scad.Solid:
     rim_overlap_radius = WHEEL_TIRE_BORE_RADIUS + 1.5
     length = rim_overlap_radius - hub_overlap_radius
     radial_center = (hub_overlap_radius + rim_overlap_radius) / 2.0
-    z_center = 3.0
+    z_center = WHEEL_HUB_PLATE_THICKNESS / 2.0
     spoke = scad.make_box_rsolid(
         width=length,
         height=WHEEL_SPOKE_WIDTH,
@@ -519,3 +569,24 @@ def _make_wheel_spoke_rsolid(*, angle_degrees: float) -> scad.Solid:
 
 def _xy_distance(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
     return math.hypot(b[0] - a[0], b[1] - a[1])
+
+
+def _output_bolt_connectors(
+    *, center: tuple[float, float, float], face_z: float, axis: str
+) -> tuple[tuple[str, tuple[float, float, float], str, str], ...]:
+    connectors = []
+    for index, angle_degrees in enumerate(OUTPUT_FLANGE_BOLT_ANGLES_DEGREES, start=1):
+        angle = math.radians(angle_degrees)
+        connectors.append(
+            (
+                f"output_bolt_{index}_head_top",
+                (
+                    center[0] + OUTPUT_FLANGE_BOLT_CIRCLE_RADIUS * math.cos(angle),
+                    center[1] + OUTPUT_FLANGE_BOLT_CIRCLE_RADIUS * math.sin(angle),
+                    face_z,
+                ),
+                axis,
+                f"M3 output screw {index} head top",
+            )
+        )
+    return tuple(connectors)

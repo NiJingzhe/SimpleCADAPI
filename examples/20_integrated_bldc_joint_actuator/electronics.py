@@ -6,23 +6,42 @@ import math
 
 import simplecadapi as scad
 
-from common import (
-    apply_tags,
-    connector_ref,
-    ground_constraint_report,
-    make_axial_hole_cutters_rsolids,
-    make_axis_part_rpart,
-    radial_centers,
-)
-from dimensions import (
-    PCB_BOTTOM_Z,
-    PCB_CENTER_BORE_RADIUS,
-    PCB_MOUNT_HOLE_RADIUS,
-    PCB_RADIUS,
-    PCB_STANDOFF_PCD,
-    PCB_THICKNESS,
-    REAR_COLUMN_PCD,
-)
+try:
+    from .common import (
+        apply_tags,
+        connector_ref,
+        ground_constraint_report,
+        make_axial_hole_cutters_rsolids,
+        make_axis_part_rpart,
+        radial_centers,
+    )
+    from .dimensions import (
+        PCB_BOTTOM_Z,
+        PCB_CENTER_BORE_RADIUS,
+        PCB_MOUNT_HOLE_RADIUS,
+        PCB_RADIUS,
+        PCB_STANDOFF_PCD,
+        PCB_THICKNESS,
+        REAR_COLUMN_PCD,
+    )
+except ImportError:  # Support direct execution from this example directory.
+    from common import (
+        apply_tags,
+        connector_ref,
+        ground_constraint_report,
+        make_axial_hole_cutters_rsolids,
+        make_axis_part_rpart,
+        radial_centers,
+    )
+    from dimensions import (
+        PCB_BOTTOM_Z,
+        PCB_CENTER_BORE_RADIUS,
+        PCB_MOUNT_HOLE_RADIUS,
+        PCB_RADIUS,
+        PCB_STANDOFF_PCD,
+        PCB_THICKNESS,
+        REAR_COLUMN_PCD,
+    )
 
 
 PHASE_TERMINAL_CENTER = (-11.0, 0.0)
