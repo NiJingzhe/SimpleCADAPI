@@ -69,8 +69,6 @@ exclude = [
   "/skills",
   "/sandbox",
   "/examples",
-  "/refactor-plan",
-  "/scripts",
 ]
 
 [dependency-groups]

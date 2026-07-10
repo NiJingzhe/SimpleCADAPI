@@ -1,5 +1,7 @@
 # SimpleCADAPI
 
+[中文说明](README.zh-CN.md)
+
 SimpleCADAPI is an OCP-native Python SDK for building CAD models with clear,
 functional operations and replayable model graphs. It wraps OpenCascade geometry
 in a compact public API for creating solids, applying features, tagging semantic
@@ -162,6 +164,35 @@ uv run python examples/10_part_assembly.py
   [`docs/core/serialization/README.md`](docs/core/serialization/README.md)
 - Operation graph JSON spec:
   [`docs/core/operation_graph_json_spec.md`](docs/core/operation_graph_json_spec.md)
+
+## Releasing the Agent Skill
+
+The repository includes a thin Agent Skill under `skills/simplecadapi/`. It
+contains generated API and modeling references, but does not bundle the SDK
+source code.
+
+From a clean checkout, update the project version and documentation, then build
+and validate the release artifacts:
+
+```bash
+uv sync --group dev
+uv run skill-pack --refresh-docs --archive
+uv run python -m pytest test/test_skill_pack.py
+```
+
+The command refreshes the generated docs, rewrites `skills/simplecadapi/`, and
+creates `skills/simplecadapi.tar.gz`. Review the generated `SKILL.md` and
+references before release:
+
+```bash
+git diff -- skills/simplecadapi docs
+tar -tzf skills/simplecadapi.tar.gz
+```
+
+Commit the generated `skills/simplecadapi/` directory and refreshed `docs/`
+with the release. The archive is intentionally ignored by Git; attach
+`skills/simplecadapi.tar.gz` to the corresponding GitHub release or distribute
+it through the target Agent Skills registry.
 
 ## Development
 
