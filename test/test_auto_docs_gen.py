@@ -104,12 +104,51 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
 
             resolved = auto_docs_gen._default_source_files(package_root)
 
-            resolved_names = [path.name for path in resolved]
+            resolved_names = [path.relative_to(package_root).as_posix() for path in resolved]
             self.assertIn("serializer.py", resolved_names)
             self.assertIn("graph.py", resolved_names)
             self.assertIn("expr.py", resolved_names)
             self.assertIn("sketch.py", resolved_names)
             self.assertIn("math.py", resolved_names)
+            self.assertIn("translator/freecad_translator/api.py", resolved_names)
+            self.assertIn(
+                "translator/freecad_translator/script_translator.py",
+                resolved_names,
+            )
+
+    def test_default_stdlib_source_files_include_standard_modules(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            package_root = Path(tmp_dir) / "src/simplecadapi"
+            package_root.mkdir(parents=True, exist_ok=True)
+
+            resolved = auto_docs_gen._default_stdlib_source_files(package_root)
+
+            self.assertEqual(
+                resolved,
+                [
+                    package_root / "std/bearing.py",
+                    package_root / "std/gear.py",
+                ],
+            )
+
+    def test_resolve_stdlib_output_dirs_from_source_checkout_uses_repo_docs(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_root = Path(tmp_dir)
+            (project_root / "pyproject.toml").write_text(
+                "[project]\nname = 'demo'\n",
+                encoding="utf-8",
+            )
+
+            module_file = project_root / "src/simplecadapi/auto_tools/auto_docs_gen.py"
+            module_file.parent.mkdir(parents=True, exist_ok=True)
+            module_file.write_text("", encoding="utf-8")
+
+            resolved = auto_docs_gen._resolve_stdlib_output_dirs(
+                None,
+                module_file=module_file,
+            )
+
+            self.assertEqual(resolved, [(project_root / "docs/stdlib").resolve()])
 
 
 class TestAutoDocsGenExtraction(unittest.TestCase):
@@ -255,6 +294,55 @@ def fit_cubic_bspline_control_points(sample_points, *, tolerance=1e-3):
                 "[fit_cubic_bspline_control_points](fit_cubic_bspline_control_points.md)",
                 readme,
             )
+
+    def test_generate_stdlib_markdown_uses_stdlib_index_and_import_surface(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            source_dir = tmp_path / "std"
+            source_dir.mkdir()
+            source_file = source_dir / "gear.py"
+            source_file.write_text(
+                '''
+def make_spur_gear_rsolid(n_teeth: int, module: float):
+    """Create a test spur gear.
+
+    Parameters
+    ----------
+    n_teeth : int
+        Number of teeth.
+    module : float
+        Gear module.
+    """
+    return None
+
+
+def _private_helper():
+    """Should not be documented."""
+    return None
+'''.strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            output_dir = tmp_path / "docs/stdlib"
+
+            generator = auto_docs_gen.StdlibDocumentGenerator(
+                source_files=[source_file],
+                output_dirs=[output_dir],
+                quiet=True,
+            )
+            generator.extract_apis()
+            generator.generate_markdown_docs()
+
+            readme = (output_dir / "README.md").read_text(encoding="utf-8")
+            page = (output_dir / "make_spur_gear_rsolid.md").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertIn("# SimpleCAD Standard Library Index", readme)
+            self.assertIn("[make_spur_gear_rsolid](make_spur_gear_rsolid.md)", readme)
+            self.assertIn("scad.std.gear.make_spur_gear_rsolid", page)
+            self.assertIn("**Type**: `int`", page)
+            self.assertNotIn("_private_helper", readme)
 
 
 if __name__ == "__main__":

@@ -184,8 +184,10 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_face_connector_rconnector",
             "make_edge_connector_rconnector",
             "make_vertex_connector_rconnector",
+            "make_placement_connector_rconnector",
             "add_connector_rpart",
             "add_connector_rassembly",
+            "forward_connector_rassembly",
             "make_connector_ref_rconnectorref",
             "make_scalar_limit_rscalarlimit",
             "ground_component_rassembly",
@@ -193,6 +195,9 @@ class TestCoverageMatrix(unittest.TestCase):
             "add_fixed_constraint_rassembly",
             "add_revolute_constraint_rassembly",
             "add_prismatic_constraint_rassembly",
+            "add_gear_constraint_rassembly",
+            "add_belt_constraint_rassembly",
+            "add_rack_pinion_constraint_rassembly",
             "solve_assembly_constraints_rassembly",
         }
         self.assertTrue(expected.issubset(PUBLIC_API_COVERAGE.keys()))
@@ -262,6 +267,10 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_constrain_fix_rsketch",
             "make_wire_from_sketch_rwire",
             "make_face_from_sketch_rface",
+            "make_box_rsolid",
+            "make_cylinder_rsolid",
+            "make_cone_rsolid",
+            "make_sphere_rsolid",
             "make_material_rmaterial",
             "make_placement_rplacement",
             "make_identity_placement_rplacement",
@@ -274,8 +283,10 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_face_connector_rconnector",
             "make_edge_connector_rconnector",
             "make_vertex_connector_rconnector",
+            "make_placement_connector_rconnector",
             "make_add_connector_rpart",
             "make_add_connector_rassembly",
+            "make_forward_connector_rassembly",
             "make_connector_ref_rconnectorref",
             "make_scalar_limit_rscalarlimit",
             "make_ground_component_rassembly",
@@ -283,6 +294,9 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_fixed_constraint_rassembly",
             "make_revolute_constraint_rassembly",
             "make_prismatic_constraint_rassembly",
+            "make_gear_constraint_rassembly",
+            "make_belt_constraint_rassembly",
+            "make_rack_pinion_constraint_rassembly",
             "make_solve_assembly_constraints_rassembly",
             "make_extrude_rsolid",
             "make_revolve_rsolid",
@@ -407,6 +421,38 @@ class TestReplay(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertIsInstance(results[0], scad.Solid)
         self.assertAlmostEqual(results[0].get_volume(), lofted.get_volume(), places=5)
+
+    def test_replay_forwarded_connector_without_offset_roundtrip(self):
+        with scad.GraphSession() as session:
+            body = scad.make_box_rsolid(width=1.0, height=1.0, depth=1.0)
+            part = scad.make_part_rpart(part_id="forwarded_part", body=body)
+            connector = scad.make_placement_connector_rconnector(
+                connector_id="axis",
+                placement=scad.make_placement_rplacement(origin=(1.0, 2.0, 3.0)),
+            )
+            part = scad.add_connector_rpart(part=part, connector=connector)
+            assembly = scad.make_assembly_rassembly(assembly_id="forwarded_parent")
+            assembly = scad.add_component_rassembly(
+                assembly=assembly,
+                item=part,
+                component_id="child",
+                placement=scad.identity_placement_rplacement(),
+            )
+            scad.forward_connector_rassembly(
+                assembly=assembly,
+                connector_id="public_axis",
+                source_component_id="child",
+                source_connector_id="axis",
+            )
+
+        replayed = scad.replay_model_json(json_str=scad.export_model_json(session=session))
+        assemblies = [item for item in replayed if isinstance(item, scad.Assembly)]
+
+        self.assertTrue(assemblies)
+        self.assertEqual(
+            assemblies[-1].get_connector("public_axis").placement.origin,
+            (1.0, 2.0, 3.0),
+        )
 
     def test_replay_wire_face_extrude_edit_chain_roundtrip(self):
         with scad.GraphSession() as session:

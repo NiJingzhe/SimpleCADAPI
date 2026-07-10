@@ -39,16 +39,19 @@ class TestMakeExportInventory(unittest.TestCase):
 
         self.assertNotIn("from .constraints import (", content)
         self.assertIn("from . import ql", content)
+        self.assertIn("from . import translator", content)
         self.assertNotIn("create_field_surface", content)
         self.assertIn("make_assembly_rassembly", content)
         self.assertIn("make_part_rpart", content)
         self.assertIn("make_material_rmaterial", content)
         self.assertIn("add_revolute_constraint_rassembly", content)
+        self.assertIn("add_gear_constraint_rassembly", content)
         self.assertIn("apply_tag", content)
         self.assertIn("list_tags", content)
         self.assertNotIn("set_tag", content)
         self.assertNotIn('"field",', content)
         self.assertIn('"ql",', content)
+        self.assertIn('"translator",', content)
 
     def test_target_symbols_include_product_semantics_but_exclude_removed_exports(self):
         inventory = make_export.collect_api_inventory()
@@ -59,12 +62,14 @@ class TestMakeExportInventory(unittest.TestCase):
         self.assertIn("make_part_rpart", symbols)
         self.assertIn("make_material_rmaterial", symbols)
         self.assertIn("add_prismatic_constraint_rassembly", symbols)
+        self.assertIn("add_rack_pinion_constraint_rassembly", symbols)
         self.assertNotIn("PartHandle", symbols)
         self.assertIn("apply_tag", symbols)
         self.assertIn("list_tags", symbols)
         self.assertNotIn("set_tag", symbols)
         self.assertNotIn("field", symbols)
         self.assertIn("ql", symbols)
+        self.assertIn("translator", symbols)
 
 
 if __name__ == "__main__":

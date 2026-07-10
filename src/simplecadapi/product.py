@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, cast
 
 from .core import Solid
 
@@ -266,16 +266,94 @@ class GeometryRef(SemanticValueMixin):
 
 
 @dataclass(frozen=True)
-class Connector(SemanticValueMixin):
-    """Semantic datum frame anchored to a geometry sub-element (Face/Edge/Vertex).
+class ConnectorAnchor(SemanticValueMixin):
+    """Serializable source for a connector datum frame.
 
-    The connector wraps a QL-selected sub-shape.  The Placement is derived
-    from the geometry at solve/translate time, not stored directly.
+    Supported `anchor_kind` values are `geometry`, `placement`, and `forwarded`.
+    """
+
+    anchor_kind: str
+    geometry_ref: Optional[GeometryRef] = None
+    placement: Optional[Placement] = None
+    source_component_id: Optional[str] = None
+    source_connector_id: Optional[str] = None
+    offset: Optional[Placement] = None
+    _metadata: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
+    _runtime: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
+
+    def __post_init__(self) -> None:
+        kind = str(self.anchor_kind).strip().lower()
+        if kind not in {"geometry", "placement", "forwarded"}:
+            raise ValueError("anchor_kind must be geometry, placement, or forwarded")
+        object.__setattr__(self, "anchor_kind", kind)
+        if kind == "geometry":
+            if not isinstance(self.geometry_ref, GeometryRef):
+                raise TypeError("geometry anchors require geometry_ref")
+            if self.placement is not None:
+                raise ValueError("geometry anchors do not accept placement")
+            if self.source_component_id is not None or self.source_connector_id is not None:
+                raise ValueError("geometry anchors do not accept forwarded source ids")
+            if self.offset is not None:
+                raise ValueError("geometry anchors do not accept offset")
+            return
+        if kind == "placement":
+            if not isinstance(self.placement, Placement):
+                raise TypeError("placement anchors require placement")
+            if self.geometry_ref is not None:
+                raise ValueError("placement anchors do not accept geometry_ref")
+            if self.source_component_id is not None or self.source_connector_id is not None:
+                raise ValueError("placement anchors do not accept forwarded source ids")
+            if self.offset is not None:
+                raise ValueError("placement anchors do not accept offset")
+            return
+        if self.geometry_ref is not None or self.placement is not None:
+            raise ValueError("forwarded anchors do not accept geometry_ref or placement")
+        object.__setattr__(
+            self,
+            "source_component_id",
+            _validate_identifier(
+                self.source_component_id or "",
+                field_name="source_component_id",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "source_connector_id",
+            _validate_identifier(
+                self.source_connector_id or "",
+                field_name="source_connector_id",
+            ),
+        )
+        if self.offset is not None and not isinstance(self.offset, Placement):
+            raise TypeError("offset must be a Placement")
+
+    def to_dict(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"anchor_kind": self.anchor_kind}
+        if self.anchor_kind == "geometry":
+            payload["geometry_ref"] = cast(GeometryRef, self.geometry_ref).to_dict()
+        elif self.anchor_kind == "placement":
+            payload["placement"] = cast(Placement, self.placement).to_dict()
+        else:
+            payload["source_component_id"] = self.source_component_id
+            payload["source_connector_id"] = self.source_connector_id
+            payload["offset"] = self.offset.to_dict() if self.offset is not None else None
+        return payload
+
+
+@dataclass(frozen=True)
+class Connector(SemanticValueMixin):
+    """Semantic datum frame anchored by geometry, placement, or forwarding.
+
+    Geometry connectors derive placement from a selected BREP sub-shape.
+    Placement connectors store an explicit local datum frame. Forwarded
+    connectors expose a component connector as an assembly-level public
+    interface.
     """
 
     connector_id: str
-    geometry_ref: GeometryRef
+    geometry_ref: Optional[GeometryRef] = None
     name: Optional[str] = None
+    anchor: Optional[ConnectorAnchor] = None
     _metadata: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
     _runtime: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
@@ -285,8 +363,18 @@ class Connector(SemanticValueMixin):
             "connector_id",
             _validate_identifier(self.connector_id, field_name="connector_id"),
         )
-        if not isinstance(self.geometry_ref, GeometryRef):
-            raise TypeError("geometry_ref must be a GeometryRef")
+        anchor = self.anchor
+        if anchor is None:
+            if not isinstance(self.geometry_ref, GeometryRef):
+                raise TypeError("geometry_ref must be a GeometryRef when anchor is omitted")
+            anchor = ConnectorAnchor("geometry", geometry_ref=self.geometry_ref)
+            object.__setattr__(self, "anchor", anchor)
+        elif not isinstance(anchor, ConnectorAnchor):
+            raise TypeError("anchor must be a ConnectorAnchor")
+        if anchor.anchor_kind == "geometry":
+            object.__setattr__(self, "geometry_ref", anchor.geometry_ref)
+        elif self.geometry_ref is not None:
+            raise ValueError("geometry_ref is only valid for geometry connectors")
         if self.name is not None:
             name = str(self.name).strip()
             if not name:
@@ -294,16 +382,24 @@ class Connector(SemanticValueMixin):
             object.__setattr__(self, "name", name)
 
     @property
+    def anchor_kind(self) -> str:
+        return cast(ConnectorAnchor, self.anchor).anchor_kind
+
+    @property
     def placement(self) -> Placement:
-        """Lazily-computed Placement derived from the geometry_ref."""
-        return _placement_from_geometry_ref(self.geometry_ref)
+        """Lazily-computed local Placement derived from the connector anchor."""
+        owner = self._get_runtime("owner_assembly")
+        return resolve_connector_placement(self, owner_assembly=owner)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        payload: Dict[str, Any] = {
             "connector_id": self.connector_id,
             "name": self.name,
-            "geometry_ref": self.geometry_ref.to_dict(),
+            "anchor": cast(ConnectorAnchor, self.anchor).to_dict(),
         }
+        if self.geometry_ref is not None:
+            payload["geometry_ref"] = self.geometry_ref.to_dict()
+        return payload
 
 
 @dataclass(frozen=True)
@@ -374,6 +470,12 @@ class Constraint(SemanticValueMixin):
     distance_limit: Optional[ScalarLimit] = None
     drive_angle_degrees: Optional[float] = None
     angle_limit: Optional[ScalarLimit] = None
+    pitch_radius_a: Optional[float] = None
+    pitch_radius_b: Optional[float] = None
+    pulley_radius_a: Optional[float] = None
+    pulley_radius_b: Optional[float] = None
+    pitch_radius: Optional[float] = None
+    phase_offset: Optional[float] = None
     name: Optional[str] = None
     _metadata: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
     _runtime: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
@@ -385,8 +487,10 @@ class Constraint(SemanticValueMixin):
             _validate_identifier(self.constraint_id, field_name="constraint_id"),
         )
         kind = str(self.constraint_kind).strip().lower()
-        if kind not in {"fixed", "revolute", "prismatic"}:
-            raise ValueError("constraint_kind must be fixed, revolute, or prismatic")
+        if kind not in {"fixed", "revolute", "prismatic", "gear", "belt", "rack_pinion"}:
+            raise ValueError(
+                "constraint_kind must be fixed, revolute, prismatic, gear, belt, or rack_pinion"
+            )
         object.__setattr__(self, "constraint_kind", kind)
         if not isinstance(self.connector_a, ConnectorRef):
             raise TypeError("connector_a must be a ConnectorRef")
@@ -402,6 +506,37 @@ class Constraint(SemanticValueMixin):
             raise TypeError("distance_limit must be a ScalarLimit")
         if self.angle_limit is not None and not isinstance(self.angle_limit, ScalarLimit):
             raise TypeError("angle_limit must be a ScalarLimit")
+        pitch_radius_a = _optional_positive_float(
+            self.pitch_radius_a, field_name="pitch_radius_a"
+        )
+        pitch_radius_b = _optional_positive_float(
+            self.pitch_radius_b, field_name="pitch_radius_b"
+        )
+        pulley_radius_a = _optional_positive_float(
+            self.pulley_radius_a, field_name="pulley_radius_a"
+        )
+        pulley_radius_b = _optional_positive_float(
+            self.pulley_radius_b, field_name="pulley_radius_b"
+        )
+        pitch_radius = _optional_positive_float(
+            self.pitch_radius, field_name="pitch_radius"
+        )
+        phase_offset = _optional_float(self.phase_offset, field_name="phase_offset")
+        if kind in {"fixed", "revolute", "prismatic"}:
+            if any(
+                value is not None
+                for value in (
+                    pitch_radius_a,
+                    pitch_radius_b,
+                    pulley_radius_a,
+                    pulley_radius_b,
+                    pitch_radius,
+                    phase_offset,
+                )
+            ):
+                raise ValueError(
+                    f"{kind} constraints do not accept coupling radii or phase_offset"
+                )
         if kind == "fixed":
             if drive_distance is not None or drive_angle is not None:
                 raise ValueError("fixed constraints do not accept drive scalars")
@@ -413,8 +548,41 @@ class Constraint(SemanticValueMixin):
         if kind == "prismatic":
             if drive_angle is not None or self.angle_limit is not None:
                 raise ValueError("prismatic constraints only accept distance scalars")
+        if kind in {"gear", "belt", "rack_pinion"}:
+            if drive_distance is not None or drive_angle is not None:
+                raise ValueError(f"{kind} constraints do not accept drive scalars")
+            if self.distance_limit is not None or self.angle_limit is not None:
+                raise ValueError(f"{kind} constraints do not accept scalar limits")
+            if phase_offset is None:
+                phase_offset = 0.0
+        if kind == "gear":
+            if pitch_radius_a is None or pitch_radius_b is None:
+                raise ValueError("gear constraints require pitch_radius_a and pitch_radius_b")
+            if pulley_radius_a is not None or pulley_radius_b is not None or pitch_radius is not None:
+                raise ValueError("gear constraints only accept pitch_radius_a and pitch_radius_b")
+        if kind == "belt":
+            if pulley_radius_a is None or pulley_radius_b is None:
+                raise ValueError("belt constraints require pulley_radius_a and pulley_radius_b")
+            if pitch_radius_a is not None or pitch_radius_b is not None or pitch_radius is not None:
+                raise ValueError("belt constraints only accept pulley_radius_a and pulley_radius_b")
+        if kind == "rack_pinion":
+            if pitch_radius is None:
+                raise ValueError("rack_pinion constraints require pitch_radius")
+            if (
+                pitch_radius_a is not None
+                or pitch_radius_b is not None
+                or pulley_radius_a is not None
+                or pulley_radius_b is not None
+            ):
+                raise ValueError("rack_pinion constraints only accept pitch_radius")
         object.__setattr__(self, "drive_distance", drive_distance)
         object.__setattr__(self, "drive_angle_degrees", drive_angle)
+        object.__setattr__(self, "pitch_radius_a", pitch_radius_a)
+        object.__setattr__(self, "pitch_radius_b", pitch_radius_b)
+        object.__setattr__(self, "pulley_radius_a", pulley_radius_a)
+        object.__setattr__(self, "pulley_radius_b", pulley_radius_b)
+        object.__setattr__(self, "pitch_radius", pitch_radius)
+        object.__setattr__(self, "phase_offset", phase_offset)
         if self.name is not None:
             name = str(self.name).strip()
             if not name:
@@ -431,6 +599,12 @@ class Constraint(SemanticValueMixin):
             "distance_limit": self.distance_limit.to_dict() if self.distance_limit else None,
             "drive_angle_degrees": self.drive_angle_degrees,
             "angle_limit": self.angle_limit.to_dict() if self.angle_limit else None,
+            "pitch_radius_a": self.pitch_radius_a,
+            "pitch_radius_b": self.pitch_radius_b,
+            "pulley_radius_a": self.pulley_radius_a,
+            "pulley_radius_b": self.pulley_radius_b,
+            "pitch_radius": self.pitch_radius,
+            "phase_offset": self.phase_offset,
             "name": self.name,
         }
 
@@ -501,6 +675,7 @@ class Part(SemanticValueMixin):
         if self.material is not None and not isinstance(self.material, Material):
             raise TypeError("material must be a Material")
         connectors = _validate_connectors(self.connectors)
+        _validate_part_connector_anchors(connectors)
         object.__setattr__(self, "connectors", connectors)
 
     def with_material(self, material: Material) -> "Part":
@@ -612,11 +787,20 @@ class Assembly(SemanticValueMixin):
             if not name:
                 raise ValueError("name must not be empty when provided")
             object.__setattr__(self, "name", name)
-        ids = [component.component_id for component in self.components]
+        components = tuple(self.components or ())
+        for component in components:
+            if not isinstance(component, Component):
+                raise TypeError("components must contain Component values")
+        object.__setattr__(self, "components", components)
+        ids = [component.component_id for component in components]
         duplicates = sorted({component_id for component_id in ids if ids.count(component_id) > 1})
         if duplicates:
             raise ValueError("duplicate component_id in assembly: " + ", ".join(duplicates))
-        object.__setattr__(self, "connectors", _validate_connectors(self.connectors))
+        connectors = _validate_connectors(self.connectors)
+        object.__setattr__(self, "connectors", connectors)
+        for connector in connectors:
+            connector._set_runtime("owner_assembly", self)
+        _validate_assembly_connector_anchors(self)
         constraints = _validate_constraints(self.constraints)
         object.__setattr__(self, "constraints", constraints)
         for constraint in constraints:
@@ -699,6 +883,7 @@ class Assembly(SemanticValueMixin):
         target = _validate_identifier(connector_id, field_name="connector_id")
         for connector in self.connectors:
             if connector.connector_id == target:
+                connector._set_runtime("owner_assembly", self)
                 return connector
         raise KeyError(f"assembly has no connector_id '{target}'")
 
@@ -836,7 +1021,11 @@ def solve_assembly_constraints(assembly: Assembly, strict: bool = True) -> Assem
         for component_id in assembly.grounded_component_ids
     }
 
-    pending = list(assembly.constraints)
+    pending = [
+        constraint
+        for constraint in assembly.constraints
+        if _is_connecting_constraint(constraint)
+    ]
     progressed = True
     while pending and progressed:
         progressed = False
@@ -944,7 +1133,18 @@ def solve_assembly_constraints(assembly: Assembly, strict: bool = True) -> Assem
     result = assembly
     for component_id, placement in solved.items():
         result = result.with_component_placement(component_id, placement)
+    result = _solve_coupling_constraints(result)
     report = inspect_assembly_constraints(result)
+    if strict:
+        failed = [
+            residual.constraint_id
+            for residual in report.residuals
+            if not residual.within_tolerance
+        ]
+        if failed:
+            raise ValueError(
+                "constraint residual exceeds tolerance: " + ", ".join(failed)
+            )
     result._set_runtime("constraint_report", report.to_dict())
     return result
 
@@ -955,6 +1155,8 @@ def measure_constraint_residual(
     if not isinstance(assembly, Assembly):
         raise TypeError("assembly must be an Assembly")
     constraint = assembly.get_constraint(constraint_id)
+    if _is_coupling_constraint(constraint):
+        return _measure_coupling_constraint_residual(assembly, constraint)
     frame_a = _connector_world_frame(assembly, constraint.connector_a)
     frame_b = _connector_world_frame(assembly, constraint.connector_b)
     current_scalar = _constraint_current_scalar(assembly, constraint)
@@ -986,6 +1188,8 @@ def inspect_assembly_constraints(assembly: Assembly) -> ConstraintReport:
         while progressed:
             progressed = False
             for constraint in assembly.constraints:
+                if not _is_connecting_constraint(constraint):
+                    continue
                 a_id = constraint.connector_a.component_id
                 b_id = constraint.connector_b.component_id
                 if a_id in reachable and b_id not in reachable:
@@ -1014,6 +1218,21 @@ def _optional_float(value: Optional[Any], *, field_name: str) -> Optional[float]
     return _finite_float(value, field_name=field_name)
 
 
+def _optional_positive_float(value: Optional[Any], *, field_name: str) -> Optional[float]:
+    result = _optional_float(value, field_name=field_name)
+    if result is not None and result <= 0.0:
+        raise ValueError(f"{field_name} must be positive")
+    return result
+
+
+def _is_coupling_constraint(constraint: Constraint) -> bool:
+    return constraint.constraint_kind in {"gear", "belt", "rack_pinion"}
+
+
+def _is_connecting_constraint(constraint: Constraint) -> bool:
+    return not _is_coupling_constraint(constraint)
+
+
 def _assert_limit_contains(limit: ScalarLimit, value: float, field_name: str) -> None:
     if not limit.contains(value):
         raise ValueError(f"{field_name} is outside the scalar limit")
@@ -1029,6 +1248,35 @@ def _validate_connectors(connectors: Iterable[Connector]) -> Tuple[Connector, ..
     if duplicates:
         raise ValueError("duplicate connector_id: " + ", ".join(duplicates))
     return result
+
+
+def _validate_part_connector_anchors(connectors: Iterable[Connector]) -> None:
+    for connector in connectors:
+        if connector.anchor_kind == "forwarded":
+            raise ValueError("forwarded connectors can only be added to assemblies")
+
+
+def _validate_assembly_connector_anchors(assembly: Assembly) -> None:
+    for connector in assembly.connectors:
+        if connector.anchor_kind != "forwarded":
+            continue
+        anchor = cast(ConnectorAnchor, connector.anchor)
+        try:
+            source_component = assembly.get_component(cast(str, anchor.source_component_id))
+        except KeyError as exc:
+            raise ValueError(
+                f"forwarded connector '{connector.connector_id}' references missing "
+                f"component '{anchor.source_component_id}'"
+            ) from exc
+        try:
+            source_component.item.get_connector(cast(str, anchor.source_connector_id))
+        except KeyError as exc:
+            raise ValueError(
+                f"forwarded connector '{connector.connector_id}' references missing "
+                f"connector '{anchor.source_connector_id}' on component "
+                f"'{anchor.source_component_id}'"
+            ) from exc
+        resolve_connector_placement(connector, owner_assembly=assembly)
 
 
 def _validate_constraints(constraints: Iterable[Constraint]) -> Tuple[Constraint, ...]:
@@ -1056,10 +1304,70 @@ def _resolve_connector(assembly: Assembly, connector_ref: ConnectorRef) -> Conne
     return item.get_connector(connector_ref.connector_id)
 
 
-def _connector_world_frame(assembly: Assembly, connector_ref: ConnectorRef) -> Placement:
+def resolve_connector_placement(
+    connector: Connector,
+    owner_assembly: Optional[Assembly] = None,
+    _seen: Optional[set] = None,
+) -> Placement:
+    if not isinstance(connector, Connector):
+        raise TypeError("connector must be a Connector")
+    anchor = cast(ConnectorAnchor, connector.anchor)
+    if anchor.anchor_kind == "geometry":
+        return _placement_from_geometry_ref(cast(GeometryRef, anchor.geometry_ref))
+    if anchor.anchor_kind == "placement":
+        return cast(Placement, anchor.placement)
+    if owner_assembly is None:
+        raise ValueError(
+            f"forwarded connector '{connector.connector_id}' requires an owner assembly"
+        )
+    seen = set(_seen or set())
+    key = (id(owner_assembly), connector.connector_id)
+    if key in seen:
+        raise ValueError(f"forwarded connector cycle detected at '{connector.connector_id}'")
+    seen.add(key)
+    source_component_id = cast(str, anchor.source_component_id)
+    source_connector_id = cast(str, anchor.source_connector_id)
+    try:
+        source_component = owner_assembly.get_component(source_component_id)
+    except KeyError as exc:
+        raise ValueError(
+            f"forwarded connector '{connector.connector_id}' references missing "
+            f"component '{source_component_id}'"
+        ) from exc
+    try:
+        source_connector = source_component.item.get_connector(source_connector_id)
+    except KeyError as exc:
+        raise ValueError(
+            f"forwarded connector '{connector.connector_id}' references missing "
+            f"connector '{source_connector_id}' on component '{source_component_id}'"
+        ) from exc
+    source_owner = source_component.item if isinstance(source_component.item, Assembly) else None
+    source_frame = source_component.placement.compose(
+        resolve_connector_placement(
+            source_connector,
+            owner_assembly=source_owner,
+            _seen=seen,
+        )
+    )
+    if anchor.offset is not None:
+        source_frame = source_frame.compose(anchor.offset)
+    return source_frame
+
+
+def _connector_local_frame_for_ref(
+    assembly: Assembly, connector_ref: ConnectorRef
+) -> Placement:
     component = assembly.get_component(connector_ref.component_id)
     connector = _resolve_connector(assembly, connector_ref)
-    return component.placement.compose(connector.placement)
+    owner = component.item if isinstance(component.item, Assembly) else None
+    return resolve_connector_placement(connector, owner_assembly=owner)
+
+
+def _connector_world_frame(assembly: Assembly, connector_ref: ConnectorRef) -> Placement:
+    component = assembly.get_component(connector_ref.component_id)
+    return component.placement.compose(
+        _connector_local_frame_for_ref(assembly, connector_ref)
+    )
 
 
 def _constraint_current_scalar(assembly: Assembly, constraint: Constraint) -> float:
@@ -1150,11 +1458,11 @@ def _loop_constraint_residual_at_scalar(
     motion = _motion_from_scalar(constraint, candidate_scalar)
     if known_side == "b":
         motion = inverse_placement(motion)
-    known_connector = _resolve_connector(assembly, known_ref)
-    unknown_connector = _resolve_connector(assembly, unknown_ref)
-    known_frame = known_placement.compose(known_connector.placement)
+    known_connector_frame = _connector_local_frame_for_ref(assembly, known_ref)
+    unknown_connector_frame = _connector_local_frame_for_ref(assembly, unknown_ref)
+    known_frame = known_placement.compose(known_connector_frame)
     target_unknown_frame = known_frame.compose(motion)
-    target_placement = target_unknown_frame.compose(inverse_placement(unknown_connector.placement))
+    target_placement = target_unknown_frame.compose(inverse_placement(unknown_connector_frame))
 
     test = assembly.with_component_placement(
         unknown_ref.component_id, target_placement
@@ -1201,11 +1509,255 @@ def _solve_other_component(
     else:
         known_ref = constraint.connector_b
         unknown_ref = constraint.connector_a
-    known_connector = _resolve_connector(assembly, known_ref)
-    unknown_connector = _resolve_connector(assembly, unknown_ref)
-    known_frame = known_placement.compose(known_connector.placement)
+    known_connector_frame = _connector_local_frame_for_ref(assembly, known_ref)
+    unknown_connector_frame = _connector_local_frame_for_ref(assembly, unknown_ref)
+    known_frame = known_placement.compose(known_connector_frame)
     target_unknown_frame = known_frame.compose(motion)
-    return target_unknown_frame.compose(inverse_placement(unknown_connector.placement))
+    return target_unknown_frame.compose(inverse_placement(unknown_connector_frame))
+
+
+def _support_constraint_for_ref(
+    assembly: Assembly,
+    connector_ref: ConnectorRef,
+    support_kind: str,
+) -> Optional[Constraint]:
+    for constraint in assembly.constraints:
+        if constraint.constraint_kind != support_kind:
+            continue
+        if constraint.connector_a == connector_ref or constraint.connector_b == connector_ref:
+            return constraint
+    return None
+
+
+CouplingEndpoint = Tuple[str, Union[Constraint, ConnectorRef]]
+
+
+def _coupling_endpoint_for_ref(
+    assembly: Assembly,
+    connector_ref: ConnectorRef,
+    support_kind: str,
+) -> Optional[CouplingEndpoint]:
+    support = _support_constraint_for_ref(assembly, connector_ref, support_kind)
+    if support is not None:
+        return ("support", support)
+    if connector_ref.component_id in assembly.grounded_component_ids:
+        return ("grounded", connector_ref)
+    return None
+
+
+def _endpoint_scalar(assembly: Assembly, endpoint: CouplingEndpoint) -> float:
+    if endpoint[0] == "grounded":
+        return 0.0
+    return _support_scalar(assembly, cast(Constraint, endpoint[1]))
+
+
+def _endpoint_can_accept_coupled_scalar(endpoint: CouplingEndpoint) -> bool:
+    if endpoint[0] == "grounded":
+        return False
+    return _support_can_accept_coupled_scalar(cast(Constraint, endpoint[1]))
+
+
+def _set_endpoint_scalar(
+    assembly: Assembly,
+    endpoint: CouplingEndpoint,
+    scalar: float,
+) -> Assembly:
+    if endpoint[0] == "grounded":
+        return assembly
+    return _set_support_scalar(assembly, cast(Constraint, endpoint[1]), scalar)
+
+
+def _support_scalar(assembly: Assembly, support: Constraint) -> float:
+    scalar = _constraint_current_scalar(assembly, support)
+    bounds = _constraint_scalar_bounds(support)
+    return _project_scalar(scalar, bounds)
+
+
+def _component_placement_for_support_scalar(
+    assembly: Assembly,
+    support: Constraint,
+    scalar: float,
+) -> Placement:
+    a_id = support.connector_a.component_id
+    b_id = support.connector_b.component_id
+    if a_id in assembly.grounded_component_ids and b_id not in assembly.grounded_component_ids:
+        return _solve_other_component(
+            assembly,
+            support,
+            known_side="a",
+            known_placement=assembly.get_component(a_id).placement,
+            scalar_override=scalar,
+        )
+    if b_id in assembly.grounded_component_ids and a_id not in assembly.grounded_component_ids:
+        return _solve_other_component(
+            assembly,
+            support,
+            known_side="b",
+            known_placement=assembly.get_component(b_id).placement,
+            scalar_override=scalar,
+        )
+    return _solve_other_component(
+        assembly,
+        support,
+        known_side="a",
+        known_placement=assembly.get_component(a_id).placement,
+        scalar_override=scalar,
+    )
+
+
+def _support_can_accept_coupled_scalar(support: Constraint) -> bool:
+    if support.constraint_kind == "revolute":
+        return support.drive_angle_degrees is None
+    if support.constraint_kind == "prismatic":
+        return support.drive_distance is None
+    return False
+
+
+def _set_support_scalar(
+    assembly: Assembly,
+    support: Constraint,
+    scalar: float,
+) -> Assembly:
+    bounds = _constraint_scalar_bounds(support)
+    scalar = _project_scalar(scalar, bounds)
+    moving_ref = support.connector_b
+    if support.connector_b.component_id in assembly.grounded_component_ids:
+        moving_ref = support.connector_a
+    placement = _component_placement_for_support_scalar(assembly, support, scalar)
+    return assembly.with_component_placement(moving_ref.component_id, placement)
+
+
+def _coupling_supports(
+    assembly: Assembly,
+    coupling: Constraint,
+) -> Tuple[Optional[CouplingEndpoint], Optional[CouplingEndpoint]]:
+    if coupling.constraint_kind == "rack_pinion":
+        rack_support = _coupling_endpoint_for_ref(
+            assembly, coupling.connector_a, "prismatic"
+        )
+        pinion_support = _coupling_endpoint_for_ref(
+            assembly, coupling.connector_b, "revolute"
+        )
+        return rack_support, pinion_support
+    support_a = _coupling_endpoint_for_ref(assembly, coupling.connector_a, "revolute")
+    support_b = _coupling_endpoint_for_ref(assembly, coupling.connector_b, "revolute")
+    return support_a, support_b
+
+
+def _coupling_phase_from_supports(
+    assembly: Assembly,
+    coupling: Constraint,
+    support_a: CouplingEndpoint,
+    support_b: CouplingEndpoint,
+) -> float:
+    scalar_a = _endpoint_scalar(assembly, support_a)
+    scalar_b = _endpoint_scalar(assembly, support_b)
+    if coupling.constraint_kind == "gear":
+        return (
+            float(coupling.pitch_radius_a) * math.radians(scalar_a)
+            + float(coupling.pitch_radius_b) * math.radians(scalar_b)
+        )
+    if coupling.constraint_kind == "belt":
+        return (
+            float(coupling.pulley_radius_a) * math.radians(scalar_a)
+            - float(coupling.pulley_radius_b) * math.radians(scalar_b)
+        )
+    return scalar_a + float(coupling.pitch_radius) * math.radians(scalar_b)
+
+
+def coupling_phase_offset(assembly: Assembly, constraint: Constraint) -> float:
+    if not isinstance(assembly, Assembly):
+        raise TypeError("assembly must be an Assembly")
+    if not isinstance(constraint, Constraint):
+        raise TypeError("constraint must be a Constraint")
+    if not _is_coupling_constraint(constraint):
+        raise ValueError("constraint must be a gear, belt, or rack_pinion constraint")
+    support_a, support_b = _coupling_supports(assembly, constraint)
+    if support_a is None or support_b is None:
+        return 0.0
+    return _coupling_phase_from_supports(assembly, constraint, support_a, support_b)
+
+
+def _solve_coupling_constraints(assembly: Assembly) -> Assembly:
+    result = assembly
+    for coupling in assembly.constraints:
+        if not _is_coupling_constraint(coupling):
+            continue
+        support_a, support_b = _coupling_supports(result, coupling)
+        if support_a is None or support_b is None:
+            continue
+        phase = float(coupling.phase_offset or 0.0)
+        scalar_a = _endpoint_scalar(result, support_a)
+        scalar_b = _endpoint_scalar(result, support_b)
+        can_set_a = _endpoint_can_accept_coupled_scalar(support_a)
+        can_set_b = _endpoint_can_accept_coupled_scalar(support_b)
+        if coupling.constraint_kind == "gear":
+            if not can_set_a and can_set_b:
+                target_b = math.degrees(
+                    (phase - float(coupling.pitch_radius_a) * math.radians(scalar_a))
+                    / float(coupling.pitch_radius_b)
+                )
+                result = _set_endpoint_scalar(result, support_b, target_b)
+            elif can_set_a and not can_set_b:
+                target_a = math.degrees(
+                    (phase - float(coupling.pitch_radius_b) * math.radians(scalar_b))
+                    / float(coupling.pitch_radius_a)
+                )
+                result = _set_endpoint_scalar(result, support_a, target_a)
+        elif coupling.constraint_kind == "belt":
+            if not can_set_a and can_set_b:
+                target_b = math.degrees(
+                    (float(coupling.pulley_radius_a) * math.radians(scalar_a) - phase)
+                    / float(coupling.pulley_radius_b)
+                )
+                result = _set_endpoint_scalar(result, support_b, target_b)
+            elif can_set_a and not can_set_b:
+                target_a = math.degrees(
+                    (phase + float(coupling.pulley_radius_b) * math.radians(scalar_b))
+                    / float(coupling.pulley_radius_a)
+                )
+                result = _set_endpoint_scalar(result, support_a, target_a)
+        else:
+            if not can_set_a and can_set_b:
+                target_b = math.degrees(
+                    (phase - scalar_a) / float(coupling.pitch_radius)
+                )
+                result = _set_endpoint_scalar(result, support_b, target_b)
+            elif can_set_a and not can_set_b:
+                target_a = phase - float(coupling.pitch_radius) * math.radians(scalar_b)
+                result = _set_endpoint_scalar(result, support_a, target_a)
+    return result
+
+
+def _measure_coupling_constraint_residual(
+    assembly: Assembly,
+    constraint: Constraint,
+) -> ConstraintResidual:
+    support_a, support_b = _coupling_supports(assembly, constraint)
+    if support_a is None or support_b is None:
+        return ConstraintResidual(
+            constraint.constraint_id,
+            1.0e30,
+            0.0,
+            False,
+        )
+    residual = abs(
+        _coupling_phase_from_supports(assembly, constraint, support_a, support_b)
+        - float(constraint.phase_offset or 0.0)
+    )
+    angular_error = 0.0
+    if constraint.constraint_kind == "gear":
+        angular_error = math.degrees(residual / float(constraint.pitch_radius_b))
+    elif constraint.constraint_kind == "belt":
+        angular_error = math.degrees(residual / float(constraint.pulley_radius_b))
+    elif constraint.constraint_kind == "rack_pinion":
+        angular_error = math.degrees(residual / float(constraint.pitch_radius))
+    return ConstraintResidual(
+        constraint.constraint_id,
+        residual,
+        abs(angular_error),
+        residual <= _PLACEMENT_TOLERANCE,
+    )
 
 
 def _angular_error_degrees(relative: Placement) -> float:
@@ -1296,6 +1848,7 @@ __all__ = [
     "Assembly",
     "Component",
     "Connector",
+    "ConnectorAnchor",
     "ConnectorRef",
     "Constraint",
     "ConstraintReport",
@@ -1311,6 +1864,7 @@ __all__ = [
     "inverse_placement",
     "measure_constraint_residual",
     "relative_placement",
+    "resolve_connector_placement",
     "rotate_z_placement",
     "solve_assembly_constraints",
     "translate_z_placement",

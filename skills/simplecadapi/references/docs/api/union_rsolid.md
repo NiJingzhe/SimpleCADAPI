@@ -37,7 +37,8 @@ returning multiple pieces.
 
 ### tol
 
-- **Description**: Optional fuzzy-boolean tolerance used by the OCC union kernel. When omitted, SimpleCAD chooses a conservative scale-aware tolerance.
+- **Type**: `Optional fuzzy-boolean tolerance used by the OCC union kernel. When`
+- **Description**: omitted, SimpleCAD chooses a conservative scale-aware tolerance.
 
 ## Returns
 
