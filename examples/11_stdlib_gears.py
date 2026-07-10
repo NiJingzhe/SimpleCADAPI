@@ -47,7 +47,7 @@ def _export_ring(name, description, build_ring):
 
     fcstd_status = str(fcstd_path)
     try:
-        scad.translate_model_json_to_fcstd(model_json, str(fcstd_path.resolve()))
+        scad.translator.freecad_translator.translate_model_json_to_fcstd(model_json, str(fcstd_path.resolve()))
     except Exception as exc:
         fcstd_status = f"skipped ({exc.__class__.__name__})"
 
@@ -79,7 +79,7 @@ def main():
     _export_ring(
         "spur_ring_gear",
         "Spur internal ring gear",
-        lambda: scad.std_gear.make_spur_ring_gear_rsolid(
+        lambda: scad.std.gear.make_spur_ring_gear_rsolid(
             n_teeth=RING_TEETH,
             module=MODULE,
             gear_height=GEAR_HEIGHT,
@@ -91,7 +91,7 @@ def main():
     _export_ring(
         "helical_ring_gear",
         "Helical internal ring gear",
-        lambda: scad.std_gear.make_helical_ring_gear_rsolid(
+        lambda: scad.std.gear.make_helical_ring_gear_rsolid(
             n_teeth=RING_TEETH,
             module=MODULE,
             helix_angle=HELIX_ANGLE,
@@ -104,7 +104,7 @@ def main():
     _export_ring(
         "herringbone_ring_gear",
         "Herringbone internal ring gear",
-        lambda: scad.std_gear.make_herringbone_ring_gear_rsolid(
+        lambda: scad.std.gear.make_herringbone_ring_gear_rsolid(
             n_teeth=RING_TEETH,
             module=MODULE,
             helix_angle=HELIX_ANGLE,

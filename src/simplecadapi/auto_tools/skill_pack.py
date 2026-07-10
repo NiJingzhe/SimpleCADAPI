@@ -26,7 +26,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 DEFAULT_PACKAGE_NAME = "simplecadapi"
 DEFAULT_SKILL_NAME = "simplecadapi"
-DEFAULT_LICENSE = "MIT"
+DEFAULT_LICENSE = "AGPL-3.0"
 DOCS_PATH = Path("docs")
 LICENSE_PATH = Path("LICENSE")
 
@@ -314,6 +314,7 @@ class SkillPackager:
             self.source_docs,
             self.source_docs / "api",
             self.source_docs / "core",
+            self.source_docs / "stdlib",
         )
         for path in required:
             if not path.exists():
@@ -335,7 +336,7 @@ class SkillPackager:
         if script_path is None:
             raise FileNotFoundError(f"Cannot refresh docs, missing: {script_path}")
 
-        self.log("Refreshing API docs before packaging...")
+        self.log("Refreshing generated docs before packaging...")
         try:
             subprocess.run(
                 [sys.executable, str(script_path), "--quiet"],
@@ -407,6 +408,7 @@ class SkillPackager:
             self.references_dir / "LICENSE.txt",
             self.docs_dir / "api" / "README.md",
             self.docs_dir / "core" / "README.md",
+            self.docs_dir / "stdlib" / "README.md",
         )
 
         for path in required:
@@ -465,27 +467,39 @@ class SkillPackager:
               - `<skill_root>/SKILL.md`
               - `<skill_root>/references/docs/api/README.md`
               - `<skill_root>/references/docs/api/<api_name>.md`
+              - `<skill_root>/references/docs/stdlib/README.md`
+              - `<skill_root>/references/docs/stdlib/<stdlib_api_name>.md`
               - `<skill_root>/references/docs/core/<type_name>.md`
               - `<skill_root>/references/SDK_OVERVIEW.md`
               - `<skill_root>/references/SDK_SURFACES.md`
               - `<skill_root>/references/MODELING_WORKFLOWS.md`
 
             ## MUST Requirements
-            1. Read `SKILL.md` and `references/docs/api/README.md` before choosing APIs.
+            1. Read `SKILL.md`, `references/docs/api/README.md`, and `references/docs/stdlib/README.md` before choosing APIs.
             2. Read the exact API Markdown page for every API you use.
             3. Read the needed `core/` or exact `api/` docs when an API needs `Edge`, `Face`, `Wire`, `Solid`, `GraphSession`, `Sketch`, or expression types.
-            4. Follow the documented API signatures exactly.
-            5. Use the graph/model JSON workflow for replayable tasks: `GraphSession`, `export_session_json`, `export_model_json`, `import_model_json`, and `replay_model_json`.
-            6. Use geometry APIs for integrated parts: profiles, features, booleans, transforms, tagging, QL inspection, serialization, and exports.
-            7. Use tags consistently through `apply_tag(shape, tag)` and `list_tags(shape)`; do not call shape member tag mutators.
-            8. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
-            9. For inspection/debugging, query geometry with QL and print only the queried facts you need; do not print whole solids or full model objects.
-            10. Boolean operations return a single `Solid`.
-            11. Use `union_rsolid(...)` for boolean union.
-            12. For automated example/test harnesses, prefer the repo-local examples in `examples/` and avoid scratch scripts in `sandbox/`.
-            13. If union cannot produce exactly one merged solid, it fails explicitly; do not silently pick one piece.
-            14. If a single merged solid is required and union fails, slightly adjust part placement so intended bodies overlap/embed, then recompute.
-            15. If a task depends on model replay or interchange, prefer `export_model_json()` output over hand-written payloads.
+            4. Prefer the standard parts library for standard parts before hand-modeling with core geometry APIs.
+            5. Follow the documented API signatures exactly.
+            6. When calling any SimpleCAD public API or standard-library function, use keyword arguments for every documented parameter; do not use positional arguments.
+            7. Use the graph/model JSON workflow for replayable tasks: `GraphSession`, `export_session_json`, `export_model_json`, `import_model_json`, and `replay_model_json`.
+            8. Use geometry APIs for integrated parts: profiles, features, booleans, transforms, tagging, QL inspection, serialization, and exports.
+            9. Use tags consistently through `apply_tag(shape=..., tag=...)` and `list_tags(shape=...)`; do not call shape member tag mutators.
+            10. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
+            11. For inspection/debugging, query geometry with QL and print only the queried facts you need; do not print whole solids or full model objects.
+            12. Boolean operations return a single `Solid`.
+            13. Use `union_rsolid(...)` for boolean union.
+            14. For automated example/test harnesses, prefer the repo-local examples in `examples/` and avoid scratch scripts in `sandbox/`.
+            15. If union cannot produce exactly one merged solid, it fails explicitly; do not silently pick one piece.
+            16. If a single merged solid is required and union fails, slightly adjust part placement so intended bodies overlap/embed, then recompute.
+            17. If a task depends on model replay or interchange, prefer `export_model_json()` output over hand-written payloads.
+
+            ## Standard Parts Library
+            - SimpleCAD includes a standard library for parameterized mechanical parts.
+            - When the user needs a standard part and does not require complex custom geometry changes, use a standard-library function first.
+            - Current package-level standard-library surfaces include `scad.std.gear` for involute gears, internal ring gears, racks, and cycloidal discs, plus `scad.std.bearing` for ball bearing assemblies.
+            - Read `references/docs/stdlib/README.md` to discover standard-library functions.
+            - Read `references/docs/stdlib/<function_name>.md` before calling a standard-library function.
+            - Standard-library functions return normal SimpleCAD shapes or product assemblies that can be transformed, tagged, assembled, exported, and used with graph/model JSON workflows.
 
             ## Boolean result discipline
             - `union_rsolid(...)`, `cut_rsolid(...)`, and `intersect_rsolid(...)` accept mixed inputs: standalone `Solid`, lists of `Solid`, and nested sequences.
@@ -498,8 +512,9 @@ class SkillPackager:
             - Start with intent: identify the part, its reference axes, critical profiles, and the features that produce the final solid.
             - Build from lower-dimensional geometry to higher-dimensional geometry: `Vertex` / `Edge` / `Wire` / `Face` profiles first, then `Solid` features such as extrude, revolve, loft, and sweep.
             - Keep modeling operations functional. Create new values from public functions such as `make_circle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolid(...)`, and `fillet_rsolid(...)`.
+            - Use keyword arguments for all SimpleCAD function calls, for example `make_box_rsolid(width=10.0, height=20.0, depth=3.0)` instead of positional arguments.
             - Use `GraphSession` when the model should be replayable, inspectable, exported as model JSON, or translated to another CAD system.
-            - Treat model JSON as the interchange boundary. Prefer `export_model_json(session)` and `replay_model_json(payload)` over hand-authored operation payloads.
+            - Treat model JSON as the interchange boundary. Prefer `export_model_json(session=...)` and `replay_model_json(json_str=...)` over hand-authored operation payloads.
             - Use QL for precise grounding. Query faces, edges, centers, normals, areas, lengths, curve types, and tags; print only the facts needed to validate the current step.
             - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` when an indexed topology pick is intentional; these picks are preserved as geo select nodes in replayable graph workflows.
             - Use tags for semantic intent and selection anchors, such as `role.mounting_surface`, `anchor.datum.primary`, `face.top`, or `group.fasteners`.
@@ -508,8 +523,8 @@ class SkillPackager:
             - For FreeCAD translation, prefer canonical model JSON generated from a `GraphSession`; selected profiles and detail-feature selections should come from the graph rather than ad hoc object lookup.
 
             ## Tagging Mental Model
-            - Public tag attachment is `apply_tag(shape, tag)`.
-            - Public tag inspection is `list_tags(shape)`, which returns a stable sorted list.
+            - Public tag attachment is `apply_tag(shape=..., tag=...)`.
+            - Public tag inspection is `list_tags(shape=...)`, which returns a stable sorted list.
             - Tags are normalized lowercase dot-separated semantic tokens, for example `role.mounting_surface`, `anchor.datum.primary`, `group.fasteners`, `face.top`, or `solid.boolean.cut`.
             - Do not encode numeric dimensions or descriptive geometry payloads in tags; store them in metadata such as `shape.get_metadata("geo")` or `shape.set_metadata(...)`.
             - `apply_tag(...)` does not expose propagation controls. The SDK propagates role/anchor/group-style semantic tags downward and keeps topology-specific tags such as `face.*`, `edge.*`, `wire.*`, `vertex.*`, and `solid.*` local.
@@ -518,8 +533,9 @@ class SkillPackager:
 
             ## SDK Focus
             - This skill is intended to describe the public CAD Python SDK surface.
-            - Prefer the generated API and core docs over environment/bootstrap instructions.
-            - API docs include an `Import Surface` section that distinguishes top-level exports from `simplecadapi.ql` submodule APIs.
+            - Prefer the generated API, stdlib, and core docs over environment/bootstrap instructions.
+            - API docs include an `Import Surface` section that distinguishes top-level exports, submodule APIs, and translator backend APIs under `simplecadapi.translator.<backend>`.
+            - Stdlib docs include an `Import Surface` section that identifies the package-level `simplecadapi.std.gear` module export.
             - Use `references/SDK_OVERVIEW.md` for the package-level map.
             - Use `references/SDK_SURFACES.md` for the main public surfaces.
             - Use `references/MODELING_WORKFLOWS.md` for graph/model-oriented patterns.
@@ -538,10 +554,10 @@ class SkillPackager:
             from simplecadapi import GraphSession, export_model_json, replay_model_json
 
             with GraphSession() as session:
-                shape = scad.make_box_rsolid(10.0, 20.0, 30.0)
+                shape = scad.make_box_rsolid(width=10.0, height=20.0, depth=30.0)
 
-            model_json = export_model_json(session)
-            rebuilt = replay_model_json(model_json)
+            model_json = export_model_json(session=session)
+            rebuilt = replay_model_json(json_str=model_json)
             print(len(rebuilt))
             ```
 
@@ -553,6 +569,7 @@ class SkillPackager:
             - `references/MODELING_WORKFLOWS.md`
             - `references/SDK_PACKAGE_SUMMARY.md`
             - `references/docs/api/`
+            - `references/docs/stdlib/`
             - `references/docs/core/`
             """
         )
@@ -571,6 +588,7 @@ class SkillPackager:
             "",
             "- Skill instructions (`SKILL.md`)",
             "- Documentation references (`references/docs/`)",
+            "- Generated core API docs (`references/docs/api/`) and standard-library docs (`references/docs/stdlib/`)",
             "- High-level SDK summaries (`references/*.md`)",
             "",
             "## What this skill does not bundle",
@@ -582,10 +600,11 @@ class SkillPackager:
             "## Main SDK surfaces",
             "",
             "- Geometry and modeling operations in `docs/api/`.",
+            "- Standard parts library in `docs/stdlib/`, including `scad.std.gear` gear, ring gear, rack, and cycloidal disc factories plus `scad.std.bearing` bearing assembly factories.",
             "- Core shape/type semantics in `docs/core/`.",
             "- Graph/model serialization and replay APIs.",
             "- Expression, parameter, and semantic reference types.",
-            "- Functional tagging with `apply_tag(shape, tag)`, `list_tags(shape)`, and QL tag predicates.",
+            "- Functional tagging with `apply_tag(shape=..., tag=...)`, `list_tags(shape=...)`, and QL tag predicates.",
             "",
             "## Preferred replayable workflow",
             "",
@@ -603,33 +622,63 @@ class SkillPackager:
             ## Public API groups
 
             - Primitive and sketch construction functions
+            - Standard parts library modules for reusable mechanical parts
             - Transform, feature, boolean, and export functions
             - Functional tagging and selection helpers
             - Graph/model serialization and replay entry points
             - Expression and semantic reference data types
+
+            ## Standard Parts Surface
+
+            ```python
+            import simplecadapi as scad
+
+            gear = scad.std.gear.make_spur_gear_rsolid(
+                n_teeth=24,
+                module=1.5,
+                gear_height=8.0,
+            )
+            ring = scad.std.gear.make_spur_ring_gear_rsolid(
+                n_teeth=72,
+                module=1.5,
+                gear_height=8.0,
+                rim_thickness=4.0,
+                backlash=0.08 * 1.5,
+            )
+            rack = scad.std.gear.make_spur_rack_rsolid(module=1.5, n_teeth=18)
+            bearing = scad.std.bearing.make_ball_bearing_rassembly(
+                8.0,
+                22.0,
+                7.0,
+                3.5,
+            )
+            ```
+
+            Use standard-library functions first when a task asks for a standard part and does not require complex custom geometry changes. Read `references/docs/stdlib/README.md` for the standard-library index and `references/docs/stdlib/<function_name>.md` for exact signatures.
 
             ## Tagging Surface
 
             ```python
             import simplecadapi as scad
 
-            body = scad.make_box_rsolid(10.0, 20.0, 3.0)
-            scad.apply_tag(body, "role.mounting_plate")
+            body = scad.make_box_rsolid(width=10.0, height=20.0, depth=3.0)
+            scad.apply_tag(shape=body, tag="role.mounting_plate")
             body.auto_tag_faces("box")
 
-            top_faces = [face for face in body.get_faces() if "face.top" in scad.list_tags(face)]
+            top_faces = [face for face in body.get_faces() if "face.top" in scad.list_tags(shape=face)]
             print(len(top_faces))
             ```
 
-            Use `apply_tag(shape, tag)` for user-authored semantic tags and `list_tags(shape)` for deterministic inspection. Keep numeric dimensions, measurements, and rich descriptive data in metadata rather than tags.
+            Use `apply_tag(shape=..., tag=...)` for user-authored semantic tags and `list_tags(shape=...)` for deterministic inspection. Keep numeric dimensions, measurements, and rich descriptive data in metadata rather than tags.
 
             ## Recommended reading order
 
             1. `references/docs/api/README.md`
-            2. `references/SDK_OVERVIEW.md`
-            3. `references/MODELING_WORKFLOWS.md`
-            4. Specific pages under `references/docs/api/`
-            5. Supporting pages under `references/docs/core/`
+            2. `references/docs/stdlib/README.md`
+            3. `references/SDK_OVERVIEW.md`
+            4. `references/MODELING_WORKFLOWS.md`
+            5. Specific pages under `references/docs/api/` or `references/docs/stdlib/`
+            6. Supporting pages under `references/docs/core/`
 
             ## Typical replayable surface
 
@@ -639,8 +688,8 @@ class SkillPackager:
             with GraphSession() as session:
                 ...
 
-            model_json = export_model_json(session)
-            rebuilt = replay_model_json(model_json)
+            model_json = export_model_json(session=session)
+            rebuilt = replay_model_json(json_str=model_json)
             print(len(rebuilt))
             ```
             """
@@ -655,6 +704,7 @@ class SkillPackager:
             ## Modeling Mental Model
 
             - Model the part as a sequence of intentional operations, not as one opaque final shape.
+            - Use the standard parts library first when a requested standard component is available and does not need complex custom geometry changes.
             - Start from profiles and reference geometry, then create solids with features such as extrude, revolve, loft, and sweep.
             - Use booleans and detail features after the base form is clear: cut openings, union intended merged bodies, then apply fillets, chamfers, or shell operations.
             - Use `GraphSession` whenever the result should be replayable, inspectable, serialized, or translated.
@@ -672,7 +722,7 @@ class SkillPackager:
             with GraphSession() as session:
                 ...
 
-            payload = export_model_json(session)
+            payload = export_model_json(session=session)
             ```
 
             ## 2) Import and use in Python
@@ -688,15 +738,42 @@ class SkillPackager:
             - Use `replay_model_json()` when you need deterministic reconstruction.
             - Use `import_model_json()` when consuming previously exported payloads.
 
-            ## 4) QL-grounded feature workflow
+            ## 4) Use standard parts when they fit
+
+            ```python
+            import simplecadapi as scad
+
+            gear = scad.std.gear.make_spur_gear_rsolid(
+                n_teeth=24,
+                module=1.5,
+                gear_height=8.0,
+            )
+            rack = scad.std.gear.make_spur_rack_rsolid(module=1.5, n_teeth=18)
+            bearing = scad.std.bearing.make_ball_bearing_rassembly(
+                8.0,
+                22.0,
+                7.0,
+                3.5,
+            )
+            ```
+
+            - Read `references/docs/stdlib/README.md` before hand-modeling a standard mechanical part.
+            - Use `references/docs/stdlib/<function_name>.md` for exact standard-library signatures.
+            - Continue with core geometry APIs when the standard part requires substantial custom geometry beyond the provided parameters.
+
+            ## 5) QL-grounded feature workflow
 
             ```python
             import simplecadapi as scad
             from simplecadapi import ql
 
             with scad.GraphSession() as session:
-                profile = scad.make_circle_rface((0, 0, 0), 1.0)
-                body = scad.extrude_rsolid(profile, (0, 0, 1), 4.0)
+                profile = scad.make_circle_rface(center=(0, 0, 0), radius=1.0)
+                body = scad.extrude_rsolid(
+                    profile=profile,
+                    direction=(0, 0, 1),
+                    distance=4.0,
+                )
                 end_face = (
                     ql.faces()
                     .where(ql.tag("face.extrusion.end"))
@@ -704,24 +781,24 @@ class SkillPackager:
                     .resolve(body)[0]
                 )
                 print("end face center", end_face.get_center())
-                path = scad.make_segment_rwire((0, 0, 4), (0, 0, 8))
-                swept = scad.sweep_rsolid(end_face, path)
+                path = scad.make_segment_rwire(start=(0, 0, 4), end=(0, 0, 8))
+                swept = scad.sweep_rsolid(profile=end_face, path=path)
 
-            payload = scad.export_model_json(session)
-            rebuilt = scad.replay_model_json(payload)
+            payload = scad.export_model_json(session=session)
+            rebuilt = scad.replay_model_json(json_str=payload)
             print("rebuilt", len(rebuilt))
             ```
 
-            ## 5) Selection and tag discipline
+            ## 6) Selection and tag discipline
 
             - Prefer QL selectors for semantic/geometric feature input selection.
             - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` for intentional indexed picks in examples.
-            - Attach semantic tags with `apply_tag(shape, tag)` and inspect with `list_tags(shape)`.
+            - Attach semantic tags with `apply_tag(shape=..., tag=...)` and inspect with `list_tags(shape=...)`.
             - Use tags for intent, roles, anchors, groups, and topology names.
             - Store dimensions, positions, measured geometry, and descriptive payloads in metadata or model JSON, not in tags.
             - Keep QL result prints concise: selected count, centers, normals, areas, lengths, or tags.
 
-            ## 6) Boolean and body discipline
+            ## 7) Boolean and body discipline
 
             - Use `union_rsolid(...)` when multiple solids should become one integrated body.
             - Ensure bodies that should union into one solid have real geometric overlap or embedding.
@@ -750,12 +827,14 @@ class SkillPackager:
             ## Scope
 
             - OCP-native public CAD Python SDK for geometry and replayable modeling.
-            - Includes generated API and core type references under `references/docs/`.
+            - Includes generated API, standard-library, and core type references under `references/docs/`.
+            - Includes a standard parts library for reusable mechanical parts such as bearings, gears, internal ring gears, racks, and cycloidal discs.
             - Emphasizes public surfaces rather than repository operations.
 
             ## Main reference entry points
 
             - `references/docs/api/README.md`
+            - `references/docs/stdlib/README.md`
             - `references/docs/core/README.md`
             - `references/SDK_OVERVIEW.md`
             - `references/SDK_SURFACES.md`
@@ -838,7 +917,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--refresh-docs",
         action="store_true",
-        help="Refresh docs/api via auto_docs_gen.py before packaging",
+        help="Refresh docs/api and docs/stdlib via auto_docs_gen.py before packaging",
     )
     parser.add_argument(
         "--no-clean",

@@ -33,8 +33,6 @@ SimpleCADAPI 的顶层 API 选择是正确的：它没有把用户拖进传统 C
 - historical scalar-field/SDF implementation, now removed from the active public/support surface
 - `docs/core/serialization/`
 - `docs/core/operation_graph_json_spec.md`
-- `refactor-plan/topology-ql.md`
-- `refactor-plan/tagging.md`
 - `examples/07_serialization_operation_tree.py`
 - `test/` 与 `tests/`
 
@@ -115,7 +113,6 @@ CAD SDK 真正难的不是画 box、cylinder、extrude，而是模型变化后�
 - `_TopologyEntityCache` 用 OCC `HashCode` bucket 加 `IsSame` 做同一 shape occurrence 的合并，能让一个 box 的 shared edge occurrences 共享 topo id。参考：`src/simplecadapi/core.py:42`、`tests/test_topology_identity.py:16`。
 - `TopoRef`、`TopoDelta`、`TopoEntry`、`SemanticDelta` 数据模型已经存在，说明架构上知道需要 graph-aware topology references。参考：`src/simplecadapi/topology.py:60`、`src/simplecadapi/topology.py:203`、`src/simplecadapi/topology.py:223`。
 - `tracking.py` 直接查询 OCC builder 的 `Modified()`、`Generated()`、`IsDeleted()`、`SectionEdges()`，方向正确。参考：`src/simplecadapi/tracking.py:1`、`src/simplecadapi/tracking.py:107`。
-- `refactor-plan/topology-ql.md` 对问题本质判断准确：runtime object refs、raw OCC ids、HashCode、enumeration order 都不能作为 durable source of truth。参考：`refactor-plan/topology-ql.md:16`、`refactor-plan/topology-ql.md:250`。
 
 硬伤：
 
@@ -137,14 +134,13 @@ QL 是架构上最应该继续投资的部分。
 - QL 已经有 serializable predicate、serializable key、selector、order、limit、exactly cardinality。参考：`src/simplecadapi/ql.py:258`、`src/simplecadapi/ql.py:320`、`src/simplecadapi/ql.py:396`。
 - QL 支持 tag/meta/property/curve_type/surface_type/normal/center/length/area/volume 等基础语义。参考：`src/simplecadapi/ql.py:77`、`src/simplecadapi/ql.py:94`、`src/simplecadapi/ql.py:125`。
 - fillet/chamfer/shell 现在会把 QL selector 的运行时结果编译为 `make_select_*` geo select nodes；`selection_query` 仅保留为旧 payload fallback。参考：`test/test_serialization.py:443`、`src/simplecadapi/serializer.py:1365`。
-- 设计文档明确要求 QL 成为 graph-aware canonical selection representation，这个判断完全正确。参考：`refactor-plan/topology-ql.md:12`、`refactor-plan/topology-ql.md:46`。
 
 问题：
 
 - QL graph scope 现在通过 `make_select_*` 节点的 source input 表达，而不是只靠 query AST；未来还需要把这个契约扩展到非 detail-feature 的通用 selection 工作流。
 - 当前 replay resolution order 已经变为 geo select nodes -> selection_query fallback -> topo refs -> indices -> hint；后续风险主要是外部 adapter 需要跟进新顺序。
-- 只有 `exactly(n)`，没有 `at_least`、`at_most`，cardinality 还不够表达真实 CAD 选择约束。参考：`src/simplecadapi/ql.py:457`、`refactor-plan/topology-ql.md:206`。
-- ordering 只有单 key，不支持 lexicographic multi-key。复杂 CAD 选择里单 key 很容易产生不稳定 tie。参考：`src/simplecadapi/ql.py:429`、`refactor-plan/topology-ql.md:186`。
+- 只有 `exactly(n)`，没有 `at_least`、`at_most`，cardinality 还不够表达真实 CAD 选择约束。参考：`src/simplecadapi/ql.py:457`。
+- ordering 只有单 key，不支持 lexicographic multi-key。复杂 CAD 选择里单 key 很容易产生不稳定 tie。参考：`src/simplecadapi/ql.py:429`。
 - `_shape_identity` 仍然优先用 topo id 或 topo_ref metadata，说明 QL 运行时仍被当前 topology identity 牵引。参考：`src/simplecadapi/ql.py:566`。
 
 建议：把 `SelectionSpec` 做成正式 schema：source scope、query AST、多 key order、limit、cardinality、fallback。所有接受 `List[Edge]`、`List[Face]` 的 feature API，在 GraphSession 内都应该 normalize 成 SelectionSpec。replay 必须 QL first，topo refs/indices/hints 只能 fallback。
@@ -200,7 +196,7 @@ tagging 的目标是对的，但现在新旧体系混在一起。
 
 - `tagging.py` 定义了 normalized tag grammar 和 `TagPolicy`，这是 QL 和 anchor semantics 的基础。参考：`src/simplecadapi/tagging.py:8`、`src/simplecadapi/tagging.py:58`。
 - `apply_tag(shape, tag)` / `list_tags(shape)` 是唯一推荐的 public tagging surface，`list_tags` 输出稳定排序。
-- `refactor-plan/tagging.md` 明确提出 no numeric data in tags、metadata[`geo`] 存结构化几何事实，这个方向完全正确。参考：`refactor-plan/tagging.md:101`。
+- 当前约定是不在 tags 中存数字，而是在 metadata[`geo`] 中保存结构化几何事实。
 
 问题：
 

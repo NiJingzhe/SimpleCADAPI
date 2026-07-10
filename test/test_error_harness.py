@@ -28,6 +28,7 @@ class TestErrorHarness(unittest.TestCase):
         self.assertIn("Technical details:", message)
         self.assertIn("Failed to create a box solid.", message)
         self.assertIn("Use width, height, and depth values greater than zero.", message)
+        self.assertNotRegex(message, r"[\u3400-\u9fff\uf900-\ufaff]")
 
     def test_extrude_raises_actionable_closed_wire_guidance(self):
         wire = scad.make_segment_rwire((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))
@@ -43,6 +44,7 @@ class TestErrorHarness(unittest.TestCase):
             "If you extrude a wire, make sure the wire is closed or convert it to a face first.",
             message,
         )
+        self.assertNotRegex(message, r"[\u3400-\u9fff\uf900-\ufaff]")
 
     def test_import_graph_json_reports_signature_and_help(self):
         with self.assertRaises(scad.SimpleCADError) as ctx:

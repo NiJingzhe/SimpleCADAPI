@@ -1,4 +1,13 @@
+<p align="center">
+  <img src="img/repocover.png" alt="SimpleCADAPI repository cover">
+</p>
+
 # SimpleCADAPI
+
+[中文说明](README.zh-CN.md)
+
+This repository is an artifact of **CADDesigner: Conceptual CAD Model Generation
+with a General-Purpose Agent**, accepted by *Computer-Aided Design* in 2026.
 
 SimpleCADAPI is an OCP-native Python SDK for building CAD models with clear,
 functional operations and replayable model graphs. It wraps OpenCascade geometry
@@ -124,14 +133,14 @@ print("replayed_outputs", len(rebuilt))
 Recorded model JSON can be translated into a FreeCAD Python script:
 
 ```python
-script = scad.translate_model_json_to_freecad_script(model_json)
+script = scad.translator.freecad_translator.translate_model_json_to_freecad_script(model_json)
 ```
 
 If FreeCAD or FreeCADCmd is available, the same model JSON can be written as an
 `.FCStd` file:
 
 ```python
-scad.translate_model_json_to_fcstd(model_json, "bracket.FCStd")
+scad.translator.freecad_translator.translate_model_json_to_fcstd(model_json, "bracket.FCStd")
 ```
 
 Part/Assembly models are written as editable FreeCAD assembly structure: parts are
@@ -163,6 +172,35 @@ uv run python examples/10_part_assembly.py
 - Operation graph JSON spec:
   [`docs/core/operation_graph_json_spec.md`](docs/core/operation_graph_json_spec.md)
 
+## Releasing the Agent Skill
+
+The repository includes a thin Agent Skill under `skills/simplecadapi/`. It
+contains generated API and modeling references, but does not bundle the SDK
+source code.
+
+From a clean checkout, update the project version and documentation, then build
+and validate the release artifacts:
+
+```bash
+uv sync --group dev
+uv run skill-pack --refresh-docs --archive
+uv run python -m pytest test/test_skill_pack.py
+```
+
+The command refreshes the generated docs, rewrites `skills/simplecadapi/`, and
+creates `skills/simplecadapi.tar.gz`. Review the generated `SKILL.md` and
+references before release:
+
+```bash
+git diff -- skills/simplecadapi docs
+tar -tzf skills/simplecadapi.tar.gz
+```
+
+Commit the generated `skills/simplecadapi/` directory and refreshed `docs/`
+with the release. The archive is intentionally ignored by Git; attach
+`skills/simplecadapi.tar.gz` to the corresponding GitHub release or distribute
+it through the target Agent Skills registry.
+
 ## Development
 
 ```bash
@@ -173,4 +211,12 @@ python3 -m compileall src/simplecadapi
 
 ## License
 
-MIT, see [`LICENSE`](LICENSE).
+AGPL-3.0, see [`LICENSE`](LICENSE).
+
+## Community
+
+Join the CADDesigner technical community on WeChat:
+
+<p align="center">
+  <img src="img/CADDesigner群二维码.png" alt="CADDesigner WeChat technical community QR code" width="420">
+</p>

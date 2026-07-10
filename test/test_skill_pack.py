@@ -82,10 +82,16 @@ class TestSkillPackPathResolution(unittest.TestCase):
             site_packages = tmp_path / ".venv/lib/python3.12/site-packages"
             docs_api = site_packages / "docs/api"
             docs_core = site_packages / "docs/core"
+            docs_stdlib = site_packages / "docs/stdlib"
             docs_api.mkdir(parents=True, exist_ok=True)
             docs_core.mkdir(parents=True, exist_ok=True)
+            docs_stdlib.mkdir(parents=True, exist_ok=True)
             (docs_api / "README.md").write_text("# API Docs\n", encoding="utf-8")
             (docs_core / "README.md").write_text("# Core Docs\n", encoding="utf-8")
+            (docs_stdlib / "README.md").write_text(
+                "# Standard Library Docs\n",
+                encoding="utf-8",
+            )
 
             dist_info = site_packages / "simplecadapi-2.0.2.dist-info"
             (dist_info / "licenses").mkdir(parents=True, exist_ok=True)
@@ -123,11 +129,15 @@ class TestSkillPackPathResolution(unittest.TestCase):
             self.assertTrue(
                 (result.skill_root / "references/docs/api/README.md").exists()
             )
+            self.assertTrue(
+                (result.skill_root / "references/docs/stdlib/README.md").exists()
+            )
             package_summary = (
                 result.skill_root / "references/SDK_PACKAGE_SUMMARY.md"
             ).read_text(encoding="utf-8")
             self.assertIn("# SDK Package Summary", package_summary)
             self.assertIn("Installed package readme body.", package_summary)
+            self.assertIn("references/docs/stdlib/README.md", package_summary)
             self.assertEqual(
                 (result.skill_root / "references/LICENSE.txt").read_text(
                     encoding="utf-8"
@@ -142,10 +152,16 @@ class TestSkillPackPathResolution(unittest.TestCase):
             project_root = tmp_path / "project"
             docs_api = project_root / "docs/api"
             docs_core = project_root / "docs/core"
+            docs_stdlib = project_root / "docs/stdlib"
             docs_api.mkdir(parents=True, exist_ok=True)
             docs_core.mkdir(parents=True, exist_ok=True)
+            docs_stdlib.mkdir(parents=True, exist_ok=True)
             (docs_api / "README.md").write_text("# API Docs\n", encoding="utf-8")
             (docs_core / "README.md").write_text("# Core Docs\n", encoding="utf-8")
+            (docs_stdlib / "README.md").write_text(
+                "# Standard Library Docs\n",
+                encoding="utf-8",
+            )
             (project_root / "README.md").write_text("# Demo\n", encoding="utf-8")
             (project_root / "LICENSE").write_text("MIT\n", encoding="utf-8")
             (project_root / "pyproject.toml").write_text(
@@ -168,6 +184,12 @@ class TestSkillPackPathResolution(unittest.TestCase):
             self.assertIn("export_model_json", content)
             self.assertIn("replay_model_json", content)
             self.assertIn("Use the graph/model JSON workflow", content)
+            self.assertIn("use keyword arguments", content)
+            self.assertIn("do not use positional arguments", content)
+            self.assertIn("Standard Parts Library", content)
+            self.assertIn("references/docs/stdlib/README.md", content)
+            self.assertIn("scad.std.gear", content)
+            self.assertIn("scad.std.bearing", content)
             self.assertIn("Modeling Mental Model", content)
             self.assertIn("current modeling workflows", content)
             self.assertIn("SDK_OVERVIEW.md", content)

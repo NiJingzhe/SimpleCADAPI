@@ -5,11 +5,11 @@ built entirely from the public SimpleCAD modelling API surface.
 
 Modules:
     gear    — involute spur / helical / herringbone gears
+    bearing — ball bearing standard assemblies
     screw   — (future) threaded fasteners
-    bearing — (future) ball / thrust bearings
     pin     — (future) dowel pins, flat keys, split pins
 """
 
-from . import gear
+from . import bearing, gear
 
-__all__ = ["gear"]
+__all__ = ["bearing", "gear"]

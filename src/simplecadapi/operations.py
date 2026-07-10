@@ -39,6 +39,7 @@ from .product import (
     Assembly,
     Component,
     Connector,
+    ConnectorAnchor,
     ConnectorRef,
     Constraint,
     ConstraintReport,
@@ -49,6 +50,7 @@ from .product import (
     Placement,
     ScalarLimit,
     compose_placements,
+    coupling_phase_offset,
     identity_placement,
     inspect_assembly_constraints,
     measure_constraint_residual,
@@ -172,8 +174,10 @@ _OP_MAKE_COMPOUND_FROM_ASSEMBLY_RCOMPOUND = "make_compound_from_assembly_rcompou
 _OP_MAKE_FACE_CONNECTOR_RCONNECTOR = "make_face_connector_rconnector"
 _OP_MAKE_EDGE_CONNECTOR_RCONNECTOR = "make_edge_connector_rconnector"
 _OP_MAKE_VERTEX_CONNECTOR_RCONNECTOR = "make_vertex_connector_rconnector"
+_OP_MAKE_PLACEMENT_CONNECTOR_RCONNECTOR = "make_placement_connector_rconnector"
 _OP_MAKE_ADD_CONNECTOR_RPART = "make_add_connector_rpart"
 _OP_MAKE_ADD_CONNECTOR_RASSEMBLY = "make_add_connector_rassembly"
+_OP_MAKE_FORWARD_CONNECTOR_RASSEMBLY = "make_forward_connector_rassembly"
 _OP_MAKE_CONNECTOR_REF_RCONNECTORREF = "make_connector_ref_rconnectorref"
 _OP_MAKE_SCALAR_LIMIT_RSCALARLIMIT = "make_scalar_limit_rscalarlimit"
 _OP_MAKE_GROUND_COMPONENT_RASSEMBLY = "make_ground_component_rassembly"
@@ -181,6 +185,9 @@ _OP_MAKE_UNGROUND_COMPONENT_RASSEMBLY = "make_unground_component_rassembly"
 _OP_MAKE_FIXED_CONSTRAINT_RASSEMBLY = "make_fixed_constraint_rassembly"
 _OP_MAKE_REVOLUTE_CONSTRAINT_RASSEMBLY = "make_revolute_constraint_rassembly"
 _OP_MAKE_PRISMATIC_CONSTRAINT_RASSEMBLY = "make_prismatic_constraint_rassembly"
+_OP_MAKE_GEAR_CONSTRAINT_RASSEMBLY = "make_gear_constraint_rassembly"
+_OP_MAKE_BELT_CONSTRAINT_RASSEMBLY = "make_belt_constraint_rassembly"
+_OP_MAKE_RACK_PINION_CONSTRAINT_RASSEMBLY = "make_rack_pinion_constraint_rassembly"
 _OP_MAKE_SOLVE_ASSEMBLY_CONSTRAINTS_RASSEMBLY = "make_solve_assembly_constraints_rassembly"
 
 
@@ -1122,6 +1129,10 @@ def _semantic_delta_for_output(
             "make_cylinder",
             "make_cone",
             "make_sphere",
+            "make_box_rsolid",
+            "make_cylinder_rsolid",
+            "make_cone_rsolid",
+            "make_sphere_rsolid",
             "extrude",
             "revolve",
             "loft",
@@ -1599,6 +1610,7 @@ def add_bspline_rsketch(
             periodic=periodic,
             construction=construction,
         )
+        bspline_data = updated.entities[str(entity_id)].data
         return cast(
             Sketch,
             _finalize_runtime_object(
@@ -1609,9 +1621,12 @@ def add_bspline_rsketch(
                     "entity_id": entity_id,
                     "start": _sketch_target_to_path(start_ref),
                     "end": _sketch_target_to_path(end_ref),
-                    "degree": degree,
-                    "control_point_count": len(control_points),
-                    "periodic": periodic,
+                    "control_points": bspline_data["control_points"],
+                    "degree": bspline_data["degree"],
+                    "knots": bspline_data["knots"],
+                    "multiplicities": bspline_data["multiplicities"],
+                    "weights": bspline_data["weights"],
+                    "periodic": bspline_data["periodic"],
                     "construction": construction,
                 },
                 input_objects=[sketch],
@@ -2739,27 +2754,6 @@ def make_box_rsolid(
         if width_value <= 0 or height_value <= 0 or depth_value <= 0:
             raise ValueError("宽度、高度和深度必须大于0")
 
-        if get_active_session() is not None:
-            profile = make_rectangle_rface(
-                width,
-                height,
-                center=bottom_face_center,
-                normal=(0.0, 0.0, 1.0),
-            )
-            solid = extrude_rsolid(profile, (0.0, 0.0, 1.0), depth)
-            solid.auto_tag_faces("box")
-            solid._apply_tag("geom.primitive.box", propagate=False)
-            solid._add_tag("box")
-            solid.set_metadata(
-                "geo",
-                {
-                    "type": "box",
-                    "size": {"x": width_value, "y": height_value, "z": depth_value},
-                    "bottom_face_center": bottom_face_center,
-                },
-            )
-            return solid
-
         cs = get_current_cs()
         center_value = cast(
             Tuple[float, float, float], evaluate_value(bottom_face_center)
@@ -2791,11 +2785,11 @@ def make_box_rsolid(
 
         return _finalize_primitive_solid(
             solid,
-            op="make_box",
+            op="make_box_rsolid",
             params={
-                "w": width,
-                "h": height,
-                "d": depth,
+                "width": width,
+                "height": height,
+                "depth": depth,
                 "bottom_face_center": bottom_face_center,
             },
             tags={"primitive", "solid"},
@@ -2830,28 +2824,6 @@ def make_cylinder_rsolid(
         height_value = evaluate_scalar(height)
         if radius_value <= 0 or height_value <= 0:
             raise ValueError("半径和高度必须大于0")
-
-        if get_active_session() is not None:
-            profile = make_circle_rface(
-                bottom_face_center,
-                radius,
-                normal=axis,
-            )
-            solid = extrude_rsolid(profile, axis, height)
-            solid.auto_tag_faces("cylinder")
-            solid._apply_tag("geom.primitive.cylinder", propagate=False)
-            solid._add_tag("cylinder")
-            solid.set_metadata(
-                "geo",
-                {
-                    "type": "cylinder",
-                    "radius": radius_value,
-                    "height": height_value,
-                    "bottom_face_center": bottom_face_center,
-                    "axis": axis,
-                },
-            )
-            return solid
 
         cs = get_current_cs()
         center_value = cast(
@@ -2891,7 +2863,7 @@ def make_cylinder_rsolid(
 
         return _finalize_primitive_solid(
             solid,
-            op="make_cylinder",
+            op="make_cylinder_rsolid",
             params={
                 "radius": radius,
                 "height": height,
@@ -2933,57 +2905,6 @@ def make_cone_rsolid(
         if bottom_radius_value <= 0 or height_value <= 0:
             raise ValueError("底面半径和高度必须大于0")
 
-        if get_active_session() is not None:
-            axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
-            center_value = cast(
-                Tuple[float, float, float], evaluate_value(bottom_face_center)
-            )
-            radial = _pick_perpendicular_unit(axis_value)
-            axis_unit = np.array(axis_value, dtype=float)
-            axis_unit = axis_unit / float(np.linalg.norm(axis_unit))
-            top_center = (
-                center_value[0] + float(axis_unit[0]) * height,
-                center_value[1] + float(axis_unit[1]) * height,
-                center_value[2] + float(axis_unit[2]) * height,
-            )
-            profile = _make_closed_profile_rface(
-                [
-                    center_value,
-                    (
-                        center_value[0] + bottom_radius * float(radial[0]),
-                        center_value[1] + bottom_radius * float(radial[1]),
-                        center_value[2] + bottom_radius * float(radial[2]),
-                    ),
-                    (
-                        top_center[0] + top_radius * float(radial[0]),
-                        top_center[1] + top_radius * float(radial[1]),
-                        top_center[2] + top_radius * float(radial[2]),
-                    ),
-                    top_center,
-                ],
-                normal=axis_value,
-            )
-            solid = revolve_rsolid(
-                profile,
-                axis=axis,
-                angle=360.0,
-                origin=bottom_face_center,
-            )
-            solid._apply_tag("geom.primitive.cone", propagate=False)
-            solid._add_tag("cone")
-            solid.set_metadata(
-                "geo",
-                {
-                    "type": "cone",
-                    "bottom_radius": bottom_radius_value,
-                    "top_radius": top_radius_value,
-                    "height": height_value,
-                    "bottom_face_center": bottom_face_center,
-                    "axis": axis,
-                },
-            )
-            return solid
-
         cs = get_current_cs()
         center_value = cast(
             Tuple[float, float, float], evaluate_value(bottom_face_center)
@@ -3023,7 +2944,7 @@ def make_cone_rsolid(
 
         return _finalize_primitive_solid(
             solid,
-            op="make_cone",
+            op="make_cone_rsolid",
             params={
                 "bottom_radius": bottom_radius,
                 "top_radius": top_radius,
@@ -3060,35 +2981,6 @@ def make_sphere_rsolid(
         if radius_value <= 0:
             raise ValueError("半径必须大于0")
 
-        if get_active_session() is not None:
-            center_value = cast(Tuple[float, float, float], evaluate_value(center))
-            profile = _make_closed_profile_rface(
-                [
-                    (center_value[0], center_value[1], center_value[2] - radius),
-                    (center_value[0] + radius, center_value[1], center_value[2]),
-                    (center_value[0], center_value[1], center_value[2] + radius),
-                ],
-                normal=(0.0, 0.0, 1.0),
-            )
-            solid = revolve_rsolid(
-                profile,
-                axis=(0.0, 0.0, 1.0),
-                angle=360.0,
-                origin=center,
-            )
-            solid.auto_tag_faces("sphere")
-            solid._apply_tag("geom.primitive.sphere", propagate=False)
-            solid._add_tag("sphere")
-            solid.set_metadata(
-                "geo",
-                {
-                    "type": "sphere",
-                    "radius": radius_value,
-                    "center": center,
-                },
-            )
-            return solid
-
         cs = get_current_cs()
         center_value = cast(Tuple[float, float, float], evaluate_value(center))
         center_global = cs.transform_point(np.array(center_value))
@@ -3119,7 +3011,7 @@ def make_sphere_rsolid(
 
         return _finalize_primitive_solid(
             solid,
-            op="make_sphere",
+            op="make_sphere_rsolid",
             params={
                 "radius": radius,
                 "center": center,
@@ -4993,6 +4885,7 @@ def assign_material_rpart(part: Part, material: Material) -> Part:
             {
                 "part_id": part.part_id,
                 "material_id": material.material_id,
+                "material": _material_params(material),
             },
             outputs=result,
             input_shapes=[part, material],
@@ -5193,11 +5086,7 @@ def _make_geometry_backed_connector(
     connector = Connector(connector_id, geometry_ref, name=name)
     record_operation_if_active(
         op,
-        {
-            "connector_id": connector.connector_id,
-            "geometry_ref": geometry_ref.to_dict(),
-            "name": connector.name,
-        },
+        _connector_params(connector),
         outputs=connector,
         input_shapes=[shape],
         context=_current_context_metadata(),
@@ -5319,6 +5208,50 @@ def make_vertex_connector_rconnector(
         )
 
 
+def make_placement_connector_rconnector(
+    connector_id: str,
+    placement: Placement,
+    name: Optional[str] = None,
+) -> Connector:
+    """Create a connector anchored to an explicit local placement frame.
+
+    Use this when a datum should be defined by a stable coordinate frame
+    instead of a selected BREP face, edge, or vertex.
+    """
+
+    try:
+        if not isinstance(placement, Placement):
+            raise TypeError("placement must be a Placement")
+        anchor = ConnectorAnchor("placement", placement=placement)
+        connector = Connector(connector_id, None, name=name, anchor=anchor)
+        record_operation_if_active(
+            _OP_MAKE_PLACEMENT_CONNECTOR_RCONNECTOR,
+            {
+                "connector_id": connector.connector_id,
+                "placement": placement.to_dict(),
+                "name": connector.name,
+            },
+            outputs=connector,
+            input_shapes=[placement],
+            context=_current_context_metadata(),
+        )
+        return connector
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_placement_connector_rconnector",
+            what_happened="Failed to create the placement connector.",
+            possible_causes=[
+                "The connector_id is empty or malformed.",
+                "The placement input is not a Placement.",
+            ],
+            how_to_fix=[
+                "Create placements with make_placement_rplacement.",
+                "Use a stable connector_id such as 'bearing_axis'.",
+            ],
+            error=e,
+        )
+
+
 def add_connector_rpart(part: Part, connector: Connector) -> Part:
     """Attach a connector datum frame to a Part definition."""
 
@@ -5384,6 +5317,72 @@ def add_connector_rassembly(assembly: Assembly, connector: Connector) -> Assembl
             how_to_fix=[
                 "Create a connector with make_face_connector_rconnector, make_edge_connector_rconnector, or make_vertex_connector_rconnector.",
                 "Use unique connector ids within one Assembly.",
+            ],
+            error=e,
+        )
+
+
+def forward_connector_rassembly(
+    assembly: Assembly,
+    connector_id: str,
+    source_component_id: str,
+    source_connector_id: str,
+    name: Optional[str] = None,
+    offset: Optional[Placement] = None,
+) -> Assembly:
+    """Expose an internal component connector as an assembly-level connector.
+
+    The forwarded connector resolves to `source_component.placement *
+    source_connector.placement`, followed by the optional `offset` placement.
+    Parent assemblies can constrain to the subassembly's public connector
+    without depending on its private component structure.
+    """
+
+    try:
+        if not isinstance(assembly, Assembly):
+            raise TypeError("assembly must be an Assembly")
+        if offset is not None and not isinstance(offset, Placement):
+            raise TypeError("offset must be a Placement")
+        anchor = ConnectorAnchor(
+            "forwarded",
+            source_component_id=source_component_id,
+            source_connector_id=source_connector_id,
+            offset=offset,
+        )
+        connector = Connector(connector_id, None, name=name, anchor=anchor)
+        result = assembly.with_connector(connector)
+        record_operation_if_active(
+            _OP_MAKE_FORWARD_CONNECTOR_RASSEMBLY,
+            {
+                "assembly_id": assembly.assembly_id,
+                "connector_id": connector.connector_id,
+                "source_component_id": anchor.source_component_id,
+                "source_connector_id": anchor.source_connector_id,
+                "name": connector.name,
+                "offset": offset.to_dict() if offset is not None else None,
+            },
+            outputs=result,
+            input_shapes=[assembly] + ([offset] if offset is not None else []),
+            semantic_delta=_semantic_modified(
+                "Assembly", assembly.assembly_id, {"connector": connector.to_dict()}
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="forward_connector_rassembly",
+            what_happened="Failed to forward the assembly connector.",
+            possible_causes=[
+                "The assembly input is not an Assembly.",
+                "The connector_id is duplicated in the Assembly.",
+                "The source component or source connector does not exist.",
+                "The optional offset is not a Placement.",
+            ],
+            how_to_fix=[
+                "Add the source component before forwarding its connector.",
+                "Use a connector_id unique within the Assembly.",
+                "Create offsets with make_placement_rplacement when needed.",
             ],
             error=e,
         )
@@ -5576,6 +5575,126 @@ def add_prismatic_constraint_rassembly(
         ),
         _OP_MAKE_PRISMATIC_CONSTRAINT_RASSEMBLY,
         "add_prismatic_constraint_rassembly",
+    )
+
+
+def add_gear_constraint_rassembly(
+    assembly: Assembly,
+    constraint_id: str,
+    connector_a: ConnectorRef,
+    connector_b: ConnectorRef,
+    pitch_radius_a: float,
+    pitch_radius_b: float,
+    phase_offset: Optional[float] = None,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Couple two revolute axes as meshing gears with inverse rotation."""
+
+    constraint = Constraint(
+        constraint_id,
+        "gear",
+        connector_a,
+        connector_b,
+        pitch_radius_a=pitch_radius_a,
+        pitch_radius_b=pitch_radius_b,
+        phase_offset=phase_offset,
+        name=name,
+    )
+    if phase_offset is None:
+        constraint = Constraint(
+            constraint_id,
+            "gear",
+            connector_a,
+            connector_b,
+            pitch_radius_a=pitch_radius_a,
+            pitch_radius_b=pitch_radius_b,
+            phase_offset=coupling_phase_offset(assembly, constraint),
+            name=name,
+        )
+    return _add_constraint_rassembly(
+        assembly,
+        constraint,
+        _OP_MAKE_GEAR_CONSTRAINT_RASSEMBLY,
+        "add_gear_constraint_rassembly",
+    )
+
+
+def add_belt_constraint_rassembly(
+    assembly: Assembly,
+    constraint_id: str,
+    connector_a: ConnectorRef,
+    connector_b: ConnectorRef,
+    pulley_radius_a: float,
+    pulley_radius_b: float,
+    phase_offset: Optional[float] = None,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Couple two revolute axes as belt-linked pulleys with same-direction rotation."""
+
+    constraint = Constraint(
+        constraint_id,
+        "belt",
+        connector_a,
+        connector_b,
+        pulley_radius_a=pulley_radius_a,
+        pulley_radius_b=pulley_radius_b,
+        phase_offset=phase_offset,
+        name=name,
+    )
+    if phase_offset is None:
+        constraint = Constraint(
+            constraint_id,
+            "belt",
+            connector_a,
+            connector_b,
+            pulley_radius_a=pulley_radius_a,
+            pulley_radius_b=pulley_radius_b,
+            phase_offset=coupling_phase_offset(assembly, constraint),
+            name=name,
+        )
+    return _add_constraint_rassembly(
+        assembly,
+        constraint,
+        _OP_MAKE_BELT_CONSTRAINT_RASSEMBLY,
+        "add_belt_constraint_rassembly",
+    )
+
+
+def add_rack_pinion_constraint_rassembly(
+    assembly: Assembly,
+    constraint_id: str,
+    rack_connector: ConnectorRef,
+    pinion_connector: ConnectorRef,
+    pitch_radius: float,
+    phase_offset: Optional[float] = None,
+    name: Optional[str] = None,
+) -> Assembly:
+    """Couple a prismatic rack axis to a revolute pinion axis."""
+
+    constraint = Constraint(
+        constraint_id,
+        "rack_pinion",
+        rack_connector,
+        pinion_connector,
+        pitch_radius=pitch_radius,
+        phase_offset=phase_offset,
+        name=name,
+    )
+    if phase_offset is None:
+        constraint = Constraint(
+            constraint_id,
+            "rack_pinion",
+            rack_connector,
+            pinion_connector,
+            pitch_radius=pitch_radius,
+            phase_offset=coupling_phase_offset(assembly, constraint),
+            name=name,
+        )
+    return _add_constraint_rassembly(
+        assembly,
+        constraint,
+        _OP_MAKE_RACK_PINION_CONSTRAINT_RASSEMBLY,
+        "add_rack_pinion_constraint_rassembly",
     )
 
 

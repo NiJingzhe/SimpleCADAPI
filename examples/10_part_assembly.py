@@ -241,7 +241,7 @@ def main() -> None:
     scad.export_step(preview, str(step_path))
     fcstd_status = "skipped"
     try:
-        scad.translate_model_json_to_fcstd(model_json, str(fcstd_path.resolve()))
+        scad.translator.freecad_translator.translate_model_json_to_fcstd(model_json, str(fcstd_path.resolve()))
         fcstd_status = str(fcstd_path)
     except Exception as exc:  # pragma: no cover - depends on local FreeCAD install
         fcstd_status = f"skipped ({exc.__class__.__name__})"

@@ -45,8 +45,10 @@ def test_product_and_constraint_public_apis_do_not_use_bare_star_parameters():
         scad.make_face_connector_rconnector,
         scad.make_edge_connector_rconnector,
         scad.make_vertex_connector_rconnector,
+        scad.make_placement_connector_rconnector,
         scad.add_connector_rpart,
         scad.add_connector_rassembly,
+        scad.forward_connector_rassembly,
         scad.make_connector_ref_rconnectorref,
         scad.make_scalar_limit_rscalarlimit,
         scad.ground_component_rassembly,
@@ -54,6 +56,9 @@ def test_product_and_constraint_public_apis_do_not_use_bare_star_parameters():
         scad.add_fixed_constraint_rassembly,
         scad.add_revolute_constraint_rassembly,
         scad.add_prismatic_constraint_rassembly,
+        scad.add_gear_constraint_rassembly,
+        scad.add_belt_constraint_rassembly,
+        scad.add_rack_pinion_constraint_rassembly,
         scad.solve_assembly_constraints_rassembly,
     ]
 
@@ -153,6 +158,104 @@ def _part_with_face_connector(part_id):
     top_face = ql.faces().resolve(body)[-1]
     connector = scad.make_face_connector_rconnector("axis", top_face)
     return scad.add_connector_rpart(part, connector)
+
+
+def _part_with_placement_connector(part_id, connector_origin=(0.0, 0.0, 0.0)):
+    body = scad.make_box_rsolid(1.0, 1.0, 1.0)
+    part = scad.make_part_rpart(part_id, body)
+    placement = scad.make_placement_rplacement(origin=connector_origin)
+    connector = scad.make_placement_connector_rconnector("axis", placement)
+    return scad.add_connector_rpart(part, connector)
+
+
+def test_placement_connector_can_drive_fixed_constraints():
+    part = _part_with_placement_connector("placement_constraint_part")
+    assembly = scad.make_assembly_rassembly("placement_constraint_asm")
+    assembly = scad.add_component_rassembly(
+        assembly,
+        part,
+        component_id="base",
+        placement=scad.make_placement_rplacement(origin=(1.0, 2.0, 3.0)),
+    )
+    assembly = scad.add_component_rassembly(
+        assembly,
+        part,
+        component_id="follower",
+        placement=scad.identity_placement_rplacement(),
+    )
+    assembly = scad.ground_component_rassembly(assembly, "base")
+    assembly = scad.add_fixed_constraint_rassembly(
+        assembly,
+        "fixed",
+        scad.make_connector_ref_rconnectorref("base", "axis"),
+        scad.make_connector_ref_rconnectorref("follower", "axis"),
+    )
+
+    solved = scad.solve_assembly_constraints_rassembly(assembly)
+
+    assert solved.get_component("follower").placement.origin == (1.0, 2.0, 3.0)
+    assert scad.measure_constraint_residual_rconstraintresidual(solved, "fixed").within_tolerance
+
+
+def test_forwarded_connector_resolves_and_solves_at_parent_level():
+    inner_part = _part_with_placement_connector("forwarded_inner_part", (2.0, 0.0, 0.0))
+    base_part = _part_with_placement_connector("forwarded_base_part")
+    child = scad.make_assembly_rassembly("forwarded_child")
+    child = scad.add_component_rassembly(
+        child,
+        inner_part,
+        component_id="inner",
+        placement=scad.make_placement_rplacement(origin=(5.0, 0.0, 0.0)),
+    )
+    child = scad.forward_connector_rassembly(
+        child,
+        connector_id="public_axis",
+        source_component_id="inner",
+        source_connector_id="axis",
+    )
+
+    assert child.connector_ids() == ("public_axis",)
+    assert child.get_connector("public_axis").placement.origin == (7.0, 0.0, 0.0)
+
+    root = scad.make_assembly_rassembly("forwarded_root")
+    root = scad.add_component_rassembly(
+        root,
+        base_part,
+        component_id="base",
+        placement=scad.make_placement_rplacement(origin=(10.0, 0.0, 0.0)),
+    )
+    root = scad.add_component_rassembly(
+        root,
+        child,
+        component_id="child",
+        placement=scad.identity_placement_rplacement(),
+    )
+    root = scad.ground_component_rassembly(root, "base")
+    root = scad.add_fixed_constraint_rassembly(
+        root,
+        "bind_forwarded_axis",
+        scad.make_connector_ref_rconnectorref("base", "axis"),
+        scad.make_connector_ref_rconnectorref("child", "public_axis"),
+    )
+    solved = scad.solve_assembly_constraints_rassembly(root)
+
+    assert solved.get_component("child").placement.origin == (3.0, 0.0, 0.0)
+    assert scad.measure_constraint_residual_rconstraintresidual(
+        solved,
+        "bind_forwarded_axis",
+    ).within_tolerance
+
+
+def test_forwarded_connector_validation_reports_missing_sources():
+    assembly = scad.make_assembly_rassembly("bad_forwarded_connector_asm")
+
+    with pytest.raises(Exception, match="missing component"):
+        scad.forward_connector_rassembly(
+            assembly,
+            connector_id="public_axis",
+            source_component_id="inner",
+            source_connector_id="axis",
+        )
 
 
 def test_fixed_revolute_and_prismatic_constraints_solve_component_placements():
@@ -510,6 +613,149 @@ def test_limit_aware_revolute_loop_finds_optimal_angle():
     solved = scad.solve_assembly_constraints_rassembly(assembly, strict=False)
     residual = scad.measure_constraint_residual_rconstraintresidual(solved, "hinge")
     assert residual.within_tolerance
+
+
+def _signed_z_angle_degrees(placement):
+    return math.degrees(math.atan2(placement.x_axis[1], placement.x_axis[0]))
+
+
+def test_gear_and_belt_constraints_couple_revolute_support_joints():
+    part = _part_with_face_connector("coupled_rotor_part")
+    base_ref = scad.make_connector_ref_rconnectorref("base", "axis")
+    gear_a_ref = scad.make_connector_ref_rconnectorref("gear_a", "axis")
+    gear_b_ref = scad.make_connector_ref_rconnectorref("gear_b", "axis")
+
+    gear_assembly = scad.make_assembly_rassembly("gear_coupler_asm")
+    for component_id in ("base", "gear_a", "gear_b"):
+        gear_assembly = scad.add_component_rassembly(
+            gear_assembly,
+            part,
+            component_id=component_id,
+            placement=scad.identity_placement_rplacement(),
+        )
+    gear_assembly = scad.ground_component_rassembly(gear_assembly, "base")
+    gear_assembly = scad.add_revolute_constraint_rassembly(
+        gear_assembly, "drive_a", base_ref, gear_a_ref, drive_angle_degrees=90.0,
+    )
+    gear_assembly = scad.add_revolute_constraint_rassembly(
+        gear_assembly, "free_b", base_ref, gear_b_ref,
+    )
+    gear_assembly = scad.add_gear_constraint_rassembly(
+        gear_assembly,
+        "mesh",
+        gear_a_ref,
+        gear_b_ref,
+        pitch_radius_a=1.0,
+        pitch_radius_b=2.0,
+    )
+    gear_solved = scad.solve_assembly_constraints_rassembly(gear_assembly)
+    assert math.isclose(
+        _signed_z_angle_degrees(gear_solved.get_component("gear_b").placement),
+        -45.0,
+        abs_tol=1e-9,
+    )
+    assert scad.measure_constraint_residual_rconstraintresidual(
+        gear_solved, "mesh"
+    ).within_tolerance
+
+    belt_assembly = scad.make_assembly_rassembly("belt_coupler_asm")
+    for component_id in ("base", "gear_a", "gear_b"):
+        belt_assembly = scad.add_component_rassembly(
+            belt_assembly,
+            part,
+            component_id=component_id,
+            placement=scad.identity_placement_rplacement(),
+        )
+    belt_assembly = scad.ground_component_rassembly(belt_assembly, "base")
+    belt_assembly = scad.add_revolute_constraint_rassembly(
+        belt_assembly, "drive_a", base_ref, gear_a_ref, drive_angle_degrees=90.0,
+    )
+    belt_assembly = scad.add_revolute_constraint_rassembly(
+        belt_assembly, "free_b", base_ref, gear_b_ref,
+    )
+    belt_assembly = scad.add_belt_constraint_rassembly(
+        belt_assembly,
+        "belt",
+        gear_a_ref,
+        gear_b_ref,
+        pulley_radius_a=1.0,
+        pulley_radius_b=2.0,
+    )
+    belt_solved = scad.solve_assembly_constraints_rassembly(belt_assembly)
+    assert math.isclose(
+        _signed_z_angle_degrees(belt_solved.get_component("gear_b").placement),
+        45.0,
+        abs_tol=1e-9,
+    )
+    assert scad.measure_constraint_residual_rconstraintresidual(
+        belt_solved, "belt"
+    ).within_tolerance
+
+
+def test_rack_pinion_constraint_couples_prismatic_and_revolute_support_joints():
+    part = _part_with_face_connector("rack_pinion_part")
+    base_ref = scad.make_connector_ref_rconnectorref("base", "axis")
+    rack_ref = scad.make_connector_ref_rconnectorref("rack", "axis")
+    pinion_ref = scad.make_connector_ref_rconnectorref("pinion", "axis")
+    assembly = scad.make_assembly_rassembly("rack_pinion_asm")
+    for component_id in ("base", "rack", "pinion"):
+        assembly = scad.add_component_rassembly(
+            assembly,
+            part,
+            component_id=component_id,
+            placement=scad.identity_placement_rplacement(),
+        )
+    assembly = scad.ground_component_rassembly(assembly, "base")
+    assembly = scad.add_prismatic_constraint_rassembly(
+        assembly, "rack_slide", base_ref, rack_ref,
+    )
+    assembly = scad.add_revolute_constraint_rassembly(
+        assembly, "pinion_axis", base_ref, pinion_ref, drive_angle_degrees=90.0,
+    )
+    assembly = scad.add_rack_pinion_constraint_rassembly(
+        assembly,
+        "rack_mesh",
+        rack_ref,
+        pinion_ref,
+        pitch_radius=2.0,
+    )
+
+    solved = scad.solve_assembly_constraints_rassembly(assembly)
+
+    assert math.isclose(
+        solved.get_component("rack").placement.origin[2],
+        -math.pi,
+        abs_tol=1e-9,
+    )
+    assert scad.measure_constraint_residual_rconstraintresidual(
+        solved, "rack_mesh"
+    ).within_tolerance
+
+
+def test_coupling_constraints_validate_positive_radii():
+    part = _part_with_face_connector("invalid_coupler_part")
+    assembly = scad.make_assembly_rassembly("invalid_coupler_asm")
+    assembly = scad.add_component_rassembly(
+        assembly, part, component_id="a", placement=scad.identity_placement_rplacement(),
+    )
+    assembly = scad.add_component_rassembly(
+        assembly, part, component_id="b", placement=scad.identity_placement_rplacement(),
+    )
+    ref_a = scad.make_connector_ref_rconnectorref("a", "axis")
+    ref_b = scad.make_connector_ref_rconnectorref("b", "axis")
+
+    with pytest.raises(Exception, match="pitch_radius_a"):
+        scad.add_gear_constraint_rassembly(
+            assembly, "bad_gear", ref_a, ref_b, pitch_radius_a=0.0, pitch_radius_b=1.0,
+        )
+    with pytest.raises(Exception, match="pulley_radius_b"):
+        scad.add_belt_constraint_rassembly(
+            assembly, "bad_belt", ref_a, ref_b, pulley_radius_a=1.0, pulley_radius_b=-1.0,
+        )
+    with pytest.raises(Exception, match="pitch_radius"):
+        scad.add_rack_pinion_constraint_rassembly(
+            assembly, "bad_rack", ref_a, ref_b, pitch_radius=0.0,
+        )
 
 
 def test_limit_aware_prismatic_loop_finds_optimal_distance():

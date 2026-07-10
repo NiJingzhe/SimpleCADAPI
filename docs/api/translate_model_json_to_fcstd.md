@@ -6,11 +6,11 @@
 def translate_model_json_to_fcstd(json_str: str, output_path: str, *, document_name: str = 'SimpleCADModel', freecad_cmd: Optional[str] = None) -> str
 ```
 
-*Source: freecad_translator.py*
+*Source: translator/freecad_translator/api.py*
 
 ## Import Surface
 
-- top-level: `from simplecadapi import translate_model_json_to_fcstd`
+- translator backend: `from simplecadapi.translator.freecad_translator import translate_model_json_to_fcstd`
 
 ## Description
 

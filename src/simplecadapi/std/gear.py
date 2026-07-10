@@ -1,4 +1,4 @@
-"""Involute gear standard parts built with constraint sketches.
+"""Gear standard parts built with constraint sketches and profile helpers.
 
 Each gear profile is assembled in a constraint sketch using:
   - **B-spline edges** for analytic involute tooth flanks and tangent
@@ -10,12 +10,13 @@ Each gear profile is assembled in a constraint sketch using:
 
 The sketch is solved and promoted to a face via
 ``make_face_from_sketch_rface``.  Spur gears are extruded; helical and
-herringbone gears use multi-section loft with progressively rotated
-    copies of the same profile.  Spur ring gears build a multi-loop face from
-    an outer rim wire and an inward internal-tooth inner wire, then extrude it
-    directly.  Helical and herringbone ring gears loft the internal tooth void
-    and subtract it from an extruded outer rim.  Racks build a trapezoidal-tooth
-    profile along a straight line.
+herringbone gears use ruled multi-section lofts with small incremental twist.
+Spur ring gears build a multi-loop face from an outer rim wire and an inward
+internal-tooth inner wire, then extrude it directly.  Helical and herringbone
+ring gears loft the internal tooth void and subtract it from an extruded outer
+rim.  Racks build a trapezoidal-tooth profile along a straight line.  Cycloidal
+reducer discs build a lobed pin-wheel profile as one fitted cubic B-spline
+segment per lobe.
 """
 
 from __future__ import annotations
@@ -37,11 +38,14 @@ from ..operations import (
     cut_rsolid,
     extrude_rsolid,
     loft_rsolid,
+    make_cylinder_rsolid,
     make_circle_rwire,
     make_face_from_wire_rface,
     make_face_from_wires_rface,
     make_face_from_sketch_rface,
     make_sketch_rsketch,
+    make_spline_redge,
+    make_wire_from_edges_rwire,
     make_wire_from_sketch_rwire,
     rotate_shape,
     translate_shape,
@@ -54,6 +58,7 @@ __all__ = [
     "make_spur_ring_gear_rsolid",
     "make_helical_ring_gear_rsolid",
     "make_herringbone_ring_gear_rsolid",
+    "make_cycloidal_disc_rsolid",
     "make_spur_rack_rsolid",
     "make_helical_rack_rsolid",
     "make_herringbone_rack_rsolid",
@@ -76,6 +81,33 @@ def _involute_t_for_radius(base_radius: float, target_radius: float) -> float:
     """Solve the involute parameter *t* for a given radial distance."""
     ratio = target_radius / base_radius
     return math.sqrt(max(ratio * ratio - 1.0, 0.0))
+
+
+def _validate_non_negative_finite(name: str, value: float) -> float:
+    resolved = float(value)
+    if not math.isfinite(resolved):
+        raise ValueError(f"{name} must be finite")
+    if resolved < 0.0:
+        raise ValueError(f"{name} must be non-negative")
+    return resolved
+
+
+def _validate_positive_finite(name: str, value: float) -> float:
+    resolved = float(value)
+    if not math.isfinite(resolved):
+        raise ValueError(f"{name} must be finite")
+    if resolved <= 0.0:
+        raise ValueError(f"{name} must be positive")
+    return resolved
+
+
+def _pressure_angle_to_radians(pressure_angle: float) -> float:
+    angle = float(pressure_angle)
+    if not math.isfinite(angle):
+        raise ValueError("pressure_angle must be finite")
+    if angle <= 0.0 or angle >= 90.0:
+        raise ValueError("pressure_angle must be greater than 0 and less than 90 degrees")
+    return math.radians(angle)
 
 
 def _rotate_xy(point: Tuple[float, float], angle: float) -> Tuple[float, float]:
@@ -159,18 +191,31 @@ def _compute_tooth_geometry(
     pressure_angle: float,
     root_radius: Optional[float] = None,
     tip_radius: Optional[float] = None,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
+    backlash: float = 0.0,
 ) -> dict:
     """Compute geometric parameters for an involute tooth-space profile."""
+    addendum = _validate_positive_finite("addendum_factor", addendum_factor) * module
+    clearance = _validate_non_negative_finite("clearance_factor", clearance_factor) * module
+    backlash_value = _validate_non_negative_finite("backlash", backlash)
+
     pitch_radius = module * n_teeth / 2.0
     base_radius = pitch_radius * math.cos(pressure_angle)
-    resolved_tip_radius = pitch_radius + module if tip_radius is None else float(tip_radius)
+    resolved_tip_radius = pitch_radius + addendum if tip_radius is None else float(tip_radius)
     resolved_root_radius = (
-        max(pitch_radius - 1.25 * module, base_radius * 0.5)
+        max(pitch_radius - addendum - clearance, base_radius * 0.5)
         if root_radius is None else float(root_radius)
     )
+    if resolved_tip_radius <= resolved_root_radius:
+        raise ValueError("tip radius must be greater than root radius")
+
     tooth_angle = 2.0 * math.pi / n_teeth
 
-    pitch_half_angle = (math.pi * module / 2.0) / (2.0 * pitch_radius)
+    pitch_tooth_thickness = math.pi * module / 2.0 - backlash_value
+    if pitch_tooth_thickness <= 0.0:
+        raise ValueError("backlash must be smaller than the circular tooth thickness")
+    pitch_half_angle = pitch_tooth_thickness / (2.0 * pitch_radius)
     inv_alpha = math.tan(pressure_angle) - pressure_angle
     base_half_angle = pitch_half_angle + inv_alpha
 
@@ -193,6 +238,9 @@ def _compute_tooth_geometry(
         "left_tip_angle": left_tip_angle,
         "right_tip_angle": right_tip_angle,
         "prev_right_start": right_start - tooth_angle,
+        "addendum_factor": addendum_factor,
+        "clearance_factor": clearance_factor,
+        "backlash": backlash_value,
     }
 
 
@@ -207,6 +255,9 @@ def _build_gear_profile_face(
     return_sketch: bool = False,
     root_radius: Optional[float] = None,
     tip_radius: Optional[float] = None,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
+    backlash: float = 0.0,
     build_face: bool = True,
 ):
     """Build the full gear 2-D profile as a Face via a constraint sketch.
@@ -225,6 +276,9 @@ def _build_gear_profile_face(
     geo = _compute_tooth_geometry(
         n_teeth, module, pressure_angle,
         root_radius=root_radius, tip_radius=tip_radius,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
+        backlash=backlash,
     )
     root_radius = geo["root_radius"]
     base_radius = geo["base_radius"]
@@ -389,6 +443,10 @@ def make_spur_gear_rsolid(
     module: float,
     pressure_angle: float = 20.0,
     gear_height: float = 6.0,
+    *,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
+    backlash: float = 0.0,
 ) -> Solid:
     """Create an involute spur gear (straight teeth, helix angle = 0).
 
@@ -402,6 +460,13 @@ def make_spur_gear_rsolid(
         Pressure angle in degrees.
     gear_height : float, default 6.0
         Gear thickness / extrusion height along Z in mm.
+    addendum_factor : float, default 1.0
+        Tooth addendum as a multiple of module, matching FreeCAD's tooth
+        height factor default.
+    clearance_factor : float, default 0.25
+        Root clearance beyond the addendum, as a multiple of module.
+    backlash : float, default 0.0
+        Circumferential tooth-thickness reduction at the pitch circle in mm.
     """
     if n_teeth < 3:
         raise ValueError("n_teeth must be at least 3")
@@ -410,8 +475,15 @@ def make_spur_gear_rsolid(
     if gear_height <= 0:
         raise ValueError("gear_height must be positive")
 
-    pa = math.radians(pressure_angle)
-    face = _build_gear_profile_face(n_teeth, module, pa)
+    pa = _pressure_angle_to_radians(pressure_angle)
+    face = _build_gear_profile_face(
+        n_teeth,
+        module,
+        pa,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
+        backlash=backlash,
+    )
     return extrude_rsolid(face, direction=(0.0, 0.0, 1.0), distance=gear_height)
 
 
@@ -421,8 +493,17 @@ def make_helical_gear_rsolid(
     pressure_angle: float = 20.0,
     helix_angle: float = 30.0,
     gear_height: float = 8.0,
+    *,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
+    backlash: float = 0.0,
 ) -> Solid:
     """Create an involute helical gear.
+
+    Non-zero helix angles are modeled as small-step ruled lofts through rotated
+    copies of one profile. The small angular step keeps closed-wire section
+    correspondence stable while ruled faces avoid smooth loft bulging in STEP
+    exports.
 
     Parameters
     ----------
@@ -436,6 +517,12 @@ def make_helical_gear_rsolid(
         Helix angle in degrees.
     gear_height : float, default 8.0
         Gear thickness along Z in mm.
+    addendum_factor : float, default 1.0
+        Tooth addendum as a multiple of module.
+    clearance_factor : float, default 0.25
+        Root clearance beyond the addendum, as a multiple of module.
+    backlash : float, default 0.0
+        Circumferential tooth-thickness reduction at the pitch circle in mm.
     """
     if n_teeth < 3:
         raise ValueError("n_teeth must be at least 3")
@@ -444,9 +531,17 @@ def make_helical_gear_rsolid(
     if gear_height <= 0:
         raise ValueError("gear_height must be positive")
     if helix_angle == 0:
-        return make_spur_gear_rsolid(n_teeth, module, pressure_angle, gear_height)
+        return make_spur_gear_rsolid(
+            n_teeth,
+            module,
+            pressure_angle,
+            gear_height,
+            addendum_factor=addendum_factor,
+            clearance_factor=clearance_factor,
+            backlash=backlash,
+        )
 
-    pa = math.radians(pressure_angle)
+    pa = _pressure_angle_to_radians(pressure_angle)
     pitch_diameter = module * n_teeth
     twist_total = math.degrees(
         2.0 * math.pi * gear_height * math.tan(math.radians(helix_angle))
@@ -455,7 +550,14 @@ def make_helical_gear_rsolid(
 
     n_sections = max(6, int(abs(twist_total) / 5.0) + 2)
     _, sketch = _build_gear_profile_face(
-        n_teeth, module, pa, return_sketch=True, build_face=False,
+        n_teeth,
+        module,
+        pa,
+        return_sketch=True,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
+        backlash=backlash,
+        build_face=False,
     )
     base_wire = make_wire_from_sketch_rwire(sketch)
 
@@ -466,7 +568,7 @@ def make_helical_gear_rsolid(
         twist = twist_total * frac
         sections.append(_rotate_profile_wire_3d(base_wire, twist, z))
 
-    return loft_rsolid(sections, ruled=False)
+    return loft_rsolid(sections, ruled=True)
 
 
 def make_herringbone_gear_rsolid(
@@ -475,8 +577,17 @@ def make_herringbone_gear_rsolid(
     pressure_angle: float = 20.0,
     helix_angle: float = 32.0,
     gear_height: float = 10.0,
+    *,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
+    backlash: float = 0.0,
 ) -> Solid:
     """Create an involute herringbone (double-helical) gear.
+
+    Each half is modeled as a small-step ruled loft through rotated copies of
+    one profile, with a shared center section forming the herringbone ridge.
+    This keeps closed-wire section correspondence stable while avoiding smooth
+    loft bulging in STEP exports.
 
     Parameters
     ----------
@@ -490,6 +601,12 @@ def make_herringbone_gear_rsolid(
         Helix angle of each half in degrees.
     gear_height : float, default 10.0
         Total gear thickness along Z in mm.
+    addendum_factor : float, default 1.0
+        Tooth addendum as a multiple of module.
+    clearance_factor : float, default 0.25
+        Root clearance beyond the addendum, as a multiple of module.
+    backlash : float, default 0.0
+        Circumferential tooth-thickness reduction at the pitch circle in mm.
     """
     if n_teeth < 3:
         raise ValueError("n_teeth must be at least 3")
@@ -498,9 +615,17 @@ def make_herringbone_gear_rsolid(
     if gear_height <= 0:
         raise ValueError("gear_height must be positive")
     if helix_angle == 0:
-        return make_spur_gear_rsolid(n_teeth, module, pressure_angle, gear_height)
+        return make_spur_gear_rsolid(
+            n_teeth,
+            module,
+            pressure_angle,
+            gear_height,
+            addendum_factor=addendum_factor,
+            clearance_factor=clearance_factor,
+            backlash=backlash,
+        )
 
-    pa = math.radians(pressure_angle)
+    pa = _pressure_angle_to_radians(pressure_angle)
     pitch_diameter = module * n_teeth
     half_height = gear_height / 2.0
     half_twist = math.degrees(
@@ -510,7 +635,14 @@ def make_herringbone_gear_rsolid(
 
     n_sections_per_half = max(4, int(abs(half_twist) / 5.0) + 2)
     _, sketch = _build_gear_profile_face(
-        n_teeth, module, pa, return_sketch=True, build_face=False,
+        n_teeth,
+        module,
+        pa,
+        return_sketch=True,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
+        backlash=backlash,
+        build_face=False,
     )
     base_wire = make_wire_from_sketch_rwire(sketch)
 
@@ -528,7 +660,7 @@ def make_herringbone_gear_rsolid(
         twist = half_twist * (1.0 - frac)
         sections.append(_rotate_profile_wire_3d(base_wire, twist, z))
 
-    return loft_rsolid(sections, ruled=False)
+    return loft_rsolid(sections, ruled=True)
 
 
 # ---------------------------------------------------------------------------
@@ -539,11 +671,17 @@ def _internal_ring_radii(
     n_teeth: int,
     module: float,
     rim_thickness: float,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
 ) -> Tuple[float, float, float, float]:
     """Return (pitch, internal tooth tip, internal root, outer rim) radii."""
+    addendum = _validate_positive_finite("addendum_factor", addendum_factor) * module
+    clearance = _validate_non_negative_finite("clearance_factor", clearance_factor) * module
     pitch_radius = module * n_teeth / 2.0
-    internal_tip_radius = pitch_radius - module
-    internal_root_radius = pitch_radius + 1.25 * module
+    internal_tip_radius = pitch_radius - addendum
+    internal_root_radius = pitch_radius + addendum + clearance
+    if internal_tip_radius <= 0.0:
+        raise ValueError("internal tooth tip radius must be positive")
     outer_radius = internal_root_radius + rim_thickness
     return pitch_radius, internal_tip_radius, internal_root_radius, outer_radius
 
@@ -553,19 +691,19 @@ def _compute_internal_tooth_geometry(
     module: float,
     pressure_angle: float,
     backlash: float = 0.0,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
 ) -> dict:
     """Compute the inward-facing tooth boundary for an internal gear."""
-    backlash_value = float(backlash)
-    if not math.isfinite(backlash_value):
-        raise ValueError("backlash must be finite")
-    if backlash_value < 0:
-        raise ValueError("backlash must be non-negative")
+    backlash_value = _validate_non_negative_finite("backlash", backlash)
 
     pitch_radius, tip_radius, root_radius, _outer_radius = _internal_ring_radii(
-        n_teeth, module, rim_thickness=0.0,
+        n_teeth,
+        module,
+        rim_thickness=0.0,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
     )
-    if tip_radius <= 0:
-        raise ValueError("internal tooth tip radius must be positive")
 
     base_radius = pitch_radius * math.cos(pressure_angle)
     tooth_angle = 2.0 * math.pi / n_teeth
@@ -600,6 +738,8 @@ def _compute_internal_tooth_geometry(
         "right_tip_angle": tip_half_angle,
         "left_root_angle": -root_half_angle,
         "right_root_angle": root_half_angle,
+        "addendum_factor": addendum_factor,
+        "clearance_factor": clearance_factor,
     }
 
 
@@ -628,9 +768,18 @@ def _build_internal_gear_profile_wire(
     pressure_angle: float,
     return_sketch: bool = False,
     backlash: float = 0.0,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
 ):
     """Build the inner boundary wire for an inward-facing internal gear."""
-    geo = _compute_internal_tooth_geometry(n_teeth, module, pressure_angle, backlash)
+    geo = _compute_internal_tooth_geometry(
+        n_teeth,
+        module,
+        pressure_angle,
+        backlash,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
+    )
     root_radius = geo["root_radius"]
     tip_radius = geo["tip_radius"]
     flank_tip_radius = geo["flank_tip_radius"]
@@ -761,15 +910,26 @@ def _build_ring_gear_face(
     pressure_angle: float,
     rim_thickness: float,
     backlash: float = 0.0,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
 ) -> Face:
     """Build the 2-D ring-gear face directly from outer and inner loops."""
     _pitch_radius, _internal_tip_radius, _internal_root_radius, outer_radius = _internal_ring_radii(
-        n_teeth, module, rim_thickness,
+        n_teeth,
+        module,
+        rim_thickness,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
     )
 
     outer_wire = make_circle_rwire(center=(0.0, 0.0, 0.0), radius=outer_radius)
     inner_wire = _build_internal_gear_profile_wire(
-        n_teeth, module, pressure_angle, backlash=backlash,
+        n_teeth,
+        module,
+        pressure_angle,
+        backlash=backlash,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
     )
     return make_face_from_wires_rface(outer_wire, [inner_wire])
 
@@ -781,6 +941,9 @@ def make_spur_ring_gear_rsolid(
     gear_height: float = 6.0,
     rim_thickness: float = 3.0,
     backlash: float = 0.0,
+    *,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
 ) -> Solid:
     """Create an internal spur ring gear.
 
@@ -798,6 +961,10 @@ def make_spur_ring_gear_rsolid(
         Thickness of the rim beyond the tooth tips in mm.
     backlash : float, default 0.0
         Circumferential tooth-space clearance at the pitch circle in mm.
+    addendum_factor : float, default 1.0
+        Internal tooth addendum as a multiple of module.
+    clearance_factor : float, default 0.25
+        Internal tooth root clearance beyond the addendum, as a multiple of module.
     """
     if n_teeth < 3:
         raise ValueError("n_teeth must be at least 3")
@@ -808,8 +975,16 @@ def make_spur_ring_gear_rsolid(
     if rim_thickness <= 0:
         raise ValueError("rim_thickness must be positive")
 
-    pa = math.radians(pressure_angle)
-    face = _build_ring_gear_face(n_teeth, module, pa, rim_thickness, backlash)
+    pa = _pressure_angle_to_radians(pressure_angle)
+    face = _build_ring_gear_face(
+        n_teeth,
+        module,
+        pa,
+        rim_thickness,
+        backlash,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
+    )
     return extrude_rsolid(face, direction=(0.0, 0.0, 1.0), distance=gear_height)
 
 
@@ -821,14 +996,51 @@ def make_helical_ring_gear_rsolid(
     gear_height: float = 8.0,
     rim_thickness: float = 3.0,
     backlash: float = 0.0,
+    *,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
 ) -> Solid:
-    """Create an internal helical ring gear."""
+    """Create an internal helical ring gear.
+
+    The outer rim is extruded directly. The internal tooth void is built as a
+    small-step ruled loft through rotated copies of the internal profile, then
+    subtracted from the rim. Ruled sections avoid smooth loft bulging in STEP
+    exports while preserving stable section correspondence.
+
+    Parameters
+    ----------
+    n_teeth : int
+        Number of internal teeth (>= 3).
+    module : float
+        Gear module in mm.
+    pressure_angle : float, default 20
+        Pressure angle in degrees.
+    helix_angle : float, default 25
+        Helix angle in degrees.
+    gear_height : float, default 8.0
+        Ring gear thickness along Z in mm.
+    rim_thickness : float, default 3.0
+        Thickness of the rim beyond the tooth roots in mm.
+    backlash : float, default 0.0
+        Circumferential tooth-space clearance at the pitch circle in mm.
+    addendum_factor : float, default 1.0
+        Internal tooth addendum as a multiple of module.
+    clearance_factor : float, default 0.25
+        Internal tooth root clearance beyond the addendum, as a multiple of module.
+    """
     if helix_angle == 0:
         return make_spur_ring_gear_rsolid(
-            n_teeth, module, pressure_angle, gear_height, rim_thickness, backlash,
+            n_teeth,
+            module,
+            pressure_angle,
+            gear_height,
+            rim_thickness,
+            backlash,
+            addendum_factor=addendum_factor,
+            clearance_factor=clearance_factor,
         )
 
-    pa = math.radians(pressure_angle)
+    pa = _pressure_angle_to_radians(pressure_angle)
     pitch_diameter = module * n_teeth
     twist_total = math.degrees(
         2.0 * math.pi * gear_height * math.tan(math.radians(helix_angle))
@@ -837,7 +1049,11 @@ def make_helical_ring_gear_rsolid(
 
     n_sections = max(6, int(abs(twist_total) / 5.0) + 2)
     _pitch_radius, _internal_tip_radius, _internal_root_radius, outer_radius = _internal_ring_radii(
-        n_teeth, module, rim_thickness,
+        n_teeth,
+        module,
+        rim_thickness,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
     )
 
     outer_wire = make_circle_rwire(center=(0.0, 0.0, 0.0), radius=outer_radius)
@@ -846,7 +1062,14 @@ def make_helical_ring_gear_rsolid(
         direction=(0.0, 0.0, 1.0),
         distance=gear_height,
     )
-    inner_wire = _build_internal_gear_profile_wire(n_teeth, module, pa, backlash=backlash)
+    inner_wire = _build_internal_gear_profile_wire(
+        n_teeth,
+        module,
+        pa,
+        backlash=backlash,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
+    )
 
     inner_sections = []
     for i in range(n_sections + 1):
@@ -855,7 +1078,7 @@ def make_helical_ring_gear_rsolid(
         twist = twist_total * frac
         inner_sections.append(_rotate_profile_wire_3d(inner_wire, twist, z))
 
-    inner_loft = loft_rsolid(inner_sections, ruled=False)
+    inner_loft = loft_rsolid(inner_sections, ruled=True)
     return cut_rsolid(outer_solid, inner_loft)
 
 
@@ -867,14 +1090,51 @@ def make_herringbone_ring_gear_rsolid(
     gear_height: float = 10.0,
     rim_thickness: float = 3.0,
     backlash: float = 0.0,
+    *,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
 ) -> Solid:
-    """Create an internal herringbone ring gear."""
+    """Create an internal herringbone ring gear.
+
+    The outer rim is extruded directly. The internal tooth void is built as two
+    small-step ruled loft halves sharing the center herringbone section, then
+    subtracted from the rim. Ruled sections avoid smooth loft bulging in STEP
+    exports while preserving stable section correspondence.
+
+    Parameters
+    ----------
+    n_teeth : int
+        Number of internal teeth (>= 3).
+    module : float
+        Gear module in mm.
+    pressure_angle : float, default 20
+        Pressure angle in degrees.
+    helix_angle : float, default 30
+        Helix angle of each half in degrees.
+    gear_height : float, default 10.0
+        Total ring gear thickness along Z in mm.
+    rim_thickness : float, default 3.0
+        Thickness of the rim beyond the tooth roots in mm.
+    backlash : float, default 0.0
+        Circumferential tooth-space clearance at the pitch circle in mm.
+    addendum_factor : float, default 1.0
+        Internal tooth addendum as a multiple of module.
+    clearance_factor : float, default 0.25
+        Internal tooth root clearance beyond the addendum, as a multiple of module.
+    """
     if helix_angle == 0:
         return make_spur_ring_gear_rsolid(
-            n_teeth, module, pressure_angle, gear_height, rim_thickness, backlash,
+            n_teeth,
+            module,
+            pressure_angle,
+            gear_height,
+            rim_thickness,
+            backlash,
+            addendum_factor=addendum_factor,
+            clearance_factor=clearance_factor,
         )
 
-    pa = math.radians(pressure_angle)
+    pa = _pressure_angle_to_radians(pressure_angle)
     pitch_diameter = module * n_teeth
     half_height = gear_height / 2.0
     half_twist = math.degrees(
@@ -884,7 +1144,11 @@ def make_herringbone_ring_gear_rsolid(
 
     n_sections_per_half = max(4, int(abs(half_twist) / 5.0) + 2)
     _pitch_radius, _internal_tip_radius, _internal_root_radius, outer_radius = _internal_ring_radii(
-        n_teeth, module, rim_thickness,
+        n_teeth,
+        module,
+        rim_thickness,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
     )
 
     outer_wire = make_circle_rwire(center=(0.0, 0.0, 0.0), radius=outer_radius)
@@ -893,7 +1157,14 @@ def make_herringbone_ring_gear_rsolid(
         direction=(0.0, 0.0, 1.0),
         distance=gear_height,
     )
-    inner_wire = _build_internal_gear_profile_wire(n_teeth, module, pa, backlash=backlash)
+    inner_wire = _build_internal_gear_profile_wire(
+        n_teeth,
+        module,
+        pa,
+        backlash=backlash,
+        addendum_factor=addendum_factor,
+        clearance_factor=clearance_factor,
+    )
 
     inner_sections: List[Wire] = []
 
@@ -909,8 +1180,268 @@ def make_herringbone_ring_gear_rsolid(
         twist = half_twist * (1.0 - frac)
         inner_sections.append(_rotate_profile_wire_3d(inner_wire, twist, z))
 
-    inner_loft = loft_rsolid(inner_sections, ruled=False)
+    inner_loft = loft_rsolid(inner_sections, ruled=True)
     return cut_rsolid(outer_solid, inner_loft)
+
+
+# ---------------------------------------------------------------------------
+# Cycloidal reducer discs
+# ---------------------------------------------------------------------------
+
+def _cycloidal_disc_point(
+    theta: float,
+    *,
+    n_lobes: int,
+    ring_pin_pitch_radius: float,
+    roller_radius: float,
+    eccentricity: float,
+) -> Tuple[float, float, float]:
+    """Return one point on a one-tooth-difference cycloidal reducer disc."""
+    pin_count = n_lobes + 1
+    phi = math.atan2(
+        math.sin((1.0 - pin_count) * theta),
+        ring_pin_pitch_radius / (eccentricity * pin_count)
+        - math.cos((1.0 - pin_count) * theta),
+    )
+    x = (
+        ring_pin_pitch_radius * math.cos(theta)
+        - roller_radius * math.cos(theta + phi)
+        - eccentricity * math.cos(pin_count * theta)
+    )
+    y = (
+        -ring_pin_pitch_radius * math.sin(theta)
+        + roller_radius * math.sin(theta + phi)
+        + eccentricity * math.sin(pin_count * theta)
+    )
+    return x, y, 0.0
+
+
+def _build_cycloidal_disc_profile_wire(
+    *,
+    n_lobes: int,
+    ring_pin_pitch_radius: float,
+    roller_radius: float,
+    eccentricity: float,
+    sample_count_per_lobe: int = 33,
+    spline_tolerance: float = 0.005,
+    max_control_points: int = 20,
+    return_fit_data: bool = False,
+):
+    """Build the cycloidal disc outer profile as one B-spline per lobe."""
+    edges = []
+    control_counts: List[int] = []
+    max_errors: List[float] = []
+    radii: List[float] = []
+
+    for segment_index in range(n_lobes):
+        start_theta = 2.0 * math.pi * segment_index / n_lobes
+        end_theta = 2.0 * math.pi * (segment_index + 1) / n_lobes
+        samples = [
+            _cycloidal_disc_point(
+                start_theta
+                + (end_theta - start_theta) * index / (sample_count_per_lobe - 1),
+                n_lobes=n_lobes,
+                ring_pin_pitch_radius=ring_pin_pitch_radius,
+                roller_radius=roller_radius,
+                eccentricity=eccentricity,
+            )
+            for index in range(sample_count_per_lobe)
+        ]
+        radii.extend(math.hypot(x, y) for x, y, _z in samples)
+        fit = fit_cubic_bspline_control_points(
+            samples,
+            tolerance=spline_tolerance,
+            max_control_points=max_control_points,
+            fairing=1e-8,
+        )
+        edges.append(
+            make_spline_redge(
+                control_points=fit.control_points,
+                degree=fit.degree,
+                knots=fit.unique_knots,
+                multiplicities=fit.multiplicities,
+            )
+        )
+        control_counts.append(len(fit.control_points))
+        max_errors.append(float(fit.max_error))
+
+    wire = make_wire_from_edges_rwire(edges=edges)
+    if return_fit_data:
+        return wire, {
+            "pin_count": n_lobes + 1,
+            "n_lobes": n_lobes,
+            "segment_count": len(edges),
+            "sample_count_per_lobe": sample_count_per_lobe,
+            "control_point_counts": control_counts,
+            "max_errors": max_errors,
+            "radius_min": min(radii),
+            "radius_max": max(radii),
+        }
+    return wire
+
+
+def make_cycloidal_disc_rsolid(
+    n_lobes: int,
+    ring_pin_pitch_radius: float,
+    roller_radius: float,
+    eccentricity: float,
+    gear_height: float = 6.0,
+    *,
+    bore_radius: float = 0.0,
+    output_pin_count: int = 0,
+    output_pin_pitch_radius: float = 0.0,
+    output_pin_clearance_radius: float = 0.0,
+    output_pin_phase: float = 0.0,
+    sample_count_per_lobe: int = 33,
+    spline_tolerance: float = 0.005,
+    max_control_points: int = 20,
+) -> Solid:
+    """Create a cycloidal reducer disc for a one-tooth-difference pin ring.
+
+    This is a single-disc geometric standard part. Real compact reducers often
+    stack two identical-lobe discs to balance output-pin side loads. In that
+    assembly-level pattern, separate two concepts that are easy to confuse:
+
+    - Place the two input eccentric cam centers 180 degrees apart, for example
+      ``(+e, 0)`` and ``(-e, 0)``, so their orbit loads oppose each other.
+    - Tooth-index the second cycloidal profile by half a lobe, not by a full
+      180 degree shape rotation. For a disc with ``n_lobes`` lobes, that
+      geometric body phase is ``180 / n_lobes`` degrees. A 10-lobe disc rotated
+      by 180 degrees is exactly five full lobe pitches and is visually and
+      mechanically equivalent to no tooth-index phase change.
+
+    If output-pin clearance holes must stay aligned to one shared output pin
+    set, compensate the second disc's ``output_pin_phase`` by subtracting the
+    same body phase before rotating the finished disc body.
+
+    Parameters
+    ----------
+    n_lobes : int
+        Number of cycloidal lobes. The matching fixed pin ring has
+        ``n_lobes + 1`` pins and gives a single-stage ``n_lobes:1`` reduction.
+    ring_pin_pitch_radius : float
+        Radius of the fixed ring pin centers in mm.
+    roller_radius : float
+        Radius of the fixed ring pins or rollers used to offset the profile.
+    eccentricity : float
+        Input crank eccentricity in mm.
+    gear_height : float, default 6.0
+        Disc thickness / extrusion height along Z in mm.
+    bore_radius : float, default 0.0
+        Optional central bore radius. Zero leaves the disc unbored.
+    output_pin_count : int, default 0
+        Optional number of circular output-pin clearance holes.
+    output_pin_pitch_radius : float, default 0.0
+        Radius of the output-pin clearance hole centers in mm.
+    output_pin_clearance_radius : float, default 0.0
+        Radius of each output-pin clearance hole in mm.
+    output_pin_phase : float, default 0.0
+        Angular phase of the first output-pin clearance hole in degrees, in the
+        unrotated disc's local frame. When a finished disc is rotated to create
+        a tooth-index phase in a twin-disc stack, subtract that same rotation
+        from ``output_pin_phase`` if the clearance holes should remain aligned
+        to the same global output pins.
+    sample_count_per_lobe : int, default 33
+        Number of analytic samples fitted into each lobe B-spline segment.
+    spline_tolerance : float, default 0.005
+        Cubic B-spline fit tolerance in mm.
+    max_control_points : int, default 20
+        Maximum poles allowed for each fitted lobe segment.
+    """
+    if n_lobes < 2:
+        raise ValueError("n_lobes must be at least 2")
+    ring_pin_pitch_radius = _validate_positive_finite(
+        "ring_pin_pitch_radius", ring_pin_pitch_radius
+    )
+    roller_radius = _validate_positive_finite("roller_radius", roller_radius)
+    eccentricity = _validate_positive_finite("eccentricity", eccentricity)
+    gear_height = _validate_positive_finite("gear_height", gear_height)
+    bore_radius = _validate_non_negative_finite("bore_radius", bore_radius)
+    if output_pin_count < 0:
+        raise ValueError("output_pin_count must be non-negative")
+    output_pin_pitch_radius = _validate_non_negative_finite(
+        "output_pin_pitch_radius", output_pin_pitch_radius
+    )
+    output_pin_clearance_radius = _validate_non_negative_finite(
+        "output_pin_clearance_radius", output_pin_clearance_radius
+    )
+    if output_pin_count > 0:
+        if output_pin_pitch_radius <= 0.0:
+            raise ValueError(
+                "output_pin_pitch_radius must be positive when output holes are requested"
+            )
+        if output_pin_clearance_radius <= 0.0:
+            raise ValueError(
+                "output_pin_clearance_radius must be positive when output holes are requested"
+            )
+    if sample_count_per_lobe < 8:
+        raise ValueError("sample_count_per_lobe must be at least 8")
+    if spline_tolerance <= 0.0:
+        raise ValueError("spline_tolerance must be positive")
+    if max_control_points < 4:
+        raise ValueError("max_control_points must be at least 4")
+    output_pin_phase = float(output_pin_phase)
+    if not math.isfinite(output_pin_phase):
+        raise ValueError("output_pin_phase must be finite")
+
+    wire, fit_data = _build_cycloidal_disc_profile_wire(
+        n_lobes=n_lobes,
+        ring_pin_pitch_radius=ring_pin_pitch_radius,
+        roller_radius=roller_radius,
+        eccentricity=eccentricity,
+        sample_count_per_lobe=sample_count_per_lobe,
+        spline_tolerance=spline_tolerance,
+        max_control_points=max_control_points,
+        return_fit_data=True,
+    )
+    disc = extrude_rsolid(wire, direction=(0.0, 0.0, 1.0), distance=gear_height)
+
+    cutters: List[Solid] = []
+    if bore_radius > 0.0:
+        cutters.append(
+            make_cylinder_rsolid(
+                radius=bore_radius,
+                height=gear_height + 0.4,
+                bottom_face_center=(0.0, 0.0, -0.2),
+                axis=(0.0, 0.0, 1.0),
+            )
+        )
+    if output_pin_count > 0:
+        for index in range(output_pin_count):
+            angle = math.radians(output_pin_phase + 360.0 * index / output_pin_count)
+            cutters.append(
+                make_cylinder_rsolid(
+                    radius=output_pin_clearance_radius,
+                    height=gear_height + 0.4,
+                    bottom_face_center=(
+                        output_pin_pitch_radius * math.cos(angle),
+                        output_pin_pitch_radius * math.sin(angle),
+                        -0.2,
+                    ),
+                    axis=(0.0, 0.0, 1.0),
+                )
+            )
+
+    if cutters:
+        disc = cut_rsolid(disc, cutters, skip_non_intersecting=False)
+    disc.set_metadata(
+        "std.gear.cycloidal_disc",
+        {
+            **fit_data,
+            "ring_pin_pitch_radius": float(ring_pin_pitch_radius),
+            "roller_radius": float(roller_radius),
+            "eccentricity": float(eccentricity),
+            "gear_height": float(gear_height),
+            "bore_radius": float(bore_radius),
+            "output_pin_count": int(output_pin_count),
+            "output_pin_pitch_radius": float(output_pin_pitch_radius),
+            "output_pin_clearance_radius": float(output_pin_clearance_radius),
+            "output_pin_phase": float(output_pin_phase),
+            "spline_tolerance": float(spline_tolerance),
+            "max_control_points": int(max_control_points),
+        },
+    )
+    return disc
 
 
 # ---------------------------------------------------------------------------
@@ -1011,7 +1542,21 @@ def make_helical_rack_rsolid(
     helix_angle: float = 25.0,
     rack_height: float = 8.0,
 ) -> Solid:
-    """Create a helical rack."""
+    """Create a helical rack.
+
+    Parameters
+    ----------
+    module : float
+        Gear module in mm (tooth pitch = pi * module).
+    n_teeth : int, default 10
+        Number of teeth along the rack.
+    pressure_angle : float, default 20
+        Pressure angle in degrees.
+    helix_angle : float, default 25
+        Helix angle in degrees.
+    rack_height : float, default 8.0
+        Rack thickness along Z in mm.
+    """
     if helix_angle == 0:
         return make_spur_rack_rsolid(module, n_teeth, pressure_angle, rack_height)
 
@@ -1043,7 +1588,21 @@ def make_herringbone_rack_rsolid(
     helix_angle: float = 30.0,
     rack_height: float = 10.0,
 ) -> Solid:
-    """Create a herringbone rack."""
+    """Create a herringbone rack.
+
+    Parameters
+    ----------
+    module : float
+        Gear module in mm (tooth pitch = pi * module).
+    n_teeth : int, default 10
+        Number of teeth along the rack.
+    pressure_angle : float, default 20
+        Pressure angle in degrees.
+    helix_angle : float, default 30
+        Helix angle of each half in degrees.
+    rack_height : float, default 10.0
+        Total rack thickness along Z in mm.
+    """
     if helix_angle == 0:
         return make_spur_rack_rsolid(module, n_teeth, pressure_angle, rack_height)
 
