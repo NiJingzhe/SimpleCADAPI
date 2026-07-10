@@ -1,6 +1,23 @@
+<p align="center">
+  <img src="img/repocover.png" alt="SimpleCADAPI 仓库封面">
+</p>
+
 # SimpleCADAPI
 
 [English](README.md)
+
+---
+
+<div align="center">
+  <h2>CADDesigner 论文成果</h2>
+  <p>本仓库是以下论文工作的项目产物：</p>
+  <p>
+    <strong><a href="https://562590763.github.io/CADDesigner/">CADDesigner: Conceptual CAD Model Generation with a General-Purpose Agent</a></strong>
+  </p>
+  <p><strong>Computer-Aided Design 2026 接收</strong></p>
+</div>
+
+---
 
 SimpleCADAPI 是一个基于 OCP 的 Python CAD SDK，提供清晰的函数式建模操作和可重放的模型图。它在 OpenCascade 几何内核之上提供精简的公共 API，可用于创建实体、应用特征、添加语义标签、查询拓扑、导出制造文件，以及将记录的模型转换为 FreeCAD 工作流。
 
@@ -131,3 +148,11 @@ python3 -m compileall src/simplecadapi
 ## 许可证
 
 本项目采用 GNU Affero 通用公共许可证第 3 版（AGPL-3.0），详见 [`LICENSE`](LICENSE)。
+
+## 社区交流
+
+欢迎扫码加入 CADDesigner 技术交流群：
+
+<p align="center">
+  <img src="img/CADDesigner群二维码.png" alt="CADDesigner 微信技术交流群二维码" width="420">
+</p>
