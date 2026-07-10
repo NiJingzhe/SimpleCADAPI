@@ -6,52 +6,108 @@ import math
 
 import simplecadapi as scad
 
-from common import (
-    apply_tags,
-    make_axis_part_rpart,
-    make_axial_hole_cutters_rsolids,
-    make_z_rotation_rplacement,
-)
-from dimensions import (
-    ADDENDUM_FACTOR,
-    BACKLASH,
-    CLEARANCE_FACTOR,
-    GEAR_HEIGHT,
-    HELIX_ANGLE,
-    INTERSTAGE_BEARING_CENTER_Z,
-    OUTPUT_BEARING_1_CENTER_Z,
-    OUTPUT_BEARING_2_CENTER_Z,
-    OUTPUT_FLANGE_BOTTOM_Z,
-    OUTPUT_FLANGE_RADIUS,
-    OUTPUT_FLANGE_TOP_Z,
-    OUTPUT_LINK_HOLE_PCD,
-    OUTPUT_LINK_HOLE_RADIUS,
-    OUTPUT_SHAFT_RADIUS,
-    PLANET_BEARING,
-    PLANET_COUNT,
-    PRESSURE_ANGLE,
-    RING_INSERT_OUTER_RADIUS,
-    RING_RIM_THICKNESS,
-    RING_SUPPORT_OVERLAP,
-    STAGE1_ARM_WIDTH,
-    STAGE1_CARRIER_BOTTOM_Z,
-    STAGE1_CARRIER_THICKNESS,
-    STAGE1_HUB_RADIUS,
-    STAGE1_PAD_RADIUS,
-    STAGE1_PIN_BOTTOM_Z,
-    STAGE1_PIN_RADIUS,
-    STAGE2_ARM_WIDTH,
-    STAGE2_CARRIER_BOTTOM_Z,
-    STAGE2_CARRIER_THICKNESS,
-    STAGE2_HUB_RADIUS,
-    STAGE2_PAD_RADIUS,
-    STAGE2_PIN_BOTTOM_Z,
-    STAGE2_PIN_RADIUS,
-    STAGE_1,
-    STAGE_2,
-    INTERSTAGE_SHAFT_RADIUS,
-    StageSpec,
-)
+try:
+    from .common import (
+        apply_tags,
+        make_axis_part_rpart,
+        make_axial_hole_cutters_rsolids,
+        make_z_rotation_rplacement,
+    )
+    from .dimensions import (
+        ADDENDUM_FACTOR,
+        BACKLASH,
+        CLEARANCE_FACTOR,
+        GEAR_HEIGHT,
+        HELIX_ANGLE,
+        INTERSTAGE_BEARING_CENTER_Z,
+        INTERSTAGE_SHAFT_RADIUS,
+        OUTPUT_BEARING_1_CENTER_Z,
+        OUTPUT_BEARING_2_CENTER_Z,
+        OUTPUT_FLANGE_BOTTOM_Z,
+        OUTPUT_FLANGE_RADIUS,
+        OUTPUT_FLANGE_TOP_Z,
+        OUTPUT_LINK_BOLT_ANGLES_DEGREES,
+        OUTPUT_LINK_BOLT_COUNT,
+        OUTPUT_LINK_HOLE_PCD,
+        OUTPUT_LINK_TAP_RADIUS,
+        OUTPUT_LINK_THREAD_DEPTH,
+        OUTPUT_REGISTER_HEIGHT,
+        OUTPUT_SHAFT_RADIUS,
+        PLANET_BEARING,
+        PLANET_COUNT,
+        PRESSURE_ANGLE,
+        RING_INSERT_OUTER_RADIUS,
+        RING_RIM_THICKNESS,
+        RING_SUPPORT_OVERLAP,
+        STAGE1_ARM_WIDTH,
+        STAGE1_CARRIER_BOTTOM_Z,
+        STAGE1_CARRIER_THICKNESS,
+        STAGE1_HUB_RADIUS,
+        STAGE1_PAD_RADIUS,
+        STAGE1_PIN_BOTTOM_Z,
+        STAGE1_PIN_RADIUS,
+        STAGE2_ARM_WIDTH,
+        STAGE2_CARRIER_BOTTOM_Z,
+        STAGE2_CARRIER_THICKNESS,
+        STAGE2_HUB_RADIUS,
+        STAGE2_PAD_RADIUS,
+        STAGE2_PIN_BOTTOM_Z,
+        STAGE2_PIN_RADIUS,
+        STAGE_1,
+        STAGE_2,
+        StageSpec,
+    )
+except ImportError:  # Support direct execution from this example directory.
+    from common import (
+        apply_tags,
+        make_axis_part_rpart,
+        make_axial_hole_cutters_rsolids,
+        make_z_rotation_rplacement,
+    )
+    from dimensions import (
+        ADDENDUM_FACTOR,
+        BACKLASH,
+        CLEARANCE_FACTOR,
+        GEAR_HEIGHT,
+        HELIX_ANGLE,
+        INTERSTAGE_BEARING_CENTER_Z,
+        INTERSTAGE_SHAFT_RADIUS,
+        OUTPUT_BEARING_1_CENTER_Z,
+        OUTPUT_BEARING_2_CENTER_Z,
+        OUTPUT_FLANGE_BOTTOM_Z,
+        OUTPUT_FLANGE_RADIUS,
+        OUTPUT_FLANGE_TOP_Z,
+        OUTPUT_LINK_BOLT_ANGLES_DEGREES,
+        OUTPUT_LINK_BOLT_COUNT,
+        OUTPUT_LINK_HOLE_PCD,
+        OUTPUT_LINK_TAP_RADIUS,
+        OUTPUT_LINK_THREAD_DEPTH,
+        OUTPUT_REGISTER_HEIGHT,
+        OUTPUT_SHAFT_RADIUS,
+        PLANET_BEARING,
+        PLANET_COUNT,
+        PRESSURE_ANGLE,
+        RING_INSERT_OUTER_RADIUS,
+        RING_RIM_THICKNESS,
+        RING_SUPPORT_OVERLAP,
+        STAGE1_ARM_WIDTH,
+        STAGE1_CARRIER_BOTTOM_Z,
+        STAGE1_CARRIER_THICKNESS,
+        STAGE1_HUB_RADIUS,
+        STAGE1_PAD_RADIUS,
+        STAGE1_PIN_BOTTOM_Z,
+        STAGE1_PIN_RADIUS,
+        STAGE2_ARM_WIDTH,
+        STAGE2_CARRIER_BOTTOM_Z,
+        STAGE2_CARRIER_THICKNESS,
+        STAGE2_HUB_RADIUS,
+        STAGE2_PAD_RADIUS,
+        STAGE2_PIN_BOTTOM_Z,
+        STAGE2_PIN_RADIUS,
+        STAGE_1,
+        STAGE_2,
+        StageSpec,
+    )
 
 
 def make_stage_ring_gear_rpart(
@@ -233,7 +289,12 @@ def make_output_carrier_flange_rpart(
     )
     shaft = scad.make_cylinder_rsolid(
         radius=OUTPUT_SHAFT_RADIUS,
-        height=OUTPUT_FLANGE_TOP_Z - STAGE2_CARRIER_BOTTOM_Z + 0.1,
+        height=(
+            OUTPUT_FLANGE_TOP_Z
+            + OUTPUT_REGISTER_HEIGHT
+            - STAGE2_CARRIER_BOTTOM_Z
+            + 0.05
+        ),
         bottom_face_center=(0.0, 0.0, STAGE2_CARRIER_BOTTOM_Z - 0.05),
         axis=(0.0, 0.0, 1.0),
     )
@@ -247,12 +308,12 @@ def make_output_carrier_flange_rpart(
     output = scad.cut_rsolid(
         output,
         make_axial_hole_cutters_rsolids(
-            count=6,
+            count=OUTPUT_LINK_BOLT_COUNT,
             pcd=OUTPUT_LINK_HOLE_PCD,
-            hole_radius=OUTPUT_LINK_HOLE_RADIUS,
-            bottom_z=OUTPUT_FLANGE_BOTTOM_Z - 1.0,
-            height=OUTPUT_FLANGE_TOP_Z - OUTPUT_FLANGE_BOTTOM_Z + 2.0,
-            angle_offset=30.0,
+            hole_radius=OUTPUT_LINK_TAP_RADIUS,
+            bottom_z=OUTPUT_FLANGE_TOP_Z - OUTPUT_LINK_THREAD_DEPTH,
+            height=OUTPUT_LINK_THREAD_DEPTH + 1.0,
+            angle_offset=OUTPUT_LINK_BOLT_ANGLES_DEGREES[0],
         ),
         skip_non_intersecting=False,
     )
@@ -274,10 +335,12 @@ def make_output_carrier_flange_rpart(
                 (f"planet_{index + 1}_bearing_axis", (*center, stage.mid_z), f"Stage 2 planet {index + 1} bearing pin"),
             )
         )
-    radial_ligament = OUTPUT_FLANGE_RADIUS - (OUTPUT_LINK_HOLE_PCD / 2.0 + OUTPUT_LINK_HOLE_RADIUS)
+    radial_ligament = OUTPUT_FLANGE_RADIUS - (OUTPUT_LINK_HOLE_PCD / 2.0 + OUTPUT_LINK_TAP_RADIUS)
     print(
-        f"output_carrier_flange: shaft_d={OUTPUT_SHAFT_RADIUS * 2.0:.2f} holes=6 "
-        f"pcd={OUTPUT_LINK_HOLE_PCD:.1f} radial_ligament={radial_ligament:.2f}"
+        f"output_carrier_flange: shaft_d={OUTPUT_SHAFT_RADIUS * 2.0:.2f} "
+        f"pilot_h={OUTPUT_REGISTER_HEIGHT:.1f} tapped_holes={OUTPUT_LINK_BOLT_COUNT} "
+        f"pcd={OUTPUT_LINK_HOLE_PCD:.1f} thread_depth={OUTPUT_LINK_THREAD_DEPTH:.1f} "
+        f"radial_ligament={radial_ligament:.2f}"
     )
     return make_axis_part_rpart(
         part_id="stage2_output_carrier_flange",

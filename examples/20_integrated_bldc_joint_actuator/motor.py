@@ -4,16 +4,52 @@ from __future__ import annotations
 
 import simplecadapi as scad
 
-from common import (
-    apply_tags,
-    connector_ref,
-    ground_constraint_report,
-    make_annulus_rsolid,
-    make_axis_part_rpart,
-    make_z_rotation_rplacement,
-    radial_centers,
-)
-from dimensions import (
+try:
+    from .common import (
+        apply_tags,
+        connector_ref,
+        ground_constraint_report,
+        make_annulus_rsolid,
+        make_axis_part_rpart,
+        make_z_rotation_rplacement,
+        radial_centers,
+    )
+    from .dimensions import (
+        ADDENDUM_FACTOR,
+        BACKLASH,
+        CLEARANCE_FACTOR,
+        GEAR_HEIGHT,
+        HELIX_ANGLE,
+        MOTOR_MAGNET_OUTER_RADIUS,
+        MOTOR_MAGNET_TANGENTIAL_WIDTH,
+        MOTOR_POLE_COUNT,
+        MOTOR_ROTOR_BACKIRON_RADIUS,
+        MOTOR_ROTOR_BOTTOM_Z,
+        MOTOR_ROTOR_TOP_Z,
+        MOTOR_SHAFT_RADIUS,
+        MOTOR_SHELL_INNER_RADIUS,
+        MOTOR_SLOT_COUNT,
+        MOTOR_STATOR_BOTTOM_Z,
+        MOTOR_STATOR_OUTER_RADIUS,
+        MOTOR_STATOR_TOOTH_INNER_RADIUS,
+        MOTOR_STATOR_TOOTH_WIDTH,
+        MOTOR_STATOR_TOP_Z,
+        MOTOR_STATOR_YOKE_INNER_RADIUS,
+        PRESSURE_ANGLE,
+        REAR_BEARING_CENTER_Z,
+        STAGE_1,
+    )
+except ImportError:  # Support direct execution from this example directory.
+    from common import (
+        apply_tags,
+        connector_ref,
+        ground_constraint_report,
+        make_annulus_rsolid,
+        make_axis_part_rpart,
+        make_z_rotation_rplacement,
+        radial_centers,
+    )
+    from dimensions import (
     ADDENDUM_FACTOR,
     BACKLASH,
     CLEARANCE_FACTOR,
@@ -37,7 +73,7 @@ from dimensions import (
     PRESSURE_ANGLE,
     REAR_BEARING_CENTER_Z,
     STAGE_1,
-)
+    )
 
 
 def make_bldc_stator_rassembly(

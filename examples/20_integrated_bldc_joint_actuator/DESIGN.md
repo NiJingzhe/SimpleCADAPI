@@ -85,7 +85,7 @@ manufacturable attachment geometry.
 | `output_carrier_revolute` | Joint output rotation | Paired output bearings | 16 mm shaft in two 16x24x5 bearings |
 | Planet revolutes | Planet spin | 3x6x3 bearings on 3 mm pins | 0.05 mm radial gear-seat clearance |
 | Output cap to housing | Fixed | Six M3 screws | 43.0 mm PCD, 3.2 mm holes |
-| Output link | External fixed attachment | Six M3 screws | 34.0 mm PCD in 44.8 mm flange |
+| Output link | External fixed attachment | Six M3 screws | 34.0 mm PCD tapped holes, Ø15.96 locating pilot |
 
 ## Electronics Packaging
 
@@ -125,7 +125,13 @@ is installed.
 - The front reducer bulkhead is 8 mm long around the 19 mm motor bearing.
 - Two adjacent output bearings form a 10 mm stack with 5 mm center spacing to
   distribute overturning load.
-- The output flange leaves 3.8 mm radial ligament beyond the M3 hole edges.
+- The output flange leaves 4.15 mm radial ligament beyond the M3 tapped-hole edges.
+- The output face carries a 1.5 mm-high, Ø15.96 locating pilot. Mating links use
+  the pilot for concentric location and six Ø3.3 clearance holes with Ø6 socket-
+  head counterbores; the screws provide clamp load rather than radial location.
+- External robot structure clamps the continuous Ø50 reducer sleeve at the
+  `case_clamp_axis` datum (`Z = 20.0`) instead of sharing the internal output-cap
+  retention screws.
 - The stator yoke contacts the aluminum shell over its full active length for a
   direct thermal path; controller heat can flow through the rear standoffs and
   cover.

@@ -404,6 +404,9 @@ class FreeCADScriptTranslator:
         emit("ASSEMBLY_PROJECTION_INPUTS = {}")
         emit("GUI_VISIBILITY_BY_NAME = {}")
         emit("GUI_EXPANDED_BY_NAME = {}")
+        emit("GUI_SHAPE_COLOR_BY_NAME = {}")
+        emit("GUI_MATERIAL_OVERRIDE_BY_NAME = {}")
+        emit("MATERIAL_OBJECTS_BY_ID = {}")
         emit("SIMPLECAD_JOINT_OBJECTS = {}")
         emit("SKETCH_REGISTRY = []")
         expression_graph_payload = payload.get("expression_graph", {})
@@ -688,6 +691,21 @@ def _ensure_string_list_property(obj, prop_name, group='SimpleCAD'):
 def _ensure_string_map_property(obj, prop_name, group='SimpleCAD'):
     if prop_name not in list(getattr(obj, 'PropertiesList', []) or []):
         obj.addProperty('App::PropertyMap', prop_name, group)
+
+
+def _ensure_float_property(obj, prop_name, group='SimpleCAD'):
+    if prop_name not in list(getattr(obj, 'PropertiesList', []) or []):
+        obj.addProperty('App::PropertyFloat', prop_name, group)
+
+
+def _ensure_color_property(obj, prop_name, group='SimpleCAD'):
+    if prop_name not in list(getattr(obj, 'PropertiesList', []) or []):
+        obj.addProperty('App::PropertyColor', prop_name, group)
+
+
+def _ensure_link_property(obj, prop_name, group='SimpleCAD'):
+    if prop_name not in list(getattr(obj, 'PropertiesList', []) or []):
+        obj.addProperty('App::PropertyLink', prop_name, group)
 
 
 def _ensure_placement_property(obj, prop_name='Placement', group='SimpleCAD'):
@@ -1169,6 +1187,29 @@ def _connector_reference_for_component(assembly_value, component_entry, connecto
     link = component_entry.get('link')
     if link is None:
         raise RuntimeError(f'Missing component link for component {component_entry.get("component_id")!r}')
+    anchor = _connector_anchor_payload(connector_payload or {})
+    if (
+        getattr(link, 'TypeId', '') == 'Assembly::AssemblyLink'
+        and not bool(getattr(link, 'Rigid', True))
+        and str(anchor.get('anchor_kind') or '').lower() == 'forwarded'
+    ):
+        source_component = _find_component_entry(
+            component_entry.get('item') or {}, anchor.get('source_component_id')
+        )
+        source_link = source_component.get('link')
+        local_link = next(
+            child
+            for child in list(getattr(link, 'Group', []) or [])
+            if getattr(child, 'LinkedObject', None) is source_link
+        )
+        source_item = source_component.get('item') or {}
+        source_connector = _connector_payload_for_item(
+            source_item, anchor.get('source_connector_id')
+        )
+        placement = _connector_local_placement(source_item, source_connector)
+        if isinstance(anchor.get('offset'), dict):
+            placement = placement.multiply(_placement_from_axes_payload(anchor.get('offset')))
+        return local_link, ['', ''], placement, True
     datum = (connector_payload or {}).get('datum')
     datum_name = str(getattr(datum, 'Name', '') or '')
     if datum_name:
@@ -1276,7 +1317,7 @@ def _make_simplecad_joint(assembly_value, constraint_payload, object_name, label
     _ensure_string_property(joint, 'SimpleCADConstraintTranslationStatus')
     joint.SimpleCADConstraint = json.dumps(constraint_payload, ensure_ascii=True, sort_keys=True)
     joint.SimpleCADConstraintTranslationStatus = native_status
-    _set_visibility(joint, True)
+    _set_visibility(joint, False)
     try:
         SIMPLECAD_JOINT_OBJECTS[str(joint.Name)] = joint_type
     except Exception:
@@ -1303,7 +1344,7 @@ def _make_simplecad_grounded_joint(assembly_value, component_id):
         _ensure_string_property(ground, 'ObjectToGround')
     _ensure_string_property(ground, 'SimpleCADGroundedComponent')
     ground.SimpleCADGroundedComponent = str(component_id)
-    _set_visibility(ground, True)
+    _set_visibility(ground, False)
     try:
         SIMPLECAD_JOINT_OBJECTS[str(ground.Name)] = 'Grounded'
     except Exception:
@@ -1313,6 +1354,7 @@ def _make_simplecad_grounded_joint(assembly_value, component_id):
 
 PRODUCT_LIBRARY_GROUP = None
 CONSTRUCTION_GROUP = None
+MATERIAL_LIBRARY_GROUP = None
 
 
 def _named_document_group(name, label):
@@ -1339,6 +1381,13 @@ def _construction_group():
     return CONSTRUCTION_GROUP
 
 
+def _material_library_group():
+    global MATERIAL_LIBRARY_GROUP
+    if MATERIAL_LIBRARY_GROUP is None:
+        MATERIAL_LIBRARY_GROUP = _named_document_group('SimpleCADMaterials', 'SimpleCAD Materials')
+    return MATERIAL_LIBRARY_GROUP
+
+
 def _group_contains(group, obj):
     return obj in list(getattr(group, 'Group', []) or [])
 
@@ -1351,6 +1400,115 @@ def _add_to_group(group, obj):
             group.addObject(obj)
         except Exception:
             pass
+
+
+def _material_from_assignment_params(params):
+    params = dict(params or {})
+    material = params.get('material')
+    if isinstance(material, dict):
+        return dict(material)
+    return {
+        'material_id': str(params.get('material_id', '')),
+        'name': params.get('name'),
+        'density': params.get('density'),
+        'density_unit': params.get('density_unit'),
+        'color': params.get('color'),
+    }
+
+
+def _material_color(material):
+    color = (material or {}).get('color')
+    if not isinstance(color, (list, tuple)) or len(color) != 3:
+        return None
+    try:
+        result = tuple(float(component) for component in color)
+    except Exception:
+        return None
+    if any(component < 0.0 or component > 1.0 for component in result):
+        return None
+    return result
+
+
+def _packed_rgba(color):
+    channels = [max(0, min(255, int(float(component) * 255.0 + 0.5))) for component in color]
+    return (channels[0] << 24) | (channels[1] << 16) | (channels[2] << 8) | 255
+
+
+def _ensure_material_object(material):
+    material = dict(material or {})
+    material_id = str(material.get('material_id') or '')
+    if not material_id:
+        raise RuntimeError('Material assignment is missing material_id')
+    existing = MATERIAL_OBJECTS_BY_ID.get(material_id)
+    if existing is not None:
+        return existing
+    obj = doc.addObject('App::MaterialObjectPython', 'Material_' + _simplecad_slug(material_id, prefix='material'))
+    obj.Label = str(material.get('name') or material_id)
+    _ensure_string_property(obj, 'SimpleCADMaterialId', 'Material')
+    _ensure_string_property(obj, 'SimpleCADMaterialName', 'Material')
+    _ensure_string_property(obj, 'SimpleCADMaterial', 'Material')
+    obj.SimpleCADMaterialId = material_id
+    obj.SimpleCADMaterialName = str(material.get('name') or '')
+    obj.SimpleCADMaterial = json.dumps(material, ensure_ascii=True, sort_keys=True)
+    if material.get('density') is not None:
+        _ensure_float_property(obj, 'SimpleCADDensity', 'Material')
+        _ensure_string_property(obj, 'SimpleCADDensityUnit', 'Material')
+        obj.SimpleCADDensity = float(material.get('density'))
+        obj.SimpleCADDensityUnit = str(material.get('density_unit') or '')
+    color = _material_color(material)
+    if color is not None:
+        _ensure_color_property(obj, 'SimpleCADColor', 'Material')
+        obj.SimpleCADColor = color
+    native_map = {
+        'SimpleCAD.MaterialId': material_id,
+        'General.Name': str(material.get('name') or material_id),
+    }
+    if material.get('density') is not None:
+        native_map['General.Density'] = str(material.get('density')) + ' ' + str(material.get('density_unit') or '')
+    if color is not None:
+        native_map['General.Color'] = ','.join(str(component) for component in color)
+    obj.Material = native_map
+    _add_to_group(_material_library_group(), obj)
+    _set_visibility(obj, False)
+    MATERIAL_OBJECTS_BY_ID[material_id] = obj
+    return obj
+
+
+def _apply_material_to_object(obj, material, *, override=False, visual=True):
+    if obj is None:
+        return None
+    material = dict(material or {})
+    material_obj = _ensure_material_object(material)
+    _ensure_string_property(obj, 'SimpleCADMaterial')
+    _ensure_link_property(obj, 'SimpleCADMaterialObject')
+    obj.SimpleCADMaterial = json.dumps(material, ensure_ascii=True, sort_keys=True)
+    obj.SimpleCADMaterialObject = material_obj
+    color = _material_color(material)
+    if color is None or not visual:
+        return material_obj
+    name = str(getattr(obj, 'Name', ''))
+    if name:
+        GUI_SHAPE_COLOR_BY_NAME[name] = _packed_rgba(color)
+        if override:
+            GUI_MATERIAL_OVERRIDE_BY_NAME[name] = True
+    try:
+        view = getattr(obj, 'ViewObject', None)
+        if view is not None:
+            if hasattr(view, 'ShapeColor'):
+                view.ShapeColor = color
+            if override and hasattr(view, 'OverrideMaterial'):
+                view.OverrideMaterial = True
+    except Exception:
+        pass
+    return material_obj
+
+
+def _apply_material_to_product(product_value, material):
+    material_obj = _apply_material_to_object(product_value.get('container'), material, visual=False)
+    _apply_material_to_object(product_value.get('body'), material)
+    product_value['material'] = dict(material or {})
+    product_value['material_object'] = material_obj
+    return product_value
 
 
 def _is_origin_object(obj):
@@ -1431,13 +1589,45 @@ def _make_assembly_component_link(assembly_container, product_item, name, label,
     link.LinkedObject = product_item.get('container')
     if product_item.get('kind') == 'part':
         link.LinkedObject = product_item.get('container') or product_item.get('body')
-    link.Placement = _placement_from_axes_payload(placement)
     if link_type == 'Assembly::AssemblyLink':
         try:
-            link.Rigid = True
+            movable_kinds = {'revolute', 'prismatic'}
+            link.Rigid = not any(
+                str(constraint.get('constraint_kind')) in movable_kinds
+                for constraint in list(product_item.get('constraints', []) or [])
+            )
         except Exception:
             pass
+    _set_component_link_placement(link, product_item, placement)
+    if product_item.get('kind') == 'part' and product_item.get('material'):
+        _apply_material_to_object(link, product_item.get('material'), override=True)
     return link
+
+
+def _set_component_link_placement(link, product_item, placement):
+    target_placement = _placement_from_axes_payload(placement)
+    if not (
+        getattr(link, 'TypeId', '') == 'Assembly::AssemblyLink'
+        and not bool(getattr(link, 'Rigid', True))
+    ):
+        link.Placement = target_placement
+        return
+    doc.recompute()
+    link.Placement = App.Placement()
+    for source_component in list(product_item.get('components', []) or []):
+        source_link = source_component.get('link')
+        local_link = next(
+            (
+                child
+                for child in list(getattr(link, 'Group', []) or [])
+                if getattr(child, 'LinkedObject', None) is source_link
+            ),
+            None,
+        )
+        if local_link is None:
+            continue
+        source_placement = _placement_from_axes_payload(source_component.get('placement') or {})
+        local_link.Placement = target_placement.multiply(source_placement)
 
 
 def _node_object(node_id, index=0):
@@ -1500,7 +1690,13 @@ def _write_gui_document_xml(fcstd_path):
             name = str(obj.Name)
         except Exception:
             continue
-        object_rows.append((name, _visibility_for_gui(obj), bool(GUI_EXPANDED_BY_NAME.get(name, False))))
+        object_rows.append((
+            name,
+            _visibility_for_gui(obj),
+            bool(GUI_EXPANDED_BY_NAME.get(name, False)),
+            GUI_SHAPE_COLOR_BY_NAME.get(name),
+            bool(GUI_MATERIAL_OVERRIDE_BY_NAME.get(name, False)),
+        ))
     lines = [
         "<?xml version='1.0' encoding='utf-8'?>",
         '<!--',
@@ -1509,32 +1705,47 @@ def _write_gui_document_xml(fcstd_path):
         '<Document SchemaVersion="1">',
         f'    <ViewProviderData Count="{len(object_rows)}">',
     ]
-    for name, visible, expanded in object_rows:
+    for name, visible, expanded, packed_color, override_material in object_rows:
         joint_type = SIMPLECAD_JOINT_OBJECTS.get(name)
+        properties = [
+            ('Visibility', 'App::PropertyBool', f'<Bool value="{str(bool(visible)).lower()}"/>'),
+        ]
+        if packed_color is not None and override_material:
+            properties.extend([
+                ('OverrideMaterial', 'App::PropertyBool', '<Bool value="true"/>'),
+                (
+                    'ShapeMaterial',
+                    'App::PropertyMaterial',
+                    '<PropertyMaterial ambientColor="858993663" '
+                    f'diffuseColor="{int(packed_color)}" '
+                    'specularColor="858993663" emissiveColor="255" '
+                    'shininess="0.2" transparency="0" image="" imagePath="" uuid=""/>',
+                ),
+            ])
+        elif packed_color is not None:
+            properties.append(
+                ('ShapeColor', 'App::PropertyColor', f'<PropertyColor value="{int(packed_color)}"/>')
+            )
         if joint_type is not None:
             vp_class = 'ViewProviderGroundedJoint' if joint_type == 'Grounded' else 'ViewProviderJoint'
+            properties.append(
+                ('Proxy', 'App::PropertyPythonObject', f'<Python value="bnVsbA==" encoded="yes" module="JointObject" class="{vp_class}"/>')
+            )
+        lines.extend([
+            f'        <ViewProvider name="{_xml_attr(name)}" expanded="{1 if expanded else 0}">',
+            f'            <Properties Count="{len(properties)}">',
+        ])
+        for prop_name, prop_type, prop_value in properties:
+            status = ' status="67108864"' if prop_name == 'Proxy' else ''
             lines.extend([
-                f'        <ViewProvider name="{_xml_attr(name)}" expanded="{1 if expanded else 0}">',
-                '            <Properties Count="2">',
-                '                <Property name="Visibility" type="App::PropertyBool">',
-                f'                    <Bool value="{str(bool(visible)).lower()}"/>',
+                f'                <Property name="{prop_name}" type="{prop_type}"{status}>',
+                f'                    {prop_value}',
                 '                </Property>',
-                '                <Property name="Proxy" type="App::PropertyPythonObject" status="67108864">',
-                f'                    <Python value="bnVsbA==" encoded="yes" module="JointObject" class="{vp_class}"/>',
-                '                </Property>',
-                '            </Properties>',
-                '        </ViewProvider>',
             ])
-        else:
-            lines.extend([
-                f'        <ViewProvider name="{_xml_attr(name)}" expanded="{1 if expanded else 0}">',
-                '            <Properties Count="1">',
-                '                <Property name="Visibility" type="App::PropertyBool">',
-                f'                    <Bool value="{str(bool(visible)).lower()}"/>',
-                '                </Property>',
-                '            </Properties>',
-                '        </ViewProvider>',
-            ])
+        lines.extend([
+            '            </Properties>',
+            '        </ViewProvider>',
+        ])
     lines.extend([
         '    </ViewProviderData>',
         '    <Camera settings="  OrthographicCamera { viewportMapping ADJUST_CAMERA position 0 -0 20000 orientation 0 0 1 0 nearDistance 1 farDistance 100000 aspectRatio 1 focalDistance 20000 height 1000 } "/>',
@@ -3895,7 +4106,8 @@ def _resolve_vec3_param(params, param_exprs, key):
         if node.op == "make_material_rmaterial":
             return [
                 f"{var_name} = dict({rp})",
-                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'material', 'material': {var_name}}}",
+                f"{var_name}_object = _ensure_material_object({var_name})",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'material', 'material': {var_name}, 'material_object': {var_name}_object}}",
                 f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
 
@@ -3928,10 +4140,8 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"{var_name}_part = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
                 f"{var_name}_material = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['material']",
                 f"{var_name} = {var_name}_part['container']",
-                f"_ensure_string_property({var_name}, 'SimpleCADMaterial')",
-                f"{var_name}.SimpleCADMaterial = json.dumps({var_name}_material, ensure_ascii=True, sort_keys=True)",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_part)",
-                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['material'] = {var_name}_material",
+                f"_apply_material_to_product(PRODUCT_VALUES[{_json_ascii(node.node_id)}], {var_name}_material)",
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
             return lines
@@ -3939,12 +4149,10 @@ def _resolve_vec3_param(params, param_exprs, key):
         if node.op == "make_assign_material_rpart" and len(inputs) == 1:
             lines = [
                 f"{var_name}_part = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
-                f"{var_name}_material = dict({rp})",
+                f"{var_name}_material = _material_from_assignment_params({rp})",
                 f"{var_name} = {var_name}_part['container']",
-                f"_ensure_string_property({var_name}, 'SimpleCADMaterial')",
-                f"{var_name}.SimpleCADMaterial = json.dumps({var_name}_material, ensure_ascii=True, sort_keys=True)",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_part)",
-                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['material'] = {var_name}_material",
+                f"_apply_material_to_product(PRODUCT_VALUES[{_json_ascii(node.node_id)}], {var_name}_material)",
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
             return lines
@@ -3987,7 +4195,7 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"    if str(_component.get('component_id')) == str({rp}.get('component_id')):",
                 f"        _component = dict(_component)",
                 f"        _component['placement'] = {var_name}_placement",
-                f"        _component['link'].Placement = _placement_from_axes_payload({var_name}_placement)",
+                f"        _set_component_link_placement(_component['link'], _component.get('item') or {{}}, {var_name}_placement)",
                 f"    {var_name}_components.append(_component)",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['components'] = {var_name}_components",
@@ -4093,7 +4301,7 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"    _component_id = str(_component.get('component_id'))",
                 f"    if _component_id in {var_name}_placements:",
                 f"        _component['placement'] = {var_name}_placements[_component_id]",
-                f"        _component['link'].Placement = _placement_from_axes_payload(_component['placement'])",
+                f"        _set_component_link_placement(_component['link'], _component.get('item') or {{}}, _component['placement'])",
                 f"    {var_name}_components.append(_component)",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['components'] = {var_name}_components",
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
