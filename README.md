@@ -204,4 +204,4 @@ python3 -m compileall src/simplecadapi
 
 ## License
 
-MIT, see [`LICENSE`](LICENSE).
+AGPL-3.0, see [`LICENSE`](LICENSE).

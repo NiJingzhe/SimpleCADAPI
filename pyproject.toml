@@ -14,7 +14,7 @@ classifiers = [
   "Intended Audience :: Manufacturing",
   "Topic :: Scientific/Engineering",
   "Topic :: Scientific/Engineering :: Visualization",
-  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: GNU Affero General Public License v3",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",

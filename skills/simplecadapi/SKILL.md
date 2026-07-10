@@ -1,7 +1,7 @@
 ---
 name: simplecadapi
 description: Thin SimpleCAD SDK reference skill focused on the public API surface, core types, and current modeling workflows.
-license: MIT
+license: AGPL-3.0
 compatibility: Documentation/reference bundle for current SimpleCADAPI surfaces.
 metadata:
   project: simplecadapi
