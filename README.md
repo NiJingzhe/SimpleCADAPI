@@ -1,4 +1,11 @@
+<p align="center">
+  <img src="img/repocover.png" alt="SimpleCADAPI repository cover">
+</p>
+
 # SimpleCADAPI
+
+This repository is an artifact of **CADDesigner: Conceptual CAD Model Generation
+with a General-Purpose Agent**, accepted by *Computer-Aided Design* in 2026.
 
 SimpleCADAPI is an OCP-native Python SDK for building CAD models with clear,
 functional operations and replayable model graphs. It wraps OpenCascade geometry
@@ -174,3 +181,11 @@ python3 -m compileall src/simplecadapi
 ## License
 
 MIT, see [`LICENSE`](LICENSE).
+
+## Community
+
+Join the CADDesigner technical community on WeChat:
+
+<p align="center">
+  <img src="img/CADDesigner群二维码.png" alt="CADDesigner WeChat technical community QR code" width="420">
+</p>
