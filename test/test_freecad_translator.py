@@ -209,6 +209,29 @@ class TestFreeCADTranslator(unittest.TestCase):
         self.assertIn("SimpleCADComponentId", script)
         self.assertIn("Part.makeCompound", script)
 
+    def test_translate_model_json_assigns_external_material_params_in_script(self):
+        material = scad.make_material_rmaterial(
+            "external_aluminum_6061", density=2.7e-6, density_unit="kg/mm^3"
+        )
+        with GraphSession() as session:
+            body = scad.make_box_rsolid(2.0, 3.0, 1.0)
+            part = scad.make_part_rpart("external_material_plate", body)
+            scad.assign_material_rpart(part, material)
+
+        payload = json.loads(scad.export_model_json(session))
+        assign_nodes = [
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_assign_material_rpart"
+        ]
+        self.assertEqual(len(assign_nodes), 1)
+        self.assertEqual(len(assign_nodes[0]["inputs"]), 1)
+
+        script = freecad_translator.translate_model_json_to_freecad_script(json.dumps(payload))
+
+        self.assertIn("SimpleCADMaterial", script)
+        self.assertIn("_material = dict(", script)
+
     def test_translate_model_json_emits_forwarded_connector_datums_in_script(self):
         with GraphSession() as session:
             body = scad.make_box_rsolid(1.0, 1.0, 1.0)
@@ -940,6 +963,71 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual([gui_visibility[name] for name in compound_names], [False])
         self.assertEqual([gui["expanded"][name] for name in assembly_names], [True])
 
+    def test_translate_model_json_fcstd_multifuse_bridged_union_and_hides_connectors(self):
+        with GraphSession() as session:
+            lower = scad.make_box_rsolid(
+                width=10.0,
+                height=10.0,
+                depth=4.0,
+                bottom_face_center=(0.0, 0.0, 0.0),
+            )
+            upper = scad.make_box_rsolid(
+                width=10.0,
+                height=10.0,
+                depth=4.0,
+                bottom_face_center=(0.0, 0.0, 20.0),
+            )
+            bridge = scad.make_box_rsolid(
+                width=4.0,
+                height=4.0,
+                depth=24.0,
+                bottom_face_center=(0.0, 0.0, 0.0),
+            )
+            body = scad.union_rsolid(lower, upper, bridge, glue=False)
+            connector = scad.make_placement_connector_rconnector(
+                connector_id="axis",
+                placement=scad.make_placement_rplacement(origin=(0.0, 0.0, 0.0)),
+            )
+            part = scad.make_part_rpart("bridged_part", body)
+            part = scad.add_connector_rpart(part, connector)
+            assembly = scad.make_assembly_rassembly("bridged_assembly")
+            assembly = scad.add_component_rassembly(
+                assembly,
+                part,
+                component_id="bridged_1",
+                placement=scad.identity_placement_rplacement(),
+            )
+            scad.make_compound_from_assembly_rcompound(assembly)
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+parts = [obj for obj in doc.Objects if obj.TypeId == 'App::Part' and getattr(obj, 'SimpleCADPartId', '') == 'bridged_part']
+part = parts[0]
+children = [child for child in getattr(part, 'Group', []) if child.TypeId != 'App::Origin']
+body_children = [child for child in children if getattr(child, 'Label', '') == 'Body']
+connector_children = [child for child in children if hasattr(child, 'SimpleCADConnectorId')]
+body = body_children[0]
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'child_labels': [str(child.Label) for child in children],
+        'child_visible': [bool(child.Visibility) for child in children],
+        'body_solids': len(body.Shape.Solids),
+        'body_volume': round(float(body.Shape.Volume), 3),
+        'connector_visible': [bool(child.Visibility) for child in connector_children],
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(scad.export_model_json(session), probe)
+
+        self.assertIn("Body", result["child_labels"])
+        self.assertEqual(result["body_solids"], 1)
+        self.assertGreater(result["body_volume"], 0.0)
+        visible_by_label = dict(zip(result["child_labels"], result["child_visible"]))
+        self.assertTrue(visible_by_label["Body"])
+        self.assertEqual(result["connector_visible"], [False])
+
     def test_translate_model_json_folds_single_use_translate_into_extrusion_fcstd(self):
         tx = scad.var("fold_tx", 1.0)
         ty = scad.var("fold_ty", 2.0)
@@ -1599,6 +1687,62 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(result["solid_count"], 1)
         self.assertFalse(result["has_tools_fuse"])
         self.assertEqual(result["tool_shape_count"], 0)
+
+    def test_translate_model_json_applies_rotated_link_operands_in_boolean_fcstd(self):
+        with GraphSession() as session:
+            hub = scad.make_cylinder_rsolid(
+                radius=1.0,
+                height=1.0,
+                bottom_face_center=(0.0, 0.0, 0.0),
+                axis=(0.0, 0.0, 1.0),
+            )
+            arm = scad.make_box_rsolid(
+                width=4.0,
+                height=0.4,
+                depth=1.0,
+                bottom_face_center=(2.0, 0.0, 0.0),
+            )
+            arm_b = scad.rotate_shape(
+                shape=arm,
+                angle=120.0,
+                axis=(0.0, 0.0, 1.0),
+                origin=(0.0, 0.0, 5.0),
+            )
+            arm_c = scad.rotate_shape(
+                shape=arm,
+                angle=240.0,
+                axis=(0.0, 0.0, 1.0),
+                origin=(0.0, 0.0, 5.0),
+            )
+            scad.union_rsolid([hub, arm, arm_b, arm_c], glue=False)
+
+        payload = scad.export_model_json(session)
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+union_objs = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_union_rsolid']
+final_union = union_objs[-1]
+shape = final_union.Shape
+bb = shape.BoundBox
+materialized = [obj for obj in doc.Objects if hasattr(obj, 'SimpleCADMaterializedFromLink')]
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'solid_count': len(shape.Solids),
+        'volume': float(shape.Volume),
+        'bbox': [float(bb.XMin), float(bb.XMax), float(bb.YMin), float(bb.YMax), float(bb.ZMin), float(bb.ZMax)],
+        'materialized_count': len(materialized),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["solid_count"], 1)
+        self.assertLess(result["bbox"][2], -3.0)
+        self.assertGreater(result["bbox"][3], 3.0)
+        self.assertAlmostEqual(result["bbox"][4], 0.0, places=6)
+        self.assertAlmostEqual(result["bbox"][5], 1.0, places=6)
+        self.assertGreaterEqual(result["materialized_count"], 2)
 
     def test_translate_model_json_emits_native_loft_feature(self):
         with GraphSession() as session:

@@ -8,6 +8,18 @@ import inspect
 from typing import Any, Iterable, Optional, Sequence, Tuple, NoReturn
 
 
+_TECHNICAL_DETAIL_TRANSLATIONS = {
+    "宽度、高度和深度必须大于0": "width, height, and depth must be greater than zero.",
+    "如果传入线框作为拉伸对象，那么线框必须是闭合的, 而你的线框没有闭合，请检查构成线框的点是否正确": (
+        "wire profiles must be closed before extrusion; check the points that form the wire."
+    ),
+}
+
+
+def _contains_cjk(value: str) -> bool:
+    return any("\u3400" <= char <= "\u9fff" or "\uf900" <= char <= "\ufaff" for char in value)
+
+
 def _normalize_lines(values: Iterable[str]) -> Tuple[str, ...]:
     return tuple(str(value).strip() for value in values if str(value).strip())
 
@@ -15,6 +27,10 @@ def _normalize_lines(values: Iterable[str]) -> Tuple[str, ...]:
 def _technical_details_from_error(error: BaseException) -> str:
     message = str(error).strip()
     if message:
+        for source, target in _TECHNICAL_DETAIL_TRANSLATIONS.items():
+            message = message.replace(source, target)
+        if _contains_cjk(message):
+            message = "The underlying validation failed; use the structured guidance above to repair the operation."
         return f"{type(error).__name__}: {message}"
     return type(error).__name__
 
