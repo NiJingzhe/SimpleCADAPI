@@ -193,6 +193,7 @@ from . import ql
 from . import math
 from . import std
 from . import translator
+from . import verifier
 
 # Avoid advertising internal implementation submodules from the top-level package
 # namespace. They remain importable as `simplecadapi.<module>` when needed.
@@ -394,6 +395,7 @@ __all__ = [
     "ql",
     "std",
     "translator",
+    "verifier",
     # Graph/session + serialization APIs
     "GraphSession",
     "suspend_graph_recording",

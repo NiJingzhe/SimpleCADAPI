@@ -174,7 +174,12 @@ def _make_carrier_solid_rsolid(
         )
     )
 
-    arm_inner_radius = max(central_shaft_radius + 0.45, hub_radius - 0.35)
+    # Do not let the carrier arms merely kiss the hub at a shallow overlap.
+    # The previous 0.35 mm embed was enough for OCC to return one Solid, but two
+    # rotated arms could still read visually like separate fork prongs in export
+    # views.  A real carrier web should grow well into the center hub so torque is
+    # carried through material, not through a tangent-looking boolean seam.
+    arm_inner_radius = max(central_shaft_radius + 0.25, hub_radius - 1.25)
     arm_outer_radius = stage.planet_center_radius + pad_radius - 0.25
     arm_length = arm_outer_radius - arm_inner_radius
     arm_center_radius = (arm_inner_radius + arm_outer_radius) / 2.0
@@ -231,7 +236,8 @@ def _make_carrier_solid_rsolid(
     )
     print(
         f"{stage.stage_id}_carrier_geometry: center_radius={stage.planet_center_radius:.3f} "
-        f"arm_length={arm_length:.3f} pin_height={pin_height:.3f} shaft_top={central_shaft_top_z:.3f} "
+        f"arm_length={arm_length:.3f} arm_hub_embed={hub_radius - arm_inner_radius:.3f} "
+        f"pin_height={pin_height:.3f} shaft_top={central_shaft_top_z:.3f} "
         f"faces={len(carrier.get_faces())} volume={carrier.get_volume():.3f}"
     )
     return carrier

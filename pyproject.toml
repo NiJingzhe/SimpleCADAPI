@@ -37,6 +37,9 @@ dev = [
   "isort>=5.0",
 ]
 editor = []
+collision = [
+    "python-fcl>=0.7.0.11",
+]
 
 [project.urls]
 Homepage = "https://github.com/NiJingzhe/SimpleCADAPI"

@@ -614,7 +614,11 @@ class FreeCADScriptTranslator:
             return False
         source = node.inputs[0]
         if source.op not in {
+            "make_box_rsolid",
+            "make_cone_rsolid",
+            "make_cylinder_rsolid",
             "make_extrude_rsolid",
+            "make_sphere_rsolid",
             "make_wire_from_edges_rwire",
             "make_face_from_wire_rface",
             "make_wire_from_sketch_rwire",
@@ -1353,6 +1357,18 @@ def _is_origin_object(obj):
     return getattr(obj, 'TypeId', '') == 'App::Origin' or str(getattr(obj, 'Name', '')).startswith('Origin')
 
 
+def _is_connector_object(obj):
+    try:
+        if hasattr(obj, 'SimpleCADConnectorId'):
+            return True
+    except Exception:
+        pass
+    try:
+        return str(getattr(obj, 'Name', '')).startswith('connector_')
+    except Exception:
+        return False
+
+
 def _hide_origin_tree(container):
     for child in list(getattr(container, 'Group', []) or []):
         if _is_origin_object(child):
@@ -1567,11 +1583,17 @@ def _set_part_body_visibility(product_value, visible):
     container = product_value.get('container') if isinstance(product_value, dict) else None
     if container is None:
         return
+    body = product_value.get('body')
     for child in list(getattr(container, 'Group', []) or []):
         if _is_origin_object(child):
             _set_visibility(child, False)
             continue
-        _set_visibility(child, visible)
+        if _is_connector_object(child):
+            _set_visibility(child, False)
+            continue
+        _set_visibility(child, bool(visible and child is body))
+    if body is not None:
+        _set_visibility(body, visible)
 
 
 def _set_product_tree_visibility(product_value, visible, *, show_source_container=True):
@@ -1591,6 +1613,9 @@ def _set_product_tree_visibility(product_value, visible, *, show_source_containe
             _set_visibility(container, visible if show_source_container else False)
             _set_expanded(container, bool(visible and show_source_container))
             _hide_origin_tree(container)
+            for child in list(getattr(container, 'Group', []) or []):
+                if _is_connector_object(child):
+                    _set_visibility(child, False)
         for component in product_value.get('components', []):
             link = component.get('link')
             if link is not None:
@@ -1868,6 +1893,19 @@ def _shape_from_component_link(link):
     except Exception:
         pass
     return shape
+
+
+def _materialize_boolean_operand(obj, name):
+    if getattr(obj, 'TypeId', '') != 'App::Link':
+        return obj
+    shape = _shape_from_component_link(obj)
+    wrapper = doc.addObject('Part::Feature', name)
+    wrapper.Label = str(name)
+    wrapper.Shape = shape
+    _ensure_string_property(wrapper, 'SimpleCADMaterializedFromLink')
+    wrapper.SimpleCADMaterializedFromLink = str(getattr(obj, 'Name', ''))
+    _set_visibility(wrapper, False)
+    return wrapper
 
 
 def _placed_shape_from_body(body, placement):
@@ -3898,6 +3936,19 @@ def _resolve_vec3_param(params, param_exprs, key):
             ]
             return lines
 
+        if node.op == "make_assign_material_rpart" and len(inputs) == 1:
+            lines = [
+                f"{var_name}_part = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"{var_name}_material = dict({rp})",
+                f"{var_name} = {var_name}_part['container']",
+                f"_ensure_string_property({var_name}, 'SimpleCADMaterial')",
+                f"{var_name}.SimpleCADMaterial = json.dumps({var_name}_material, ensure_ascii=True, sort_keys=True)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_part)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['material'] = {var_name}_material",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+            return lines
+
         if node.op == "make_assembly_rassembly":
             lines = [
                 f"{var_name} = _make_native_assembly({_json_ascii(object_name)}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
@@ -4579,26 +4630,30 @@ def _resolve_vec3_param(params, param_exprs, key):
 
         if node.op == "make_cut_rsolid" and len(inputs) >= 2:
             if len(inputs) == 2:
+                base_name = _safe_name(f"{object_name}_base", prefix="operand")
+                tool_name = _safe_name(f"{object_name}_tool", prefix="operand")
                 lines = [
                     "doc.recompute()",
                     f"{var_name} = doc.addObject('Part::Cut', {_json_ascii(object_name)})",
-                    f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
-                    f"{var_name}.Tool = GRAPH_NODES[{_json_ascii(inputs[1])}]",
+                    f"{var_name}.Base = _materialize_boolean_operand(GRAPH_NODES[{_json_ascii(inputs[0])}], {_json_ascii(base_name)})",
+                    f"{var_name}.Tool = _materialize_boolean_operand(GRAPH_NODES[{_json_ascii(inputs[1])}], {_json_ascii(tool_name)})",
                 ]
             else:
                 lines = ["doc.recompute()"]
-                previous_expr = f"GRAPH_NODES[{_json_ascii(inputs[0])}]"
+                base_name = _safe_name(f"{object_name}_base", prefix="operand")
+                previous_expr = f"_materialize_boolean_operand(GRAPH_NODES[{_json_ascii(inputs[0])}], {_json_ascii(base_name)})"
                 for index, tool_node_id in enumerate(inputs[1:], start=1):
                     is_last = index == len(inputs) - 1
                     step_var = var_name if is_last else f"{var_name}_step_{index}"
                     step_name = object_name if is_last else _safe_name(
                         f"{object_name}_step_{index}", prefix="step"
                     )
+                    tool_name = _safe_name(f"{object_name}_tool_{index}", prefix="operand")
                     lines.extend(
                         [
                             f"{step_var} = doc.addObject('Part::Cut', {_json_ascii(step_name)})",
                             f"{step_var}.Base = {previous_expr}",
-                            f"{step_var}.Tool = GRAPH_NODES[{_json_ascii(tool_node_id)}]",
+                            f"{step_var}.Tool = _materialize_boolean_operand(GRAPH_NODES[{_json_ascii(tool_node_id)}], {_json_ascii(tool_name)})",
                         ]
                     )
                     if not is_last:
@@ -4610,46 +4665,36 @@ def _resolve_vec3_param(params, param_exprs, key):
 
         if node.op == "make_union_rsolid" and len(inputs) >= 2:
             if len(inputs) == 2:
+                base_name = _safe_name(f"{object_name}_base", prefix="operand")
+                tool_name = _safe_name(f"{object_name}_tool", prefix="operand")
                 lines = [
                     "doc.recompute()",
                     f"{var_name} = doc.addObject('Part::Fuse', {_json_ascii(object_name)})",
-                    f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
-                    f"{var_name}.Tool = GRAPH_NODES[{_json_ascii(inputs[1])}]",
+                    f"{var_name}.Base = _materialize_boolean_operand(GRAPH_NODES[{_json_ascii(inputs[0])}], {_json_ascii(base_name)})",
+                    f"{var_name}.Tool = _materialize_boolean_operand(GRAPH_NODES[{_json_ascii(inputs[1])}], {_json_ascii(tool_name)})",
                 ]
             else:
-                lines = ["doc.recompute()"]
-                previous_expr = f"GRAPH_NODES[{_json_ascii(inputs[0])}]"
-                for index, tool_node_id in enumerate(inputs[1:], start=1):
-                    is_last = index == len(inputs) - 1
-                    step_var = var_name if is_last else f"{var_name}_step_{index}"
-                    step_name = object_name if is_last else _safe_name(
-                        f"{object_name}_step_{index}", prefix="step"
-                    )
-                    lines.extend(
-                        [
-                            f"{step_var} = doc.addObject('Part::Fuse', {_json_ascii(step_name)})",
-                            f"{step_var}.Base = {previous_expr}",
-                            f"{step_var}.Tool = GRAPH_NODES[{_json_ascii(tool_node_id)}]",
-                        ]
-                    )
-                    if not is_last:
-                        lines.append(f"_set_visibility({step_var}, False)")
-                        lines.append("doc.recompute()")
-                    previous_expr = step_var
+                lines = [
+                    "doc.recompute()",
+                    f"{var_name} = doc.addObject('Part::MultiFuse', {_json_ascii(object_name)})",
+                    f"{var_name}.Shapes = [_materialize_boolean_operand(GRAPH_NODES[node_id], {_json_ascii(object_name)} + '_operand_' + str(index)) for index, node_id in enumerate({var_name}_inputs)]",
+                ]
             lines.extend(finish())
             return lines
 
         if node.op == "make_intersect_rsolid" and len(inputs) >= 2:
             if len(inputs) == 2:
+                base_name = _safe_name(f"{object_name}_base", prefix="operand")
+                tool_name = _safe_name(f"{object_name}_tool", prefix="operand")
                 lines = [
                     f"{var_name} = doc.addObject('Part::Common', {_json_ascii(object_name)})",
-                    f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
-                    f"{var_name}.Tool = GRAPH_NODES[{_json_ascii(inputs[1])}]",
+                    f"{var_name}.Base = _materialize_boolean_operand(GRAPH_NODES[{_json_ascii(inputs[0])}], {_json_ascii(base_name)})",
+                    f"{var_name}.Tool = _materialize_boolean_operand(GRAPH_NODES[{_json_ascii(inputs[1])}], {_json_ascii(tool_name)})",
                 ]
             else:
                 lines = [
                     f"{var_name} = doc.addObject('Part::MultiCommon', {_json_ascii(object_name)})",
-                    f"{var_name}.Shapes = [GRAPH_NODES[node_id] for node_id in {var_name}_inputs]",
+                    f"{var_name}.Shapes = [_materialize_boolean_operand(GRAPH_NODES[node_id], {_json_ascii(object_name)} + '_operand_' + str(index)) for index, node_id in enumerate({var_name}_inputs)]",
                 ]
             lines.extend(finish())
             return lines
@@ -4775,7 +4820,7 @@ def _resolve_vec3_param(params, param_exprs, key):
             lines = [
                 f"{var_name} = doc.addObject('App::Link', {_json_ascii(object_name)})",
                 f"{var_name}.LinkedObject = GRAPH_NODES[{_json_ascii(inputs[0])}]",
-                f"{var_name}.Placement = App.Placement(_vec(_resolve_vec3_param({rp}, {re}, 'origin') if 'origin' in {rp} else (0.0, 0.0, 0.0)), App.Rotation(_vec(_resolve_vec3_param({rp}, {re}, 'axis') if 'axis' in {rp} else (0.0, 0.0, 1.0)), float(_resolve_param_value({rp}, {re}, 'angle'))))",
+                f"{var_name}.Placement = _placement_for_rotation(_resolve_vec3_param({rp}, {re}, 'origin') if 'origin' in {rp} else (0.0, 0.0, 0.0), _resolve_vec3_param({rp}, {re}, 'axis') if 'axis' in {rp} else (0.0, 0.0, 1.0), _resolve_param_value({rp}, {re}, 'angle'))",
             ]
             lines.append(
                 f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"

@@ -1867,7 +1867,11 @@ def _execute_graph(
                             ("connector_id", "source_component_id", "source_connector_id"),
                         )
                         assembly_outputs = _input_outputs(ctx, outputs, node, 0)
-                        offset_outputs = _input_outputs(ctx, outputs, node, 1)
+                        offset_outputs = (
+                            _input_outputs(ctx, outputs, node, 1)
+                            if len(node.inputs) > 1
+                            else []
+                        )
                         offset = cast(Optional[Placement], offset_outputs[0]) if offset_outputs else None
                         if offset is None and isinstance(params.get("offset"), dict):
                             offset_data = cast(Dict[str, Any], params["offset"])
