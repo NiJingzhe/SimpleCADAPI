@@ -88,7 +88,7 @@ def make_two_stage_planetary_reducer_rassembly() -> scad.Assembly:
 
     reducer = scad.make_assembly_rassembly(
         assembly_id="compact_two_stage_planetary_reducer",
-        name="50 mm OD 20:1 two-stage herringbone planetary reducer",
+        name="58.8 mm OD 20:1 through-bolted herringbone planetary actuator reducer",
     )
     reducer = _add_fixed_components_rassembly(
         assembly=reducer,
@@ -126,6 +126,7 @@ def make_two_stage_planetary_reducer_rassembly() -> scad.Assembly:
         assembly=reducer,
         bearing=bearing,
     )
+    reducer = _add_public_interface_connectors_rassembly(assembly=reducer)
     reducer = _add_reducer_constraints_rassembly(assembly=reducer)
     reducer = scad.solve_assembly_constraints_rassembly(assembly=reducer, strict=True)
     _ground_constraint_report(assembly=reducer)
@@ -207,6 +208,26 @@ def _add_bearing_components_rassembly(
         bearing_component_count += 1
 
     print(f"bearing_components: count={bearing_component_count} grounded=0")
+    return assembly
+
+
+def _add_public_interface_connectors_rassembly(*, assembly: scad.Assembly) -> scad.Assembly:
+    """Expose stable actuator module datums without leaking private component ids."""
+
+    forwarded = (
+        ("housing_mount_axis", "housing", "output_axis", "Fixed case mounting datum"),
+        ("input_motor_axis", "input_flange", "axis", "Input flange datum for motor can"),
+        ("output_link_axis", "output_flange", "axis", "Output flange datum for driven link"),
+    )
+    for connector_id, source_component_id, source_connector_id, name in forwarded:
+        assembly = scad.forward_connector_rassembly(
+            assembly=assembly,
+            connector_id=connector_id,
+            source_component_id=source_component_id,
+            source_connector_id=source_connector_id,
+            name=name,
+        )
+    print("reducer_public_connectors: " + ",".join(connector_id for connector_id, *_ in forwarded))
     return assembly
 
 
