@@ -108,6 +108,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             self.assertIn("serializer.py", resolved_names)
             self.assertIn("graph.py", resolved_names)
             self.assertIn("expr.py", resolved_names)
+            self.assertIn("tolerance.py", resolved_names)
             self.assertIn("sketch.py", resolved_names)
             self.assertIn("math.py", resolved_names)
             self.assertIn("translator/freecad_translator/api.py", resolved_names)
@@ -294,6 +295,41 @@ def fit_cubic_bspline_control_points(sample_points, *, tolerance=1e-3):
                 "[fit_cubic_bspline_control_points](fit_cubic_bspline_control_points.md)",
                 readme,
             )
+
+    def test_generate_markdown_includes_physical_units_category(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            init_file = tmp_path / "__init__.py"
+            init_file.write_text(
+                "__all__ = ['Dimension', 'convert_value']\n", encoding="utf-8"
+            )
+            source_file = tmp_path / "units.py"
+            source_file.write_text(
+                '''
+class Dimension:
+    """Physical dimension."""
+
+
+def convert_value(value, from_unit, to_unit):
+    """Convert compatible units."""
+    return value
+'''.strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            output_dir = tmp_path / "docs/api"
+
+            generator = auto_docs_gen.APIDocumentGenerator(
+                source_files=[source_file], output_dirs=[output_dir], quiet=True
+            )
+            generator.extract_apis()
+            generator.generate_markdown_docs()
+
+            readme = (output_dir / "README.md").read_text(encoding="utf-8")
+
+            self.assertIn("## Physical Units", readme)
+            self.assertIn("[Dimension](Dimension.md)", readme)
+            self.assertIn("[convert_value](convert_value.md)", readme)
 
     def test_generate_stdlib_markdown_uses_stdlib_index_and_import_surface(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

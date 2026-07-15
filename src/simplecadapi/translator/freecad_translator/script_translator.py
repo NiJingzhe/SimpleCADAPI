@@ -7,12 +7,15 @@ saved as `.FCStd` by FreeCAD itself.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import pprint
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from ...serializer import import_model_json
 from ...topology import OperationGraph, OperationNode
+from ...expr import ExpressionGraph
+from ...units import expression_uses_units, infer_dimension, unit_from_payload
 
 
 def _json_ascii(value: Any) -> str:
@@ -21,6 +24,31 @@ def _json_ascii(value: Any) -> str:
 
 def _py_literal(value: Any) -> str:
     return pprint.pformat(value, compact=True, sort_dicts=True, width=120)
+
+
+def _expression_physical_metadata(
+    nodes: Sequence[Any],
+) -> Tuple[Dict[str, str], Dict[str, bool]]:
+    graph = ExpressionGraph.from_dict({"nodes": list(nodes)})
+    dimensions: Dict[str, str] = {}
+    unit_aware: Dict[str, bool] = {}
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        expr_id = str(node.get("expr_id", ""))
+        expr = graph.get(expr_id)
+        if expr is None:
+            continue
+        dimension = infer_dimension(expr)
+        dimensions[expr_id] = "Legacy" if dimension is None else dimension.name
+        unit_aware[expr_id] = expression_uses_units(expr)
+    return dimensions, unit_aware
+
+
+def _canonical_variable_default(node: Dict[str, Any]) -> float:
+    value = float(node.get("default", 0.0))
+    unit_payload = node.get("unit")
+    return value if unit_payload is None else unit_from_payload(unit_payload).to_canonical(value)
 
 
 def _safe_name(raw: str, *, prefix: str = "obj") -> str:
@@ -167,7 +195,9 @@ def _node_expression_limitation(
 
 
 def _sanitize_expr_alias(alias: str, *, prefix: str = "expr") -> str:
-    token = "".join(ch if str(ch).isalnum() else "_" for ch in str(alias)).strip("_")
+    token = "".join(
+        ch if ch.isascii() and ch.isalnum() else "_" for ch in str(alias)
+    ).strip("_")
     if not token:
         token = prefix
     if token[0].isdigit():
@@ -177,7 +207,9 @@ def _sanitize_expr_alias(alias: str, *, prefix: str = "expr") -> str:
 
 def _expr_short_suffix(expr_id: str) -> str:
     raw = str(expr_id).rsplit("_", 1)[-1]
-    token = "".join(ch if ch.isalnum() else "_" for ch in raw).strip("_")
+    token = "".join(
+        ch if ch.isascii() and ch.isalnum() else "_" for ch in raw
+    ).strip("_")
     return token[:8] if token else "id"
 
 
@@ -187,7 +219,9 @@ def _const_value_alias_token(value: Any) -> str:
     except Exception:
         return "value"
     text = f"{number:.6g}".replace("-", "neg_").replace(".", "_")
-    token = "".join(ch if ch.isalnum() else "_" for ch in text).strip("_")
+    token = "".join(
+        ch if ch.isascii() and ch.isalnum() else "_" for ch in text
+    ).strip("_")
     return token or "value"
 
 
@@ -207,6 +241,31 @@ def _spreadsheet_expr_alias(expr_node: Dict[str, Any], row: int) -> str:
     return _sanitize_expr_alias(
         f"expr_{op}_{_expr_short_suffix(expr_id)}", prefix="expr"
     )
+
+
+def _spreadsheet_expr_aliases(nodes: Sequence[Any]) -> Dict[str, str]:
+    aliases: Dict[str, str] = {}
+    used: Set[str] = set()
+    row = 1
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        expr_id = str(node.get("expr_id", f"expr_{row}"))
+        alias = _spreadsheet_expr_alias(node, row)
+        if alias in used:
+            suffix = hashlib.sha256(expr_id.encode("utf-8")).hexdigest()[:8]
+            prefix = alias[: 63 - len(suffix)]
+            alias = f"{prefix}_{suffix}"
+            collision = 2
+            while alias in used:
+                collision_suffix = f"{suffix}_{collision}"
+                prefix = alias[: 63 - len(collision_suffix)]
+                alias = f"{prefix}_{collision_suffix}"
+                collision += 1
+        aliases[expr_id] = alias
+        used.add(alias)
+        row += 1
+    return aliases
 
 
 def _coincident_constraint_pairs(
@@ -267,6 +326,7 @@ class FreeCADScriptTranslator:
     - Translate only from the canonical low-level `graph` IR
     - Preserve node metadata and graph lineage as FreeCAD custom properties
     - Preserve `expression_graph` as explicit translator metadata
+    - Preserve dimension tolerances and tolerance-chain requirements as metadata
     - Preserve exported assembly constraints as document metadata objects
     - Keep assembly metadata from the full model payload alongside the IR-driven
       geometry translation
@@ -419,13 +479,12 @@ class FreeCADScriptTranslator:
             else []
         )
         if isinstance(nodes, list):
-            row = 1
-            for node in nodes:
-                if isinstance(node, dict):
-                    expr_id = str(node.get("expr_id", f"expr_{row}"))
-                    self._expr_alias_by_id[expr_id] = _spreadsheet_expr_alias(node, row)
-                    row += 1
+            self._expr_alias_by_id = _spreadsheet_expr_aliases(nodes)
         emit(f"EXPRESSION_GRAPH = {_py_literal(expression_graph_payload)}")
+        tolerance_graph_payload = payload.get("tolerance_graph", {})
+        if hasattr(tolerance_graph_payload, "to_dict"):
+            tolerance_graph_payload = tolerance_graph_payload.to_dict()
+        emit(f"TOLERANCE_GRAPH = {_py_literal(tolerance_graph_payload)}")
         emit(f"OP_EXPRESSION_BINDINGS = {_py_literal(_OP_EXPRESSION_BINDINGS)}")
         emit(f"OP_EXPRESSION_LIMITATIONS = {_py_literal(_OP_EXPRESSION_LIMITATIONS)}")
         emit("")
@@ -437,6 +496,11 @@ class FreeCADScriptTranslator:
         emit("")
 
         emit("EXPRESSION_GRAPH_META = EXPRESSION_GRAPH")
+        emit("TOLERANCE_GRAPH_META = TOLERANCE_GRAPH")
+        emit("if TOLERANCE_GRAPH.get('requirements'):")
+        emit(
+            "    _make_metadata_note('simplecad_tolerance_graph', 'SimpleCAD Tolerance Graph', TOLERANCE_GRAPH)"
+        )
         emit("")
 
         for node in source_graph.topological_order():
@@ -515,14 +579,8 @@ class FreeCADScriptTranslator:
         lines.append(
             "    expr_sheet = doc.addObject('Spreadsheet::Sheet', 'SimpleCADExpressions')"
         )
-        alias_by_id: Dict[str, str] = {}
-        row = 1
-        for node in nodes:
-            if not isinstance(node, dict):
-                continue
-            expr_id = str(node.get("expr_id", f"expr_{row}"))
-            alias_by_id[expr_id] = _spreadsheet_expr_alias(node, row)
-            row += 1
+        alias_by_id = _spreadsheet_expr_aliases(nodes)
+        dimension_by_id, unit_aware_by_id = _expression_physical_metadata(nodes)
         row = 1
         for node in nodes:
             if not isinstance(node, dict):
@@ -544,7 +602,39 @@ class FreeCADScriptTranslator:
                 else ""
             )
             lines.append(f"    expr_sheet.set('D{row}', {_json_ascii(comment)})")
-            formula = self._freecad_expr_formula(node, alias_by_id)
+            tolerance = node.get("tolerance")
+            if isinstance(tolerance, dict):
+                lower_deviation = str(tolerance.get("lower_deviation", ""))
+                upper_deviation = str(tolerance.get("upper_deviation", ""))
+            else:
+                lower_deviation = ""
+                upper_deviation = ""
+            lines.append(
+                f"    expr_sheet.set('E{row}', {_json_ascii(lower_deviation)})"
+            )
+            lines.append(
+                f"    expr_sheet.set('F{row}', {_json_ascii(upper_deviation)})"
+            )
+            nominal_unit = node.get("unit", "")
+            if isinstance(nominal_unit, dict):
+                nominal_unit = nominal_unit.get("symbol", "")
+            tolerance_unit = node.get("tolerance_unit", "")
+            if isinstance(tolerance_unit, dict):
+                tolerance_unit = tolerance_unit.get("symbol", "")
+            lines.append(
+                f"    expr_sheet.set('G{row}', {_json_ascii(str(nominal_unit))})"
+            )
+            lines.append(
+                f"    expr_sheet.set('H{row}', {_json_ascii(str(tolerance_unit))})"
+            )
+            lines.append(
+                f"    expr_sheet.set('I{row}', {_json_ascii(dimension_by_id.get(expr_id, ''))})"
+            )
+            formula = self._freecad_expr_formula(
+                node,
+                alias_by_id,
+                unit_aware=unit_aware_by_id.get(expr_id, False),
+            )
             if formula is None:
                 lines.append(
                     f"    expr_sheet.set({_json_ascii(cell)}, {_json_ascii('')})"
@@ -562,13 +652,17 @@ class FreeCADScriptTranslator:
         return lines
 
     def _freecad_expr_formula(
-        self, node: Dict[str, Any], alias_by_id: Dict[str, str]
+        self,
+        node: Dict[str, Any],
+        alias_by_id: Dict[str, str],
+        *,
+        unit_aware: bool = False,
     ) -> Optional[str]:
         kind = str(node.get("kind", ""))
         if kind == "const":
             return str(float(node.get("value", 0.0)))
         if kind == "var":
-            return str(float(node.get("default", 0.0)))
+            return str(_canonical_variable_default(node))
         if kind != "expr":
             return None
 
@@ -594,21 +688,21 @@ class FreeCADScriptTranslator:
         if op == "abs" and len(args) == 1:
             return f"=abs({args[0]})"
         if op == "sin" and len(args) == 1:
-            return f"=sin(({args[0]}) * 180 / pi)"
+            return f"=sin({args[0]})" if unit_aware else f"=sin(({args[0]}) * 180 / pi)"
         if op == "cos" and len(args) == 1:
-            return f"=cos(({args[0]}) * 180 / pi)"
+            return f"=cos({args[0]})" if unit_aware else f"=cos(({args[0]}) * 180 / pi)"
         if op == "tan" and len(args) == 1:
-            return f"=tan(({args[0]}) * 180 / pi)"
+            return f"=tan({args[0]})" if unit_aware else f"=tan(({args[0]}) * 180 / pi)"
         if op == "sqrt" and len(args) == 1:
             return f"=sqrt({args[0]})"
         if op == "acos" and len(args) == 1:
-            return f"=acos({args[0]}) * pi / 180"
+            return f"=acos({args[0]})" if unit_aware else f"=acos({args[0]}) * pi / 180"
         if op == "asin" and len(args) == 1:
-            return f"=asin({args[0]}) * pi / 180"
+            return f"=asin({args[0]})" if unit_aware else f"=asin({args[0]}) * pi / 180"
         if op == "atan" and len(args) == 1:
-            return f"=atan({args[0]}) * pi / 180"
+            return f"=atan({args[0]})" if unit_aware else f"=atan({args[0]}) * pi / 180"
         if op == "atan2" and len(args) == 2:
-            return f"=atan2({args[0]}; {args[1]}) * pi / 180"
+            return f"=atan2({args[0]}; {args[1]})" if unit_aware else f"=atan2({args[0]}; {args[1]}) * pi / 180"
         return None
 
     def _can_fold_transform_into_input(self, node: OperationNode) -> bool:

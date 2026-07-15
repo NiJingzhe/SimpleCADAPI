@@ -13,12 +13,131 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
-from typing import Any, Dict, List, Mapping, Tuple, Union, cast
+from numbers import Real
+from typing import Any, Dict, List, Mapping, Sequence, Tuple, Union, cast
 import uuid
+
+from .units import (
+    Dimension,
+    Unit,
+    UnitLike,
+    get_unit,
+    unit_from_payload,
+    unit_to_payload,
+)
 
 
 def _make_expr_id(prefix: str = "expr") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
+
+def _finite_scalar(value: Any, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise TypeError(f"{label} must be a real number")
+    try:
+        result = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{label} must be finite") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{label} must be finite")
+    return result
+
+
+@dataclass(frozen=True)
+class DimensionTolerance:
+    """Permitted lower and upper deviations from a nominal dimension.
+
+    Deviations are signed: the lower deviation must be less than or equal to
+    zero and the upper deviation must be greater than or equal to zero.
+    """
+
+    lower_deviation: float
+    upper_deviation: float
+
+    def __post_init__(self) -> None:
+        lower = _finite_scalar(self.lower_deviation, label="lower_deviation")
+        upper = _finite_scalar(self.upper_deviation, label="upper_deviation")
+        if lower > 0.0:
+            raise ValueError("lower_deviation must be less than or equal to zero")
+        if upper < 0.0:
+            raise ValueError("upper_deviation must be greater than or equal to zero")
+        object.__setattr__(self, "lower_deviation", lower)
+        object.__setattr__(self, "upper_deviation", upper)
+
+    @classmethod
+    def symmetric(cls, deviation: int | float) -> "DimensionTolerance":
+        """Create a symmetric ``+/- deviation`` tolerance."""
+
+        value = _finite_scalar(deviation, label="deviation")
+        if value < 0.0:
+            raise ValueError("deviation must be greater than or equal to zero")
+        return cls(lower_deviation=-value, upper_deviation=value)
+
+    @property
+    def width(self) -> float:
+        return self.upper_deviation - self.lower_deviation
+
+    def to_dict(self) -> Dict[str, float]:
+        return {
+            "lower_deviation": self.lower_deviation,
+            "upper_deviation": self.upper_deviation,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "DimensionTolerance":
+        if not isinstance(data, Mapping):
+            raise TypeError("Dimension tolerance payload must be an object")
+        if "lower_deviation" not in data or "upper_deviation" not in data:
+            raise ValueError(
+                "Dimension tolerance payload requires lower_deviation and upper_deviation"
+            )
+        return cls(
+            lower_deviation=data["lower_deviation"],
+            upper_deviation=data["upper_deviation"],
+        )
+
+
+ToleranceLike = Union[
+    int,
+    float,
+    Sequence[int | float],
+    DimensionTolerance,
+]
+
+
+def coerce_dimension_tolerance(value: ToleranceLike) -> DimensionTolerance:
+    """Normalize a symmetric scalar or ``(lower, upper)`` deviation pair."""
+
+    if isinstance(value, DimensionTolerance):
+        return value
+    if isinstance(value, bool):
+        raise TypeError("Tolerance must be a real number or a two-value sequence")
+    if isinstance(value, Real):
+        return DimensionTolerance.symmetric(value)
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        if len(value) != 2:
+            raise ValueError("Asymmetric tolerance must contain exactly two deviations")
+        return DimensionTolerance(value[0], value[1])
+    raise TypeError("Tolerance must be a real number or a two-value sequence")
+
+
+_EXPR_OP_ARITY = {
+    "add": 2,
+    "sub": 2,
+    "mul": 2,
+    "div": 2,
+    "pow": 2,
+    "neg": 1,
+    "abs": 1,
+    "sin": 1,
+    "cos": 1,
+    "tan": 1,
+    "sqrt": 1,
+    "acos": 1,
+    "asin": 1,
+    "atan": 1,
+    "atan2": 2,
+}
 
 
 class ScalarExprBase:
@@ -87,23 +206,94 @@ class Const(ScalarExprBase):
     value: float
     expr_id: str = field(default_factory=lambda: _make_expr_id("const"))
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "value", _finite_scalar(self.value, label="value"))
+        if not isinstance(self.expr_id, str) or not self.expr_id:
+            raise ValueError("Expression id must be a non-empty string")
+
     def evaluate(self, bindings: Mapping[str, float] | None = None) -> float:
         return float(self.value)
 
 
 @dataclass(frozen=True)
 class Var(ScalarExprBase):
-    """Named scalar parameter with a default fallback value."""
+    """Named scalar parameter with optional physical-unit and tolerance intent.
+
+    ``default`` and ``tolerance`` remain in their declared units. Evaluation,
+    geometry parameters, and tolerance propagation convert them to SimpleCAD's
+    canonical CAD units: millimeters for length and degrees for angle.
+    """
 
     name: str
     default: float
     comment: str | None = None
     expr_id: str = field(default_factory=lambda: _make_expr_id("var"))
+    tolerance: DimensionTolerance | None = None
+    unit: Unit | None = None
+    tolerance_unit: Unit | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name:
+            raise ValueError("Variable name must be a non-empty string")
+        object.__setattr__(
+            self, "default", _finite_scalar(self.default, label="Variable default")
+        )
+        if self.comment is not None and not isinstance(self.comment, str):
+            raise ValueError("Variable comment must be a string when provided")
+        if self.tolerance is not None and not isinstance(
+            self.tolerance, DimensionTolerance
+        ):
+            raise TypeError("Variable tolerance must be a DimensionTolerance")
+        if self.unit is not None and not isinstance(self.unit, Unit):
+            object.__setattr__(self, "unit", get_unit(self.unit))
+        if self.tolerance_unit is not None and not isinstance(
+            self.tolerance_unit, Unit
+        ):
+            object.__setattr__(
+                self, "tolerance_unit", get_unit(self.tolerance_unit)
+            )
+        if self.unit is None and self.tolerance_unit is not None:
+            raise ValueError("A tolerance unit requires a nominal variable unit")
+        if self.tolerance is None and self.tolerance_unit is not None:
+            raise ValueError("A tolerance unit requires a declared tolerance")
+        if self.tolerance is not None and self.unit is not None:
+            if self.tolerance_unit is None:
+                object.__setattr__(self, "tolerance_unit", self.unit)
+            elif self.tolerance_unit.dimension != self.unit.dimension:
+                raise ValueError(
+                    "Variable tolerance unit must have the same dimension as its nominal unit"
+                )
+        if self.unit is not None:
+            self.unit.to_canonical(self.default)
+        if self.canonical_tolerance is not None:
+            self.canonical_tolerance.width
+        if not isinstance(self.expr_id, str) or not self.expr_id:
+            raise ValueError("Expression id must be a non-empty string")
+
+    @property
+    def dimension(self) -> Dimension | None:
+        return None if self.unit is None else self.unit.dimension
+
+    @property
+    def canonical_default(self) -> float:
+        return self.default if self.unit is None else self.unit.to_canonical(self.default)
+
+    @property
+    def canonical_tolerance(self) -> DimensionTolerance | None:
+        if self.tolerance is None:
+            return None
+        if self.tolerance_unit is None:
+            return self.tolerance
+        return DimensionTolerance(
+            self.tolerance_unit.to_canonical(self.tolerance.lower_deviation),
+            self.tolerance_unit.to_canonical(self.tolerance.upper_deviation),
+        )
 
     def evaluate(self, bindings: Mapping[str, float] | None = None) -> float:
         if bindings is not None and self.name in bindings:
-            return float(bindings[self.name])
-        return float(self.default)
+            value = _finite_scalar(bindings[self.name], label=f"Binding '{self.name}'")
+            return value if self.unit is None else self.unit.to_canonical(value)
+        return self.canonical_default
 
 
 @dataclass(frozen=True)
@@ -114,7 +304,27 @@ class Expr(ScalarExprBase):
     args: Tuple[ScalarExpr, ...]
     expr_id: str = field(default_factory=lambda: _make_expr_id("expr"))
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.args, tuple):
+            object.__setattr__(self, "args", tuple(self.args))
+        if not isinstance(self.op, str):
+            raise TypeError("Expression op must be a string")
+        if self.op not in _EXPR_OP_ARITY:
+            raise ValueError(f"Unsupported expression op '{self.op}'")
+        if len(self.args) != _EXPR_OP_ARITY[self.op]:
+            raise ValueError(
+                f"Expression op '{self.op}' expects {_EXPR_OP_ARITY[self.op]} arguments, "
+                f"got {len(self.args)}"
+            )
+        if not all(isinstance(arg, (Const, Var, Expr)) for arg in self.args):
+            raise TypeError("Expression arguments must be scalar expression nodes")
+        if not isinstance(self.expr_id, str) or not self.expr_id:
+            raise ValueError("Expression id must be a non-empty string")
+
     def evaluate(self, bindings: Mapping[str, float] | None = None) -> float:
+        from .units import infer_dimension
+
+        infer_dimension(self)
         values = [arg.evaluate(bindings) for arg in self.args]
         if self.op == "add":
             return values[0] + values[1]
@@ -131,21 +341,42 @@ class Expr(ScalarExprBase):
         if self.op == "abs":
             return abs(values[0])
         if self.op == "sin":
-            return math.sin(values[0])
+            from .units import expression_uses_units
+
+            value = math.radians(values[0]) if expression_uses_units(self) else values[0]
+            return math.sin(value)
         if self.op == "cos":
-            return math.cos(values[0])
+            from .units import expression_uses_units
+
+            value = math.radians(values[0]) if expression_uses_units(self) else values[0]
+            return math.cos(value)
         if self.op == "tan":
-            return math.tan(values[0])
+            from .units import expression_uses_units
+
+            value = math.radians(values[0]) if expression_uses_units(self) else values[0]
+            return math.tan(value)
         if self.op == "sqrt":
             return math.sqrt(values[0])
         if self.op == "acos":
-            return math.acos(values[0])
+            from .units import expression_uses_units
+
+            result = math.acos(values[0])
+            return math.degrees(result) if expression_uses_units(self) else result
         if self.op == "asin":
-            return math.asin(values[0])
+            from .units import expression_uses_units
+
+            result = math.asin(values[0])
+            return math.degrees(result) if expression_uses_units(self) else result
         if self.op == "atan":
-            return math.atan(values[0])
+            from .units import expression_uses_units
+
+            result = math.atan(values[0])
+            return math.degrees(result) if expression_uses_units(self) else result
         if self.op == "atan2":
-            return math.atan2(values[0], values[1])
+            from .units import expression_uses_units
+
+            result = math.atan2(values[0], values[1])
+            return math.degrees(result) if expression_uses_units(self) else result
         raise ValueError(f"Unsupported expression op '{self.op}'")
 
 
@@ -156,17 +387,46 @@ ScalarLike = Union[int, float, ScalarExpr]
 def const(value: int | float) -> Const:
     """Create a constant scalar node for parameterized modeling."""
 
-    return Const(float(value))
+    return Const(_finite_scalar(value, label="Constant value"))
 
 
-def var(name: str, default: int | float, comment: str | None = None) -> Var:
-    """Create a named variable node for v2 expression-driven parameters."""
+def var(
+    name: str,
+    default: int | float,
+    comment: str | None = None,
+    tolerance: ToleranceLike | None = None,
+    *,
+    unit: UnitLike | None = None,
+    tolerance_unit: UnitLike | None = None,
+) -> Var:
+    """Create a physical or legacy scalar variable.
+
+    ``tolerance=0.1`` declares a symmetric ``+/-0.1`` tolerance. Use a
+    ``(lower_deviation, upper_deviation)`` pair for an asymmetric tolerance.
+    ``tolerance_unit`` defaults to ``unit`` when a nominal unit is declared.
+    Values are converted to canonical CAD units only when evaluated, so the
+    declaration and serialized expression node preserve the user's units.
+
+    Variables without ``unit`` retain legacy unitless behavior. A unit-aware
+    expression cannot mix declared-unit variables with legacy variables.
+    """
 
     if not isinstance(name, str) or not name:
         raise ValueError("Variable name must be a non-empty string")
     if comment is not None and not isinstance(comment, str):
         raise ValueError("Variable comment must be a string when provided")
-    return Var(name=name, default=float(default), comment=comment)
+    return Var(
+        name=name,
+        default=_finite_scalar(default, label="Variable default"),
+        comment=comment,
+        tolerance=(
+            coerce_dimension_tolerance(tolerance) if tolerance is not None else None
+        ),
+        unit=get_unit(unit) if unit is not None else None,
+        tolerance_unit=(
+            get_unit(tolerance_unit) if tolerance_unit is not None else None
+        ),
+    )
 
 
 def lift_scalar(value: ScalarLike) -> ScalarExpr:
@@ -182,7 +442,11 @@ def lift_scalar(value: ScalarLike) -> ScalarExpr:
 def evaluate_scalar(
     value: ScalarLike, bindings: Mapping[str, float] | None = None
 ) -> float:
-    return float(lift_scalar(value).evaluate(bindings))
+    expr = lift_scalar(value)
+    from .units import infer_dimension
+
+    infer_dimension(expr)
+    return float(expr.evaluate(bindings))
 
 
 def sin(value: ScalarLike) -> Expr:
@@ -247,6 +511,12 @@ def _expr_to_node_payload(expr: ScalarExpr) -> Dict[str, Any]:
         }
         if expr.comment:
             payload["comment"] = expr.comment
+        if expr.tolerance is not None:
+            payload["tolerance"] = expr.tolerance.to_dict()
+        if expr.unit is not None:
+            payload["unit"] = unit_to_payload(expr.unit)
+        if expr.tolerance_unit is not None:
+            payload["tolerance_unit"] = unit_to_payload(expr.tolerance_unit)
         return payload
     return {
         "expr_id": expr.expr_id,
@@ -254,6 +524,44 @@ def _expr_to_node_payload(expr: ScalarExpr) -> Dict[str, Any]:
         "op": expr.op,
         "args": [arg.expr_id for arg in expr.args],
     }
+
+
+def _expr_signature(expr: ScalarExpr) -> Tuple[Any, ...]:
+    if isinstance(expr, Const):
+        return ("const", expr.value.hex())
+    if isinstance(expr, Var):
+        tolerance = (
+            None
+            if expr.tolerance is None
+            else (
+                expr.tolerance.lower_deviation.hex(),
+                expr.tolerance.upper_deviation.hex(),
+            )
+        )
+        return (
+            "var",
+            expr.name,
+            expr.default.hex(),
+            expr.comment,
+            tolerance,
+            None
+            if expr.unit is None
+            else (
+                expr.unit.symbol,
+                expr.unit.dimension.length,
+                expr.unit.dimension.angle,
+                expr.unit.scale_to_canonical.hex(),
+            ),
+            None
+            if expr.tolerance_unit is None
+            else (
+                expr.tolerance_unit.symbol,
+                expr.tolerance_unit.dimension.length,
+                expr.tolerance_unit.dimension.angle,
+                expr.tolerance_unit.scale_to_canonical.hex(),
+            ),
+        )
+    return ("expr", expr.op, tuple(arg.expr_id for arg in expr.args))
 
 
 class ExpressionGraph:
@@ -271,27 +579,59 @@ class ExpressionGraph:
 
     def register(self, value: ScalarLike) -> ScalarExpr:
         expr = lift_scalar(value)
-        self._register_recursive(expr)
-        return expr
+        staged: Dict[str, ScalarExpr] = {}
+        visiting: set[str] = set()
+        validated_objects: set[int] = set()
 
-    def _register_recursive(self, expr: ScalarExpr) -> None:
-        if expr.expr_id in self._nodes:
-            return
-        if isinstance(expr, Expr):
-            for arg in expr.args:
-                self._register_recursive(arg)
-        self._nodes[expr.expr_id] = expr
+        def stage(node: ScalarExpr) -> None:
+            if node.expr_id in visiting:
+                raise ValueError(
+                    f"Expression graph contains a cycle at '{node.expr_id}'"
+                )
+            existing = staged.get(node.expr_id)
+            if existing is None:
+                existing = self._nodes.get(node.expr_id)
+            if existing is not None:
+                if _expr_signature(existing) != _expr_signature(node):
+                    raise ValueError(
+                        f"Expression id '{node.expr_id}' is already registered by a different node"
+                    )
+            else:
+                staged[node.expr_id] = node
+            object_id = id(node)
+            if object_id in validated_objects:
+                return
+            visiting.add(node.expr_id)
+            if isinstance(node, Expr):
+                for arg in node.args:
+                    stage(arg)
+            visiting.remove(node.expr_id)
+            validated_objects.add(object_id)
+
+        stage(expr)
+        from .units import infer_dimension
+
+        infer_dimension(expr)
+        self._nodes.update(staged)
+        return expr
 
     def _topological_expr_ids(self) -> List[str]:
         ordered: List[str] = []
         seen: set[str] = set()
+        visiting: set[str] = set()
 
         def visit(expr: ScalarExpr) -> None:
             if expr.expr_id in seen:
                 return
+            if expr.expr_id in visiting:
+                raise ValueError(
+                    f"Expression graph contains a cycle at '{expr.expr_id}'"
+                )
+            visiting.add(expr.expr_id)
             if isinstance(expr, Expr):
                 for arg in expr.args:
                     visit(arg)
+            visiting.remove(expr.expr_id)
             seen.add(expr.expr_id)
             ordered.append(expr.expr_id)
 
@@ -309,27 +649,102 @@ class ExpressionGraph:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ExpressionGraph":
+        if not isinstance(data, dict):
+            raise TypeError("Expression graph payload must be an object")
+        raw_nodes = data.get("nodes", [])
+        if not isinstance(raw_nodes, list):
+            raise TypeError("Expression graph 'nodes' must be an array")
+
         graph = cls()
+        payload_by_id: Dict[str, Dict[str, Any]] = {}
+        for node in raw_nodes:
+            if not isinstance(node, dict):
+                raise TypeError("Expression graph nodes must be objects")
+            if "expr_id" not in node:
+                raise ValueError("Expression graph node is missing 'expr_id'")
+            expr_id_value = node["expr_id"]
+            if not isinstance(expr_id_value, str) or not expr_id_value:
+                raise ValueError("Expression graph node id must be non-empty")
+            expr_id = expr_id_value
+            if expr_id in payload_by_id:
+                raise ValueError(f"Duplicate expression node id '{expr_id}'")
+            payload_by_id[expr_id] = node
+
         node_map: Dict[str, ScalarExpr] = {}
-        for node in data.get("nodes", []):
+        visiting: set[str] = set()
+
+        def build(expr_id: str) -> ScalarExpr:
+            if expr_id in node_map:
+                return node_map[expr_id]
+            if expr_id in visiting:
+                raise ValueError(f"Expression graph contains a cycle at '{expr_id}'")
+            node = payload_by_id.get(expr_id)
+            if node is None:
+                raise ValueError(f"Unknown expression dependency '{expr_id}'")
+            visiting.add(expr_id)
             kind = node.get("kind")
-            expr_id = str(node["expr_id"])
             if kind == "const":
-                expr = Const(value=float(node["value"]), expr_id=expr_id)
+                if "value" not in node:
+                    raise ValueError(
+                        f"Constant expression node '{expr_id}' is missing 'value'"
+                    )
+                expr = Const(value=node["value"], expr_id=expr_id)
             elif kind == "var":
+                if "name" not in node or "default" not in node:
+                    raise ValueError(
+                        f"Variable expression node '{expr_id}' requires 'name' and 'default'"
+                    )
+                tolerance_payload = node.get("tolerance")
                 expr = Var(
-                    name=str(node["name"]),
-                    default=float(node["default"]),
-                    comment=str(node["comment"]) if node.get("comment") else None,
+                    name=node["name"],
+                    default=node["default"],
+                    comment=node.get("comment"),
+                    tolerance=(
+                        DimensionTolerance.from_dict(tolerance_payload)
+                        if tolerance_payload is not None
+                        else None
+                    ),
+                    unit=(
+                        unit_from_payload(node["unit"])
+                        if "unit" in node
+                        else None
+                    ),
+                    tolerance_unit=(
+                        unit_from_payload(node["tolerance_unit"])
+                        if "tolerance_unit" in node
+                        else None
+                    ),
                     expr_id=expr_id,
                 )
             elif kind == "expr":
-                args = tuple(node_map[arg_id] for arg_id in node.get("args", []))
-                expr = Expr(op=str(node["op"]), args=args, expr_id=expr_id)
+                if "op" not in node:
+                    raise ValueError(
+                        f"Derived expression node '{expr_id}' is missing 'op'"
+                    )
+                raw_args = node.get("args", [])
+                if not isinstance(raw_args, list):
+                    raise TypeError(
+                        f"Expression node '{expr_id}' field 'args' must be an array"
+                    )
+                if not all(isinstance(arg_id, str) for arg_id in raw_args):
+                    raise TypeError(
+                        f"Expression node '{expr_id}' dependencies must be string ids"
+                    )
+                args = tuple(build(arg_id) for arg_id in raw_args)
+                expr = Expr(op=node["op"], args=args, expr_id=expr_id)
             else:
                 raise ValueError(f"Unknown expression node kind: {kind!r}")
+            visiting.remove(expr_id)
             graph._nodes[expr_id] = expr
             node_map[expr_id] = expr
+            return expr
+
+        for expr_id in payload_by_id:
+            build(expr_id)
+        from .units import infer_dimension
+
+        for expr in node_map.values():
+            infer_dimension(expr)
         return graph
 
 

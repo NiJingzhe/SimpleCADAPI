@@ -26,8 +26,15 @@ from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import Any, Dict, Iterable, List, Optional, Set
 
-from .expr import ExpressionGraph, canonicalize_params
+from .expr import ExpressionGraph, ScalarLike, ToleranceLike, canonicalize_params
+from .units import UnitLike
 from .frame import FrameGraph
+from .tolerance import (
+    ToleranceGraph,
+    ToleranceMethod,
+    ToleranceReport,
+    ToleranceRequirement,
+)
 from .topology import OperationGraph, OperationNode, TopoDelta
 from .topology import SemanticDelta
 from .topology import TopoKind, TopoRef, topo_ref_to_dict
@@ -69,6 +76,7 @@ class GraphSession:
     def __init__(self, graph_id: Optional[str] = None) -> None:
         self.graph = OperationGraph(graph_id=graph_id)
         self.expression_graph = ExpressionGraph()
+        self.tolerance_graph = ToleranceGraph(self.expression_graph)
         self.frame_graph = FrameGraph()
         self._active_session_token: Optional[Token[Optional["GraphSession"]]] = None
 
@@ -88,6 +96,39 @@ class GraphSession:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.stop()
+
+    def require_tolerance(
+        self,
+        value: ScalarLike,
+        tolerance: ToleranceLike,
+        *,
+        method: ToleranceMethod = "worst_case",
+        name: str | None = None,
+        requirement_id: str | None = None,
+        tolerance_unit: UnitLike | None = None,
+    ) -> ToleranceRequirement:
+        """Declare a persisted Length or Angle manufacturing requirement.
+
+        ``tolerance_unit`` defaults to the target's canonical unit for
+        unit-aware expressions. The requirement is validated immediately and at
+        session/model export, import, replay, and translation boundaries.
+        """
+
+        return self.tolerance_graph.require(
+            value,
+            tolerance,
+            method=method,
+            name=name,
+            requirement_id=requirement_id,
+            tolerance_unit=tolerance_unit,
+        )
+
+    def validate_tolerances(
+        self, *, raise_on_failure: bool = False
+    ) -> ToleranceReport:
+        """Validate every declared dimension-chain requirement."""
+
+        return self.tolerance_graph.validate(raise_on_failure=raise_on_failure)
 
 
 def get_active_session() -> Optional[GraphSession]:
