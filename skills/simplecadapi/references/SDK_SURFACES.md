@@ -50,7 +50,45 @@ top_faces = [face for face in body.get_faces() if "face.top" in scad.list_tags(s
 print(len(top_faces))
 ```
 
-Use `apply_tag(shape=..., tag=...)` for user-authored semantic tags and `list_tags(shape=...)` for deterministic inspection. Keep numeric dimensions, measurements, and rich descriptive data in metadata rather than tags.
+Use `apply_tag(shape=..., tag=...)` for a local user-authored tag. Use `apply_tag_rselection(...)` when a selector, explicit downward inheritance, or an independent semantic shape view is required. Inspect `local`, `inherited`, `effective`, or `lineage` with `list_tags(shape=..., scope=...)` and `explain_tag(...)`. `effective` excludes lineage. Keep numeric dimensions, measurements, operation events, source roles, and rich descriptive data in typed metadata rather than tags.
+
+## Feature Output Role Surface
+
+The following roles are operation-owned, kernel-proven sets. `one` means exactly
+one result is required when the role is requested; `many` means at least one
+result is required and all proven results are tagged.
+
+| Operation | Role | Kind | Cardinality | Named tag argument |
+| --- | --- | --- | --- | --- |
+| Extrude | `extrusion.start` | Face | one | `start_face_tag` |
+| Extrude | `extrusion.end` | Face | one | `end_face_tag` |
+| Extrude | `extrusion.side` | Face | many | `side_faces_tag` |
+| Revolve | `revolution.start` | Face | one | `start_face_tag` |
+| Revolve | `revolution.end` | Face | one | `end_face_tag` |
+| Revolve | `revolution.side` | Face | many | `side_faces_tag` |
+| Fillet | `fillet.patch` | Face | many | `generated_faces_tag` |
+| Chamfer | `chamfer.patch` | Face | many | `generated_faces_tag` |
+| Shell | `shell.body_face` | Face | many | `body_faces_tag` |
+| Shell | `shell.offset_face` | Face | many | `offset_faces_tag` |
+| Shell | `shell.closing_descendant` | Face | many | `closing_faces_tag` |
+| Shell | `shell.wall` | Edge | many | `wall_edges_tag` |
+| Loft | `loft.start` | Face | one | `start_face_tag` |
+| Loft | `loft.end` | Face | one | `end_face_tag` |
+| Loft | `loft.side` | Face | many | `side_faces_tag` |
+| Sweep | `sweep.start` | Face | one | `start_face_tag` |
+| Sweep | `sweep.end` | Face | one | `end_face_tag` |
+| Sweep | `sweep.side` | Face | many | `side_faces_tag` |
+
+Every feature also accepts `result_tag` for its one result Solid and
+`output_tags={"full.role.name": "semantic.tag"}` as the generic role form.
+Unknown roles, duplicate named/generic assignments, malformed tags, unavailable
+roles, and cardinality mismatches fail the operation. A full revolve has no
+separate start/end cap roles. Shell roles vary with actual OCC history and are
+not synthesized when unavailable. Sweep rejects profiles with inner wires.
+
+Use `ql.output_role(role_name=...)` to query operation role evidence. Use
+`ql.source_binding(binding_id=...)` and `ql.source_topology(topo_id=...)` only for
+projected local `TagBinding` evidence.
 
 ## Recommended reading order
 

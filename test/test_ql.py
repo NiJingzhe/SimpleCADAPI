@@ -2,6 +2,7 @@ import unittest
 
 import simplecadapi as scad
 from simplecadapi import ql as Q
+from simplecadapi import tagging
 
 
 class TestQLTagPredicates(unittest.TestCase):
@@ -22,6 +23,30 @@ class TestQLTagPredicates(unittest.TestCase):
         top_face = top_faces[0]
         self.assertTrue(Q.tag("face.top")(top_face))
         self.assertTrue(Q.tag("face.*")(top_face))
+
+    def test_tag_scope_serializes_and_roundtrips(self):
+        predicate = Q.tag("role.mounting_surface", scope="inherited")
+        payload = predicate.to_dict()
+        restored = Q.SerializablePredicate.from_dict(payload)
+
+        self.assertEqual(payload["kind"], "tag")
+        self.assertEqual(payload["data"]["scope"], "inherited")
+        self.assertEqual(restored.to_dict(), payload)
+
+    def test_tag_scope_evaluates_explicit_downward_inheritance(self):
+        box = scad.make_box_rsolid(1.0, 1.0, 1.0)
+        box._apply_user_tag("role.body", topology_propagation="downward")
+        face = box.get_faces(0)
+
+        self.assertFalse(Q.tag("role.body", scope="local")(face))
+        self.assertTrue(Q.tag("role.body", scope="inherited")(face))
+        self.assertTrue(Q.tag("role.body", scope="effective")(face))
+
+    def test_lineage_capability_error_is_not_swallowed(self):
+        vertex = scad.make_point_rvertex(0.0, 0.0, 0.0)
+
+        with self.assertRaises(tagging.UnsupportedQueryCapabilityError):
+            Q.tag("role.datum", scope="lineage")(vertex)
 
 
 class TestQLMetadataPredicates(unittest.TestCase):

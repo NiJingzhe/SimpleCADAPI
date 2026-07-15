@@ -205,7 +205,16 @@ with scad.GraphSession() as session:
     # Detail operations use QL selectors so the graph contains stable, serializable
     # selection hints rather than Python object identity from source code.
     source_step("12 fillet_rsolid, chamfer_rsolid, shell_rsolid with serializable selectors")
-    vertical_edges = Q.edges().where(Q.curve_type("line")).take(4)
+    vertical_edges = (
+        Q.edges()
+        .where(
+            Q.and_(
+                Q.curve_type(kind="line"),
+                Q.prop(path="geom.length", op="==", value_=1.0),
+            )
+        )
+        .exactly(4)
+    )
     final = scad.fillet_rsolid(union_demo, vertical_edges, fillet_r)
 
     chamfer_box = scad.make_box_rsolid(3.0, 2.0, 1.0, bottom_face_center=(2.0, -7.0, 0.0))

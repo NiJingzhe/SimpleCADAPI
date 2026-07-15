@@ -101,6 +101,10 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             package_root = Path(tmp_dir) / "src/simplecadapi"
             package_root.mkdir(parents=True, exist_ok=True)
+            backend_root = package_root / "translator/freecad_translator"
+            backend_root.mkdir(parents=True)
+            (backend_root / "api.py").write_text("", encoding="utf-8")
+            (backend_root / "translator.py").write_text("", encoding="utf-8")
 
             resolved = auto_docs_gen._default_source_files(package_root)
 
@@ -112,7 +116,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             self.assertIn("math.py", resolved_names)
             self.assertIn("translator/freecad_translator/api.py", resolved_names)
             self.assertIn(
-                "translator/freecad_translator/script_translator.py",
+                "translator/freecad_translator/translator.py",
                 resolved_names,
             )
 

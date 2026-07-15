@@ -15,23 +15,74 @@ class TestQLSugar(unittest.TestCase):
 
     def test_op_predicate(self):
         pred = Q.op("cut", "generated")
-        obj = type("Obj", (), {"_tags": {"op.cut.generated"}})()
+        obj = type(
+            "Obj",
+            (),
+            {"_metadata": {"track": {"op": "make_cut_rsolid", "event": "generated"}}},
+        )()
         self.assertTrue(pred(obj))
 
     def test_op_predicate_wildcard(self):
         pred = Q.op("cut")
-        obj = type("Obj", (), {"_tags": {"op.cut.modified"}})()
+        obj = type(
+            "Obj",
+            (),
+            {"_metadata": {"track": {"op": "make_cut_rsolid", "events": ["modified"]}}},
+        )()
         self.assertTrue(pred(obj))
+
+    def test_op_predicate_matches_generic_operation_alias(self):
+        obj = type(
+            "Obj",
+            (),
+            {
+                "_metadata": {
+                    "track": {
+                        "op": "make_translate_rsolid",
+                        "operation": "translate",
+                        "event": "modified",
+                    }
+                }
+            },
+        )()
+
+        self.assertTrue(Q.op("translate", "modified")(obj))
+        self.assertTrue(Q.op("make_translate_rsolid", "modified")(obj))
 
     def test_origin_predicate(self):
         pred = Q.origin("tool")
-        obj = type("Obj", (), {"_tags": {"origin.tool"}})()
+        obj = type(
+            "Obj", (), {"_metadata": {"track": {"origin_roles": ["body", "tool"]}}}
+        )()
         self.assertTrue(pred(obj))
 
     def test_origin_predicate_no_match(self):
         pred = Q.origin("tool")
-        obj = type("Obj", (), {"_tags": {"origin.body"}})()
+        obj = type("Obj", (), {"_metadata": {"track": {"origin_role": "body"}}})()
         self.assertFalse(pred(obj))
+
+    def test_op_and_origin_do_not_fall_back_to_flat_tags(self):
+        obj = type(
+            "Obj",
+            (),
+            {"_metadata": {}, "_tags": {"op.cut.generated", "origin.tool"}},
+        )()
+
+        self.assertFalse(Q.op("cut", "generated")(obj))
+        self.assertFalse(Q.origin("tool")(obj))
+
+    def test_typed_tracking_predicates_roundtrip(self):
+        operation = Q.operation_event("cut", "modified")
+        origin = Q.origin_role("tool")
+
+        self.assertEqual(
+            Q.SerializablePredicate.from_dict(operation.to_dict()).to_dict(),
+            operation.to_dict(),
+        )
+        self.assertEqual(
+            Q.SerializablePredicate.from_dict(origin.to_dict()).to_dict(),
+            origin.to_dict(),
+        )
 
     def test_role_predicate(self):
         pred = Q.role("section")

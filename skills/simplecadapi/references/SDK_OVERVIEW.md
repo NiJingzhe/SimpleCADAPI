@@ -24,7 +24,9 @@
 - Core shape/type semantics in `docs/core/`.
 - Graph/model serialization and replay APIs.
 - Expression, parameter, and semantic reference types.
-- Functional tagging with `apply_tag(shape=..., tag=...)`, `list_tags(shape=...)`, and QL tag predicates.
+- Source-preserving tagging with `apply_tag(...)`, `apply_tag_rselection(...)`, scoped `list_tags(...)`/`explain_tag(...)`, and scoped QL tag predicates.
+- Kernel-proven feature output roles and strict role-based output tag assignment for extrude, revolve, fillet, chamfer, shell, loft, and sweep.
+- Serializable QL predicates for `output_role`, projected `source_binding`, and projected `source_topology` evidence.
 
 ## Preferred replayable workflow
 
