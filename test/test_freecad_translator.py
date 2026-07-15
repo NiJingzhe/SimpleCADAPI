@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import importlib
 import math
@@ -1668,6 +1669,93 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn(
             "=<<SimpleCADExpressions>>.var_r * <<SimpleCADExpressions>>.const_", script
         )
+
+    def test_translate_model_json_preserves_dimension_tolerances(self):
+        width = scad.var("width", 10.0, tolerance=(-0.1, 0.2))
+        with GraphSession() as session:
+            scad.make_box_rsolid(width, 2.0, 1.0)
+            session.require_tolerance(width * 2.0, (-0.2, 0.4), name="overall")
+
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
+
+        self.assertIn("TOLERANCE_GRAPH =", script)
+        self.assertIn("simplecad_tolerance_graph", script)
+        self.assertIn("overall", script)
+        self.assertIn("expr_sheet.set('E1', \"-0.1\")", script)
+        self.assertIn("expr_sheet.set('F1', \"0.2\")", script)
+
+    def test_translate_model_json_preserves_units_and_uses_canonical_values(self):
+        width = scad.var(
+            "width", 1.0, unit="in", tolerance=0.1, tolerance_unit="mm"
+        )
+        angle = scad.var("angle", math.pi / 2.0, unit="rad", tolerance=0.5)
+        with GraphSession() as session:
+            scad.make_box_rsolid(width, 2.0, 1.0)
+            scad.rotate_shape(
+                scad.make_box_rsolid(1.0, 1.0, 1.0),
+                angle,
+                axis=(0.0, 0.0, 1.0),
+                origin=(0.0, 0.0, 0.0),
+            )
+            session.require_tolerance(width, 0.004, tolerance_unit="in")
+
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
+
+        self.assertIn('expr_sheet.set("B1", "25.4")', script)
+        self.assertIn("expr_sheet.set('G1', \"in\")", script)
+        self.assertIn("expr_sheet.set('H1', \"mm\")", script)
+        self.assertIn("expr_sheet.set('I1', \"Length\")", script)
+        self.assertIn("expr_sheet.set('G2', \"rad\")", script)
+        self.assertIn("expr_sheet.set('H2', \"rad\")", script)
+        self.assertIn("expr_sheet.set('I2', \"Angle\")", script)
+        self.assertIn("'tolerance_unit': 'in'", script)
+        self.assertIn("'target_dimension': {'angle': 0, 'length': 1}", script)
+
+    def test_translate_model_json_disambiguates_same_name_variable_aliases(self):
+        first = scad.var("width", 10.0)
+        second = scad.var("width", 20.0)
+        expression = first + second
+        with GraphSession() as session:
+            scad.make_box_rsolid(expression, 2.0, 1.0)
+
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
+        suffix = hashlib.sha256(second.expr_id.encode("utf-8")).hexdigest()[:8]
+        second_alias = f"var_width_{suffix}"
+
+        self.assertIn('setAlias("B1", "var_width")', script)
+        self.assertIn(f'setAlias("B2", "{second_alias}")', script)
+        self.assertIn(f"<<SimpleCADExpressions>>.{second_alias}", script)
+
+    def test_translate_model_json_uses_ascii_bounded_unique_aliases(self):
+        variables = [
+            scad.var("宽度" + "x" * 80, float(index + 1))
+            for index in range(3)
+        ]
+        with GraphSession() as session:
+            scad.make_box_rsolid(
+                variables[0] + variables[1] + variables[2], 2.0, 1.0
+            )
+
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
+        aliases = []
+        for line in script.splitlines():
+            marker = "expr_sheet.setAlias("
+            if marker not in line:
+                continue
+            arguments = line.split("(", 1)[1].rsplit(")", 1)[0]
+            aliases.append(json.loads("[" + arguments + "]")[1])
+
+        self.assertEqual(len(aliases), len(set(aliases)))
+        self.assertTrue(all(alias.isascii() for alias in aliases))
+        self.assertTrue(all(len(alias) <= 64 for alias in aliases))
 
     def test_translate_model_json_uses_semantic_spreadsheet_aliases_and_formulas(self):
         x = scad.var("hub_radius", 6.5, comment="Hub outer radius")

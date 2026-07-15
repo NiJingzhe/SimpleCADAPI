@@ -29,6 +29,7 @@ Inspect these fields:
 - `node["inputs"]`: upstream node ids used by replay.
 - `payload["leaf_ids"]`: explicit final result node ids.
 - `payload["expression_graph"]`: expression DAG used by expression-backed parameters.
+- `payload["tolerance_graph"]`: dimension-chain requirements and validation evidence.
 
 ## Important rule: source API is not always graph API
 
@@ -52,6 +53,8 @@ Many user-facing functions are convenience APIs. During an active `GraphSession`
 - [Primitive and profile operations](primitives-and-profiles.md)
 - [Features, booleans, transforms, patterns, and selectors](features-booleans-transforms.md)
 - [Expressions and replay behavior](expressions-and-replay.md)
+- [Physical units and dimension inference](../physical-units.md)
+- [Dimension tolerance chains](../dimension-tolerance-chains.md)
 
 ## Example
 

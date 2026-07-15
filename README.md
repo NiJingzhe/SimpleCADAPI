@@ -36,6 +36,8 @@ Current beta: `simplecadapi==2.0.1b1`.
   `import_model_json(...)`, and `replay_model_json(...)`.
 - Expression parameters with `var(...)`, arithmetic expressions, and serialized
   expression graphs.
+- Physical units with automatic dimension inference, canonical CAD conversion,
+  and manufacturing tolerance-chain validation.
 - QL selectors for geometry grounding, topology queries, and stable feature
   selections.
 - Semantic tags through `apply_tag(shape, tag)` and `list_tags(shape)`.
@@ -116,6 +118,39 @@ print("recorded_nodes", session.graph.node_count)
 print("replayed_outputs", len(rebuilt))
 ```
 
+## Physical Units And Tolerances
+
+Declare nominal and manufacturing-tolerance units at the variable boundary.
+SimpleCAD evaluates lengths in millimeters and angles in degrees while preserving
+the declaration units in model JSON:
+
+```python
+import simplecadapi as scad
+
+width = scad.var(
+    "width",
+    1.0,
+    unit="in",
+    tolerance=0.1,
+    tolerance_unit="mm",
+)
+height = scad.var("height", 40.0, unit="mm", tolerance=0.2)
+diagonal = scad.sqrt(width**2 + height**2)
+
+analysis = scad.analyze_tolerance(diagonal)
+check = scad.check_tolerance(diagonal, 0.3, tolerance_unit="mm")
+
+print(analysis.dimension.name, analysis.unit.symbol)
+print(analysis.nominal, analysis.lower_bound, analysis.upper_bound)
+print("passes", check.passed)
+```
+
+Addition and subtraction require matching dimensions. Multiplication, division,
+integer powers, and square root derive dimensions. Trigonometric functions require
+angle or dimensionless inputs as appropriate. Legacy variables without `unit`
+remain supported, but cannot be mixed with unit-declared variables in one
+expression.
+
 ## Modeling Mental Model
 
 - Start from design intent: reference axes, critical profiles, and the features
@@ -165,6 +200,7 @@ Run examples from the source checkout:
 uv run python examples/01_basic_modeling.py
 uv run python examples/02_graph_replay.py
 uv run python examples/03_expressions.py
+uv run python examples/04_dimension_tolerance_chain.py
 uv run python examples/05_loft_sweep_revolve.py
 uv run python examples/06_parametric_gear_model.py
 uv run python examples/07_serialization_operation_tree.py
@@ -179,6 +215,10 @@ uv run python examples/10_part_assembly.py
 - Core type and modeling notes: [`docs/core/`](docs/core/)
 - Serialization and replay details:
   [`docs/core/serialization/README.md`](docs/core/serialization/README.md)
+- Dimension tolerance chains:
+  [`docs/core/dimension-tolerance-chains.md`](docs/core/dimension-tolerance-chains.md)
+- Physical units and dimension inference:
+  [`docs/core/physical-units.md`](docs/core/physical-units.md)
 - Operation graph JSON spec:
   [`docs/core/operation_graph_json_spec.md`](docs/core/operation_graph_json_spec.md)
 
