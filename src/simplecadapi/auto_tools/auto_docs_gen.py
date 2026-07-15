@@ -20,8 +20,6 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "evolve.py",
     "ql.py",
     "serializer.py",
-    "translator/freecad_translator/api.py",
-    "translator/freecad_translator/script_translator.py",
     "math.py",
     "product.py",
     "expr.py",
@@ -54,13 +52,6 @@ EXPORTED_CALLABLE_MODULES = frozenset(
     {"expr.py", "graph.py", "sketch.py", "errors.py", "topology.py", "math.py", "product.py"}
 )
 
-TRANSLATOR_PUBLIC_MODULES = frozenset(
-    {
-        "translator/freecad_translator/api.py",
-        "translator/freecad_translator/script_translator.py",
-    }
-)
-
 MISSING = object()
 
 
@@ -81,7 +72,25 @@ def _source_checkout_root(package_root: Path) -> Path | None:
 
 
 def _default_source_files(package_root: Path) -> List[Path]:
-    return [package_root / name for name in DEFAULT_SOURCE_FILENAMES]
+    source_files = [package_root / name for name in DEFAULT_SOURCE_FILENAMES]
+    translator_root = package_root / "translator"
+    for backend_dir in sorted(translator_root.glob("*_translator")):
+        source_files.extend(
+            [backend_dir / "api.py", backend_dir / "translator.py"]
+        )
+    return source_files
+
+
+def _translator_backend_name(module_name: str) -> str | None:
+    parts = module_name.split("/")
+    if (
+        len(parts) == 3
+        and parts[0] == "translator"
+        and parts[1].endswith("_translator")
+        and parts[2] in {"api.py", "translator.py"}
+    ):
+        return parts[1]
+    return None
 
 
 def _default_stdlib_source_files(package_root: Path) -> List[Path]:
@@ -262,7 +271,7 @@ class APIDocumentGenerator:
             return False
         if module_name in FULL_PUBLIC_FUNCTION_MODULES:
             return True
-        if module_name in TRANSLATOR_PUBLIC_MODULES:
+        if _translator_backend_name(module_name) is not None:
             return True
         if module_name in EXPORTED_FUNCTION_MODULES:
             if not exported_names:
@@ -278,7 +287,7 @@ class APIDocumentGenerator:
     ) -> bool:
         if name.startswith("_"):
             return False
-        if module_name in TRANSLATOR_PUBLIC_MODULES:
+        if _translator_backend_name(module_name) is not None:
             return True
         if module_name not in EXPORTED_CALLABLE_MODULES:
             return False
@@ -314,10 +323,11 @@ class APIDocumentGenerator:
         if name in self.exported_names:
             return f"top-level: `from simplecadapi import {name}`"
 
-        if module_name.startswith("translator/freecad_translator/"):
+        translator_backend = _translator_backend_name(module_name)
+        if translator_backend is not None:
             return (
                 "translator backend: "
-                f"`from simplecadapi.translator.freecad_translator import {name}`"
+                f"`from simplecadapi.translator.{translator_backend} import {name}`"
             )
 
         module_stem = module_name.removesuffix(".py")
@@ -464,7 +474,7 @@ class APIDocumentGenerator:
             "Tagging and Selection": [],
             "Boolean Operations": [],
             "Export": [],
-            "FreeCAD Translation": [],
+            "Translator Backends": [],
             "Math Helpers": [],
             "Modeling Graph and Replay": [],
             "Expressions and Parameters": [],
@@ -485,8 +495,8 @@ class APIDocumentGenerator:
                 categories["Modeling Graph and Replay"].append(api)
                 continue
 
-            if api.source_file.startswith("translator/freecad_translator/"):
-                categories["FreeCAD Translation"].append(api)
+            if _translator_backend_name(api.source_file) is not None:
+                categories["Translator Backends"].append(api)
                 continue
 
             if api.source_file == "math.py":

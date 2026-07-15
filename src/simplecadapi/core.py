@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union, cast
 
@@ -17,7 +18,24 @@ from .kernel.ocp_cast import as_compound, as_edge, as_face, as_solid, as_vertex,
 from .kernel.ocp_booleans import solids_of
 from .kernel.ocp_properties import Vec3, center_of_mass, face_normal_at, linear_length, surface_area, volume
 from .kernel.ocp_topology import edges_of, faces_of, inner_wires_of, is_wire_closed, outer_wire_of, vertex_point, vertices_of
-from .tagging import DEFAULT_TAG_POLICY, normalize_tag
+from .tagging import (
+    LineagePolicy,
+    TagAttachment,
+    TagBinding,
+    TagEvidence,
+    TagLineageWitness,
+    TagProducer,
+    TagProducerKind,
+    TagScope,
+    TopologyPropagation,
+    UnsupportedQueryCapabilityError,
+    internal_tag_binding,
+    legacy_tag_binding,
+    lineage_policy_allows,
+    normalize_tag,
+    normalize_tag_scope,
+    user_tag_binding,
+)
 
 suppress_vendor_deprecation_warnings()
 
@@ -35,6 +53,8 @@ class _TopoEntity:
     topo_id: str
     representative: Any
     tags: Set[str] = field(default_factory=set)
+    tag_bindings: List[TagBinding] = field(default_factory=list)
+    tag_lineage: List[TagLineageWitness] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     runtime: Dict[str, Any] = field(default_factory=dict)
     wrappers: List[Any] = field(default_factory=list)
@@ -73,6 +93,21 @@ class _TopologyEntityCache:
         if kind is None:
             return list(self._entities_by_id.values())
         return [entity for entity in self._entities_by_id.values() if entity.kind == kind]
+
+
+def _copy_entity_state(source: _TopoEntity, target: _TopoEntity) -> None:
+    target.tags.clear()
+    target.tags.update(source.tags)
+    target.tag_bindings[:] = list(source.tag_bindings)
+    target.tag_lineage[:] = list(source.tag_lineage)
+    target.metadata.clear()
+    target.metadata.update(deepcopy(source.metadata))
+    target.runtime.clear()
+    target.runtime.update(deepcopy(source.runtime))
+    target.incident_face_ids.clear()
+    target.incident_face_ids.update(source.incident_face_ids)
+    target.incident_edge_ids.clear()
+    target.incident_edge_ids.update(source.incident_edge_ids)
 
 
 class CoordinateSystem:
@@ -345,14 +380,49 @@ class TaggedMixin:
     def __init__(self, entity: Optional[_TopoEntity] = None):
         self._entity = entity
         if entity is None:
-            self._tags: Set[str] = set()
+            self._tag_cache: Set[str] = set()
+            self._tag_bindings: List[TagBinding] = []
+            self._tag_lineage: List[TagLineageWitness] = []
             self._metadata: Dict[str, Any] = {}
             self._runtime: Dict[str, Any] = {}
         else:
-            self._tags = entity.tags
+            self._tag_cache = entity.tags
+            self._tag_bindings = entity.tag_bindings
+            self._tag_lineage = entity.tag_lineage
             self._metadata = entity.metadata
             self._runtime = entity.runtime
             entity.wrappers.append(self)
+
+    @property
+    def _tags(self) -> Set[str]:
+        """Compatibility cache; TagBinding objects are canonical truth."""
+
+        return self._tag_cache
+
+    @_tags.setter
+    def _tags(self, values: Iterable[str]) -> None:
+        if not isinstance(values, Iterable) or isinstance(values, (str, bytes)):
+            raise TypeError("_tags compatibility cache must be assigned an iterable")
+        imported = []
+        for value in values:
+            imported.append(
+                legacy_tag_binding(
+                    normalize_tag(value, strict=True),
+                    diagnostic="Imported from a direct legacy _tags assignment.",
+                )
+            )
+        if hasattr(self, "_tag_bindings"):
+            self._tag_bindings[:] = imported
+        else:
+            self._tag_bindings = imported
+        if hasattr(self, "_tag_lineage"):
+            self._tag_lineage[:] = []
+        else:
+            self._tag_lineage = []
+        cache = getattr(self, "_tag_cache", None)
+        if cache is None:
+            self._tag_cache = set()
+        self._refresh_tag_cache()
 
     @property
     def topo_id(self) -> str:
@@ -367,40 +437,336 @@ class TaggedMixin:
     def _add_tag(self, tag: str) -> None:
         if not isinstance(tag, str):
             raise TypeError("标签必须是字符串类型")
-        tag = normalize_tag(tag, strict=True)
-        self._tags.add(tag)
+        self._add_tag_binding(internal_tag_binding(normalize_tag(tag, strict=True)))
+
+    def _add_tag_binding(self, binding: TagBinding) -> None:
+        if not isinstance(binding, TagBinding):
+            raise TypeError("binding must be a TagBinding")
+        if not any(item.binding_id == binding.binding_id for item in self._tag_bindings):
+            self._tag_bindings.append(binding)
+        self._refresh_tag_cache(recursive=True)
+
+    def _add_tag_lineage(
+        self,
+        binding: TagBinding,
+        *,
+        derivation: str,
+        source_topo_id: str,
+        evidence: TagEvidence,
+        coverage: str = "complete",
+    ) -> None:
+        witness = TagLineageWitness(
+            binding=binding,
+            derivation=derivation,
+            source_topo_id=str(source_topo_id),
+            target_topo_id=self.topo_id,
+            evidence=evidence,
+            coverage=coverage,
+        )
+        marker = (
+            witness.binding.binding_id,
+            witness.derivation,
+            witness.source_topo_id,
+            witness.target_topo_id,
+        )
+        if not any(
+            (
+                item.binding.binding_id,
+                item.derivation,
+                item.source_topo_id,
+                item.target_topo_id,
+            )
+            == marker
+            for item in self._tag_lineage
+        ):
+            self._tag_lineage.append(witness)
+
+    def _copy_tag_state_from(self, source: "TaggedMixin") -> None:
+        if not isinstance(source, TaggedMixin):
+            raise TypeError("source must be a TaggedMixin")
+        self._tag_bindings[:] = list(source._tag_bindings)
+        self._tag_lineage[:] = list(source._tag_lineage)
+        self._refresh_tag_cache(recursive=True)
+
+    def _replace_local_tag_bindings(self, bindings: Iterable[TagBinding]) -> None:
+        retained = [
+            binding
+            for binding in self._tag_bindings
+            if binding.attachment != TagAttachment.LOCAL
+        ]
+        replacements = list(bindings)
+        if not all(isinstance(binding, TagBinding) for binding in replacements):
+            raise TypeError("bindings must contain only TagBinding objects")
+        self._tag_bindings[:] = [*retained, *replacements]
+        self._refresh_tag_cache(recursive=True)
+
+    def _refresh_tag_cache(
+        self, *, recursive: bool = False, _visited: Optional[Set[int]] = None
+    ) -> None:
+        visited = _visited if _visited is not None else set()
+        marker = id(self)
+        if marker in visited:
+            return
+        visited.add(marker)
+        self._tag_cache.clear()
+        self._tag_cache.update(self._list_tags(TagScope.EFFECTIVE))
+        if recursive and isinstance(self, TopoMixein):
+            for child in self.get_children():
+                if isinstance(child, TaggedMixin):
+                    child._refresh_tag_cache(recursive=True, _visited=visited)
 
     def _apply_tag(
         self, tag: str, *, normalize: bool = True, propagate: Optional[bool] = None
     ) -> None:
         if normalize:
             tag = normalize_tag(tag, strict=True)
-        self._tags.add(tag)
         if propagate is None:
-            propagate = DEFAULT_TAG_POLICY.should_propagate(tag)
-        if propagate:
-            self._propagate_tag_down(tag)
+            propagate = False
+        self._add_tag_binding(
+            internal_tag_binding(
+                tag,
+                topology=(
+                    TopologyPropagation.DOWNWARD
+                    if propagate
+                    else TopologyPropagation.LOCAL
+                ),
+            )
+        )
+
+    def _apply_user_tag(
+        self,
+        tag: str,
+        *,
+        topology_propagation: str | TopologyPropagation = TopologyPropagation.LOCAL,
+        lineage_policy: str | LineagePolicy = LineagePolicy.CONTINUATION_FRAGMENT,
+        producer_node_id: Optional[str] = None,
+    ) -> TagBinding:
+        binding = user_tag_binding(
+            normalize_tag(tag, strict=True),
+            node_id=producer_node_id,
+            topology=topology_propagation,
+            lineage=lineage_policy,
+        )
+        self._add_tag_binding(binding)
+        return binding
 
     def _propagate_tag_down(self, tag: str) -> None:
-        if not isinstance(self, TopoMixein):
-            return
-        try:
-            children = self.get_children()
-        except Exception:
-            return
-        for child in children:
-            if isinstance(child, TaggedMixin):
-                child._tags.add(tag)
-                child._propagate_tag_down(tag)
+        # Inheritance is evaluated from ancestor bindings; no strings are copied.
+        return
 
-    def _remove_tag(self, tag: str) -> None:
-        self._tags.discard(tag)
+    def _remove_tag(
+        self,
+        tag: str,
+        *,
+        matching_producer: TagProducer | TagProducerKind | str = TagProducerKind.USER_OPERATION,
+    ) -> int:
+        normalized = normalize_tag(tag, strict=True)
 
-    def _has_tag(self, tag: str) -> bool:
-        return tag in self._tags
+        def matches(binding: TagBinding) -> bool:
+            if isinstance(matching_producer, TagProducer):
+                return binding.producer == matching_producer
+            try:
+                producer_kind = (
+                    matching_producer
+                    if isinstance(matching_producer, TagProducerKind)
+                    else TagProducerKind(matching_producer)
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"unsupported matching producer '{matching_producer}'"
+                ) from exc
+            return binding.producer.kind == producer_kind
 
-    def _list_tags(self) -> list[str]:
-        return sorted(self._tags)
+        retained = [
+            binding
+            for binding in self._tag_bindings
+            if not (binding.tag == normalized and matches(binding))
+        ]
+        removed = len(self._tag_bindings) - len(retained)
+        self._tag_bindings[:] = retained
+        if removed:
+            self._refresh_tag_cache(recursive=True)
+        return removed
+
+    def _remove_tag_binding(self, binding_id: str) -> bool:
+        if not isinstance(binding_id, str) or not binding_id:
+            raise ValueError("binding_id must be a non-empty string")
+        retained = [
+            binding
+            for binding in self._tag_bindings
+            if binding.binding_id != binding_id
+        ]
+        removed = len(retained) != len(self._tag_bindings)
+        self._tag_bindings[:] = retained
+        if removed:
+            self._refresh_tag_cache(recursive=True)
+        return removed
+
+    def _has_tag(
+        self, tag: str, scope: str | TagScope = TagScope.EFFECTIVE
+    ) -> bool:
+        return tag in self._list_tags(scope)
+
+    def _local_tag_bindings(self) -> List[TagBinding]:
+        return [
+            binding
+            for binding in self._tag_bindings
+            if binding.attachment == TagAttachment.LOCAL
+        ]
+
+    def _legacy_effective_bindings(self) -> List[TagBinding]:
+        return [
+            binding
+            for binding in self._tag_bindings
+            if binding.attachment == TagAttachment.EFFECTIVE_LEGACY
+        ]
+
+    def _inherited_tag_bindings_with_paths(
+        self,
+    ) -> List[Tuple[TagBinding, Tuple[str, ...]]]:
+        result: List[Tuple[TagBinding, Tuple[str, ...]]] = []
+        seen_bindings: Set[str] = set()
+        seen_objects: Set[int] = set()
+        wrappers = (
+            self._entity.wrappers
+            if getattr(self, "_entity", None) is not None
+            else [self]
+        )
+        queue: List[Tuple[Any, Tuple[str, ...]]] = [
+            (parent, (self.topo_id, getattr(parent, "topo_id", str(id(parent)))))
+            for wrapper in wrappers
+            if isinstance(wrapper, TopoMixein)
+            for parent in wrapper.get_parents()
+        ]
+        while queue:
+            parent, path = queue.pop(0)
+            marker = id(parent)
+            if marker in seen_objects:
+                continue
+            seen_objects.add(marker)
+            if isinstance(parent, TaggedMixin):
+                for binding in parent._local_tag_bindings():
+                    if (
+                        binding.propagation.topology == TopologyPropagation.DOWNWARD
+                        and binding.binding_id not in seen_bindings
+                    ):
+                        seen_bindings.add(binding.binding_id)
+                        result.append((binding, tuple(reversed(path))))
+            if isinstance(parent, TopoMixein):
+                for ancestor in parent.get_parents():
+                    queue.append(
+                        (
+                            ancestor,
+                            (*path, getattr(ancestor, "topo_id", str(id(ancestor)))),
+                        )
+                    )
+        return result
+
+    def _inherited_tag_bindings(self) -> List[TagBinding]:
+        return [binding for binding, _path in self._inherited_tag_bindings_with_paths()]
+
+    def _lineage_tag_bindings(self) -> List[TagBinding]:
+        coverage = self._runtime.get("semantic.lineage.coverage")
+        if coverage != "complete":
+            available = "none" if coverage is None else str(coverage)
+            raise UnsupportedQueryCapabilityError(
+                "lineage tag scope requires complete topology history; "
+                f"coverage={available}"
+            )
+        if any(witness.coverage != "complete" for witness in self._tag_lineage):
+            raise UnsupportedQueryCapabilityError(
+                "lineage tag scope has incomplete lineage witnesses"
+            )
+        result: List[TagBinding] = []
+        seen: Set[str] = set()
+        for witness in self._tag_lineage:
+            binding = witness.binding
+            if (
+                lineage_policy_allows(binding.propagation, witness.derivation)
+                and binding.binding_id not in seen
+            ):
+                seen.add(binding.binding_id)
+                result.append(binding)
+        return result
+
+    def _list_tag_bindings(
+        self, scope: str | TagScope = TagScope.EFFECTIVE
+    ) -> List[TagBinding]:
+        resolved_scope = normalize_tag_scope(scope)
+        if (
+            resolved_scope != TagScope.EFFECTIVE
+            and self._legacy_effective_bindings()
+        ):
+            raise UnsupportedQueryCapabilityError(
+                "legacy effective tag snapshots only support effective scope"
+            )
+        if resolved_scope == TagScope.LOCAL:
+            return self._local_tag_bindings()
+        if resolved_scope == TagScope.INHERITED:
+            return self._inherited_tag_bindings()
+        if resolved_scope == TagScope.LINEAGE:
+            return self._lineage_tag_bindings()
+
+        bindings = [
+            *self._local_tag_bindings(),
+            *self._inherited_tag_bindings(),
+            *self._legacy_effective_bindings(),
+        ]
+        unique: Dict[str, TagBinding] = {}
+        for binding in bindings:
+            unique.setdefault(binding.binding_id, binding)
+        return list(unique.values())
+
+    def _list_tags(
+        self, scope: str | TagScope = TagScope.EFFECTIVE
+    ) -> list[str]:
+        return sorted({binding.tag for binding in self._list_tag_bindings(scope)})
+
+    def _explain_tag(
+        self, tag: str, scope: str | TagScope = TagScope.EFFECTIVE
+    ) -> List[Dict[str, Any]]:
+        normalized = normalize_tag(tag, strict=True)
+        resolved_scope = normalize_tag_scope(scope)
+        inherited_paths = {
+            binding.binding_id: path
+            for binding, path in self._inherited_tag_bindings_with_paths()
+        }
+        explanations: List[Dict[str, Any]] = []
+        for binding in self._list_tag_bindings(resolved_scope):
+            if binding.tag != normalized:
+                continue
+            attachment = binding.attachment.value
+            explanation: Dict[str, Any] = {
+                "scope": resolved_scope.value,
+                "binding_id": binding.binding_id,
+                "producer": binding.producer.to_dict(),
+                "attachment": attachment,
+                "binding": binding.to_dict(),
+            }
+            if binding.binding_id in inherited_paths:
+                explanation["attachment"] = TagAttachment.INHERITED.value
+                explanation["topology_path"] = list(
+                    inherited_paths[binding.binding_id]
+                )
+            witnesses = [
+                witness
+                for witness in self._tag_lineage
+                if witness.binding.binding_id == binding.binding_id
+                and lineage_policy_allows(binding.propagation, witness.derivation)
+            ]
+            if witnesses:
+                explanation["lineage"] = [
+                    {
+                        "derivation": witness.derivation.value,
+                        "source_topo_id": witness.source_topo_id,
+                        "target_topo_id": witness.target_topo_id,
+                        "coverage": witness.coverage,
+                        "evidence": witness.evidence.to_dict(),
+                    }
+                    for witness in witnesses
+                ]
+            explanations.append(explanation)
+        return explanations
 
     def set_metadata(self, key: str, value: Any) -> None:
         self._metadata[key] = value
@@ -417,8 +783,9 @@ class TaggedMixin:
     def _format_tags_and_metadata(self, indent: int = 0) -> str:
         spaces = "  " * indent
         result = []
-        if self._tags:
-            result.append(f"{spaces}tags: [{', '.join(sorted(self._tags))}]")
+        tags = self._list_tags()
+        if tags:
+            result.append(f"{spaces}tags: [{', '.join(tags)}]")
         if self._metadata:
             result.append(f"{spaces}metadata:")
             for key, value in sorted(self._metadata.items()):
@@ -448,6 +815,8 @@ class TopoMixein:
         if child not in self.children:
             self.children.append(child)
             child.set_parent(self.self_shape_ref)
+            if isinstance(child, TaggedMixin):
+                child._refresh_tag_cache(recursive=True)
 
     def get_children(self) -> List["AnyShape"]:
         return self.children
@@ -652,11 +1021,7 @@ class Wire(TaggedMixin, TopoMixein):
             raise ValueError(f"检查线闭合性失败: {e}")
 
     def _tag_edges(self) -> None:
-        policy = DEFAULT_TAG_POLICY
         for i, edge in enumerate(self.get_edges()):
-            for tag in self._list_tags():
-                if policy.should_propagate(tag):
-                    edge._add_tag(tag)
             edge._apply_tag("edge.boundary", propagate=False)
             geo = dict(edge.get_metadata("geo", {}))
             geo["edge_index"] = i
@@ -719,17 +1084,10 @@ class Face(TaggedMixin, TopoMixein):
             raise ValueError(f"获取法向量失败: {e}")
 
     def _tag_wires(self) -> None:
-        policy = DEFAULT_TAG_POLICY
         outer_wire = self.get_outer_wire()
-        for tag in self._list_tags():
-            if policy.should_propagate(tag):
-                outer_wire._add_tag(tag)
         outer_wire._apply_tag("wire.outer", propagate=False)
         outer_wire._tag_edges()
         for i, inner in enumerate(self.get_inner_wires()):
-            for tag in self._list_tags():
-                if policy.should_propagate(tag):
-                    inner._add_tag(tag)
             inner._apply_tag("wire.inner", propagate=False)
             geo = dict(inner.get_metadata("geo", {}))
             geo["inner_wire_index"] = i
@@ -1053,3 +1411,41 @@ class Compound(TaggedMixin, TopoMixein):
 
 
 AnyShape = Union[Vertex, Edge, Wire, Face, Solid, Compound]
+
+
+def clone_semantic_shape_view(shape: AnyShape) -> AnyShape:
+    """Create an independent semantic view over the same kernel geometry."""
+
+    if not isinstance(shape, (Vertex, Edge, Wire, Face, Solid, Compound)):
+        raise TypeError("shape must be a SimpleCAD topology object")
+
+    clone = type(shape)(shape.wrapped)
+    source_entities = shape._topology_cache.entities()
+    matched_source_ids: Set[str] = set()
+    for target_entity in clone._topology_cache.entities():
+        matches = []
+        for source_entity in source_entities:
+            if source_entity.kind != target_entity.kind:
+                continue
+            try:
+                if source_entity.representative.IsSame(target_entity.representative):
+                    matches.append(source_entity)
+            except Exception:
+                continue
+        if len(matches) != 1:
+            raise ValueError(
+                "semantic shape view topology does not map uniquely to its source"
+            )
+        source_entity = matches[0]
+        if source_entity.topo_id in matched_source_ids:
+            raise ValueError("semantic shape view contains a duplicate topology entity")
+        matched_source_ids.add(source_entity.topo_id)
+        target_entity.topo_id = source_entity.topo_id
+        _copy_entity_state(source_entity, target_entity)
+
+    clone._topology_cache._entities_by_id = {
+        entity.topo_id: entity for entity in clone._topology_cache.entities()
+    }
+
+    clone._refresh_tag_cache(recursive=True)
+    return cast(AnyShape, clone)

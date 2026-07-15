@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def render_screenshot_rpath(shapes: Union[Solid, Sequence[Solid]], output_path: str, highlight_tags: Optional[Sequence[str]] = None, tag_labels: Optional[Dict[str, str]] = None, image_size: Tuple[int, int] = (1400, 900), view: Union[Tuple[float, float], str] = 'auto', show_axes: bool = True, show_legend: bool = True, zoom: float = 4.0) -> str
+def render_screenshot_rpath(shapes: Union[Solid, Sequence[Solid]], output_path: str, highlight_tags: Optional[Sequence[str]] = None, tag_labels: Optional[Dict[str, str]] = None, image_size: Tuple[int, int] = (1400, 900), view: Union[Tuple[float, float], str] = 'auto', show_axes: bool = True, show_legend: bool = True, zoom: float = 4.0, show_callouts: bool = True) -> str
 ```
 
 *Source: operations.py*
@@ -14,4 +14,6 @@ def render_screenshot_rpath(shapes: Union[Solid, Sequence[Solid]], output_path: 
 
 ## Description
 
-Render a screenshot of shapes and save it to a file.
+Render a screenshot of shapes and save it to a file. Set `show_callouts=False`
+to retain highlighted material colors and the legend without placing tag labels
+over the model.

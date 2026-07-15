@@ -3,6 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, cast
 
+from .tagging import (
+    SemanticCapabilityError,
+    TagScope,
+    UnsupportedQueryCapabilityError,
+    normalize_tag_scope,
+)
+
 
 Predicate = Callable[[Any], bool]
 KeyFn = Callable[[Any], Any]
@@ -10,16 +17,41 @@ MISSING = object()
 _PROPERTY_RESOLVERS: Dict[str, Callable[[Any, str], Any]] = {}
 
 
-def _get_tags(obj: Any) -> List[str]:
+def _get_tags(
+    obj: Any, scope: str | TagScope = TagScope.EFFECTIVE
+) -> List[str]:
+    resolved_scope = normalize_tag_scope(scope)
     if hasattr(obj, "_list_tags"):
-        try:
-            return list(obj._list_tags())
-        except Exception:
-            return []
+        return list(obj._list_tags(resolved_scope))
     tags = getattr(obj, "_tags", None)
     if tags is None:
         return []
+    if resolved_scope != TagScope.EFFECTIVE:
+        raise UnsupportedQueryCapabilityError(
+            f"{resolved_scope.value} tag scope is unavailable for legacy flat-tag objects"
+        )
     return list(tags)
+
+
+def _track_values(track: dict, plural: str, singular: str) -> List[str]:
+    values = track.get(plural)
+    if isinstance(values, (list, tuple, set, frozenset)):
+        return [str(value) for value in values]
+    value = track.get(singular)
+    return [str(value)] if value is not None else []
+
+
+def _operation_names(value: Any) -> set[str]:
+    token = str(value).strip()
+    token = token[len("op.") :] if token.startswith("op.") else token
+    names = {token}
+    alias = token[5:] if token.startswith("make_") else token
+    for suffix in ("_rsolid", "_rshape", "_rface", "_rwire", "_redge"):
+        if alias.endswith(suffix):
+            alias = alias[: -len(suffix)]
+            break
+    names.add(alias)
+    return names
 
 
 def _get_metadata_root(obj: Any) -> dict:
@@ -87,6 +119,8 @@ def _lookup_property(obj: Any, path: str) -> Any:
                     return "outer"
                 if obj._has_tag("wire.inner"):
                     return "inner"
+            except SemanticCapabilityError:
+                raise
             except Exception:
                 return MISSING
         return MISSING
@@ -266,10 +300,57 @@ class SerializablePredicate:
     def __call__(self, obj: Any) -> bool:
         if self.kind == "tag":
             pattern = str(self.data["pattern"])
+            scope = normalize_tag_scope(str(self.data.get("scope", "effective")))
+            tags = _get_tags(obj, scope)
             if pattern.endswith("*"):
                 prefix = pattern[:-1]
-                return any(tag.startswith(prefix) for tag in _get_tags(obj))
-            return pattern in _get_tags(obj)
+                return any(tag.startswith(prefix) for tag in tags)
+            return pattern in tags
+
+        if self.kind == "operation_event":
+            track = _lookup_metadata(obj, "track")
+            if not isinstance(track, dict):
+                return False
+            actual_names: set[str] = set()
+            for key in ("op", "operation"):
+                if track.get(key) is not None:
+                    actual_names.update(_operation_names(track[key]))
+            if not actual_names.intersection(_operation_names(self.data["op"])):
+                return False
+            expected = str(self.data.get("event", "*"))
+            events = _track_values(track, "events", "event")
+            return bool(events) if expected == "*" else expected in events
+
+        if self.kind == "origin_role":
+            track = _lookup_metadata(obj, "track")
+            if not isinstance(track, dict):
+                return False
+            roles = _track_values(track, "origin_roles", "origin_role")
+            return str(self.data["role"]) in roles
+
+        if self.kind == "output_role":
+            track = _lookup_metadata(obj, "track")
+            if not isinstance(track, dict):
+                return False
+            roles = _track_values(track, "result_roles", "result_role")
+            return str(self.data["role"]) in roles
+
+        if self.kind in {"source_binding", "source_topology"}:
+            list_bindings = getattr(obj, "_local_tag_bindings", None)
+            if not callable(list_bindings):
+                raise UnsupportedQueryCapabilityError(
+                    f"{self.kind} requires canonical local TagBinding evidence"
+                )
+            field = (
+                "source_binding_id"
+                if self.kind == "source_binding"
+                else "source_topo_id"
+            )
+            expected = str(self.data[field])
+            return any(
+                str(binding.evidence.data.get(field, "")) == expected
+                for binding in list_bindings()
+            )
 
         if self.kind == "meta":
             actual = _lookup_metadata(obj, str(self.data["path"]))
@@ -309,12 +390,60 @@ class SerializablePredicate:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SerializablePredicate":
+        if not isinstance(data, dict):
+            raise ValueError("predicate payload must be an object")
+        if set(data) - {"kind", "data", "children"}:
+            raise ValueError("predicate payload contains unknown fields")
+        kind = data.get("kind")
+        raw_data = data.get("data", {})
+        raw_children = data.get("children", [])
+        if not isinstance(kind, str) or not kind:
+            raise ValueError("predicate kind must be a non-empty string")
+        if not isinstance(raw_data, dict):
+            raise ValueError("predicate data must be an object")
+        if not isinstance(raw_children, list):
+            raise ValueError("predicate children must be an array")
+
+        schemas = {
+            "tag": ({"pattern"}, {"scope"}),
+            "operation_event": ({"op"}, {"event"}),
+            "origin_role": ({"role"}, set()),
+            "output_role": ({"role"}, set()),
+            "source_binding": ({"source_binding_id"}, set()),
+            "source_topology": ({"source_topo_id"}, set()),
+            "meta": ({"path", "op", "value"}, set()),
+            "property_compare": ({"path", "op", "value"}, set()),
+            "curve_type": ({"value"}, set()),
+            "surface_type": ({"value"}, set()),
+            "and": (set(), set()),
+            "or": (set(), set()),
+            "not": (set(), set()),
+        }
+        if kind not in schemas:
+            raise ValueError(f"unsupported predicate kind: {kind}")
+        required, optional = schemas[kind]
+        missing = required - set(raw_data)
+        unknown = set(raw_data) - required - optional
+        if missing:
+            raise ValueError(
+                f"predicate '{kind}' is missing required data: {', '.join(sorted(missing))}"
+            )
+        if unknown:
+            raise ValueError(
+                f"predicate '{kind}' contains unknown data: {', '.join(sorted(unknown))}"
+            )
+        if kind in {"and", "or"} and not raw_children:
+            raise ValueError(f"predicate '{kind}' requires at least one child")
+        if kind == "not" and len(raw_children) != 1:
+            raise ValueError("predicate 'not' requires exactly one child")
+        if kind not in {"and", "or", "not"} and raw_children:
+            raise ValueError(f"predicate '{kind}' cannot contain children")
+
         return cls(
-            kind=str(data["kind"]),
-            data=dict(data.get("data", {})),
+            kind=kind,
+            data=dict(raw_data),
             children=tuple(
-                SerializablePredicate.from_dict(child)
-                for child in data.get("children", [])
+                SerializablePredicate.from_dict(child) for child in raw_children
             ),
         )
 
@@ -801,6 +930,8 @@ def _traverse_items(
 
 
 def _resolve_scope_items(scope: Any, target_kind: str) -> List[Any]:
+    if scope.__class__.__name__.lower() == target_kind:
+        return [scope]
     if target_kind == "edge":
         if hasattr(scope, "get_edges"):
             return list(scope.get_edges())
@@ -831,11 +962,14 @@ def _resolve_scope_items(scope: Any, target_kind: str) -> List[Any]:
     raise TypeError(f"cannot resolve QL selector scope for target_kind={target_kind}")
 
 
-def tag(pattern: str) -> SerializablePredicate:
+def tag(
+    pattern: str, scope: str | TagScope = TagScope.EFFECTIVE
+) -> SerializablePredicate:
     """Build a tag predicate for QL filtering.
 
     Args:
         pattern: Exact tag string or a trailing `*` prefix match.
+        scope: One of ``local``, ``inherited``, ``effective``, or ``lineage``.
 
     Returns:
         Serializable predicate that can be used in `Query.where(...)`.
@@ -844,9 +978,14 @@ def tag(pattern: str) -> SerializablePredicate:
     if not isinstance(pattern, str):
         raise TypeError("pattern must be a string")
     pattern = pattern.strip()
+    if not pattern:
+        raise ValueError("pattern must be non-empty")
     if "*" in pattern and not pattern.endswith("*"):
         raise ValueError("only trailing '*' wildcard is supported")
-    return SerializablePredicate("tag", {"pattern": pattern})
+    resolved_scope = normalize_tag_scope(scope)
+    return SerializablePredicate(
+        "tag", {"pattern": pattern, "scope": resolved_scope.value}
+    )
 
 
 def meta(path: str, op: str, value_: Any) -> SerializablePredicate:
@@ -957,14 +1096,66 @@ def not_(predicate: Predicate) -> Predicate:
     return _predicate
 
 
+def operation_event(op_name: str, event: str = "*") -> SerializablePredicate:
+    """Match typed operation and topology-event metadata under ``track``."""
+
+    if not isinstance(op_name, str) or not op_name.strip():
+        raise ValueError("op_name must be a non-empty string")
+    if not isinstance(event, str) or not event.strip():
+        raise ValueError("event must be a non-empty string")
+    return SerializablePredicate(
+        "operation_event",
+        {
+            "op": op_name.strip(),
+            "event": event.strip(),
+        },
+    )
+
+
+def origin_role(role_name: str) -> SerializablePredicate:
+    """Match a typed source role under ``track`` metadata."""
+
+    if not isinstance(role_name, str) or not role_name.strip():
+        raise ValueError("role_name must be a non-empty string")
+    return SerializablePredicate("origin_role", {"role": role_name.strip()})
+
+
+def output_role(role_name: str) -> SerializablePredicate:
+    """Match a kernel-proven operation output role under ``track`` metadata."""
+
+    if not isinstance(role_name, str) or not role_name.strip():
+        raise ValueError("role_name must be a non-empty string")
+    return SerializablePredicate(
+        "output_role", {"role": role_name.strip().lower()}
+    )
+
+
+def source_binding(binding_id: str) -> SerializablePredicate:
+    """Match a projected local binding by its exact source binding identity."""
+
+    if not isinstance(binding_id, str) or not binding_id.strip():
+        raise ValueError("binding_id must be a non-empty string")
+    return SerializablePredicate(
+        "source_binding", {"source_binding_id": binding_id.strip()}
+    )
+
+
+def source_topology(topo_id: str) -> SerializablePredicate:
+    """Match a projected local binding by its exact source topology identity."""
+
+    if not isinstance(topo_id, str) or not topo_id.strip():
+        raise ValueError("topo_id must be a non-empty string")
+    return SerializablePredicate(
+        "source_topology", {"source_topo_id": topo_id.strip()}
+    )
+
+
 def op(op_name: str, event: str = "*") -> SerializablePredicate:
-    if event == "*":
-        return tag(f"op.{op_name}.*")
-    return tag(f"op.{op_name}.{event}")
+    return operation_event(op_name, event)
 
 
 def origin(role_name: str) -> SerializablePredicate:
-    return tag(f"origin.{role_name}")
+    return origin_role(role_name)
 
 
 def role(role_name: str) -> SerializablePredicate:

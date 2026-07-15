@@ -20,7 +20,6 @@ part = scad.cut_rsolid(base, hole, slot)
 
 boss = scad.make_cylinder_rsolid(8.0, 7.0, bottom_face_center=(-18.0, 0.0, 8.0))
 part = scad.union_rsolid(part, boss)
-part.auto_tag_faces("box")
 
 print("volume", round(part.get_volume(), 3))
 print("faces", len(part.get_faces()))

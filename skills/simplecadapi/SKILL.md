@@ -39,7 +39,7 @@ metadata:
 6. When calling any SimpleCAD public API or standard-library function, use keyword arguments for every documented parameter; do not use positional arguments.
 7. Use the graph/model JSON workflow for replayable tasks: `GraphSession`, `export_session_json`, `export_model_json`, `import_model_json`, and `replay_model_json`.
 8. Use geometry APIs for integrated parts: profiles, features, booleans, transforms, tagging, QL inspection, serialization, and exports.
-9. Use tags consistently through `apply_tag(shape=..., tag=...)` and `list_tags(shape=...)`; do not call shape member tag mutators.
+9. Use tags through `apply_tag(shape=..., tag=...)`, `apply_tag_rselection(scope=..., targets=..., tag=...)`, `list_tags(shape=..., scope=...)`, and `explain_tag(shape=..., tag=..., scope=...)`; do not call shape member tag mutators.
 10. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
 11. For inspection/debugging, query geometry with QL and print only the queried facts you need; do not print whole solids or full model objects.
 12. Boolean operations return a single `Solid`.
@@ -80,12 +80,18 @@ metadata:
 
 ## Tagging Mental Model
 - Public tag attachment is `apply_tag(shape=..., tag=...)`.
-- Public tag inspection is `list_tags(shape=...)`, which returns a stable sorted list.
+- Multi-entity or explicitly propagated attachment is `apply_tag_rselection(scope=..., targets=..., tag=..., topology_propagation=..., lineage_policy=...)`; it returns an independent semantic shape view.
+- Public tag inspection is `list_tags(shape=..., scope=...)`, which returns a stable sorted list. Use `explain_tag(...)` when producer and evidence matter.
 - Tags are normalized lowercase dot-separated semantic tokens, for example `role.mounting_surface`, `anchor.datum.primary`, `group.fasteners`, `face.top`, or `solid.boolean.cut`.
 - Do not encode numeric dimensions or descriptive geometry payloads in tags; store them in metadata such as `shape.get_metadata("geo")` or `shape.set_metadata(...)`.
-- `apply_tag(...)` does not expose propagation controls. The SDK propagates role/anchor/group-style semantic tags downward and keeps topology-specific tags such as `face.*`, `edge.*`, `wire.*`, `vertex.*`, and `solid.*` local.
-- Primitives, face auto-tagging, features, booleans, transforms, and tracking may add normalized topology/operation tags automatically.
-- Prefer QL tag predicates (`ql.tag("role.*")`, `ql.select(...).where(...)`) for inspection and grounding.
+- All new user assignments default to local topology propagation; tag prefixes never imply inheritance. Use `TopologyPropagation.DOWNWARD` explicitly when descendants should inherit a binding.
+- `effective` includes local and inherited bindings but excludes lineage. Use `scope=TagScope.LINEAGE` only when complete topology-history evidence is available.
+- Operation events, source roles, and feature output roles are typed `metadata["track"]`, not flat tags. Query them with `ql.operation_event(...)`, `ql.origin_role(...)`, and `ql.output_role(...)`; unknown correspondence remains partial/unknown.
+- `extrude_rsolid`, `revolve_rsolid`, `fillet_rsolid`, `chamfer_rsolid`, `shell_rsolid`, `loft_rsolid`, and `sweep_rsolid` accept strict role-based output tags. Requested roles must have complete kernel evidence and satisfy their documented cardinality or the whole call fails.
+- Named feature tag arguments and generic `output_tags={role: tag}` lower to canonical `apply_tag_rselection` nodes in a `GraphSession`; they are not geometry parameters. Do not provide the same role through both forms.
+- Query proven source projection with `ql.source_binding(...)` or `ql.source_topology(...)`. These predicates inspect canonical local binding evidence, never tag text or geometric similarity.
+- When a tagged profile entity must feed a later feature, pass the semantic view returned by `apply_tag_rselection(...)` into that feature. Tagging a detached branch and then using the original profile does not create hidden graph coupling.
+- Prefer scoped QL tag predicates (`ql.tag("role.*", scope="effective")`, `ql.select(...).where(...)`) for inspection and grounding.
 
 ## SDK Focus
 - This skill is intended to describe the public CAD Python SDK surface.

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union, cast
+import uuid
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 import math
 import numpy as np
 
@@ -23,18 +24,20 @@ from .core import (
     Solid,
     Compound,
     AnyShape,
+    clone_semantic_shape_view,
     get_current_cs,
 )
 from .autotag import apply_tracking_tags_to_delta
 from .expr import ScalarLike, evaluate_scalar, evaluate_value
 from .graph import (
     attach_graph_node,
+    attach_semantic_graph_node,
     get_active_session,
     record_operation,
     record_operation_if_active,
     suspend_graph_recording,
 )
-from .ql import ShapeSelector
+from .ql import ShapeSelector, output_role
 from .product import (
     Assembly,
     Component,
@@ -57,7 +60,23 @@ from .product import (
     solve_assembly_constraints,
 )
 from .sketch import Sketch, SketchRef, SketchSolveResult
-from .tagging import normalize_tag
+from .tagging import (
+    LineagePolicy,
+    SemanticCapabilityError,
+    TagBinding,
+    TagBindingScope,
+    TagCertainty,
+    TagEvidence,
+    TagLifecycle,
+    TagProducer,
+    TagPropagation,
+    TagScope,
+    TagTarget,
+    TopologyPropagation,
+    lineage_policy_allows,
+    normalize_tag,
+    normalize_tag_scope,
+)
 from .topology import (
     SemanticDelta,
     SemanticRef,
@@ -114,7 +133,12 @@ from .kernel.ocp_transforms import (
 )
 from .kernel.ocp_booleans import common_shapes, cut_shapes, fuse_shapes, solids_of
 from .kernel.ocp_topology import faces_of as faces_of_ocp
-from .kernel.ocp_export import export_step_shapes, export_stl_shape, make_compound, make_compound_always
+from .kernel.ocp_export import (
+    export_step_shapes,
+    export_stl_shape,
+    make_compound,
+    make_compound_always,
+)
 from .kernel.ocp_mesh import tessellate_face
 from .kernel.ocp_properties import bounding_box, distance as ocp_distance
 
@@ -156,6 +180,7 @@ _OP_MAKE_SELECT_REDGE = "make_select_redge"
 _OP_MAKE_SELECT_RWIRE = "make_select_rwire"
 _OP_MAKE_SELECT_RFACE = "make_select_rface"
 _OP_MAKE_SELECT_RSOLID = "make_select_rsolid"
+_OP_APPLY_TAG_RSELECTION = "apply_tag_rselection"
 _OP_MAKE_SKETCH_RSKETCH = "make_sketch_rsketch"
 _OP_MAKE_ADD_POINT_RSKETCH = "make_add_point_rsketch"
 _OP_MAKE_ADD_LINE_RSKETCH = "make_add_line_rsketch"
@@ -188,7 +213,41 @@ _OP_MAKE_PRISMATIC_CONSTRAINT_RASSEMBLY = "make_prismatic_constraint_rassembly"
 _OP_MAKE_GEAR_CONSTRAINT_RASSEMBLY = "make_gear_constraint_rassembly"
 _OP_MAKE_BELT_CONSTRAINT_RASSEMBLY = "make_belt_constraint_rassembly"
 _OP_MAKE_RACK_PINION_CONSTRAINT_RASSEMBLY = "make_rack_pinion_constraint_rassembly"
-_OP_MAKE_SOLVE_ASSEMBLY_CONSTRAINTS_RASSEMBLY = "make_solve_assembly_constraints_rassembly"
+_OP_MAKE_SOLVE_ASSEMBLY_CONSTRAINTS_RASSEMBLY = (
+    "make_solve_assembly_constraints_rassembly"
+)
+
+
+_OPERATION_OUTPUT_ROLE_CARDINALITY: Dict[str, Tuple[Tuple[str, str], ...]] = {
+    _OP_MAKE_EXTRUDE_RSOLID: (
+        ("extrusion.start", "one"),
+        ("extrusion.end", "one"),
+        ("extrusion.side", "many"),
+    ),
+    _OP_MAKE_REVOLVE_RSOLID: (
+        ("revolution.start", "one"),
+        ("revolution.end", "one"),
+        ("revolution.side", "many"),
+    ),
+    _OP_MAKE_FILLET_RSOLID: (("fillet.patch", "many"),),
+    _OP_MAKE_CHAMFER_RSOLID: (("chamfer.patch", "many"),),
+    _OP_MAKE_SHELL_RSOLID: (
+        ("shell.body_face", "many"),
+        ("shell.offset_face", "many"),
+        ("shell.closing_descendant", "many"),
+        ("shell.wall", "many"),
+    ),
+    _OP_MAKE_LOFT_RSOLID: (
+        ("loft.start", "one"),
+        ("loft.end", "one"),
+        ("loft.side", "many"),
+    ),
+    _OP_MAKE_SWEEP_RSOLID: (
+        ("sweep.start", "one"),
+        ("sweep.end", "one"),
+        ("sweep.side", "many"),
+    ),
+}
 
 
 _SKETCH_CONSTRAINT_OPS = {
@@ -327,7 +386,9 @@ def _reserve_semantic_id(kind: str, value: str) -> None:
     registry.add(value)
 
 
-def _semantic_created(entity_type: str, entity_id: str, metadata: Optional[Dict[str, Any]] = None) -> SemanticDelta:
+def _semantic_created(
+    entity_type: str, entity_id: str, metadata: Optional[Dict[str, Any]] = None
+) -> SemanticDelta:
     return SemanticDelta(
         created=(
             SemanticRef(
@@ -341,7 +402,9 @@ def _semantic_created(entity_type: str, entity_id: str, metadata: Optional[Dict[
     )
 
 
-def _semantic_modified(entity_type: str, entity_id: str, metadata: Optional[Dict[str, Any]] = None) -> SemanticDelta:
+def _semantic_modified(
+    entity_type: str, entity_id: str, metadata: Optional[Dict[str, Any]] = None
+) -> SemanticDelta:
     return SemanticDelta(
         modified=(
             SemanticRef(
@@ -533,6 +596,41 @@ def _copy_runtime_state(source: AnyShape, target: AnyShape) -> AnyShape:
     return target
 
 
+def _attach_lineage_from_source(
+    source: AnyShape,
+    target: AnyShape,
+    *,
+    derivation: str,
+    op: str,
+    coverage: str = "complete",
+) -> None:
+    evidence = TagEvidence(
+        "topology_change",
+        {
+            "op": op,
+            "derivation": derivation,
+            "coverage": coverage,
+        },
+    )
+    bindings = list(source._local_tag_bindings())
+    bindings.extend(
+        witness.binding
+        for witness in source._tag_lineage
+        if witness.coverage == "complete"
+        and lineage_policy_allows(witness.binding.propagation, witness.derivation)
+    )
+    unique_bindings = {binding.binding_id: binding for binding in bindings}
+    for binding in unique_bindings.values():
+        target._add_tag_lineage(
+            binding,
+            derivation=derivation,
+            source_topo_id=source.topo_id,
+            evidence=evidence,
+            coverage=coverage,
+        )
+    target._set_runtime("semantic.lineage.coverage", coverage)
+
+
 def _current_context_metadata() -> Dict[str, Tuple[float, float, float]]:
     cs = get_current_cs()
     return {
@@ -704,9 +802,7 @@ def _shape_geom_type(shape: AnyShape) -> Optional[str]:
             }
             return mapping.get(
                 surface_type,
-                str(surface_type)
-                .replace("GeomAbs_SurfaceType.GeomAbs_", "")
-                .upper(),
+                str(surface_type).replace("GeomAbs_SurfaceType.GeomAbs_", "").upper(),
             )
     except Exception:
         return None
@@ -871,6 +967,14 @@ def _record_geo_selection_nodes(
         if op is None:
             continue
         kind = _shape_kind_token(selected)
+        selected_node = _active_graph_node_for_shape(selected)
+        inputs = [source_node]
+        if (
+            selected_node is not None
+            and getattr(selected_node, "op", None) == _OP_APPLY_TAG_RSELECTION
+            and selected_node is not source_node
+        ):
+            inputs.append(selected_node)
         node = record_operation(
             op=op,
             params={
@@ -880,7 +984,7 @@ def _record_geo_selection_nodes(
                     source_shape=source_shape,
                 ),
             },
-            inputs=[source_node],
+            inputs=inputs,
             output_count=1,
             semantic_delta=_semantic_delta_for_output(op, entity_type="Selection"),
             context=_current_context_metadata(),
@@ -908,9 +1012,15 @@ def _is_geo_select_node(node: object) -> bool:
     return getattr(node, "op", None) in _GEO_SELECT_OPS
 
 
-def _ensure_source_shape_has_own_selection_node(source_shape: AnyShape) -> Optional[object]:
+def _ensure_source_shape_has_own_selection_node(
+    source_shape: AnyShape,
+) -> Optional[object]:
     source_node = _active_graph_node_for_shape(source_shape)
-    if source_node is None or _is_geo_select_node(source_node):
+    if (
+        source_node is None
+        or _is_geo_select_node(source_node)
+        or getattr(source_node, "op", None) == _OP_APPLY_TAG_RSELECTION
+    ):
         return source_node
 
     parent_source = _selection_source_for_shape(source_shape)
@@ -1281,6 +1391,7 @@ def _finalize_tracked_solid(
     op: str,
     params: Dict[str, object],
     source_solid: Optional[Solid] = None,
+    source_solids: Optional[Sequence[Solid]] = None,
     delta: Optional[object] = None,
     delta_entries: Optional[Dict[str, Dict[str, object]]] = None,
     input_shapes: Optional[Sequence[AnyShape]] = None,
@@ -1292,6 +1403,8 @@ def _finalize_tracked_solid(
             cast(Optional[Dict[str, Dict[str, Any]]], delta_entries),
             op=op,
             source_solid=source_solid,
+            source_solids=source_solids,
+            source_shapes=input_shapes,
         )
     _attach_track_summary(
         solid,
@@ -1311,6 +1424,140 @@ def _finalize_tracked_solid(
     return solid
 
 
+def _normalize_operation_output_tags(
+    op: str,
+    output_tags: Optional[Mapping[str, str]],
+    named_tags: Sequence[Tuple[str, Optional[str]]],
+) -> List[Tuple[str, str, str]]:
+    role_specs = _OPERATION_OUTPUT_ROLE_CARDINALITY[op]
+    cardinality_by_role = dict(role_specs)
+    requested: Dict[str, str] = {}
+
+    if output_tags is not None:
+        if not isinstance(output_tags, Mapping):
+            raise TypeError("output_tags must be a mapping of operation role to tag")
+        for raw_role, raw_tag in output_tags.items():
+            if not isinstance(raw_role, str) or not raw_role.strip():
+                raise ValueError("output tag roles must be non-empty strings")
+            role = raw_role.strip().lower()
+            if role in requested:
+                raise ValueError(f"duplicate output tag role: {role}")
+            requested[role] = normalize_tag(raw_tag, strict=True)
+
+    for role, raw_tag in named_tags:
+        if raw_tag is None:
+            continue
+        if role in requested:
+            raise ValueError(
+                f"output role '{role}' was supplied through both output_tags and a named tag argument"
+            )
+        requested[role] = normalize_tag(raw_tag, strict=True)
+
+    unknown = sorted(set(requested) - set(cardinality_by_role))
+    if unknown:
+        raise ValueError(
+            f"unsupported output role(s) for {op}: {', '.join(unknown)}; "
+            f"expected one of {', '.join(cardinality_by_role)}"
+        )
+    return [
+        (role, cardinality, requested[role])
+        for role, cardinality in role_specs
+        if role in requested
+    ]
+
+
+def _validate_operation_output_roles(
+    delta: TopoDelta,
+    assignments: Sequence[Tuple[str, str, str]],
+) -> Dict[str, str]:
+    target_kinds: Dict[str, str] = {}
+    for role, cardinality, _tag in assignments:
+        role_entries = {
+            (entry.ref, entry.ref.kind.name.lower())
+            for entry in delta.roles
+            if entry.role == role
+            and str(entry.metadata.get("coverage", "complete")).lower() == "complete"
+            and str(entry.metadata.get("status", "proven")).lower() == "proven"
+        }
+        refs = {ref for ref, _kind in role_entries}
+        kinds = {kind for _ref, kind in role_entries}
+        if cardinality == "one" and len(refs) != 1:
+            raise SemanticCapabilityError(
+                f"operation output role '{role}' requires exactly one kernel-proven result, got {len(refs)}"
+            )
+        if cardinality == "many" and not refs:
+            raise SemanticCapabilityError(
+                f"operation output role '{role}' requires at least one kernel-proven result"
+            )
+        if len(kinds) != 1:
+            raise SemanticCapabilityError(
+                f"operation output role '{role}' does not resolve to one topology kind"
+            )
+        target_kinds[role] = next(iter(kinds))
+    return target_kinds
+
+
+def _apply_operation_output_tags(
+    solid: Solid,
+    *,
+    op: str,
+    assignments: Sequence[Tuple[str, str, str]],
+    target_kinds: Mapping[str, str],
+    result_tag: Optional[str] = None,
+) -> Solid:
+    if not assignments and result_tag is None:
+        return solid
+
+    role_source_node = _active_graph_node_for_shape(solid)
+    role_source_slot = int(solid._get_runtime("graph.output_slot", 0))
+    result: AnyShape = solid
+    for role, cardinality, tag in assignments:
+        selector = ShapeSelector(target_kinds[role]).where(output_role(role))
+        selector = selector.exactly(1) if cardinality == "one" else selector.at_least(1)
+        result = _apply_tag_rselection(
+            result,
+            selector,
+            tag,
+            TopologyPropagation.LOCAL,
+            LineagePolicy.CONTINUATION_FRAGMENT,
+            authoring_source=f"simplecadapi.{op}.output_tags",
+            extra_evidence={
+                "operation_output_role": {
+                    "source_node_id": (
+                        role_source_node.node_id
+                        if role_source_node is not None
+                        else None
+                    ),
+                    "source_output_slot": role_source_slot,
+                    "operation": op,
+                    "role": role,
+                    "cardinality": cardinality,
+                }
+            },
+        )
+    if result_tag is not None:
+        result = _apply_tag_rselection(
+            result,
+            ShapeSelector("solid").exactly(1),
+            result_tag,
+            TopologyPropagation.LOCAL,
+            LineagePolicy.CONTINUATION_FRAGMENT,
+            authoring_source=f"simplecadapi.{op}.result_tag",
+            extra_evidence={
+                "operation_result": {
+                    "source_node_id": (
+                        role_source_node.node_id
+                        if role_source_node is not None
+                        else None
+                    ),
+                    "source_output_slot": role_source_slot,
+                    "operation": op,
+                }
+            },
+        )
+    return cast(Solid, result)
+
+
 # =============================================================================
 # 基础图形创建函数
 # =============================================================================
@@ -1322,7 +1569,11 @@ def make_point_rvertex(x: ScalarLike, y: ScalarLike, z: ScalarLike) -> Vertex:
         cs = get_current_cs()
         point_value = cast(Tuple[float, float, float], evaluate_value((x, y, z)))
         global_point = cs.transform_point(np.array(point_value))
-        vertex_shape = BRepBuilderAPI_MakeVertex(gp_Pnt(float(global_point[0]), float(global_point[1]), float(global_point[2]))).Vertex()
+        vertex_shape = BRepBuilderAPI_MakeVertex(
+            gp_Pnt(
+                float(global_point[0]), float(global_point[1]), float(global_point[2])
+            )
+        ).Vertex()
         return cast(
             Vertex,
             _finalize_primitive_shape(
@@ -1601,7 +1852,9 @@ def add_bspline_rsketch(
         end_ref = _resolve_sketch_target(sketch, end, expected="point")
         updated = sketch.clone(include_solve=False)
         updated.add_bspline(
-            entity_id, start_ref, end_ref,
+            entity_id,
+            start_ref,
+            end_ref,
             control_points=control_points,
             degree=degree,
             knots=knots,
@@ -1667,7 +1920,10 @@ def add_arc_rsketch(
         center_ref = _resolve_sketch_target(sketch, center, expected="point")
         updated = sketch.clone(include_solve=False)
         updated.add_arc(
-            entity_id, start_ref, end_ref, center_ref,
+            entity_id,
+            start_ref,
+            end_ref,
+            center_ref,
             construction=construction,
         )
         return cast(
@@ -1746,112 +2002,379 @@ def _constrain_rsketch(
     )
 
 
-def constrain_coincident_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_coincident_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Constrain two sketch points to be coincident."""
-    return _constrain_rsketch(sketch, "coincident", [a, b], constraint_id=constraint_id, expected=["point", "point"])
+    return _constrain_rsketch(
+        sketch,
+        "coincident",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=["point", "point"],
+    )
 
 
-def constrain_connect_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_connect_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Alias for `constrain_coincident_rsketch` using connection wording."""
-    return _constrain_rsketch(sketch, "coincident", [a, b], constraint_id=constraint_id, expected=["point", "point"])
+    return _constrain_rsketch(
+        sketch,
+        "coincident",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=["point", "point"],
+    )
 
 
-def constrain_point_on_rsketch(sketch: Sketch, point: Union[SketchRef, str], entity: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_point_on_rsketch(
+    sketch: Sketch,
+    point: Union[SketchRef, str],
+    entity: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Constrain a sketch point to lie on a line or circle."""
-    return _constrain_rsketch(sketch, "point_on", [point, entity], constraint_id=constraint_id, expected=["point", ("line", "circle")])
+    return _constrain_rsketch(
+        sketch,
+        "point_on",
+        [point, entity],
+        constraint_id=constraint_id,
+        expected=["point", ("line", "circle")],
+    )
 
 
-def constrain_horizontal_rsketch(sketch: Sketch, line: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_horizontal_rsketch(
+    sketch: Sketch, line: Union[SketchRef, str], *, constraint_id: Optional[str] = None
+) -> Sketch:
     """Constrain a sketch line to be horizontal."""
-    return _constrain_rsketch(sketch, "horizontal", [line], constraint_id=constraint_id, expected=["line"])
+    return _constrain_rsketch(
+        sketch, "horizontal", [line], constraint_id=constraint_id, expected=["line"]
+    )
 
 
-def constrain_vertical_rsketch(sketch: Sketch, line: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_vertical_rsketch(
+    sketch: Sketch, line: Union[SketchRef, str], *, constraint_id: Optional[str] = None
+) -> Sketch:
     """Constrain a sketch line to be vertical."""
-    return _constrain_rsketch(sketch, "vertical", [line], constraint_id=constraint_id, expected=["line"])
+    return _constrain_rsketch(
+        sketch, "vertical", [line], constraint_id=constraint_id, expected=["line"]
+    )
 
 
-def constrain_parallel_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_parallel_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Constrain two sketch lines to be parallel."""
-    return _constrain_rsketch(sketch, "parallel", [a, b], constraint_id=constraint_id, expected=["line", "line"])
+    return _constrain_rsketch(
+        sketch,
+        "parallel",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=["line", "line"],
+    )
 
 
-def constrain_perpendicular_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_perpendicular_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Constrain two sketch lines to be perpendicular."""
-    return _constrain_rsketch(sketch, "perpendicular", [a, b], constraint_id=constraint_id, expected=["line", "line"])
+    return _constrain_rsketch(
+        sketch,
+        "perpendicular",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=["line", "line"],
+    )
 
 
-def constrain_collinear_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_collinear_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Constrain two sketch lines to lie on the same infinite line."""
-    return _constrain_rsketch(sketch, "collinear", [a, b], constraint_id=constraint_id, expected=["line", "line"])
+    return _constrain_rsketch(
+        sketch,
+        "collinear",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=["line", "line"],
+    )
 
 
-def constrain_tangent_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_tangent_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Constrain supported sketch curves to be tangent."""
-    return _constrain_rsketch(sketch, "tangent", [a, b], constraint_id=constraint_id, expected=[("line", "circle"), ("line", "circle")])
+    return _constrain_rsketch(
+        sketch,
+        "tangent",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=[("line", "circle"), ("line", "circle")],
+    )
 
 
-def constrain_concentric_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_concentric_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Constrain two sketch circles to share a center."""
-    return _constrain_rsketch(sketch, "concentric", [a, b], constraint_id=constraint_id, expected=["circle", "circle"])
+    return _constrain_rsketch(
+        sketch,
+        "concentric",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=["circle", "circle"],
+    )
 
 
-def constrain_midpoint_rsketch(sketch: Sketch, point: Union[SketchRef, str], line: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_midpoint_rsketch(
+    sketch: Sketch,
+    point: Union[SketchRef, str],
+    line: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Constrain a sketch point to the midpoint of a line."""
-    return _constrain_rsketch(sketch, "midpoint", [point, line], constraint_id=constraint_id, expected=["point", "line"])
+    return _constrain_rsketch(
+        sketch,
+        "midpoint",
+        [point, line],
+        constraint_id=constraint_id,
+        expected=["point", "line"],
+    )
 
 
-def constrain_symmetric_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], axis: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_symmetric_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    axis: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Constrain two sketch points to be symmetric about a line axis."""
-    return _constrain_rsketch(sketch, "symmetric", [a, b, axis], constraint_id=constraint_id, expected=["point", "point", "line"])
+    return _constrain_rsketch(
+        sketch,
+        "symmetric",
+        [a, b, axis],
+        constraint_id=constraint_id,
+        expected=["point", "point", "line"],
+    )
 
 
-def constrain_equal_length_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_equal_length_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Constrain two sketch lines to have equal length."""
-    return _constrain_rsketch(sketch, "equal_length", [a, b], constraint_id=constraint_id, expected=["line", "line"])
+    return _constrain_rsketch(
+        sketch,
+        "equal_length",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=["line", "line"],
+    )
 
 
-def constrain_equal_radius_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_equal_radius_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Constrain two sketch circles to have equal radius."""
-    return _constrain_rsketch(sketch, "equal_radius", [a, b], constraint_id=constraint_id, expected=["circle", "circle"])
+    return _constrain_rsketch(
+        sketch,
+        "equal_radius",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=["circle", "circle"],
+    )
 
 
-def constrain_distance_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_distance_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    value: ScalarLike,
+    *,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+) -> Sketch:
     """Add a driving point-to-point distance constraint."""
-    return _constrain_rsketch(sketch, "distance", [a, b], value=value, constraint_id=constraint_id, driving=driving, expected=["point", "point"])
+    return _constrain_rsketch(
+        sketch,
+        "distance",
+        [a, b],
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        expected=["point", "point"],
+    )
 
 
-def constrain_distance_x_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_distance_x_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    value: ScalarLike,
+    *,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+) -> Sketch:
     """Add a driving horizontal distance constraint."""
-    return _constrain_rsketch(sketch, "distance_x", [a, b], value=value, constraint_id=constraint_id, driving=driving, expected=["point", "point"])
+    return _constrain_rsketch(
+        sketch,
+        "distance_x",
+        [a, b],
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        expected=["point", "point"],
+    )
 
 
-def constrain_distance_y_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_distance_y_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    value: ScalarLike,
+    *,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+) -> Sketch:
     """Add a driving vertical distance constraint."""
-    return _constrain_rsketch(sketch, "distance_y", [a, b], value=value, constraint_id=constraint_id, driving=driving, expected=["point", "point"])
+    return _constrain_rsketch(
+        sketch,
+        "distance_y",
+        [a, b],
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        expected=["point", "point"],
+    )
 
 
-def constrain_length_rsketch(sketch: Sketch, line: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_length_rsketch(
+    sketch: Sketch,
+    line: Union[SketchRef, str],
+    value: ScalarLike,
+    *,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+) -> Sketch:
     """Add a driving line length constraint."""
-    return _constrain_rsketch(sketch, "length", [line], value=value, constraint_id=constraint_id, driving=driving, expected=["line"])
+    return _constrain_rsketch(
+        sketch,
+        "length",
+        [line],
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        expected=["line"],
+    )
 
 
-def constrain_angle_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_angle_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    value: ScalarLike,
+    *,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+) -> Sketch:
     """Add a driving angle constraint between two sketch lines."""
-    return _constrain_rsketch(sketch, "angle", [a, b], value=value, constraint_id=constraint_id, driving=driving, expected=["line", "line"])
+    return _constrain_rsketch(
+        sketch,
+        "angle",
+        [a, b],
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        expected=["line", "line"],
+    )
 
 
-def constrain_radius_rsketch(sketch: Sketch, circle: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_radius_rsketch(
+    sketch: Sketch,
+    circle: Union[SketchRef, str],
+    value: ScalarLike,
+    *,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+) -> Sketch:
     """Add a driving circle radius constraint."""
-    return _constrain_rsketch(sketch, "radius", [circle], value=value, constraint_id=constraint_id, driving=driving, expected=["circle"])
+    return _constrain_rsketch(
+        sketch,
+        "radius",
+        [circle],
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        expected=["circle"],
+    )
 
 
-def constrain_diameter_rsketch(sketch: Sketch, circle: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch:
+def constrain_diameter_rsketch(
+    sketch: Sketch,
+    circle: Union[SketchRef, str],
+    value: ScalarLike,
+    *,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+) -> Sketch:
     """Add a driving circle diameter constraint."""
-    return _constrain_rsketch(sketch, "diameter", [circle], value=value, constraint_id=constraint_id, driving=driving, expected=["circle"])
+    return _constrain_rsketch(
+        sketch,
+        "diameter",
+        [circle],
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        expected=["circle"],
+    )
 
 
-def constrain_fix_rsketch(sketch: Sketch, target: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch:
+def constrain_fix_rsketch(
+    sketch: Sketch,
+    target: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
     """Fix a sketch point or entity to its initial coordinates."""
     return _constrain_rsketch(sketch, "fix", [target], constraint_id=constraint_id)
 
@@ -1930,7 +2453,9 @@ def _sketch_promotion_tags(
     profile_payload: Dict[str, Any],
 ) -> Tuple[str, str]:
     sketch_tag = _safe_semantic_tag("sketch", sketch.name or sketch.sketch_id)
-    profile_tag = _safe_semantic_tag("sketch_profile", profile_payload.get("id", "profile"))
+    profile_tag = _safe_semantic_tag(
+        "sketch_profile", profile_payload.get("id", "profile")
+    )
     return sketch_tag, profile_tag
 
 
@@ -1949,7 +2474,9 @@ def _sketch_promotion_map(
                 "target_kind": "edge",
                 "tags": [sketch_tag, profile_tag, entity_tag],
                 "metadata": {
-                    "sketch_ref": _sketch_edge_metadata(sketch, str(entity_id), profile, profile_payload)
+                    "sketch_ref": _sketch_edge_metadata(
+                        sketch, str(entity_id), profile, profile_payload
+                    )
                 },
             }
         )
@@ -2000,7 +2527,10 @@ def _apply_sketch_promotion_metadata(
 
     for edge, entity_id in zip(edges, profile_payload.get("entity_ids", [])):
         entity_tag = _safe_semantic_tag("sketch_entity", entity_id)
-        edge.set_metadata("sketch_ref", _sketch_edge_metadata(sketch, str(entity_id), profile, profile_payload))
+        edge.set_metadata(
+            "sketch_ref",
+            _sketch_edge_metadata(sketch, str(entity_id), profile, profile_payload),
+        )
         edge.set_metadata("source_sketch", source_sketch)
         edge._apply_tag(sketch_tag, propagate=False)
         edge._apply_tag(profile_tag, propagate=False)
@@ -2033,7 +2563,9 @@ def _promote_sketch_profile(
             wire = sketch._wire_from_profile_payload(profile_payload)
             shape = make_face_from_wire_rface(wire, normal=sketch._plane_normal_tuple())
         else:
-            raise ValueError(f"Unsupported sketch promotion target kind '{target_kind}'")
+            raise ValueError(
+                f"Unsupported sketch promotion target kind '{target_kind}'"
+            )
     _apply_sketch_promotion_metadata(
         cast(Union[Wire, Face], shape),
         sketch=sketch,
@@ -2050,7 +2582,9 @@ def _assert_sketch_solve_snapshot_matches(
     *,
     tolerance: float = 1e-7,
 ) -> None:
-    _assert_sketch_solve_snapshot_dict_matches(result.to_dict(), snapshot, tolerance=tolerance)
+    _assert_sketch_solve_snapshot_dict_matches(
+        result.to_dict(), snapshot, tolerance=tolerance
+    )
 
 
 def _assert_sketch_solve_snapshot_dict_matches(
@@ -2067,7 +2601,13 @@ def _assert_sketch_solve_snapshot_dict_matches(
         raise ValueError(
             f"Sketch solve DOF changed from {snapshot.get('dof')!r} to {actual.get('dof')!r}"
         )
-    if abs(float(actual.get("residual_norm", 0.0)) - float(snapshot.get("residual_norm", 0.0))) > tolerance:
+    if (
+        abs(
+            float(actual.get("residual_norm", 0.0))
+            - float(snapshot.get("residual_norm", 0.0))
+        )
+        > tolerance
+    ):
         raise ValueError("Sketch solve residual changed beyond recorded tolerance")
 
     actual_points = cast(Dict[str, Any], actual.get("solved_points", {}))
@@ -2076,8 +2616,16 @@ def _assert_sketch_solve_snapshot_dict_matches(
         raise ValueError("Sketch solve point set changed")
     for point_id, point in actual_points.items():
         expected = expected_points[point_id]
-        if math.dist((float(point[0]), float(point[1])), (float(expected[0]), float(expected[1]))) > tolerance:
-            raise ValueError(f"Sketch solve point '{point_id}' changed beyond recorded tolerance")
+        if (
+            math.dist(
+                (float(point[0]), float(point[1])),
+                (float(expected[0]), float(expected[1])),
+            )
+            > tolerance
+        ):
+            raise ValueError(
+                f"Sketch solve point '{point_id}' changed beyond recorded tolerance"
+            )
 
     actual_scalars = cast(Dict[str, Any], actual.get("solved_scalars", {}))
     expected_scalars = cast(Dict[str, Any], snapshot.get("solved_scalars", {}))
@@ -2085,7 +2633,9 @@ def _assert_sketch_solve_snapshot_dict_matches(
         raise ValueError("Sketch solve scalar set changed")
     for scalar_id, value in actual_scalars.items():
         if abs(float(value) - float(expected_scalars[scalar_id])) > tolerance:
-            raise ValueError(f"Sketch solve scalar '{scalar_id}' changed beyond recorded tolerance")
+            raise ValueError(
+                f"Sketch solve scalar '{scalar_id}' changed beyond recorded tolerance"
+            )
 
 
 def make_line_redge(
@@ -2099,7 +2649,6 @@ def make_line_redge(
         end_value = cast(Tuple[float, float, float], evaluate_value(end))
         start_global = cs.transform_point(np.array(start_value))
         end_global = cs.transform_point(np.array(end_value))
-
 
         edge_shape = make_line_edge(start_global, end_global)
         return cast(
@@ -2188,7 +2737,6 @@ def make_circle_redge(
         center_global = cs.transform_point(np.array(center_value))
         normal_global = cs.transform_point(np.array(normal_value)) - cs.origin
 
-
         edge_shape = make_circle_edge(center_global, radius_value, normal_global)
         return cast(
             Edge,
@@ -2271,7 +2819,6 @@ def make_circle_rface(
             wire = make_circle_rwire(center, radius, normal)
         face_shape = make_face_from_wire_ocp(wire.wrapped)
         face = Face(face_shape)
-        face._tags = wire._tags.copy()
         face._metadata = wire._metadata.copy()
         return cast(
             Face,
@@ -2365,7 +2912,10 @@ def make_rectangle_rwire(
             global_points.append(tuple(float(v) for v in point_3d))
 
         # 创建边
-        wire_points = [(float(point[0]), float(point[1]), float(point[2])) for point in global_points]
+        wire_points = [
+            (float(point[0]), float(point[1]), float(point[2]))
+            for point in global_points
+        ]
         wire_shape = make_polyline_wire(wire_points, closed=True)
         return cast(
             Wire,
@@ -2415,7 +2965,6 @@ def make_rectangle_rface(
             wire = make_rectangle_rwire(width, height, center, normal)
         face_shape = make_face_from_wire_ocp(wire.wrapped)
         face = Face(face_shape)
-        face._tags = wire._tags.copy()
         face._metadata = wire._metadata.copy()
         return cast(
             Face,
@@ -2484,8 +3033,6 @@ def make_face_from_wire_rface(
             # 或者我们接受当前面的方向，添加一个警告
             print(f"警告: 创建的面的法向量与期望方向相反 (点积: {dot_product:.3f})")
 
-        # 复制标签和元数据
-        face._tags = wire._tags.copy()
         face._metadata = wire._metadata.copy()
 
         return cast(
@@ -2554,7 +3101,6 @@ def make_face_from_wires_rface(
         if dot_product < 0:
             print(f"警告: 创建的面的法向量与期望方向相反 (点积: {dot_product:.3f})")
 
-        face._tags = outer_wire._tags.copy()
         face._metadata = outer_wire._metadata.copy()
 
         return cast(
@@ -2657,7 +3203,9 @@ def make_wire_from_sketch_rwire(
                     "tolerance": tolerance,
                     "max_iterations": max_iterations,
                     "solve_snapshot": solve_snapshot,
-                    "promotion_map": _sketch_promotion_map(sketch, profile, profile_payload),
+                    "promotion_map": _sketch_promotion_map(
+                        sketch, profile, profile_payload
+                    ),
                 },
                 input_shapes=cast(Sequence[AnyShape], [sketch]),
                 tags={"derived", "wire", "sketch"},
@@ -2716,7 +3264,9 @@ def make_face_from_sketch_rface(
                     "tolerance": tolerance,
                     "max_iterations": max_iterations,
                     "solve_snapshot": solve_snapshot,
-                    "promotion_map": _sketch_promotion_map(sketch, profile, profile_payload),
+                    "promotion_map": _sketch_promotion_map(
+                        sketch, profile, profile_payload
+                    ),
                 },
                 input_shapes=cast(Sequence[AnyShape], [sketch]),
                 tags={"derived", "face", "sketch"},
@@ -3051,7 +3601,6 @@ def make_three_point_arc_redge(
         middle_global = cs.transform_point(np.array(middle_value))
         end_global = cs.transform_point(np.array(end_value))
 
-
         edge_shape = make_arc_three_point_edge(start_global, middle_global, end_global)
         return cast(
             Edge,
@@ -3294,7 +3843,9 @@ def _normalize_bspline_control_points(
     return tuple(normalized)
 
 
-def _collapse_knot_vector(knots: Sequence[ScalarLike]) -> Tuple[Tuple[float, ...], Tuple[int, ...]]:
+def _collapse_knot_vector(
+    knots: Sequence[ScalarLike],
+) -> Tuple[Tuple[float, ...], Tuple[int, ...]]:
     values = [float(evaluate_scalar(knot)) for knot in knots]
     if not values:
         raise ValueError("knots must not be empty")
@@ -3302,7 +3853,9 @@ def _collapse_knot_vector(knots: Sequence[ScalarLike]) -> Tuple[Tuple[float, ...
         raise ValueError("knots must contain only finite values")
     for previous, current in zip(values, values[1:]):
         if current < previous:
-            raise ValueError("knots must be non-decreasing when passed as a full knot vector")
+            raise ValueError(
+                "knots must be non-decreasing when passed as a full knot vector"
+            )
     unique: List[float] = []
     multiplicities: List[int] = []
     for value in values:
@@ -3424,7 +3977,9 @@ def make_spline_redge(
             knots=knots,
             multiplicities=multiplicities,
         )
-        resolved_weights = _normalize_bspline_weights(weights, len(local_control_points))
+        resolved_weights = _normalize_bspline_weights(
+            weights, len(local_control_points)
+        )
 
         cs = get_current_cs()
         global_control_points = tuple(
@@ -3448,7 +4003,9 @@ def make_spline_redge(
                 "control_points": [list(point) for point in global_control_points],
                 "knots": list(resolved_knots),
                 "multiplicities": list(resolved_multiplicities),
-                "weights": list(resolved_weights) if resolved_weights is not None else None,
+                "weights": (
+                    list(resolved_weights) if resolved_weights is not None else None
+                ),
                 "periodic": periodic_value,
             },
         )
@@ -3568,7 +4125,11 @@ def make_polyline_rwire(
             global_points.append(tuple(float(v) for v in global_point))
 
         wire_shape = make_polyline_wire(
-            [(float(point[0]), float(point[1]), float(point[2])) for point in global_points], closed=closed
+            [
+                (float(point[0]), float(point[1]), float(point[2]))
+                for point in global_points
+            ],
+            closed=closed,
         )
         return cast(
             Wire,
@@ -3726,8 +4287,13 @@ def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyS
             vector_value = cast(Tuple[float, float, float], evaluate_value(vector))
             tracked = tracked_translate(shape, vector_value)
             translated = cast(Solid, tracked.shape)
-            translated._tags = shape._tags.copy()
             translated._metadata = shape._metadata.copy()
+            _attach_lineage_from_source(
+                shape,
+                translated,
+                derivation="continuation",
+                op=_OP_MAKE_TRANSLATE_RSHAPE,
+            )
             return _finalize_tracked_solid(
                 translated,
                 op=_OP_MAKE_TRANSLATE_RSHAPE,
@@ -3750,10 +4316,14 @@ def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyS
             ),
         )
 
-        # 复制标签和元数据
-        new_shape._tags = shape._tags.copy()
         new_shape._metadata = shape._metadata.copy()
         _copy_runtime_state(shape, new_shape)
+        _attach_lineage_from_source(
+            shape,
+            new_shape,
+            derivation="continuation",
+            op=_OP_MAKE_TRANSLATE_RSHAPE,
+        )
         record_operation_if_active(
             op=_OP_MAKE_TRANSLATE_RSHAPE,
             params={"vector": vector},
@@ -3800,8 +4370,13 @@ def rotate_shape(
                     shape, angle_value, axis=axis_value, origin=origin_value
                 )
                 rotated = cast(Solid, tracked.shape)
-                rotated._tags = shape._tags.copy()
                 rotated._metadata = shape._metadata.copy()
+                _attach_lineage_from_source(
+                    shape,
+                    rotated,
+                    derivation="continuation",
+                    op=_OP_MAKE_ROTATE_RSHAPE,
+                )
                 return _finalize_tracked_solid(
                     rotated,
                     op=_OP_MAKE_ROTATE_RSHAPE,
@@ -3830,10 +4405,14 @@ def rotate_shape(
                 ),
             )
 
-            # 复制标签和元数据
-            new_shape._tags = shape._tags.copy()
             new_shape._metadata = shape._metadata.copy()
             _copy_runtime_state(shape, new_shape)
+            _attach_lineage_from_source(
+                shape,
+                new_shape,
+                derivation="continuation",
+                op=_OP_MAKE_ROTATE_RSHAPE,
+            )
             record_operation_if_active(
                 op=_OP_MAKE_ROTATE_RSHAPE,
                 params={"angle": angle, "axis": axis, "origin": origin},
@@ -3870,9 +4449,27 @@ def extrude_rsolid(
     profile: Union[Wire, Face],
     direction: Tuple[float, float, float],
     distance: ScalarLike,
+    *,
+    output_tags: Optional[Mapping[str, str]] = None,
+    result_tag: Optional[str] = None,
+    start_face_tag: Optional[str] = None,
+    end_face_tag: Optional[str] = None,
+    side_faces_tag: Optional[str] = None,
 ) -> Solid:
-    """Create a solid by extruding a profile."""
+    """Create a solid by extruding a profile, with optional role-based tags."""
     try:
+        assignments = _normalize_operation_output_tags(
+            _OP_MAKE_EXTRUDE_RSOLID,
+            output_tags,
+            (
+                ("extrusion.start", start_face_tag),
+                ("extrusion.end", end_face_tag),
+                ("extrusion.side", side_faces_tag),
+            ),
+        )
+        normalized_result_tag = (
+            normalize_tag(result_tag, strict=True) if result_tag is not None else None
+        )
         distance_value = evaluate_scalar(distance)
         if distance_value <= 0:
             raise ValueError("拉伸距离必须大于0")
@@ -3884,7 +4481,9 @@ def extrude_rsolid(
         direction_norm = float(np.linalg.norm(global_direction))
         if direction_norm <= 1e-15:
             raise ValueError("拉伸方向不能是零向量")
-        direction_vec = tuple((global_direction / direction_norm * distance_value).tolist())
+        direction_vec = tuple(
+            (global_direction / direction_norm * distance_value).tolist()
+        )
 
         if isinstance(profile, Wire):
             # 如果是线，先转换为面
@@ -3910,42 +4509,11 @@ def extrude_rsolid(
         )
         solid = cast(Solid, tracked.shape)
 
-        side_face_count = 0
-        profile_face_normal = None
-        for face_after_extrusion in solid.get_faces():
-            if face_after_extrusion.get_center() == face.get_center():
-                face_after_extrusion._tags = profile._tags.copy()
-                face_after_extrusion._apply_tag("face.extrusion.start", propagate=False)
-                face_after_extrusion._metadata = profile._metadata.copy()
-                profile_face_normal = face_after_extrusion.get_normal_at()
-
-        if profile_face_normal is None:
-            raise ValueError("没有找到和Profile一致的面对象")
-
-        for face_after_extrusion in solid.get_faces():
-            # 开始根据法向量判断顶面底面和侧面
-            face_center = face_after_extrusion.get_center()
-            # 如果法向量和dir正交，认为是侧面
-            face_normal = face_after_extrusion.get_normal_at()
-            if face_normal.dot(direction_vec) == 0:
-                face_after_extrusion._tags = profile._tags.copy()
-                face_after_extrusion._apply_tag("face.extrusion.side", propagate=False)
-                side_face_count += 1
-                geo = dict(face_after_extrusion.get_metadata("geo", {}))
-                geo["side_face_index"] = side_face_count
-                face_after_extrusion.set_metadata("geo", geo)
-
-            # 法向量夹角180度，是顶面
-            if face_normal.getAngle(profile_face_normal) == math.pi:
-                face_after_extrusion._tags = profile._tags.copy()
-                face_after_extrusion._apply_tag("face.extrusion.end", propagate=False)
-
-        # 复制标签和元数据
-        solid._tags = profile._tags.copy()
         solid._apply_tag("solid.extrusion", propagate=False)
         solid._metadata = profile._metadata.copy()
 
-        return _finalize_tracked_solid(
+        target_kinds = _validate_operation_output_roles(tracked.delta, assignments)
+        finalized = _finalize_tracked_solid(
             solid,
             op=_OP_MAKE_EXTRUDE_RSOLID,
             params={
@@ -3955,6 +4523,13 @@ def extrude_rsolid(
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
             input_shapes=[profile],
+        )
+        return _apply_operation_output_tags(
+            finalized,
+            op=_OP_MAKE_EXTRUDE_RSOLID,
+            assignments=assignments,
+            target_kinds=target_kinds,
+            result_tag=normalized_result_tag,
         )
     except Exception as e:
         _wrap_public_api_error(
@@ -3981,9 +4556,27 @@ def revolve_rsolid(
     axis: Tuple[float, float, float] = (0, 0, 1),
     angle: ScalarLike = 360,
     origin: Tuple[float, float, float] = (0, 0, 0),
+    *,
+    output_tags: Optional[Mapping[str, str]] = None,
+    result_tag: Optional[str] = None,
+    start_face_tag: Optional[str] = None,
+    end_face_tag: Optional[str] = None,
+    side_faces_tag: Optional[str] = None,
 ) -> Solid:
-    """Create a solid by revolving a profile around an axis."""
+    """Create a revolved solid, with optional kernel-role-based tags."""
     try:
+        assignments = _normalize_operation_output_tags(
+            _OP_MAKE_REVOLVE_RSOLID,
+            output_tags,
+            (
+                ("revolution.start", start_face_tag),
+                ("revolution.end", end_face_tag),
+                ("revolution.side", side_faces_tag),
+            ),
+        )
+        normalized_result_tag = (
+            normalize_tag(result_tag, strict=True) if result_tag is not None else None
+        )
         angle_value = evaluate_scalar(angle)
         if angle_value <= 0:
             raise ValueError("旋转角度必须大于0")
@@ -4022,11 +4615,10 @@ def revolve_rsolid(
         )
         solid = cast(Solid, tracked.shape)
 
-        # 复制标签和元数据
-        solid._tags = profile._tags.copy()
         solid._metadata = profile._metadata.copy()
 
-        return _finalize_tracked_solid(
+        target_kinds = _validate_operation_output_roles(tracked.delta, assignments)
+        finalized = _finalize_tracked_solid(
             solid,
             op=_OP_MAKE_REVOLVE_RSOLID,
             params={
@@ -4037,6 +4629,13 @@ def revolve_rsolid(
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
             input_shapes=[profile],
+        )
+        return _apply_operation_output_tags(
+            finalized,
+            op=_OP_MAKE_REVOLVE_RSOLID,
+            assignments=assignments,
+            target_kinds=target_kinds,
+            result_tag=normalized_result_tag,
         )
     except Exception as e:
         _wrap_public_api_error(
@@ -4063,17 +4662,197 @@ def revolve_rsolid(
 # =============================================================================
 
 
-def apply_tag(shape: AnyShape, tag: str) -> AnyShape:
-    """Attach a normalized tag to a shape using the standard propagation policy.
+def _semantic_view_target(view: AnyShape, target: AnyShape) -> AnyShape:
+    candidates = [
+        wrapper
+        for entity in view._topology_cache.entities()
+        if entity.kind == target._entity.kind
+        for wrapper in entity.wrappers
+        if isinstance(wrapper, type(target))
+    ]
+    matches = []
+    for candidate in candidates:
+        try:
+            if candidate.wrapped.IsSame(target.wrapped):
+                matches.append(candidate)
+        except Exception:
+            continue
+    unique = {candidate.topo_id: candidate for candidate in matches}
+    if not unique:
+        raise ValueError("tag target does not belong to the assignment scope")
+    if len(unique) != 1:
+        raise ValueError("tag target is ambiguous within the assignment scope")
+    return next(iter(unique.values()))
 
-    Tags must already be normalized lowercase tokens such as
-    ``role.mounting_surface`` or ``group.fasteners``. Propagation is intentionally
-    not configurable from the public API; the default tag policy propagates
-    semantic role/anchor/group tags downward and keeps topology-specific tags
-    local.
-    """
+
+def apply_tag_rselection(
+    scope: AnyShape,
+    targets: Union[ShapeSelector, Sequence[AnyShape]],
+    tag: str,
+    topology_propagation: str | TopologyPropagation = TopologyPropagation.LOCAL,
+    lineage_policy: str | LineagePolicy = LineagePolicy.CONTINUATION_FRAGMENT,
+) -> AnyShape:
+    """Return a semantic shape view with a canonical tag assignment."""
+
     try:
-        shape._apply_tag(tag)
+        return _apply_tag_rselection(
+            scope,
+            targets,
+            tag,
+            topology_propagation,
+            lineage_policy,
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="apply_tag_rselection",
+            what_happened="Failed to attach the tag to the selected shapes.",
+            possible_causes=[
+                "The assignment scope or target selection is invalid.",
+                "The tag value is empty or malformed.",
+                "The selector resolved no targets or references foreign topology.",
+            ],
+            how_to_fix=[
+                "Pass a valid scope and a non-empty ShapeSelector or shape sequence.",
+                "Use a normalized tag string such as 'role.mounting_surface' or 'group.fasteners'.",
+                "Ensure every explicit target belongs to the assignment scope.",
+            ],
+            error=e,
+        )
+
+
+def _apply_tag_rselection(
+    scope: AnyShape,
+    targets: Union[ShapeSelector, Sequence[AnyShape]],
+    tag: str,
+    topology_propagation: str | TopologyPropagation,
+    lineage_policy: str | LineagePolicy,
+    *,
+    authoring_source: str = "simplecadapi.apply_tag_rselection",
+    extra_evidence: Optional[Dict[str, Any]] = None,
+) -> AnyShape:
+    normalized_tag = normalize_tag(tag, strict=True)
+    topology = TopologyPropagation(topology_propagation)
+    lineage = LineagePolicy(lineage_policy)
+    session = get_active_session()
+    source_node = _active_graph_node_for_shape(scope)
+    source_output_slot = int(scope._get_runtime("graph.output_slot", 0))
+    if session is not None and source_node is None:
+        raise ValueError("assignment scope is not produced by the active GraphSession")
+
+    view = clone_semantic_shape_view(scope)
+    if isinstance(targets, ShapeSelector):
+        selector = targets
+        if source_node is not None:
+            if selector.source_node_id is None:
+                selector = selector.from_source(source_node.node_id, source_output_slot)
+            elif (
+                selector.source_node_id != source_node.node_id
+                or int(selector.source_output_slot or 0) != source_output_slot
+            ):
+                raise ValueError(
+                    "tag selector source does not match the assignment scope"
+                )
+        selected = cast(List[AnyShape], selector.resolve(view))
+        target = TagTarget("selection_query", selector=selector.to_dict())
+    else:
+        if isinstance(targets, (str, bytes)):
+            raise TypeError("targets must be a ShapeSelector or shape sequence")
+        target_shapes = list(targets)
+        if not target_shapes:
+            raise ValueError("tag assignment targets cannot be empty")
+        if not all(
+            isinstance(item, (Vertex, Edge, Wire, Face, Solid, Compound))
+            for item in target_shapes
+        ):
+            raise TypeError("tag assignment targets must contain only shapes")
+        selected = [
+            _semantic_view_target(view, cast(AnyShape, item)) for item in target_shapes
+        ]
+        refs = tuple(
+            ref for ref in _serialize_shape_refs(target_shapes) if isinstance(ref, dict)
+        )
+        if len(refs) != len(target_shapes):
+            refs = tuple(
+                {"kind": _shape_kind_token(item), "topo_id": item.topo_id}
+                for item in target_shapes
+            )
+        target = TagTarget("explicit_refs", refs=refs)
+
+    selected_by_topo_id = {item.topo_id: item for item in selected}
+    if len(selected_by_topo_id) != len(selected):
+        raise ValueError("tag assignment targets contain ambiguous duplicate entities")
+    selected = list(selected_by_topo_id.values())
+    if not selected:
+        raise ValueError("tag assignment resolved no targets")
+
+    selected_refs = _serialize_shape_refs(selected)
+    if len(selected_refs) != len(selected):
+        selected_refs = [
+            {"kind": _shape_kind_token(item), "topo_id": item.topo_id}
+            for item in selected
+        ]
+
+    assignment_node_id = (
+        f"n_{uuid.uuid4().hex[:8]}" if source_node is not None else None
+    )
+    evidence_data = {
+        "authoring_source": authoring_source,
+        "selected_count": len(selected),
+        "selected_refs": selected_refs,
+        **dict(extra_evidence or {}),
+    }
+    binding = TagBinding(
+        tag=normalized_tag,
+        producer=TagProducer("user_operation", node_id=assignment_node_id),
+        scope=TagBindingScope(
+            node_id=(source_node.node_id if source_node is not None else None),
+            output_slot=source_output_slot,
+        ),
+        target=target,
+        propagation=TagPropagation(topology=topology, lineage=lineage),
+        evidence=TagEvidence("query_execution", evidence_data),
+        certainty=TagCertainty.ASSERTED,
+        lifecycle=TagLifecycle.ASSERTION,
+    )
+
+    for selected_shape in selected:
+        selected_shape._add_tag_binding(binding)
+
+    if source_node is not None and session is not None:
+        node = record_operation(
+            op=_OP_APPLY_TAG_RSELECTION,
+            params={"tag_binding": binding.to_dict()},
+            inputs=[source_node],
+            node_id=assignment_node_id,
+            output_count=1,
+            context=_current_context_metadata(),
+        )
+        attach_semantic_graph_node(
+            view,
+            node,
+            output_slot=0,
+            graph_id=session.graph.graph_id,
+        )
+    return view
+
+
+def apply_tag(shape: AnyShape, tag: str) -> AnyShape:
+    """Attach a local user tag with continuation/fragment lineage policy."""
+
+    try:
+        _ensure_source_shape_has_own_selection_node(shape)
+        selector = ShapeSelector(_shape_kind_token(shape)).exactly(1)
+        result = apply_tag_rselection(shape, selector, tag)
+        shape._copy_tag_state_from(result)
+        semantic_node = result._get_runtime("graph.node")
+        session = get_active_session()
+        if semantic_node is not None:
+            attach_semantic_graph_node(
+                shape,
+                semantic_node,
+                output_slot=0,
+                graph_id=session.graph.graph_id if session is not None else None,
+            )
         return shape
     except Exception as e:
         _wrap_public_api_error(
@@ -4091,10 +4870,13 @@ def apply_tag(shape: AnyShape, tag: str) -> AnyShape:
         )
 
 
-def list_tags(shape: AnyShape) -> List[str]:
-    """Return shape tags in deterministic sorted order."""
+def list_tags(
+    shape: AnyShape,
+    scope: str | TagScope = TagScope.EFFECTIVE,
+) -> List[str]:
+    """Return shape tags in deterministic sorted order for one scope."""
     try:
-        return shape._list_tags()
+        return shape._list_tags(normalize_tag_scope(scope))
     except Exception as e:
         _wrap_public_api_error(
             operation="list_tags",
@@ -4110,11 +4892,44 @@ def list_tags(shape: AnyShape) -> List[str]:
         )
 
 
-def select_faces_by_tag(solid: Solid, tag: str) -> List[Face]:
+def explain_tag(
+    shape: AnyShape,
+    tag: str,
+    scope: str | TagScope = TagScope.EFFECTIVE,
+) -> List[Dict[str, Any]]:
+    """Explain every visible binding that produces a tag token."""
+
+    try:
+        return shape._explain_tag(
+            normalize_tag(tag, strict=True), normalize_tag_scope(scope)
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="explain_tag",
+            what_happened="Failed to explain the tag on the shape.",
+            possible_causes=[
+                "The shape or tag is invalid.",
+                "The requested scope requires unavailable semantic evidence.",
+            ],
+            how_to_fix=[
+                "Pass a valid shape and normalized tag token.",
+                "Request a supported scope or provide complete topology history.",
+            ],
+            error=e,
+        )
+
+
+def select_faces_by_tag(
+    solid: Solid,
+    tag: str,
+    scope: str | TagScope = TagScope.EFFECTIVE,
+) -> List[Face]:
     """Select faces by tag."""
     try:
+        normalized = normalize_tag(tag, strict=True)
+        resolved_scope = normalize_tag_scope(scope)
         faces = solid.get_faces()
-        return [face for face in faces if face._has_tag(tag)]
+        return [face for face in faces if face._has_tag(normalized, resolved_scope)]
     except Exception as e:
         _wrap_public_api_error(
             operation="select_faces_by_tag",
@@ -4131,17 +4946,23 @@ def select_faces_by_tag(solid: Solid, tag: str) -> List[Face]:
         )
 
 
-def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]:
+def select_edges_by_tag(
+    shape: Union[Face, Solid],
+    tag: str,
+    scope: str | TagScope = TagScope.EFFECTIVE,
+) -> List[Edge]:
     """Select edges by tag."""
     try:
+        normalized = normalize_tag(tag, strict=True)
+        resolved_scope = normalize_tag_scope(scope)
         if isinstance(shape, Face):
-            edges = [Edge(edge) for edge in shape.wrapped.Edges()]
+            edges = shape.get_edges()
         elif isinstance(shape, Solid):
             edges = shape.get_edges()
         else:
             raise ValueError("只能从面或实体中选择边")
 
-        return [edge for edge in edges if edge._has_tag(tag)]
+        return [edge for edge in edges if edge._has_tag(normalized, resolved_scope)]
     except Exception as e:
         _wrap_public_api_error(
             operation="select_edges_by_tag",
@@ -4213,7 +5034,10 @@ def union_rsolid(
 
         effective_tol = _resolve_union_tol(remaining, tol)
         fused_shape = fuse_shapes(
-            [solid.wrapped for solid in remaining], glue=glue, tol=effective_tol, clean=clean
+            [solid.wrapped for solid in remaining],
+            glue=glue,
+            tol=effective_tol,
+            clean=clean,
         )
         result_shapes = solids_of(fused_shape)
 
@@ -4230,13 +5054,10 @@ def union_rsolid(
             failure_reason=failure_reason,
         )
 
-        all_tags = set()
         all_metadata = {}
         for solid in remaining:
-            all_tags.update(solid._tags)
             all_metadata.update(solid._metadata)
 
-        fused_solid._tags = all_tags.copy()
         fused_solid._metadata = all_metadata.copy()
 
         tracked_union_result: Optional[TrackedBooleanResult] = None
@@ -4261,7 +5082,7 @@ def union_rsolid(
                     "glue": glue,
                     "tol": effective_tol,
                 },
-                source_solid=remaining[0],
+                source_solids=remaining,
                 delta=tracked_union_result.delta,
                 delta_entries=cast(
                     Dict[str, Dict[str, object]],
@@ -4368,7 +5189,6 @@ def cut_rsolid(
                 raise ValueError("差集运算失败: OCC 未返回有效实体")
 
             new_result = tracked.solid
-            new_result._tags = result_solid._tags.copy()
             new_result._metadata = result_solid._metadata.copy()
             result_solid = new_result
             deltas.append(tracked.delta)
@@ -4377,8 +5197,6 @@ def cut_rsolid(
             )
             cut_performed = True
 
-        # 保留第一个实体的标签和元数据
-        result_solid._tags = remaining[0]._tags.copy()
         result_solid._metadata = remaining[0]._metadata.copy()
         result_solid._apply_tag("solid.boolean.cut", propagate=False)
 
@@ -4391,7 +5209,7 @@ def cut_rsolid(
                     "tool_count": len(remaining) - 1,
                     "skip_non_intersecting": bool(skip_non_intersecting),
                 },
-                source_solid=remaining[0],
+                source_solids=remaining,
                 delta=merged_delta,
                 delta_entries=merged_delta_entries or None,
                 input_shapes=remaining,
@@ -4482,16 +5300,10 @@ def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
             if result_solid.get_volume() < 1e-12:
                 raise ValueError("交集结果为空或体积过小")
 
-        # 合并所有输入实体的标签和元数据
-        all_tags: set = set()
         all_metadata: dict = {}
         for solid in remaining:
-            all_tags = (
-                all_tags.intersection(solid._tags) if all_tags else solid._tags.copy()
-            )
             all_metadata.update(solid._metadata)
 
-        result_solid._tags = all_tags
         result_solid._metadata = all_metadata
         result_solid._apply_tag("solid.boolean.intersect", propagate=False)
 
@@ -4501,7 +5313,7 @@ def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
                 result_solid,
                 op=_OP_MAKE_INTERSECT_RSOLID,
                 params={"input_count": len(remaining)},
-                source_solid=remaining[0],
+                source_solids=remaining,
                 delta=merged_delta,
                 delta_entries=merged_delta_entries or None,
                 input_shapes=remaining,
@@ -4576,7 +5388,6 @@ def make_2d_cut_rface(body: Face, tool: Face) -> Face:
         result_shape = cut_shapes(body.wrapped, [tool.wrapped])
         result_face = _extract_single_face(result_shape, "make_2d_cut_rface")
 
-        result_face._tags = body._tags.copy()
         result_face._metadata = body._metadata.copy()
 
         return cast(
@@ -4632,7 +5443,6 @@ def make_2d_union_rface(face_a: Face, face_b: Face) -> Face:
         result_shape = fuse_shapes([face_a.wrapped, face_b.wrapped], clean=True)
         result_face = _extract_single_face(result_shape, "make_2d_union_rface")
 
-        result_face._tags = face_a._tags | face_b._tags
         result_face._metadata = {**face_a._metadata, **face_b._metadata}
 
         return cast(
@@ -4687,7 +5497,6 @@ def make_2d_intersect_rface(face_a: Face, face_b: Face) -> Face:
         result_shape = common_shapes([face_a.wrapped, face_b.wrapped])
         result_face = _extract_single_face(result_shape, "make_2d_intersect_rface")
 
-        result_face._tags = face_a._tags & face_b._tags
         result_face._metadata = {**face_a._metadata, **face_b._metadata}
 
         return cast(
@@ -5040,7 +5849,9 @@ def place_component_rassembly(
             outputs=result,
             input_shapes=[assembly, placement],
             semantic_delta=_semantic_modified(
-                "Component", f"{assembly.assembly_id}:{component_id}", {"placement": placement.to_dict()}
+                "Component",
+                f"{assembly.assembly_id}:{component_id}",
+                {"placement": placement.to_dict()},
             ),
             context=_current_context_metadata(),
         )
@@ -5296,7 +6107,10 @@ def add_connector_rassembly(assembly: Assembly, connector: Connector) -> Assembl
         result = assembly.with_connector(connector)
         record_operation_if_active(
             _OP_MAKE_ADD_CONNECTOR_RASSEMBLY,
-            {"assembly_id": assembly.assembly_id, "connector_id": connector.connector_id},
+            {
+                "assembly_id": assembly.assembly_id,
+                "connector_id": connector.connector_id,
+            },
             outputs=result,
             input_shapes=[assembly, connector],
             semantic_delta=_semantic_modified(
@@ -5452,7 +6266,9 @@ def ground_component_rassembly(assembly: Assembly, component_id: str) -> Assembl
             outputs=result,
             input_shapes=[assembly],
             semantic_delta=_semantic_modified(
-                "Assembly", assembly.assembly_id, {"grounded_component_id": component_id}
+                "Assembly",
+                assembly.assembly_id,
+                {"grounded_component_id": component_id},
             ),
             context=_current_context_metadata(),
         )
@@ -5483,7 +6299,9 @@ def unground_component_rassembly(assembly: Assembly, component_id: str) -> Assem
             outputs=result,
             input_shapes=[assembly],
             semantic_delta=_semantic_modified(
-                "Assembly", assembly.assembly_id, {"ungrounded_component_id": component_id}
+                "Assembly",
+                assembly.assembly_id,
+                {"ungrounded_component_id": component_id},
             ),
             context=_current_context_metadata(),
         )
@@ -5708,7 +6526,11 @@ def _add_constraint_rassembly(
         if not isinstance(assembly, Assembly):
             raise TypeError("assembly must be an Assembly")
         result = assembly.with_constraint(constraint)
-        inputs: List[object] = [assembly, constraint.connector_a, constraint.connector_b]
+        inputs: List[object] = [
+            assembly,
+            constraint.connector_a,
+            constraint.connector_b,
+        ]
         if constraint.distance_limit is not None:
             inputs.append(constraint.distance_limit)
         if constraint.angle_limit is not None:
@@ -5816,7 +6638,9 @@ def inspect_assembly_constraints_rconstraintreport(
     return inspect_assembly_constraints(assembly)
 
 
-def _placed_solids_from_item(item: Union[Part, Assembly], placement: Placement) -> List[Solid]:
+def _placed_solids_from_item(
+    item: Union[Part, Assembly], placement: Placement
+) -> List[Solid]:
     if isinstance(item, Part):
         placed = place_shape_ocp(
             item.body,
@@ -5998,8 +6822,12 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
 
         for shape in shape_list:
             if not isinstance(shape, (Compound, Solid, Face)):
-                raise ValueError("export_stl函数只支持Compound、Solid和Face类型的几何体")
-        export_stl_shape(make_compound([shape.wrapped for shape in shape_list]), filename)
+                raise ValueError(
+                    "export_stl函数只支持Compound、Solid和Face类型的几何体"
+                )
+        export_stl_shape(
+            make_compound([shape.wrapped for shape in shape_list]), filename
+        )
     except Exception as e:
         _wrap_public_api_error(
             operation="export_stl",
@@ -6028,6 +6856,7 @@ def render_screenshot_rpath(
     show_axes: bool = True,
     show_legend: bool = True,
     zoom: float = 4.0,
+    show_callouts: bool = True,
 ) -> str:
     """Render a screenshot of shapes and save it to a file."""
     try:
@@ -6496,25 +7325,29 @@ def render_screenshot_rpath(
                     )
                     y -= 0.035
 
-        label_offset = 0.012
-        for idx, (tag, point) in enumerate(label_points.items()):
-            label = labels.get(tag, tag)
-            xfig, yfig = _project_to_fig(point)
-            xfig = _clamp(xfig + label_offset, 0.02, 0.98)
-            yfig = _clamp(yfig + label_offset, 0.02, 0.98)
-            yfig = _clamp(yfig - idx * 0.02, 0.02, 0.98)
-            fig.text(
-                xfig,
-                yfig,
-                label,
-                color="#ffd27a",
-                fontsize=10,
-                ha="left",
-                va="center",
-                bbox=dict(
-                    boxstyle="round,pad=0.2", fc="#111111", ec="#ffaa33", alpha=0.9
-                ),
-            )
+        if show_callouts:
+            label_offset = 0.012
+            for idx, (tag, point) in enumerate(label_points.items()):
+                label = labels.get(tag, tag)
+                xfig, yfig = _project_to_fig(point)
+                xfig = _clamp(xfig + label_offset, 0.02, 0.98)
+                yfig = _clamp(yfig + label_offset, 0.02, 0.98)
+                yfig = _clamp(yfig - idx * 0.02, 0.02, 0.98)
+                fig.text(
+                    xfig,
+                    yfig,
+                    label,
+                    color="#ffd27a",
+                    fontsize=10,
+                    ha="left",
+                    va="center",
+                    bbox=dict(
+                        boxstyle="round,pad=0.2",
+                        fc="#111111",
+                        ec="#ffaa33",
+                        alpha=0.9,
+                    ),
+                )
 
         plt.savefig(output_path, facecolor=background)
         plt.close(fig)
@@ -6543,10 +7376,24 @@ def render_screenshot_rpath(
 
 
 def fillet_rsolid(
-    solid: Solid, edges: Union[Sequence[Edge], ShapeSelector], radius: ScalarLike
+    solid: Solid,
+    edges: Union[Sequence[Edge], ShapeSelector],
+    radius: ScalarLike,
+    *,
+    output_tags: Optional[Mapping[str, str]] = None,
+    result_tag: Optional[str] = None,
+    generated_faces_tag: Optional[str] = None,
 ) -> Solid:
-    """Apply fillets to selected solid edges."""
+    """Apply fillets, with optional tagging of kernel-proven patch faces."""
     try:
+        assignments = _normalize_operation_output_tags(
+            _OP_MAKE_FILLET_RSOLID,
+            output_tags,
+            (("fillet.patch", generated_faces_tag),),
+        )
+        normalized_result_tag = (
+            normalize_tag(result_tag, strict=True) if result_tag is not None else None
+        )
         radius_value = evaluate_scalar(radius)
         if radius_value <= 0:
             raise ValueError("圆角半径必须大于0")
@@ -6558,8 +7405,6 @@ def fillet_rsolid(
         tracked = tracked_fillet(solid, selected_edges, radius_value)
         result = cast(Solid, tracked.shape)
 
-        # 复制标签和元数据
-        result._tags = solid._tags.copy()
         result._metadata = solid._metadata.copy()
 
         selected_edge_refs = _serialize_shape_refs(selected_edges)
@@ -6577,7 +7422,8 @@ def fillet_rsolid(
                 selected_edges, solid.get_edges()
             )
 
-        return _finalize_tracked_solid(
+        target_kinds = _validate_operation_output_roles(tracked.delta, assignments)
+        finalized = _finalize_tracked_solid(
             result,
             op=_OP_MAKE_FILLET_RSOLID,
             params=selection_params,
@@ -6585,6 +7431,13 @@ def fillet_rsolid(
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
             input_shapes=[solid, *selected_edges],
+        )
+        return _apply_operation_output_tags(
+            finalized,
+            op=_OP_MAKE_FILLET_RSOLID,
+            assignments=assignments,
+            target_kinds=target_kinds,
+            result_tag=normalized_result_tag,
         )
     except Exception as e:
         _wrap_public_api_error(
@@ -6605,10 +7458,24 @@ def fillet_rsolid(
 
 
 def chamfer_rsolid(
-    solid: Solid, edges: Union[Sequence[Edge], ShapeSelector], distance: ScalarLike
+    solid: Solid,
+    edges: Union[Sequence[Edge], ShapeSelector],
+    distance: ScalarLike,
+    *,
+    output_tags: Optional[Mapping[str, str]] = None,
+    result_tag: Optional[str] = None,
+    generated_faces_tag: Optional[str] = None,
 ) -> Solid:
-    """Apply chamfers to selected solid edges."""
+    """Apply chamfers, with optional tagging of kernel-proven patch faces."""
     try:
+        assignments = _normalize_operation_output_tags(
+            _OP_MAKE_CHAMFER_RSOLID,
+            output_tags,
+            (("chamfer.patch", generated_faces_tag),),
+        )
+        normalized_result_tag = (
+            normalize_tag(result_tag, strict=True) if result_tag is not None else None
+        )
         distance_value = evaluate_scalar(distance)
         if distance_value <= 0:
             raise ValueError("倒角距离必须大于0")
@@ -6620,8 +7487,6 @@ def chamfer_rsolid(
         tracked = tracked_chamfer(solid, selected_edges, distance_value)
         result = cast(Solid, tracked.shape)
 
-        # 复制标签和元数据
-        result._tags = solid._tags.copy()
         result._metadata = solid._metadata.copy()
 
         selected_edge_refs = _serialize_shape_refs(selected_edges)
@@ -6639,7 +7504,8 @@ def chamfer_rsolid(
                 selected_edges, solid.get_edges()
             )
 
-        return _finalize_tracked_solid(
+        target_kinds = _validate_operation_output_roles(tracked.delta, assignments)
+        finalized = _finalize_tracked_solid(
             result,
             op=_OP_MAKE_CHAMFER_RSOLID,
             params=selection_params,
@@ -6647,6 +7513,13 @@ def chamfer_rsolid(
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
             input_shapes=[solid, *selected_edges],
+        )
+        return _apply_operation_output_tags(
+            finalized,
+            op=_OP_MAKE_CHAMFER_RSOLID,
+            assignments=assignments,
+            target_kinds=target_kinds,
+            result_tag=normalized_result_tag,
         )
     except Exception as e:
         _wrap_public_api_error(
@@ -6670,9 +7543,29 @@ def shell_rsolid(
     solid: Solid,
     faces_to_remove: Union[Sequence[Face], ShapeSelector],
     thickness: ScalarLike,
+    *,
+    output_tags: Optional[Mapping[str, str]] = None,
+    result_tag: Optional[str] = None,
+    body_faces_tag: Optional[str] = None,
+    offset_faces_tag: Optional[str] = None,
+    closing_faces_tag: Optional[str] = None,
+    wall_edges_tag: Optional[str] = None,
 ) -> Solid:
-    """Shell a solid to create a hollow part."""
+    """Shell a solid, with optional kernel-role-based face tags."""
     try:
+        assignments = _normalize_operation_output_tags(
+            _OP_MAKE_SHELL_RSOLID,
+            output_tags,
+            (
+                ("shell.body_face", body_faces_tag),
+                ("shell.offset_face", offset_faces_tag),
+                ("shell.closing_descendant", closing_faces_tag),
+                ("shell.wall", wall_edges_tag),
+            ),
+        )
+        normalized_result_tag = (
+            normalize_tag(result_tag, strict=True) if result_tag is not None else None
+        )
         thickness_value = evaluate_scalar(thickness)
         if thickness_value <= 0:
             raise ValueError("壁厚必须大于0")
@@ -6687,8 +7580,6 @@ def shell_rsolid(
         tracked = tracked_shell(solid, selected_faces, thickness_value)
         result = cast(Solid, tracked.shape)
 
-        # 复制标签和元数据
-        result._tags = solid._tags.copy()
         result._metadata = solid._metadata.copy()
 
         selected_face_refs = _serialize_shape_refs(selected_faces)
@@ -6706,7 +7597,8 @@ def shell_rsolid(
                 selected_faces, solid.get_faces()
             )
 
-        return _finalize_tracked_solid(
+        target_kinds = _validate_operation_output_roles(tracked.delta, assignments)
+        finalized = _finalize_tracked_solid(
             result,
             op=_OP_MAKE_SHELL_RSOLID,
             params=selection_params,
@@ -6714,6 +7606,13 @@ def shell_rsolid(
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
             input_shapes=[solid, *selected_faces],
+        )
+        return _apply_operation_output_tags(
+            finalized,
+            op=_OP_MAKE_SHELL_RSOLID,
+            assignments=assignments,
+            target_kinds=target_kinds,
+            result_tag=normalized_result_tag,
         )
     except Exception as e:
         _wrap_public_api_error(
@@ -6733,32 +7632,57 @@ def shell_rsolid(
         )
 
 
-def loft_rsolid(profiles: List[Wire], ruled: bool = False) -> Solid:
-    """Create a solid by lofting multiple profiles."""
+def loft_rsolid(
+    profiles: List[Wire],
+    ruled: bool = False,
+    *,
+    output_tags: Optional[Mapping[str, str]] = None,
+    result_tag: Optional[str] = None,
+    start_face_tag: Optional[str] = None,
+    end_face_tag: Optional[str] = None,
+    side_faces_tag: Optional[str] = None,
+) -> Solid:
+    """Create a lofted solid, with optional kernel-role-based tags."""
     try:
+        assignments = _normalize_operation_output_tags(
+            _OP_MAKE_LOFT_RSOLID,
+            output_tags,
+            (
+                ("loft.start", start_face_tag),
+                ("loft.end", end_face_tag),
+                ("loft.side", side_faces_tag),
+            ),
+        )
+        normalized_result_tag = (
+            normalize_tag(result_tag, strict=True) if result_tag is not None else None
+        )
         if len(profiles) < 2:
             raise ValueError("放样至少需要2个轮廓")
 
         tracked = tracked_loft(profiles, ruled=ruled)
         result = cast(Solid, tracked.shape)
 
-        # 合并所有轮廓的标签和元数据
-        all_tags = set()
         all_metadata = {}
         for profile in profiles:
-            all_tags.update(profile._tags)
             all_metadata.update(profile._metadata)
 
-        result._tags = all_tags
         result._metadata = all_metadata
 
-        return _finalize_tracked_solid(
+        target_kinds = _validate_operation_output_roles(tracked.delta, assignments)
+        finalized = _finalize_tracked_solid(
             result,
             op=_OP_MAKE_LOFT_RSOLID,
             params={"profile_count": len(profiles), "ruled": ruled},
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
             input_shapes=profiles,
+        )
+        return _apply_operation_output_tags(
+            finalized,
+            op=_OP_MAKE_LOFT_RSOLID,
+            assignments=assignments,
+            target_kinds=target_kinds,
+            result_tag=normalized_result_tag,
         )
     except Exception as e:
         _wrap_public_api_error(
@@ -6778,24 +7702,52 @@ def loft_rsolid(profiles: List[Wire], ruled: bool = False) -> Solid:
         )
 
 
-def sweep_rsolid(profile: Face, path: Wire, is_frenet: bool = False) -> Solid:
-    """Create a solid by sweeping a profile along a path."""
+def sweep_rsolid(
+    profile: Face,
+    path: Wire,
+    is_frenet: bool = False,
+    *,
+    output_tags: Optional[Mapping[str, str]] = None,
+    result_tag: Optional[str] = None,
+    start_face_tag: Optional[str] = None,
+    end_face_tag: Optional[str] = None,
+    side_faces_tag: Optional[str] = None,
+) -> Solid:
+    """Create a swept solid, with optional kernel-role-based tags."""
     make_solid = True  # 默认创建实体
     try:
+        assignments = _normalize_operation_output_tags(
+            _OP_MAKE_SWEEP_RSOLID,
+            output_tags,
+            (
+                ("sweep.start", start_face_tag),
+                ("sweep.end", end_face_tag),
+                ("sweep.side", side_faces_tag),
+            ),
+        )
+        normalized_result_tag = (
+            normalize_tag(result_tag, strict=True) if result_tag is not None else None
+        )
         tracked = tracked_sweep(profile, path, is_frenet=is_frenet)
         result = cast(Solid, tracked.shape)
 
-        # 合并轮廓和路径的标签和元数据
-        result._tags = profile._tags.union(path._tags)
         result._metadata = {**profile._metadata, **path._metadata}
 
-        return _finalize_tracked_solid(
+        target_kinds = _validate_operation_output_roles(tracked.delta, assignments)
+        finalized = _finalize_tracked_solid(
             result,
             op=_OP_MAKE_SWEEP_RSOLID,
             params={"is_frenet": bool(is_frenet)},
             delta=tracked.delta,
             delta_entries=cast(Dict[str, Dict[str, object]], tracked.delta_entries),
             input_shapes=[profile, path],
+        )
+        return _apply_operation_output_tags(
+            finalized,
+            op=_OP_MAKE_SWEEP_RSOLID,
+            assignments=assignments,
+            target_kinds=target_kinds,
+            result_tag=normalized_result_tag,
         )
     except Exception as e:
         _wrap_public_api_error(
@@ -7014,8 +7966,13 @@ def mirror_shape(
                 ),
             )
             new_shape = cast(Solid, tracked.shape)
-            new_shape._tags = shape._tags.copy()
             new_shape._metadata = shape._metadata.copy()
+            _attach_lineage_from_source(
+                shape,
+                new_shape,
+                derivation="continuation",
+                op=_OP_MAKE_MIRROR_RSHAPE,
+            )
             new_shape._apply_tag("solid.transform.mirrored", propagate=False)
             return _finalize_tracked_solid(
                 new_shape,
@@ -7045,9 +8002,13 @@ def mirror_shape(
                 ),
             )
 
-        # 复制标签和元数据
-        new_shape._tags = shape._tags.copy()
         new_shape._metadata = shape._metadata.copy()
+        _attach_lineage_from_source(
+            shape,
+            new_shape,
+            derivation="continuation",
+            op=_OP_MAKE_MIRROR_RSHAPE,
+        )
         new_shape._apply_tag("solid.transform.mirrored", propagate=False)
 
         _attach_track_summary(new_shape, op=_OP_MAKE_MIRROR_RSHAPE)
@@ -7118,8 +8079,6 @@ def helical_sweep_rsolid(
         )
         result = Solid(result_shape)
 
-        # 复制轮廓的标签和元数据
-        result._tags = profile._tags.copy()
         result._metadata = profile._metadata.copy()
         result._apply_tag("solid.feature.helical_sweep", propagate=False)
 
