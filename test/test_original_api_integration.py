@@ -61,7 +61,7 @@ class TestOriginalTransformApiIntegration(unittest.TestCase):
         faces = moved.get_faces()
         self.assertGreater(
             len(
-                Q.select(faces).where(Q.op("make_translate_rshape", "preserved")).all()
+                Q.select(faces).where(Q.op("make_translate_rshape", "modified")).all()
             ),
             0,
         )
@@ -74,20 +74,27 @@ class TestOriginalTransformApiIntegration(unittest.TestCase):
         self.assertEqual(moved.get_metadata("track")["op"], "make_rotate_rshape")
         faces = moved.get_faces()
         self.assertGreater(
-            len(Q.select(faces).where(Q.op("make_rotate_rshape", "preserved")).all()),
+            len(Q.select(faces).where(Q.op("make_rotate_rshape", "modified")).all()),
             0,
         )
 
 
 class TestOriginalFeatureApiIntegration(unittest.TestCase):
-    def test_extrude_rsolid_auto_applies_semantic_tags(self):
+    def test_extrude_rsolid_exposes_kernel_proven_output_roles(self):
         profile = scad.make_rectangle_rface(2.0, 1.0)
         extruded = scad.extrude_rsolid(profile, (0, 0, 1), 2.0)
 
         self.assertEqual(extruded.get_metadata("track")["op"], "make_extrude_rsolid")
         faces = extruded.get_faces()
-        tagged = Q.select(faces).where(Q.op("make_extrude_rsolid")).all()
-        self.assertGreater(len(tagged), 0)
+        self.assertEqual(
+            len(Q.select(faces).where(Q.output_role("extrusion.start")).all()), 1
+        )
+        self.assertEqual(
+            len(Q.select(faces).where(Q.output_role("extrusion.end")).all()), 1
+        )
+        self.assertEqual(
+            len(Q.select(faces).where(Q.output_role("extrusion.side")).all()), 4
+        )
 
     def test_fillet_rsolid_auto_applies_semantic_tags(self):
         box = scad.make_box_rsolid(4.0, 4.0, 4.0)

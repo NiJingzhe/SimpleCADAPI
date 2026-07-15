@@ -43,13 +43,16 @@ class TestTrackedCut(unittest.TestCase):
         # either modified or preserved; some should survive
         self.assertGreater(len(preserved_face_refs), 0)
 
-    def test_tracked_cut_has_generated_faces(self):
+    def test_tracked_cut_has_proven_changed_faces(self):
         result = tracked_cut(self.body, self.tool)
-        generated_face_refs = [
-            r for r in result.delta.generated if r.kind == TopoKind.FACE
+        changed_faces = [
+            entry
+            for entry in result.delta.entries
+            if entry.ref.kind == TopoKind.FACE
+            and entry.event in {TopoEvent.MODIFIED, TopoEvent.GENERATED}
+            and entry.metadata["status"] == "proven"
         ]
-        # The cylindrical hole creates new faces
-        self.assertGreater(len(generated_face_refs), 0)
+        self.assertGreater(len(changed_faces), 0)
 
     def test_tracked_cut_volume_decreased(self):
         result = tracked_cut(self.body, self.tool)
@@ -68,14 +71,15 @@ class TestTrackedCut(unittest.TestCase):
     def test_tracked_cut_tool_with_tool_face_labels(self):
         """Faces from the tool should be labeled with origin_role='tool'."""
         result = tracked_cut(self.body, self.tool)
-        tool_generated = [
-            r
-            for r in result.delta.generated
-            if r.kind == TopoKind.FACE
-            and result.delta_entries.get(r.topo_id, {}).get("origin_role") == "tool"
+        tool_outputs = [
+            entry
+            for entry in result.delta.entries
+            if entry.ref.kind == TopoKind.FACE
+            and entry.origin_role == "tool"
+            and entry.event in {TopoEvent.MODIFIED, TopoEvent.GENERATED}
         ]
-        # At least the cylindrical face of the hole should be tool-origin
-        self.assertGreater(len(tool_generated), 0)
+        self.assertGreater(len(tool_outputs), 0)
+        self.assertTrue(all(entry.parent_refs for entry in tool_outputs))
 
     def test_tracked_cut_preserves_volume_accuracy(self):
         result = tracked_cut(self.body, self.tool)
@@ -107,6 +111,18 @@ class TestTrackedUnion(unittest.TestCase):
         result = tracked_union(self.body, self.tool, glue=False)
         section_edges = result.delta.section_edges
         self.assertGreater(len(section_edges), 0)
+
+        for section_ref in section_edges:
+            entries = [
+                entry
+                for entry in result.delta.entries
+                if entry.ref == section_ref
+            ]
+            self.assertGreaterEqual(len(entries), 2)
+            self.assertEqual(
+                {entry.origin_role for entry in entries}, {"body", "tool"}
+            )
+            self.assertTrue(all(entry.parent_refs for entry in entries))
 
 
 class TestTrackedIntersect(unittest.TestCase):

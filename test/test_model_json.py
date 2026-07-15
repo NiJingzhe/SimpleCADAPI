@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from copy import deepcopy
 
 import simplecadapi as scad
 from simplecadapi.graph import GraphSession
@@ -22,6 +23,38 @@ class TestModelJson(unittest.TestCase):
         self.assertIn("canonical_contract", payload)
         self.assertGreaterEqual(payload["graph"].node_count, 1)
         self.assertGreaterEqual(payload["expression_graph"].node_count, 1)
+
+    def test_model_json_tag_binding_registry_roundtrip_and_tamper_rejection(self):
+        selector = (
+            scad.ql.faces()
+            .order_by(scad.ql.key("geom.center.z"), desc=True)
+            .take(1)
+            .exactly(1)
+        )
+        with GraphSession() as session:
+            box = scad.make_box_rsolid(2.0, 3.0, 4.0)
+            scad.apply_tag_rselection(box, selector, "role.target")
+
+        raw = json.loads(scad.export_model_json(session))
+        node = next(
+            item
+            for item in raw["graph"]["nodes"]
+            if item["op"] == "apply_tag_rselection"
+        )
+        binding = node["params"]["tag_binding"]
+        self.assertEqual(raw["semantic_bindings"], [binding])
+        self.assertEqual(
+            raw["canonical_contract"]["semantic_op_set"],
+            ["apply_tag_rselection"],
+        )
+
+        parsed = scad.import_model_json(json.dumps(raw))
+        self.assertEqual(parsed["semantic_bindings"], [binding])
+
+        damaged = deepcopy(raw)
+        damaged["semantic_bindings"][0]["tag"] = "role.tampered"
+        with self.assertRaisesRegex(ValueError, "semantic_bindings do not match"):
+            scad.import_model_json(json.dumps(damaged))
 
     def test_model_json_declares_canonical_contract_and_graph_roles(self):
         with GraphSession() as session:

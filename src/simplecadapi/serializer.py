@@ -27,17 +27,30 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 from .errors import raise_harness_error
 
-from .core import AnyShape, Compound, Edge, Face, Solid, Vertex, Wire, use_coordinate_system
-from .graph import attach_graph_node, suspend_graph_recording
-from .ql import selector_from_dict
+from .core import (
+    AnyShape,
+    Compound,
+    Edge,
+    Face,
+    Solid,
+    Vertex,
+    Wire,
+    clone_semantic_shape_view,
+    use_coordinate_system,
+)
+from .graph import attach_graph_node, attach_semantic_graph_node, suspend_graph_recording
+from .ql import output_role, selector_from_dict
 from .sketch import Sketch
 from .product import Assembly, Connector, ConnectorRef, GeometryRef, Material, Part, Placement, ScalarLimit
 from .topology import (
     OperationGraph,
+    TopoRef,
     semantic_delta_to_dict,
     topo_delta_to_dict,
+    topo_ref_to_dict,
     topo_ref_from_dict,
 )
+from .tagging import TagBinding, TagTargetKind
 from . import operations as ops
 from .kernel.ocp_properties import bounding_box
 
@@ -216,6 +229,14 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     "make_select_rwire": {"status": "replayable", "op": "make_select_rwire"},
     "make_select_rface": {"status": "replayable", "op": "make_select_rface"},
     "make_select_rsolid": {"status": "replayable", "op": "make_select_rsolid"},
+    "apply_tag": {
+        "status": "semantic_replayable",
+        "op": "apply_tag_rselection",
+    },
+    "apply_tag_rselection": {
+        "status": "semantic_replayable",
+        "op": "apply_tag_rselection",
+    },
     "linear_pattern_rsolidlist": {
         "status": "macro",
         "reason": "Pattern convenience API that should lower into repeated make_translate_rshape nodes.",
@@ -334,6 +355,15 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_select_rsolid",
 )
 
+CANONICAL_SEMANTIC_OP_SET: Tuple[str, ...] = (
+    "apply_tag_rselection",
+)
+
+CANONICAL_OP_SET: Tuple[str, ...] = (
+    *CANONICAL_CORE_OP_SET,
+    *CANONICAL_SEMANTIC_OP_SET,
+)
+
 SELECTION_REF_SCHEMA: Dict[str, Any] = {
     "edge_param": "selected_edges",
     "face_param": "selected_faces",
@@ -370,6 +400,7 @@ def _canonical_contract_payload() -> Dict[str, Any]:
             "permissive_mode": "explicit_opt_in",
         },
         "core_op_set": list(CANONICAL_CORE_OP_SET),
+        "semantic_op_set": list(CANONICAL_SEMANTIC_OP_SET),
         "selection_ref_schema": {
             "edge_param": SELECTION_REF_SCHEMA["edge_param"],
             "face_param": SELECTION_REF_SCHEMA["face_param"],
@@ -388,7 +419,7 @@ def _canonical_contract_payload() -> Dict[str, Any]:
 
 def _assert_graph_is_canonical(graph: OperationGraph) -> None:
     invalid_ops = sorted(
-        {node.op for node in graph.nodes if node.op not in CANONICAL_CORE_OP_SET}
+        {node.op for node in graph.nodes if node.op not in CANONICAL_OP_SET}
     )
     if invalid_ops:
         raise ValueError(
@@ -551,8 +582,21 @@ def export_model_json(
         sketch_profile_registry: List[Dict[str, Any]] = []
         semantic_delta_log: List[Dict[str, Any]] = []
         topology_delta_log: List[Dict[str, Any]] = []
+        semantic_bindings: List[Dict[str, Any]] = []
 
         for node in session.graph.topological_order():
+            if node.op == "apply_tag_rselection":
+                binding_payload = node.params.get("tag_binding")
+                if not isinstance(binding_payload, dict):
+                    raise ValueError(
+                        f"semantic tag node '{node.node_id}' has no TagBinding payload"
+                    )
+                binding = TagBinding.from_dict(binding_payload)
+                if binding.producer.node_id != node.node_id:
+                    raise ValueError(
+                        f"semantic tag node '{node.node_id}' does not own binding '{binding.binding_id}'"
+                    )
+                semantic_bindings.append(binding.to_dict())
             if node.semantic_delta is not None:
                 semantic_delta_log.append(
                     {
@@ -641,6 +685,7 @@ def export_model_json(
             "sketch_profile_registry": sketch_profile_registry,
             "semantic_delta_log": semantic_delta_log,
             "topology_delta_log": topology_delta_log,
+            "semantic_bindings": semantic_bindings,
         }
 
         return json.dumps(payload, indent=indent)
@@ -705,6 +750,31 @@ def import_model_json(json_str: str) -> Dict[str, Any]:
         session_payload["topology_delta_log"] = list(
             payload.get("topology_delta_log", [])
         )
+        semantic_bindings = list(payload.get("semantic_bindings", []))
+        parsed_bindings = [TagBinding.from_dict(item) for item in semantic_bindings]
+        graph_binding_list = [
+            TagBinding.from_dict(node.params["tag_binding"])
+            for node in graph.nodes
+            if node.op == "apply_tag_rselection"
+            and isinstance(node.params.get("tag_binding"), dict)
+        ]
+        registry_bindings = {
+            binding.binding_id: binding.to_dict() for binding in parsed_bindings
+        }
+        graph_bindings = {
+            binding.binding_id: binding.to_dict() for binding in graph_binding_list
+        }
+        if (
+            len(registry_bindings) != len(parsed_bindings)
+            or len(graph_bindings) != len(graph_binding_list)
+            or registry_bindings != graph_bindings
+        ):
+            raise ValueError(
+                "model semantic_bindings do not match apply_tag_rselection graph nodes"
+            )
+        session_payload["semantic_bindings"] = [
+            binding.to_dict() for binding in parsed_bindings
+        ]
         session_payload["leaf_ids"] = [str(v) for v in payload.get("leaf_ids", [])]
         return session_payload
     except Exception as e:
@@ -930,6 +1000,9 @@ def _replay_primitive_or_simple(
 
 
 def _shape_topo_ref_dict(shape: AnyShape) -> Dict[str, Any]:
+    runtime_ref = shape._get_runtime("topo.ref")
+    if isinstance(runtime_ref, TopoRef):
+        return topo_ref_to_dict(runtime_ref)
     topo_ref = shape.get_metadata("topo_ref")
     return topo_ref if isinstance(topo_ref, dict) else {}
 
@@ -1505,6 +1578,270 @@ def _all_input_outputs(
     return result
 
 
+def _resolve_tag_binding_targets(scope: AnyShape, binding: TagBinding) -> List[AnyShape]:
+    if binding.target.kind == TagTargetKind.SCOPE_ROOT:
+        return [scope]
+    if binding.target.kind == TagTargetKind.SELECTION_QUERY:
+        if binding.target.selector is None:
+            raise ValueError("selection_query tag target is missing its selector")
+        return cast(
+            List[AnyShape],
+            selector_from_dict(binding.target.selector).resolve(scope),
+        )
+    if binding.target.kind != TagTargetKind.EXPLICIT_REFS:
+        raise ValueError(
+            f"tag target kind '{binding.target.kind.value}' is not replayable"
+        )
+
+    resolved: List[AnyShape] = []
+    for ref in binding.target.refs:
+        topo_id = str(ref.get("topo_id", ""))
+        kind = str(ref.get("kind", "")).lower()
+        if not topo_id or not kind:
+            raise ValueError("explicit tag target refs require kind and topo_id")
+        if kind.startswith("topokind."):
+            kind = kind.split(".", 1)[1]
+        wrappers = [
+            wrapper
+            for entity in scope._topology_cache.entities()
+            if entity.kind.lower() == kind
+            for wrapper in entity.wrappers
+            if isinstance(wrapper, (Vertex, Edge, Wire, Face, Solid, Compound))
+            and (
+                wrapper.topo_id == topo_id
+                or str(_shape_topo_ref_dict(wrapper).get("topo_id", "")) == topo_id
+            )
+        ]
+        unique = {item.topo_id: item for item in wrappers}
+        if len(unique) != 1:
+            raise ValueError(
+                f"explicit tag target '{kind}:{topo_id}' does not resolve uniquely"
+            )
+        resolved.append(cast(AnyShape, next(iter(unique.values()))))
+    return resolved
+
+
+def _validate_tag_binding_evidence(
+    binding: TagBinding,
+    selected: Sequence[AnyShape],
+) -> None:
+    selected_count = binding.evidence.data.get("selected_count")
+    if selected_count is not None and int(selected_count) != len(selected):
+        raise ValueError(
+            f"tag assignment expected {int(selected_count)} selected target(s), got {len(selected)}"
+        )
+    expected_refs = binding.evidence.data.get("selected_refs")
+    if not isinstance(expected_refs, list):
+        return
+    expected = {
+        (str(ref.get("kind", "")).lower(), str(ref.get("topo_id", "")))
+        for ref in expected_refs
+        if isinstance(ref, dict)
+    }
+    actual = set()
+    for item in selected:
+        topo_ref = _shape_topo_ref_dict(item)
+        actual.add(
+            (
+                str(topo_ref.get("kind", item.__class__.__name__)).lower(),
+                str(topo_ref.get("topo_id", item.topo_id)),
+            )
+        )
+    if expected and expected != actual:
+        raise ValueError(
+            "tag assignment target evidence drifted during replay: "
+            f"expected={sorted(expected)}, actual={sorted(actual)}"
+        )
+
+
+def _is_upstream_node(
+    graph: OperationGraph, node_id: str, source_node_id: str
+) -> bool:
+    pending = list(graph.upstream_nodes(node_id))
+    seen = set()
+    while pending:
+        current = pending.pop()
+        if current == source_node_id:
+            return True
+        if current in seen:
+            continue
+        seen.add(current)
+        pending.extend(graph.upstream_nodes(current))
+    return False
+
+
+def _canonical_shape_ref(shape: AnyShape) -> Tuple[str, str, int, str, str]:
+    ref = _shape_topo_ref_dict(shape)
+    return (
+        str(ref.get("graph_id", "")),
+        str(ref.get("node_id", "")),
+        int(ref.get("output_slot", 0)),
+        str(ref.get("kind", shape.__class__.__name__)).lower(),
+        str(ref.get("topo_id", shape.topo_id)),
+    )
+
+
+def _canonical_topo_ref(ref: TopoRef) -> Tuple[str, str, int, str, str]:
+    return (
+        ref.graph_id,
+        ref.node_id,
+        ref.output_slot,
+        ref.kind.name.lower(),
+        ref.topo_id,
+    )
+
+
+def _validate_replayed_topology_roles(
+    graph: OperationGraph,
+    node: Any,
+    result_list: Sequence[Any],
+) -> None:
+    if node.topo_delta is None or not node.topo_delta.roles:
+        return
+
+    role_specs = dict(ops._OPERATION_OUTPUT_ROLE_CARDINALITY.get(node.op, ()))
+    serialized: Dict[str, set[Tuple[str, str, int, str, str]]] = {}
+    for entry in node.topo_delta.roles:
+        if entry.role not in role_specs:
+            raise ValueError(
+                f"Graph node '{node.node_id}' ({node.op}) contains unsupported output role '{entry.role}'"
+            )
+        if entry.ref.graph_id != graph.graph_id or entry.ref.node_id != node.node_id:
+            raise ValueError(
+                f"Graph node '{node.node_id}' ({node.op}) output role '{entry.role}' has foreign result ownership"
+            )
+        if entry.ref.output_slot >= len(result_list):
+            raise ValueError(
+                f"Graph node '{node.node_id}' ({node.op}) output role '{entry.role}' references missing output slot {entry.ref.output_slot}"
+            )
+        if (
+            str(entry.metadata.get("coverage", "complete")).lower() != "complete"
+            or str(entry.metadata.get("status", "proven")).lower() != "proven"
+        ):
+            continue
+        serialized.setdefault(entry.role, set()).add(_canonical_topo_ref(entry.ref))
+
+    runtime: Dict[str, set[Tuple[str, str, int, str, str]]] = {}
+    for output in result_list:
+        if not isinstance(output, (Solid, Compound, Face)):
+            continue
+        candidates: List[AnyShape] = []
+        if hasattr(output, "get_faces"):
+            candidates.extend(output.get_faces())
+        if hasattr(output, "get_edges"):
+            candidates.extend(output.get_edges())
+        for candidate in candidates:
+            track = candidate.get_metadata("track")
+            if not isinstance(track, dict):
+                continue
+            for role in track.get("result_roles", ()):
+                role_name = str(role).strip().lower()
+                if role_name in role_specs:
+                    runtime.setdefault(role_name, set()).add(
+                        _canonical_shape_ref(candidate)
+                    )
+
+    if serialized != runtime:
+        raise ValueError(
+            f"Graph node '{node.node_id}' ({node.op}) topology output-role evidence drifted during replay"
+        )
+
+
+def _validate_operation_output_evidence(
+    graph: OperationGraph,
+    node: Any,
+    binding: TagBinding,
+    selected: Sequence[AnyShape],
+    outputs: Dict[str, List[Any]],
+) -> None:
+    raw = binding.evidence.data.get("operation_output_role")
+    if raw is None:
+        return
+    if not isinstance(raw, dict):
+        raise ValueError("operation_output_role evidence must be an object")
+
+    source_node_id = str(raw.get("source_node_id", ""))
+    source_output_slot = int(raw.get("source_output_slot", 0))
+    operation = str(raw.get("operation", ""))
+    role = str(raw.get("role", "")).strip().lower()
+    cardinality = str(raw.get("cardinality", ""))
+    if not source_node_id or not operation or not role:
+        raise ValueError("operation_output_role evidence is incomplete")
+    if not _is_upstream_node(graph, node.node_id, source_node_id):
+        raise ValueError(
+            f"operation output role source '{source_node_id}' is not upstream of '{node.node_id}'"
+        )
+
+    source_node = graph.get_node(source_node_id)
+    if source_node is None or source_node.op != operation:
+        raise ValueError(
+            f"operation output role source '{source_node_id}' does not match operation '{operation}'"
+        )
+    role_specs = dict(ops._OPERATION_OUTPUT_ROLE_CARDINALITY.get(operation, ()))
+    if role not in role_specs or role_specs[role] != cardinality:
+        raise ValueError(
+            f"operation output role '{role}' with cardinality '{cardinality}' is unsupported for '{operation}'"
+        )
+    if source_node.topo_delta is None:
+        raise ValueError(
+            f"operation output role source '{source_node_id}' has no topology-role evidence"
+        )
+
+    serialized_refs = {
+        _canonical_topo_ref(entry.ref)
+        for entry in source_node.topo_delta.roles
+        if entry.role == role
+        and str(entry.metadata.get("coverage", "complete")).lower() == "complete"
+        and str(entry.metadata.get("status", "proven")).lower() == "proven"
+    }
+    serialized_kinds = {ref[3] for ref in serialized_refs}
+    if len(serialized_kinds) != 1:
+        raise ValueError(
+            f"operation output role '{role}' does not resolve to one topology kind"
+        )
+    source_outputs = outputs.get(source_node_id, [])
+    if source_output_slot >= len(source_outputs):
+        raise ValueError(
+            f"operation output role source '{source_node_id}:{source_output_slot}' has no replay output"
+        )
+    source = cast(AnyShape, source_outputs[source_output_slot])
+    target_kind = next(iter(serialized_kinds))
+    if target_kind == "face":
+        runtime_items = source.get_faces()
+    elif target_kind == "edge":
+        runtime_items = source.get_edges()
+    elif target_kind == "wire":
+        runtime_items = source.get_wires()
+    elif target_kind == "vertex":
+        runtime_items = source.get_vertices()
+    else:
+        raise ValueError(
+            f"operation output role '{role}' uses unsupported topology kind '{target_kind}'"
+        )
+    runtime_candidates = [
+        item for item in runtime_items if output_role(role)(item)
+    ]
+    runtime_refs = {_canonical_shape_ref(face) for face in runtime_candidates}
+    selected_refs = {_canonical_shape_ref(item) for item in selected}
+
+    if cardinality == "one" and len(runtime_refs) != 1:
+        raise ValueError(
+            f"operation output role '{role}' expected exactly one replay result, got {len(runtime_refs)}"
+        )
+    if cardinality == "many" and not runtime_refs:
+        raise ValueError(
+            f"operation output role '{role}' resolved no replay results"
+        )
+    if serialized_refs != runtime_refs:
+        raise ValueError(
+            f"operation output role '{role}' topology evidence drifted during replay"
+        )
+    if selected_refs != runtime_refs:
+        raise ValueError(
+            f"operation output role '{role}' binding targets do not match its proven results"
+        )
+
+
 def _execute_graph(
     graph: OperationGraph,
     leaf_node_ids: Optional[Sequence[str]] = None,
@@ -1530,6 +1867,19 @@ def _execute_graph(
                 output_slot=idx,
                 graph_id=graph.graph_id,
             )
+        if ctx.strict:
+            _validate_replayed_topology_roles(graph, node, result_list)
+        outputs[node.node_id] = result_list
+
+    def _store_semantic_outputs(node, result: Any) -> None:
+        result_list = _normalize_output(result)
+        for idx, output in enumerate(result_list):
+            attach_semantic_graph_node(
+                output,
+                node,
+                output_slot=idx,
+                graph_id=graph.graph_id,
+            )
         outputs[node.node_id] = result_list
 
     with suspend_graph_recording():
@@ -1544,6 +1894,60 @@ def _execute_graph(
 
             try:
                 with context_manager:
+                    if op_name == "apply_tag_rselection":
+                        ctx.require_params(
+                            node.node_id, op_name, params, ("tag_binding",)
+                        )
+                        raw_binding = params["tag_binding"]
+                        if not isinstance(raw_binding, dict):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) tag_binding must be an object"
+                            )
+                        binding = TagBinding.from_dict(raw_binding)
+                        if ctx.strict and binding.producer.node_id != node.node_id:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) does not match binding producer '{binding.producer.node_id}'"
+                            )
+                        scope_node_id = binding.scope.node_id
+                        if scope_node_id is None:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) binding scope has no node_id"
+                            )
+                        if ctx.strict and scope_node_id not in {
+                            item.node_id for item in node.inputs
+                        }:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) binding scope '{scope_node_id}' is not an input"
+                            )
+                        scope_outputs = outputs.get(str(scope_node_id), [])
+                        output_slot = binding.scope.output_slot
+                        if output_slot >= len(scope_outputs):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) binding scope '{scope_node_id}:{output_slot}' has no replay output"
+                            )
+                        scope = cast(AnyShape, scope_outputs[output_slot])
+                        result = clone_semantic_shape_view(scope)
+                        selected = _resolve_tag_binding_targets(result, binding)
+                        selected_by_id = {item.topo_id: item for item in selected}
+                        if len(selected_by_id) != len(selected):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) resolved duplicate tag targets"
+                            )
+                        selected = list(selected_by_id.values())
+                        if not selected:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) resolved no tag targets"
+                            )
+                        if ctx.strict:
+                            _validate_tag_binding_evidence(binding, selected)
+                            _validate_operation_output_evidence(
+                                graph, node, binding, selected, outputs
+                            )
+                        for selected_shape in selected:
+                            selected_shape._add_tag_binding(binding)
+                        _store_semantic_outputs(node, result)
+                        continue
+
                     if op_name == "make_add_point_rsketch":
                         ctx.require_params(node.node_id, op_name, params, ("point_id", "x", "y"))
                         sketch_outputs = _input_outputs(ctx, outputs, node, 0)

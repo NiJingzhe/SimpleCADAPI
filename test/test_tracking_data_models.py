@@ -7,9 +7,12 @@ from simplecadapi.topology import (
     TopoEvent,
     TopoRef,
     TopoEntry,
+    TopoRoleEntry,
     TopoDelta,
     OperationNode,
     OperationGraph,
+    topo_delta_from_dict,
+    topo_delta_to_dict,
 )
 
 
@@ -111,6 +114,54 @@ class TestTopoDelta(unittest.TestCase):
         self.assertEqual(delta.generated, ())
         self.assertEqual(delta.deleted, ())
         self.assertEqual(delta.section_edges, ())
+
+    def test_entries_are_canonical_and_preserve_output_and_source_kind(self):
+        source_ref = TopoRef("g1", "n1", 0, TopoKind.EDGE, "e_source")
+        output_ref = TopoRef("g1", "n2", 0, TopoKind.FACE, "f_output")
+        entry = TopoEntry(
+            ref=output_ref,
+            event=TopoEvent.GENERATED,
+            origin_role="profile",
+            parent_refs=(source_ref,),
+            metadata={
+                "derivation": "boundary",
+                "coverage": "complete",
+                "status": "proven",
+                "evidence_kind": "kernel_history",
+                "source_kind": "EDGE",
+            },
+        )
+        delta = TopoDelta(generated=(output_ref,), entries=(entry,))
+
+        self.assertEqual(delta.entries, (entry,))
+        self.assertEqual(entry.ref.kind, TopoKind.FACE)
+        self.assertEqual(entry.parent_refs[0].kind, TopoKind.EDGE)
+        self.assertEqual(entry.metadata["source_kind"], "EDGE")
+        self.assertEqual(
+            topo_delta_from_dict(topo_delta_to_dict(delta)).entries,
+            delta.entries,
+        )
+
+    def test_output_roles_roundtrip_independently_from_change_events(self):
+        source_ref = TopoRef("g1", "n1", 0, TopoKind.EDGE, "e_source")
+        output_ref = TopoRef("g1", "n2", 0, TopoKind.FACE, "f_output")
+        role = TopoRoleEntry(
+            ref=output_ref,
+            role="Extrusion.Side",
+            origin_role="profile",
+            parent_refs=(source_ref,),
+            metadata={
+                "coverage": "complete",
+                "status": "proven",
+                "evidence_method": "Generated",
+            },
+        )
+        delta = TopoDelta(roles=(role,))
+
+        restored = topo_delta_from_dict(topo_delta_to_dict(delta))
+        self.assertEqual(role.role, "extrusion.side")
+        self.assertEqual(restored.roles, (role,))
+        self.assertEqual(restored.entries, ())
 
 
 class TestOperationNode(unittest.TestCase):

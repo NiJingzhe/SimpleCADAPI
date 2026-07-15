@@ -210,6 +210,170 @@ class TestFreeCADTranslator(unittest.TestCase):
         self.assertIn("EXPRESSION_GRAPH_META", script)
         self.assertIn("# Step", script)
 
+    def test_translate_model_json_emits_tag_selection_link_with_binding_metadata(self):
+        with GraphSession() as session:
+            box = scad.make_box_rsolid(width=2.0, height=3.0, depth=4.0)
+            scad.apply_tag_rselection(
+                scope=box,
+                targets=[box],
+                tag="role.semantic_view",
+            )
+
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
+
+        self.assertIn("# Step", script)
+        self.assertIn("apply_tag_rselection", script)
+        self.assertIn("_register_tag_selection_node", script)
+        self.assertIn("SimpleCADTagBinding", script)
+
+    def test_translate_model_json_tag_branches_are_distinct_fcstd_links(self):
+        with GraphSession() as session:
+            box = scad.make_box_rsolid(width=2.0, height=3.0, depth=4.0)
+            scad.apply_tag_rselection(
+                scope=box,
+                targets=[box],
+                tag="role.left_branch",
+            )
+            scad.apply_tag_rselection(
+                scope=box,
+                targets=[box],
+                tag="role.right_branch",
+            )
+
+        model_json = scad.export_model_json(session)
+        expected_bindings = sorted(
+            json.loads(model_json)["semantic_bindings"],
+            key=lambda binding: binding["tag"],
+        )
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+links = sorted(
+    [
+        obj
+        for obj in doc.Objects
+        if getattr(obj, 'SimpleCADOp', '') == 'apply_tag_rselection'
+    ],
+    key=lambda obj: json.loads(obj.SimpleCADTagBinding)['tag'],
+)
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'names': [obj.Name for obj in links],
+        'type_ids': [obj.TypeId for obj in links],
+        'linked_names': [obj.LinkedObject.Name for obj in links],
+        'volumes': [round(float(obj.Shape.Volume), 6) for obj in links],
+        'bindings': [json.loads(obj.SimpleCADTagBinding) for obj in links],
+        'node_ids': [obj.SimpleCADNodeId for obj in links],
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(model_json, probe)
+
+        self.assertEqual(result["type_ids"], ["App::Link", "App::Link"])
+        self.assertEqual(len(set(result["names"])), 2)
+        self.assertEqual(len(set(result["linked_names"])), 1)
+        self.assertTrue(set(result["names"]).isdisjoint(result["linked_names"]))
+        self.assertEqual(result["volumes"], [24.0, 24.0])
+        self.assertEqual(result["bindings"], expected_bindings)
+        self.assertEqual(len(set(result["node_ids"])), 2)
+
+    def test_translate_model_json_tagged_parts_preserve_nested_placements(self):
+        with GraphSession() as session:
+            lower_body = scad.make_box_rsolid(
+                width=2.0,
+                height=4.0,
+                depth=1.0,
+                bottom_face_center=(0.0, 0.0, 0.0),
+            )
+            upper_body = scad.make_box_rsolid(
+                width=2.0,
+                height=4.0,
+                depth=1.0,
+                bottom_face_center=(0.0, 0.0, 10.0),
+            )
+            lower_body = scad.apply_tag(shape=lower_body, tag="role.structure")
+            upper_body = scad.apply_tag(shape=upper_body, tag="role.structure")
+            upper_body = scad.apply_tag(shape=upper_body, tag="role.upper")
+            lower = scad.make_part_rpart(part_id="lower", body=lower_body)
+            upper = scad.make_part_rpart(part_id="upper", body=upper_body)
+            child = scad.make_assembly_rassembly(assembly_id="child")
+            child = scad.add_component_rassembly(
+                assembly=child,
+                item=lower,
+                component_id="lower",
+                placement=scad.identity_placement_rplacement(),
+            )
+            child = scad.add_component_rassembly(
+                assembly=child,
+                item=upper,
+                component_id="upper",
+                placement=scad.identity_placement_rplacement(),
+            )
+            root = scad.make_assembly_rassembly(assembly_id="root")
+            root = scad.add_component_rassembly(
+                assembly=root,
+                item=child,
+                component_id="child",
+                placement=scad.make_placement_rplacement(
+                    origin=(20.0, 30.0, 5.0),
+                    x_axis=(0.0, 1.0, 0.0),
+                    y_axis=(-1.0, 0.0, 0.0),
+                ),
+            )
+            scad.make_compound_from_assembly_rcompound(assembly=root)
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+tag_links = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'apply_tag_rselection']
+upper_part = next(obj for obj in doc.Objects if getattr(obj, 'SimpleCADPartId', '') == 'upper')
+upper_body = next(obj for obj in upper_part.Group if hasattr(obj, 'SimpleCADSourceBodyNodeId'))
+child_link = next(obj for obj in doc.Objects if getattr(obj, 'SimpleCADComponentId', '') == 'child')
+compound = next(obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_compound_from_assembly_rcompound')
+
+def bbox(shape):
+    bounds = shape.BoundBox
+    return [
+        round(float(value), 3)
+        for value in (
+            bounds.XMin,
+            bounds.YMin,
+            bounds.ZMin,
+            bounds.XMax,
+            bounds.YMax,
+            bounds.ZMax,
+        )
+    ]
+
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'tag_link_transforms': [bool(obj.LinkTransform) for obj in tag_links],
+        'upper_body_bbox': bbox(upper_body.Shape),
+        'child_bbox': bbox(child_link.Shape),
+        'child_solids': len(child_link.Shape.Solids),
+        'child_volume': round(float(child_link.Shape.Volume), 3),
+        'compound_bbox': bbox(compound.Shape),
+        'compound_solids': len(compound.Shape.Solids),
+        'compound_volume': round(float(compound.Shape.Volume), 3),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(scad.export_model_json(session=session), probe)
+
+        self.assertTrue(result["tag_link_transforms"])
+        self.assertTrue(all(result["tag_link_transforms"]))
+        self.assertEqual(result["upper_body_bbox"], [-1.0, -2.0, 10.0, 1.0, 2.0, 11.0])
+        self.assertEqual(result["child_bbox"], [18.0, 29.0, 5.0, 22.0, 31.0, 16.0])
+        self.assertEqual(result["child_solids"], 2)
+        self.assertEqual(result["child_volume"], 16.0)
+        self.assertEqual(result["compound_bbox"], result["child_bbox"])
+        self.assertEqual(result["compound_solids"], 2)
+        self.assertEqual(result["compound_volume"], 16.0)
+
     def test_translate_model_json_preserves_part_assembly_semantics_in_script(self):
         with GraphSession() as session:
             body = scad.make_box_rsolid(2.0, 3.0, 1.0)
@@ -1002,6 +1166,10 @@ subassembly_links = [obj for obj in doc.Objects if obj.TypeId == 'Assembly::Asse
 with open(OUT_PATH, 'w', encoding='utf-8') as fh:
     json.dump({
         'assembly_ids': sorted(obj.SimpleCADAssemblyId for obj in assembly_objs),
+        'assembly_visibility': {
+            obj.SimpleCADAssemblyId: bool(obj.Visibility)
+            for obj in assembly_objs
+        },
         'subassembly_component_ids': [obj.SimpleCADComponentId for obj in subassembly_links],
         'subassembly_linked_type_ids': [obj.LinkedObject.TypeId for obj in subassembly_links],
         'subassembly_x': [round(obj.Placement.Base.x, 3) for obj in subassembly_links],
@@ -1012,6 +1180,10 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         result = self._inspect_fcstd_json(payload, probe)
 
         self.assertEqual(result["assembly_ids"], ["child", "root"])
+        self.assertEqual(
+            result["assembly_visibility"],
+            {"child": False, "root": True},
+        )
         self.assertEqual(result["subassembly_component_ids"], ["child_1"])
         self.assertEqual(result["subassembly_linked_type_ids"], ["Assembly::AssemblyObject"])
         self.assertEqual(result["subassembly_x"], [4.0])

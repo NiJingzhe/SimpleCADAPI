@@ -1,10 +1,18 @@
 """FreeCAD translator backend for SimpleCAD model JSON."""
 
-from .api import translate_model_json_to_fcstd, translate_model_json_to_freecad_script
-from .script_translator import FreeCADScriptTranslator
+from .api import (
+    export_model_json_to_fcstd,
+    translate_model_json_to_fcstd,
+    translate_model_json_to_freecad_script,
+)
+from .capabilities import CAPABILITIES
+from .translator import FreeCADScriptTranslator, FreeCADTranslator
 
 __all__ = [
+    "CAPABILITIES",
     "FreeCADScriptTranslator",
+    "FreeCADTranslator",
+    "export_model_json_to_fcstd",
     "translate_model_json_to_fcstd",
     "translate_model_json_to_freecad_script",
 ]

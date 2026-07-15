@@ -37,8 +37,13 @@ def graph_capabilities_payload() -> Dict[str, Any]:
         "product_semantics": True,
         "assembly_graph": True,
         "topology_delta_summary": False,
+        "topology_delta_entries": True,
+        "durable_topology_parent_refs": True,
+        "operation_output_roles": True,
         "scalar_field_graph": False,
         "expression_graph": True,
+        "semantic_tag_bindings": True,
+        "tag_binding_schema": "1.0",
     }
 
 
@@ -179,6 +184,32 @@ def topo_entry_from_dict(data: Dict[str, Any]) -> "TopoEntry":
     )
 
 
+def topo_role_entry_to_dict(entry: "TopoRoleEntry") -> Dict[str, Any]:
+    return {
+        "ref": topo_ref_to_dict(entry.ref),
+        "role": entry.role,
+        "origin_role": entry.origin_role,
+        "parent_refs": [topo_ref_to_dict(ref) for ref in entry.parent_refs],
+        "metadata": dict(entry.metadata),
+    }
+
+
+def topo_role_entry_from_dict(data: Dict[str, Any]) -> "TopoRoleEntry":
+    return TopoRoleEntry(
+        ref=topo_ref_from_dict(data["ref"]),
+        role=str(data["role"]),
+        origin_role=(
+            str(data["origin_role"])
+            if data.get("origin_role") is not None
+            else None
+        ),
+        parent_refs=tuple(
+            topo_ref_from_dict(item) for item in data.get("parent_refs", [])
+        ),
+        metadata=dict(data.get("metadata", {})),
+    )
+
+
 def topo_delta_to_dict(delta: "TopoDelta") -> Dict[str, Any]:
     return {
         "preserved": [topo_ref_to_dict(ref) for ref in delta.preserved],
@@ -187,6 +218,7 @@ def topo_delta_to_dict(delta: "TopoDelta") -> Dict[str, Any]:
         "deleted": [topo_ref_to_dict(ref) for ref in delta.deleted],
         "section_edges": [topo_ref_to_dict(ref) for ref in delta.section_edges],
         "entries": [topo_entry_to_dict(entry) for entry in delta.entries],
+        "roles": [topo_role_entry_to_dict(entry) for entry in delta.roles],
         "raw_event": dict(delta.raw_event),
     }
 
@@ -201,6 +233,9 @@ def topo_delta_from_dict(data: Dict[str, Any]) -> "TopoDelta":
             topo_ref_from_dict(item) for item in data.get("section_edges", [])
         ),
         entries=tuple(topo_entry_from_dict(item) for item in data.get("entries", [])),
+        roles=tuple(
+            topo_role_entry_from_dict(item) for item in data.get("roles", [])
+        ),
         raw_event=dict(data.get("raw_event", {})),
     )
 
@@ -226,6 +261,28 @@ class TopoEntry:
 
 
 @dataclass(frozen=True)
+class TopoRoleEntry:
+    """Kernel-backed operation role assigned to one result entity.
+
+    Output roles are independent of topology change events. For example, an
+    extrusion start cap can be identified by ``FirstShape`` without claiming
+    that OCC classified it as generated or modified.
+    """
+
+    ref: TopoRef
+    role: str
+    origin_role: Optional[str] = None
+    parent_refs: Tuple[TopoRef, ...] = ()
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        role = str(self.role).strip().lower()
+        if not role or any(not part for part in role.split(".")):
+            raise ValueError("topology output role must be a non-empty dot token")
+        object.__setattr__(self, "role", role)
+
+
+@dataclass(frozen=True)
 class TopoDelta:
     """Complete topological change set for a single operation.
 
@@ -241,6 +298,7 @@ class TopoDelta:
         section_edges: Edges created by boolean intersection (convenience subset
                        of ``generated``).
         entries:       Optional richer per-entity records with lineage.
+        roles:         Operation-native output-role evidence, independent of events.
         raw_event:     Opaque dict for transport of OCC-specific detail.
     """
 
@@ -250,6 +308,7 @@ class TopoDelta:
     deleted: Tuple[TopoRef, ...] = ()
     section_edges: Tuple[TopoRef, ...] = ()
     entries: Tuple[TopoEntry, ...] = ()
+    roles: Tuple[TopoRoleEntry, ...] = ()
     raw_event: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -293,8 +352,8 @@ def bind_topo_delta(
 
     def bind_ref(ref: TopoRef) -> TopoRef:
         return TopoRef(
-            graph_id=graph_id,
-            node_id=node_id,
+            graph_id=graph_id if ref.graph_id in {"", "pending"} else ref.graph_id,
+            node_id=node_id if ref.node_id in {"", "pending"} else ref.node_id,
             output_slot=ref.output_slot,
             kind=ref.kind,
             topo_id=ref.topo_id,
@@ -315,6 +374,16 @@ def bind_topo_delta(
                 metadata=dict(entry.metadata),
             )
             for entry in delta.entries
+        ),
+        roles=tuple(
+            TopoRoleEntry(
+                ref=bind_ref(entry.ref),
+                role=entry.role,
+                origin_role=entry.origin_role,
+                parent_refs=tuple(bind_ref(ref) for ref in entry.parent_refs),
+                metadata=dict(entry.metadata),
+            )
+            for entry in delta.roles
         ),
         raw_event=dict(delta.raw_event),
     )
