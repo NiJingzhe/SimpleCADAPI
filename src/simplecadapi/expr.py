@@ -392,6 +392,7 @@ def _is_discrete_param_name(key: str) -> bool:
         "multiplicities",
         "output_count",
         "periodic",
+        "tag_binding",
     }
 
 

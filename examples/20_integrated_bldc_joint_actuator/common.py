@@ -126,9 +126,13 @@ def ground_solid(*, label: str, solid: scad.Solid) -> None:
     """Print a concise QL-backed solid summary."""
 
     faces = ql.select(items=solid.get_faces()).all()
-    role_faces = ql.select(items=faces).where(ql.tag(pattern="role.*")).all()
+    local_roles = [
+        tag
+        for tag in scad.list_tags(shape=solid, scope="local")
+        if tag.startswith("role.")
+    ]
     print(
-        f"{label}: faces={len(faces)} role_faces={len(role_faces)} "
+        f"{label}: faces={len(faces)} local_roles={len(local_roles)} "
         f"volume={solid.get_volume():.3f} tags={','.join(scad.list_tags(shape=solid))}"
     )
 

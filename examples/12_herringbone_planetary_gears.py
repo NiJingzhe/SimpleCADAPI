@@ -88,10 +88,14 @@ def _z_rotation_placement(origin: tuple[float, float, float], angle_degrees: flo
 
 def _ground_solid(label: str, solid: scad.Solid) -> None:
     faces = ql.select(solid.get_faces()).all()
-    tagged_role_faces = ql.select(faces).where(ql.tag("role.*")).all()
+    local_roles = [
+        tag
+        for tag in scad.list_tags(shape=solid, scope="local")
+        if tag.startswith("role.")
+    ]
     print(
-        f"{label}: faces={len(faces)} role_faces={len(tagged_role_faces)} "
-        f"volume={solid.get_volume():.1f} tags={','.join(scad.list_tags(solid))}"
+        f"{label}: faces={len(faces)} local_roles={len(local_roles)} "
+        f"volume={solid.get_volume():.1f} tags={','.join(scad.list_tags(shape=solid))}"
     )
 
 

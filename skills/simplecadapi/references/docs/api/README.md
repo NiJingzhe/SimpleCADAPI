@@ -69,6 +69,8 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 ## Tagging and Selection
 
 - [apply_tag](apply_tag.md) *(from operations.py)* `top-level`
+- [apply_tag_rselection](apply_tag_rselection.md) *(from operations.py)* `top-level`
+- [explain_tag](explain_tag.md) *(from operations.py)* `top-level`
 - [list_tags](list_tags.md) *(from operations.py)* `top-level`
 - [select_edges_by_tag](select_edges_by_tag.md) *(from operations.py)* `top-level`
 - [select_faces_by_tag](select_faces_by_tag.md) *(from operations.py)* `top-level`
@@ -207,11 +209,14 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [meta](meta.md) *(from ql.py)* `submodule:ql`
 - [not_](not_.md) *(from ql.py)* `submodule:ql`
 - [or_](or_.md) *(from ql.py)* `submodule:ql`
+- [output_role](output_role.md) *(from ql.py)* `submodule:ql`
 - [place_component_rassembly](place_component_rassembly.md) *(from operations.py)* `top-level`
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`
 - [solve_assembly_constraints_rassembly](solve_assembly_constraints_rassembly.md) *(from operations.py)* `top-level`
+- [source_binding](source_binding.md) *(from ql.py)* `submodule:ql`
+- [source_topology](source_topology.md) *(from ql.py)* `submodule:ql`
 - [tag](tag.md) *(from ql.py)* `submodule:ql`
 - [unground_component_rassembly](unground_component_rassembly.md) *(from operations.py)* `top-level`
 - [value](value.md) *(from ql.py)* `submodule:ql`

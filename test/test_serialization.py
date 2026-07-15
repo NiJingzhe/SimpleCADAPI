@@ -352,6 +352,31 @@ class TestCoverageMatrix(unittest.TestCase):
 
 
 class TestReplay(unittest.TestCase):
+    @staticmethod
+    def _tag_node(payload, tag):
+        return next(
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "apply_tag_rselection"
+            and node["params"]["tag_binding"]["tag"] == tag
+        )
+
+    @staticmethod
+    def _topology_ref_map(shape):
+        refs = {}
+        for entity in shape._topology_cache.entities():
+            wrapper = entity.wrappers[0]
+            ref = wrapper.get_metadata("topo_ref")
+            if isinstance(ref, dict):
+                refs[(entity.kind, entity.topo_id)] = (
+                    ref["graph_id"],
+                    ref["node_id"],
+                    ref["output_slot"],
+                    ref["kind"],
+                    ref["topo_id"],
+                )
+        return refs
+
     def test_replay_builds_graph(self):
         """A simple low-level graph can be replayed."""
         with GraphSession() as session:
@@ -368,6 +393,169 @@ class TestReplay(unittest.TestCase):
         results = replay_graph(session.graph)
         self.assertIsNotNone(results)
         self.assertGreater(len(results), 0)
+
+    def test_terminal_tag_selector_roundtrip_preserves_binding_and_topology_refs(self):
+        tag = "role.selector_target"
+        selector = (
+            scad.ql.faces()
+            .order_by(scad.ql.key("geom.center.z"), desc=True)
+            .take(1)
+            .exactly(1)
+        )
+        with scad.GraphSession() as session:
+            source = scad.make_box_rsolid(2.0, 3.0, 4.0)
+            source_refs = self._topology_ref_map(source)
+            geometry_node_id = source.get_metadata("graph")["node_id"]
+            tagged = scad.apply_tag_rselection(source, selector, tag)
+
+        self.assertEqual(self._topology_ref_map(tagged), source_refs)
+        self.assertEqual(scad.select_faces_by_tag(source, tag, scope="local"), [])
+        self.assertEqual(len(scad.select_faces_by_tag(tagged, tag, scope="local")), 1)
+
+        payload = json.loads(scad.export_model_json(session))
+        node = self._tag_node(payload, tag)
+        binding = node["params"]["tag_binding"]
+        self.assertEqual(payload["leaf_ids"], [node["node_id"]])
+        self.assertEqual(node["inputs"], [geometry_node_id])
+        self.assertEqual(binding["producer"]["node_id"], node["node_id"])
+        self.assertEqual(binding["scope"]["node_id"], geometry_node_id)
+        self.assertEqual(binding["target"]["kind"], "selection_query")
+        self.assertEqual(binding["evidence"]["selected_count"], 1)
+        self.assertEqual(payload["semantic_bindings"], [binding])
+
+        replayed = scad.replay_model_json(json.dumps(payload))
+        self.assertEqual(len(replayed), 1)
+        result = replayed[0]
+        self.assertEqual(result.get_metadata("graph")["node_id"], node["node_id"])
+        self.assertEqual(
+            result.get_metadata("topo_ref")["node_id"], geometry_node_id
+        )
+        selected = scad.select_faces_by_tag(result, tag, scope="local")
+        self.assertEqual(len(selected), 1)
+        explanation = scad.explain_tag(selected[0], tag, scope="local")
+        self.assertEqual(explanation[0]["binding_id"], binding["binding_id"])
+
+    def test_terminal_tag_explicit_refs_roundtrip(self):
+        tag = "role.explicit_target"
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(2.0, 3.0, 4.0)
+            top_face = max(box.get_faces(), key=lambda face: face.get_center().z)
+            expected_ref = top_face.get_metadata("topo_ref")
+            scad.apply_tag_rselection(box, [top_face], tag)
+
+        payload = json.loads(scad.export_model_json(session))
+        node = self._tag_node(payload, tag)
+        binding = node["params"]["tag_binding"]
+        self.assertEqual(binding["target"]["kind"], "explicit_refs")
+        self.assertEqual(
+            binding["target"]["refs"][0]["topo_id"], expected_ref["topo_id"]
+        )
+        self.assertFalse(
+            any(
+                item["op"].startswith("make_select_")
+                for item in payload["graph"]["nodes"]
+            )
+        )
+
+        result = scad.replay_model_json(json.dumps(payload))[0]
+        selected = scad.select_faces_by_tag(result, tag, scope="local")
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(
+            selected[0].get_metadata("topo_ref")["topo_id"], expected_ref["topo_id"]
+        )
+
+    def test_tag_semantic_branches_are_isolated_after_replay(self):
+        selector = (
+            scad.ql.faces()
+            .order_by(scad.ql.key("geom.center.z"), desc=True)
+            .take(1)
+            .exactly(1)
+        )
+        with scad.GraphSession() as session:
+            source = scad.make_box_rsolid(2.0, 3.0, 4.0)
+            left = scad.apply_tag_rselection(source, selector, "role.left_branch")
+            right = scad.apply_tag_rselection(source, selector, "role.right_branch")
+
+        self.assertEqual(
+            len(scad.select_faces_by_tag(left, "role.left_branch", scope="local")), 1
+        )
+        self.assertEqual(
+            scad.select_faces_by_tag(left, "role.right_branch", scope="local"), []
+        )
+        self.assertEqual(
+            scad.select_faces_by_tag(right, "role.left_branch", scope="local"), []
+        )
+        self.assertEqual(
+            len(scad.select_faces_by_tag(right, "role.right_branch", scope="local")),
+            1,
+        )
+
+        payload = json.loads(scad.export_model_json(session))
+        left_node = self._tag_node(payload, "role.left_branch")
+        right_node = self._tag_node(payload, "role.right_branch")
+        replayed = {
+            shape.get_metadata("graph")["node_id"]: shape
+            for shape in scad.replay_model_json(json.dumps(payload))
+        }
+        replayed_left = replayed[left_node["node_id"]]
+        replayed_right = replayed[right_node["node_id"]]
+        self.assertEqual(
+            len(
+                scad.select_faces_by_tag(
+                    replayed_left, "role.left_branch", scope="local"
+                )
+            ),
+            1,
+        )
+        self.assertEqual(
+            scad.select_faces_by_tag(
+                replayed_left, "role.right_branch", scope="local"
+            ),
+            [],
+        )
+        self.assertEqual(
+            scad.select_faces_by_tag(
+                replayed_right, "role.left_branch", scope="local"
+            ),
+            [],
+        )
+        self.assertEqual(
+            len(
+                scad.select_faces_by_tag(
+                    replayed_right, "role.right_branch", scope="local"
+                )
+            ),
+            1,
+        )
+
+    def test_strict_tag_replay_rejects_binding_tampering(self):
+        selector = (
+            scad.ql.faces()
+            .order_by(scad.ql.key("geom.center.z"), desc=True)
+            .take(1)
+            .exactly(1)
+        )
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(2.0, 3.0, 4.0)
+            scad.apply_tag_rselection(box, selector, "role.target")
+
+        raw = json.loads(scad.export_model_json(session))
+
+        damaged = deepcopy(raw)
+        node = self._tag_node(damaged, "role.target")
+        node["params"]["tag_binding"]["producer"]["node_id"] = node["inputs"][0]
+        damaged["semantic_bindings"] = [node["params"]["tag_binding"]]
+        with self.assertRaisesRegex(ValueError, "does not match binding producer"):
+            scad.replay_model_json(json.dumps(damaged))
+
+        damaged = deepcopy(raw)
+        node = self._tag_node(damaged, "role.target")
+        node["params"]["tag_binding"]["target"]["selector"]["order_keys"][0][
+            "desc"
+        ] = False
+        damaged["semantic_bindings"] = [node["params"]["tag_binding"]]
+        with self.assertRaisesRegex(ValueError, "target evidence drifted"):
+            scad.replay_model_json(json.dumps(damaged))
 
     def test_replay_preserves_volume(self):
         with GraphSession() as session:

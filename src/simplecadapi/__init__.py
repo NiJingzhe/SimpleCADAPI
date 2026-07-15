@@ -118,6 +118,8 @@ from .operations import (
     sweep_rsolid,
     # 标签和选择
     apply_tag,
+    apply_tag_rselection,
+    explain_tag,
     list_tags,
     select_edges_by_tag,
     select_faces_by_tag,
@@ -186,6 +188,25 @@ from .product import (
     ScalarLimit,
 )
 from .sketch import Sketch, SketchConstraint, SketchConstraintDiagnostic, SketchRef, SketchSolveResult
+from .tagging import (
+    LineageDerivation,
+    LineagePolicy,
+    TagAttachment,
+    TagBinding,
+    TagBindingScope,
+    TagCertainty,
+    TagEvidence,
+    TagEvidenceKind,
+    TagLifecycle,
+    TagLineageWitness,
+    TagProducer,
+    TagProducerKind,
+    TagPropagation,
+    TagScope,
+    TagTarget,
+    TagTargetKind,
+    TopologyPropagation,
+)
 from .topology import SemanticDelta, SemanticRef
 from .errors import SimpleCADError
 
@@ -366,6 +387,8 @@ __all__ = [
     "sweep_rsolid",
     # 标签和选择
     "apply_tag",
+    "apply_tag_rselection",
+    "explain_tag",
     "list_tags",
     "select_edges_by_tag",
     "select_faces_by_tag",
@@ -427,6 +450,23 @@ __all__ = [
     "SketchConstraintDiagnostic",
     "SketchRef",
     "SketchSolveResult",
+    "LineageDerivation",
+    "LineagePolicy",
+    "TagAttachment",
+    "TagBinding",
+    "TagBindingScope",
+    "TagCertainty",
+    "TagEvidence",
+    "TagEvidenceKind",
+    "TagLifecycle",
+    "TagLineageWitness",
+    "TagProducer",
+    "TagProducerKind",
+    "TagPropagation",
+    "TagScope",
+    "TagTarget",
+    "TagTargetKind",
+    "TopologyPropagation",
     "SemanticRef",
     "SemanticDelta",
     "SimpleCADError",
