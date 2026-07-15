@@ -225,8 +225,8 @@ AGPL-3.0, see [`LICENSE`](LICENSE).
 
 ## Community
 
-Join the CADDesigner technical community on WeChat:
+The group chat currently has too many members for direct QR-code joining. Scan the QR code below to add Teacher Du Peng on WeChat, then ask him for an invitation to the CADDesigner technical community:
 
 <p align="center">
-  <img src="img/CADDesigner群二维码.png" alt="CADDesigner WeChat technical community QR code" width="420">
+  <img src="img/dp个人账号.png.jpg" alt="Teacher Du Peng's personal WeChat QR code" width="420">
 </p>
