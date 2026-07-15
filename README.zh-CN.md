@@ -151,8 +151,8 @@ python3 -m compileall src/simplecadapi
 
 ## 社区交流
 
-欢迎扫码加入 CADDesigner 技术交流群：
+由于群聊人数过多，无法直接扫码入群。请扫描下方二维码添加杜鹏老师微信，由杜鹏老师邀请加入 CADDesigner 技术交流群：
 
 <p align="center">
-  <img src="img/CADDesigner群二维码.png" alt="CADDesigner 微信技术交流群二维码" width="420">
+  <img src="img/dp个人账号.png.jpg" alt="杜鹏老师个人微信二维码" width="420">
 </p>
