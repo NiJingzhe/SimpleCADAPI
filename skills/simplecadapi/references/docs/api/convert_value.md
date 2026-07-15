@@ -1,0 +1,17 @@
+# convert_value
+
+## API Definition
+
+```python
+def convert_value(value: int | float, from_unit: UnitLike, to_unit: UnitLike) -> float
+```
+
+*Source: units.py*
+
+## Import Surface
+
+- top-level: `from simplecadapi import convert_value`
+
+## Description
+
+Convert a finite numeric value between dimensionally compatible units.

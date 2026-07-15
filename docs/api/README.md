@@ -111,11 +111,33 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 ## Expressions and Parameters
 
 - [Const](Const.md) *(from expr.py)* `top-level`
+- [DimensionTolerance](DimensionTolerance.md) *(from expr.py)* `top-level`
 - [Expr](Expr.md) *(from expr.py)* `top-level`
 - [ExpressionGraph](ExpressionGraph.md) *(from expr.py)* `top-level`
+- [ToleranceAnalysis](ToleranceAnalysis.md) *(from tolerance.py)* `top-level`
+- [ToleranceAnalysisError](ToleranceAnalysisError.md) *(from tolerance.py)* `top-level`
+- [ToleranceCheck](ToleranceCheck.md) *(from tolerance.py)* `top-level`
+- [ToleranceContribution](ToleranceContribution.md) *(from tolerance.py)* `top-level`
+- [ToleranceGraph](ToleranceGraph.md) *(from tolerance.py)* `top-level`
+- [ToleranceReport](ToleranceReport.md) *(from tolerance.py)* `top-level`
+- [ToleranceRequirement](ToleranceRequirement.md) *(from tolerance.py)* `top-level`
+- [ToleranceValidationError](ToleranceValidationError.md) *(from tolerance.py)* `top-level`
 - [Var](Var.md) *(from expr.py)* `top-level`
+- [analyze_tolerance](analyze_tolerance.md) *(from tolerance.py)* `top-level`
+- [check_tolerance](check_tolerance.md) *(from tolerance.py)* `top-level`
 - [const](const_function.md) *(from expr.py)* `top-level`
 - [var](var_function.md) *(from expr.py)* `top-level`
+
+## Physical Units
+
+- [Dimension](Dimension.md) *(from units.py)* `top-level`
+- [Unit](Unit.md) *(from units.py)* `top-level`
+- [UnitValidationError](UnitValidationError.md) *(from units.py)* `top-level`
+- [canonical_unit_for_dimension](canonical_unit_for_dimension.md) *(from units.py)* `top-level`
+- [convert_value](convert_value.md) *(from units.py)* `top-level`
+- [expression_uses_units](expression_uses_units.md) *(from units.py)* `top-level`
+- [get_unit](get_unit.md) *(from units.py)* `top-level`
+- [infer_dimension](infer_dimension.md) *(from units.py)* `top-level`
 
 ## Types and Errors
 

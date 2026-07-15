@@ -96,9 +96,12 @@ class TestRearchitecture20ExpressionContracts(unittest.TestCase):
         self.assertIsInstance(expr, scad.Expr)
         self.assertAlmostEqual(float(expr), 16.0)
 
-    def test_expression_system_is_unitless_phase_one(self):
+    def test_expression_system_preserves_legacy_unitless_variables(self):
         r = scad.var("r", 10.0)
-        self.assertFalse(hasattr(r, "unit"))
+        self.assertIsNone(r.unit)
+        self.assertIsNone(r.tolerance_unit)
+        self.assertIsNone(scad.infer_dimension(r))
+        self.assertEqual(r.evaluate(), 10.0)
 
     def test_expression_values_can_flow_into_public_modeling_apis(self):
         r = scad.var("r", 10.0)

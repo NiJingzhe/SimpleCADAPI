@@ -25,6 +25,8 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "math.py",
     "product.py",
     "expr.py",
+    "tolerance.py",
+    "units.py",
     "graph.py",
     "sketch.py",
     "errors.py",
@@ -47,11 +49,18 @@ FULL_PUBLIC_FUNCTION_MODULES = frozenset(
 )
 
 EXPORTED_FUNCTION_MODULES = frozenset(
-    {"serializer.py", "graph.py", "expr.py", "errors.py"}
+    {
+        "serializer.py",
+        "graph.py",
+        "expr.py",
+        "tolerance.py",
+        "units.py",
+        "errors.py",
+    }
 )
 
 EXPORTED_CALLABLE_MODULES = frozenset(
-    {"expr.py", "graph.py", "sketch.py", "errors.py", "topology.py", "math.py", "product.py"}
+    {"expr.py", "tolerance.py", "units.py", "graph.py", "sketch.py", "errors.py", "topology.py", "math.py", "product.py"}
 )
 
 TRANSLATOR_PUBLIC_MODULES = frozenset(
@@ -468,6 +477,7 @@ class APIDocumentGenerator:
             "Math Helpers": [],
             "Modeling Graph and Replay": [],
             "Expressions and Parameters": [],
+            "Physical Units": [],
             "Types and Errors": [],
             "Advanced Features": [],
             "Evolve": [],
@@ -493,8 +503,12 @@ class APIDocumentGenerator:
                 categories["Math Helpers"].append(api)
                 continue
 
-            if api.source_file == "expr.py":
+            if api.source_file in {"expr.py", "tolerance.py"}:
                 categories["Expressions and Parameters"].append(api)
+                continue
+
+            if api.source_file == "units.py":
+                categories["Physical Units"].append(api)
                 continue
 
             if api.source_file in {"sketch.py", "errors.py"}:
