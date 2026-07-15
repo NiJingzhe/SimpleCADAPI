@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import pprint
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from ...expr import ExpressionGraph
 from ...topology import OperationNode
+from ...units import expression_uses_units, infer_dimension, unit_from_payload
 
 
 def _json_ascii(value: Any) -> str:
@@ -15,6 +18,33 @@ def _json_ascii(value: Any) -> str:
 
 def _py_literal(value: Any) -> str:
     return pprint.pformat(value, compact=True, sort_dicts=True, width=120)
+
+
+def _expression_physical_metadata(
+    nodes: Sequence[Any],
+) -> Tuple[Dict[str, str], Dict[str, bool]]:
+    graph = ExpressionGraph.from_dict({"nodes": list(nodes)})
+    dimensions: Dict[str, str] = {}
+    unit_aware: Dict[str, bool] = {}
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        expr_id = str(node.get("expr_id", ""))
+        expr = graph.get(expr_id)
+        if expr is None:
+            continue
+        dimension = infer_dimension(expr)
+        dimensions[expr_id] = "Legacy" if dimension is None else dimension.name
+        unit_aware[expr_id] = expression_uses_units(expr)
+    return dimensions, unit_aware
+
+
+def _canonical_variable_default(node: Dict[str, Any]) -> float:
+    value = float(node.get("default", 0.0))
+    unit_payload = node.get("unit")
+    if unit_payload is None:
+        return value
+    return unit_from_payload(unit_payload).to_canonical(value)
 
 
 def _safe_name(raw: str, *, prefix: str = "obj") -> str:
@@ -161,7 +191,9 @@ def _node_expression_limitation(
 
 
 def _sanitize_expr_alias(alias: str, *, prefix: str = "expr") -> str:
-    token = "".join(ch if str(ch).isalnum() else "_" for ch in str(alias)).strip("_")
+    token = "".join(
+        ch if ch.isascii() and ch.isalnum() else "_" for ch in str(alias)
+    ).strip("_")
     if not token:
         token = prefix
     if token[0].isdigit():
@@ -171,7 +203,9 @@ def _sanitize_expr_alias(alias: str, *, prefix: str = "expr") -> str:
 
 def _expr_short_suffix(expr_id: str) -> str:
     raw = str(expr_id).rsplit("_", 1)[-1]
-    token = "".join(ch if ch.isalnum() else "_" for ch in raw).strip("_")
+    token = "".join(
+        ch if ch.isascii() and ch.isalnum() else "_" for ch in raw
+    ).strip("_")
     return token[:8] if token else "id"
 
 
@@ -181,7 +215,9 @@ def _const_value_alias_token(value: Any) -> str:
     except Exception:
         return "value"
     text = f"{number:.6g}".replace("-", "neg_").replace(".", "_")
-    token = "".join(ch if ch.isalnum() else "_" for ch in text).strip("_")
+    token = "".join(
+        ch if ch.isascii() and ch.isalnum() else "_" for ch in text
+    ).strip("_")
     return token or "value"
 
 
@@ -201,6 +237,31 @@ def _spreadsheet_expr_alias(expr_node: Dict[str, Any], row: int) -> str:
     return _sanitize_expr_alias(
         f"expr_{op}_{_expr_short_suffix(expr_id)}", prefix="expr"
     )
+
+
+def _spreadsheet_expr_aliases(nodes: Sequence[Any]) -> Dict[str, str]:
+    aliases: Dict[str, str] = {}
+    used: Set[str] = set()
+    row = 1
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        expr_id = str(node.get("expr_id", f"expr_{row}"))
+        alias = _spreadsheet_expr_alias(node, row)
+        if alias in used:
+            suffix = hashlib.sha256(expr_id.encode("utf-8")).hexdigest()[:8]
+            prefix = alias[: 63 - len(suffix)]
+            alias = f"{prefix}_{suffix}"
+            collision = 2
+            while alias in used:
+                collision_suffix = f"{suffix}_{collision}"
+                prefix = alias[: 63 - len(collision_suffix)]
+                alias = f"{prefix}_{collision_suffix}"
+                collision += 1
+        aliases[expr_id] = alias
+        used.add(alias)
+        row += 1
+    return aliases
 
 
 def _coincident_constraint_pairs(
@@ -259,10 +320,13 @@ __all__ = [
     "_coincident_constraint_pairs",
     "_compile_time_nested_expr_ref",
     "_contains_expr_refs",
+    "_canonical_variable_default",
+    "_expression_physical_metadata",
     "_node_expression_limitation",
     "_json_ascii",
     "_py_literal",
     "_safe_name",
     "_sanitize_expr_alias",
     "_spreadsheet_expr_alias",
+    "_spreadsheet_expr_aliases",
 ]

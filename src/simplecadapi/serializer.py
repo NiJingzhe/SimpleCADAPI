@@ -457,10 +457,12 @@ def export_session_json(session: "GraphSession", indent: int = 2) -> str:
 
     import json
 
+    session.tolerance_graph.validate(raise_on_failure=True)
     return json.dumps(
         {
             "graph": session.graph.to_dict(),
             "expression_graph": session.expression_graph.to_dict(),
+            "tolerance_graph": session.tolerance_graph.to_dict(),
             "frame_graph": session.frame_graph.to_dict(),
         },
         indent=indent,
@@ -513,6 +515,7 @@ def import_session_json(json_str: str) -> Dict[str, Any]:
 
     from .expr import ExpressionGraph
     from .frame import FrameGraph
+    from .tolerance import ToleranceGraph
 
     try:
         payload = json.loads(json_str)
@@ -528,6 +531,17 @@ def import_session_json(json_str: str) -> Dict[str, Any]:
         else:
             raise ValueError("Session payload 'expression_graph' must be an object")
 
+        tolerance_payload = payload.get("tolerance_graph")
+        if tolerance_payload is None:
+            tolerance_graph = ToleranceGraph(expr_graph)
+        elif isinstance(tolerance_payload, dict):
+            tolerance_graph = ToleranceGraph.from_dict(
+                tolerance_payload, expr_graph
+            )
+        else:
+            raise ValueError("Session payload 'tolerance_graph' must be an object")
+        tolerance_graph.validate(raise_on_failure=True)
+
         frame_payload = payload.get("frame_graph")
         if frame_payload is None:
             frame_graph = FrameGraph()
@@ -542,6 +556,7 @@ def import_session_json(json_str: str) -> Dict[str, Any]:
         return {
             "graph": graph,
             "expression_graph": expr_graph,
+            "tolerance_graph": tolerance_graph,
             "frame_graph": frame_graph,
         }
     except Exception as e:
@@ -551,12 +566,12 @@ def import_session_json(json_str: str) -> Dict[str, Any]:
             possible_causes=[
                 "The input string is not valid JSON.",
                 "The session payload is missing the required 'graph' object.",
-                "The expression_graph or frame_graph fields use the wrong JSON type.",
+                "The expression_graph, tolerance_graph, or frame_graph fields use the wrong JSON type.",
             ],
             how_to_fix=[
                 "Pass a valid JSON string produced by export_session_json().",
                 "Make sure 'graph' is present and is a JSON object.",
-                "Use JSON objects for 'expression_graph' and 'frame_graph', not strings or arrays.",
+                "Use JSON objects for expression_graph, tolerance_graph, and frame_graph, not strings or arrays.",
             ],
             error=e,
         )
@@ -671,6 +686,7 @@ def export_model_json(
         frame_graph_payload = session.frame_graph.to_dict()
 
         _assert_graph_is_canonical(session.graph)
+        session.tolerance_graph.validate(raise_on_failure=True)
         leaf_ids = [node.node_id for node in session.graph.leaf_nodes()]
 
         payload: Dict[str, Any] = {
@@ -679,6 +695,7 @@ def export_model_json(
             "graph": session.graph.to_dict(),
             "leaf_ids": leaf_ids,
             "expression_graph": session.expression_graph.to_dict(),
+            "tolerance_graph": session.tolerance_graph.to_dict(),
             "frame_graph": frame_graph_payload,
             "geometry_registry": geometry_registry,
             "semantic_entity_registry": semantic_entity_registry,
@@ -723,6 +740,7 @@ def import_model_json(json_str: str) -> Dict[str, Any]:
                 {
                     "graph": payload.get("graph", {}),
                     "expression_graph": payload.get("expression_graph", {}),
+                    "tolerance_graph": payload.get("tolerance_graph", {}),
                     "frame_graph": payload.get("frame_graph", {}),
                 }
             )
@@ -803,6 +821,10 @@ def replay_model_json(json_str: str, *, strict: bool = True) -> List[Any]:
         graph = payload.get("graph")
         if not isinstance(graph, OperationGraph):
             raise ValueError("Model payload does not contain a replayable graph")
+
+        tolerance_graph = payload.get("tolerance_graph")
+        if tolerance_graph is not None:
+            tolerance_graph.validate(raise_on_failure=True)
 
         explicit_leaf_ids = payload.get("leaf_ids")
         return _execute_graph(

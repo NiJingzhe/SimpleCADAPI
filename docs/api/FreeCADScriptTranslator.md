@@ -21,6 +21,7 @@ Current design goals:
 - Translate only from the canonical low-level `graph` IR
 - Preserve node metadata and graph lineage as FreeCAD custom properties
 - Preserve `expression_graph` as explicit translator metadata
+- Preserve dimension tolerances and tolerance-chain requirements as metadata
 - Preserve exported assembly constraints as document metadata objects
 - Keep assembly metadata from the full model payload alongside the IR-driven
 geometry translation

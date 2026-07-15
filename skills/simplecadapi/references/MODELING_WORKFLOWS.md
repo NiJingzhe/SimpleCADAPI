@@ -11,6 +11,7 @@
 - Use indexed child-geometry getters such as `get_edges(index)` and `get_faces(index)` when an indexed topology pick is intentional.
 - Use semantic tags for design intent and anchors. Keep numeric measurements and geometry facts in metadata or model JSON payloads.
 - Treat `export_model_json()` as the interchange boundary for replay and CAD translation.
+- Declare directly controlled dimensions with `var(..., unit=..., tolerance=..., tolerance_unit=...)`, and attach derived requirements with `GraphSession.require_tolerance(...)` when manufacturing variation matters.
 - Validate incrementally: after each major step, print small QL-derived facts such as selected face count, top face center, edge count, volume, or replay result count.
 
 ## 1) Capture a replayable modeling flow
@@ -185,3 +186,26 @@ does not authorize hidden coupling.
 - Ensure bodies that should union into one solid have real geometric overlap or embedding.
 - Use `cut_rsolid(...)` for subtractive features and `intersect_rsolid(...)` for common-volume workflows.
 - Validate body count and volume after major boolean operations.
+
+## 8) Dimension tolerance chains
+
+```python
+width = scad.var("width", 10.0, unit="mm", tolerance=0.1)
+gap = scad.var("gap", 0.5, unit="mm", tolerance=(-0.05, 0.1))
+overall = width + gap
+
+with scad.GraphSession() as session:
+    body = scad.make_box_rsolid(width, 2.0, 1.0)
+    session.require_tolerance(overall, (-0.15, 0.2), tolerance_unit="mm", name="overall")
+
+report = session.validate_tolerances(raise_on_failure=True)
+```
+
+- Use `worst_case` for a guaranteed conservative envelope.
+- Use `rss` only when distinct source dimensions can be treated as independent.
+- Every source variable in a chain must have a declared tolerance.
+- Unit-aware expressions infer dimensions automatically and cannot mix legacy
+  variables without units.
+- Length and angle use canonical `mm` and `deg` values in CAD operations.
+- Read `references/docs/core/physical-units.md` for unit and inference rules.
+- Read `references/docs/core/dimension-tolerance-chains.md` for complete rules.

@@ -128,7 +128,8 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
     "topology_delta_summary": false,
     "assembly_graph": false,
     "scalar_field_graph": false,
-    "expression_graph": true
+    "expression_graph": true,
+    "dimension_tolerances": true
   },
   "graph_id": "graph_xxxxxxxx",
   "nodes": [...],
@@ -163,6 +164,7 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 | `assembly_graph` | `bool` | 当前 graph JSON 本身不承载 assembly graph |
 | `scalar_field_graph` | `bool` | 当前为 `false`；SDF / scalar field graph 暂时不在支持范围内 |
 | `expression_graph` | `bool` | session/model payload 支持 expression graph |
+| `dimension_tolerances` | `bool` | session/model payload supports variable tolerances and a tolerance requirement graph |
 
 ## 5. Operation Node Schema
 
@@ -667,7 +669,13 @@ outer_edges = Q.faces().where(Q.tag("face.top")).boundary("wire").where(Q.tag("w
       "expr_id": "var_119b16e4",
       "kind": "var",
       "name": "r",
-      "default": 2.0
+      "default": 2.0,
+      "unit": "mm",
+      "tolerance": {
+        "lower_deviation": -0.1,
+        "upper_deviation": 0.2
+      },
+      "tolerance_unit": "mm"
     }
   ]
 }
@@ -692,7 +700,13 @@ outer_edges = Q.faces().where(Q.tag("face.top")).boundary("wire").where(Q.tag("w
   "expr_id": "var_xxx",
   "kind": "var",
   "name": "radius",
-  "default": 2.0
+  "default": 2.0,
+  "unit": "mm",
+  "tolerance": {
+    "lower_deviation": -0.05,
+    "upper_deviation": 0.1
+  },
+  "tolerance_unit": "mm"
 }
 ```
 
@@ -722,6 +736,82 @@ outer_edges = Q.faces().where(Q.tag("face.top")).boundary("wire").where(Q.tag("w
 - `cos`
 - `tan`
 - `sqrt`
+- `acos`
+- `asin`
+- `atan`
+- `atan2`
+
+### 10.3 Unit And Dimension Semantics
+
+Variable nodes may include:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `unit` | `string | unit object` | no | nominal declaration unit |
+| `tolerance` | `object` | no | signed deviations in `tolerance_unit` |
+| `tolerance_unit` | `string | unit object` | no | source tolerance unit; defaults to `unit` in Python declarations |
+
+Built-in units serialize as symbols such as `mm`, `in`, `deg`, or `rad`. Custom
+units serialize in full:
+
+```json
+{
+  "symbol": "thou",
+  "dimension": {"length": 1, "angle": 0},
+  "scale_to_canonical": 0.0254
+}
+```
+
+Dimensions contain required integer `length` and `angle` exponents. Canonical
+numeric values used by operation-node `params` and tolerance analysis are `mm`,
+`mm^2`, `mm^3`, `deg`, or `1` for the named dimensions.
+
+Import rebuilds the complete DAG and reruns dimension inference. Addition and
+subtraction require matching dimensions; multiplication/division combine
+exponents; dimensioned powers require supported constant exponents; square root
+requires even exponents; and trigonometric operations enforce Angle/Dimensionless
+inputs. A graph cannot mix unit-declared variables with legacy variables lacking
+units. Unitless legacy graphs remain accepted.
+
+### 10.4 Dimension Tolerance Graph
+
+Variable `tolerance` values are signed deviations from `default`. A scalar source dimension must use `lower_deviation <= 0 <= upper_deviation`.
+
+Session/model payloads may include a sibling `tolerance_graph`:
+
+```json
+{
+  "requirements": [
+    {
+      "requirement_id": "req.clearance",
+      "target_expr_id": "expr_clearance",
+      "tolerance": {
+        "lower_deviation": -0.2,
+        "upper_deviation": 0.3
+      },
+      "method": "worst_case",
+      "name": "clearance",
+      "tolerance_unit": "mm",
+      "target_dimension": {
+        "length": 1,
+        "angle": 0
+      }
+    }
+  ],
+  "validation": {
+    "passed": true,
+    "checks": []
+  }
+}
+```
+
+Supported methods are `worst_case` and `rss`. Unit-aware requirements must target
+Length or Angle. `tolerance_unit` must match the inferred target dimension and is
+converted to the canonical unit before comparison. Importers recompute validation
+from `expression_graph`, compare the inferred result to `target_dimension`, and do
+not trust serialized `validation` evidence. Missing `tolerance_graph` is treated as
+an empty graph for backward compatibility. Legacy requirements may omit both unit
+fields when their target expression is unitless.
 
 ## 11. Frame Graph Schema
 
@@ -765,6 +855,7 @@ outer_edges = Q.faces().where(Q.tag("face.top")).boundary("wire").where(Q.tag("w
   "canonical_contract": {...},
   "graph": {...},
   "expression_graph": {...},
+  "tolerance_graph": {...},
   "frame_graph": {...},
   "geometry_registry": [...],
   "semantic_entity_registry": [...],
@@ -784,6 +875,7 @@ outer_edges = Q.faces().where(Q.tag("face.top")).boundary("wire").where(Q.tag("w
 | `graph` | `graph object` | yes | canonical low-level graph and only source of truth |
 | `leaf_ids` | `array<string>` | yes | explicit result set for multi-output graph replay/export |
 | `expression_graph` | `object` | yes | expression DAG |
+| `tolerance_graph` | `object` | no | dimension-chain requirements and validation evidence; defaults to an empty graph |
 | `frame_graph` | `object` | yes | frame snapshots |
 | `geometry_registry` | `array<object>` | yes | output geometry registry |
 | `semantic_entity_registry` | `array<object>` | yes | semantic entity registry |
