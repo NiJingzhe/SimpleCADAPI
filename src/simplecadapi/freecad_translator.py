@@ -1526,6 +1526,75 @@ def _connector_payload_for(component_entry, connector_id):
     raise RuntimeError(f'Missing connector {connector_id!r} on component {component_entry.get("component_id")!r}')
 
 
+def _orthogonal_jcs_axis(z_axis):
+    candidates = [App.Vector(1, 0, 0), App.Vector(0, 1, 0), App.Vector(0, 0, 1)]
+    best = min(candidates, key=lambda candidate: abs(z_axis.dot(candidate)))
+    x_axis = best - z_axis * z_axis.dot(best)
+    if float(x_axis.Length) <= 1e-12:
+        raise RuntimeError('Connector axis does not define a stable orthogonal frame')
+    x_axis.normalize()
+    return x_axis
+
+
+def _connector_geometry_placement(geometry_ref):
+    geometry_ref = geometry_ref or {}
+    selector = geometry_ref.get('geo_selector') or {}
+    kind = str(geometry_ref.get('kind') or selector.get('kind') or '').lower()
+    if kind == 'vertex':
+        center = selector.get('coordinates', selector.get('center', (0.0, 0.0, 0.0)))
+        z_axis = App.Vector(0, 0, 1)
+    elif kind == 'edge':
+        center = selector.get('center', (0.0, 0.0, 0.0))
+        start = selector.get('start')
+        end = selector.get('end')
+        if start is not None and end is not None:
+            z_axis = App.Vector(
+                float(end[0]) - float(start[0]),
+                float(end[1]) - float(start[1]),
+                float(end[2]) - float(start[2]),
+            )
+        else:
+            z_axis = App.Vector(1, 0, 0)
+    else:
+        center = selector.get('center', (0.0, 0.0, 0.0))
+        z_axis = App.Vector(*selector.get('normal', (0.0, 0.0, 1.0)))
+    if float(z_axis.Length) <= 1e-12:
+        raise RuntimeError('Connector geometry has a degenerate axis')
+    z_axis.normalize()
+    if bool(geometry_ref.get('flip', False)):
+        z_axis = -z_axis
+    x_axis = _orthogonal_jcs_axis(z_axis)
+    y_axis = z_axis.cross(x_axis)
+    y_axis.normalize()
+    matrix = App.Matrix()
+    matrix.A11 = x_axis.x; matrix.A12 = y_axis.x; matrix.A13 = z_axis.x; matrix.A14 = float(center[0])
+    matrix.A21 = x_axis.y; matrix.A22 = y_axis.y; matrix.A23 = z_axis.y; matrix.A24 = float(center[1])
+    matrix.A31 = x_axis.z; matrix.A32 = y_axis.z; matrix.A33 = z_axis.z; matrix.A34 = float(center[2])
+    return App.Placement(matrix)
+
+
+def _connector_local_placement(owner_value, connector_payload):
+    connector_payload = connector_payload or {}
+    anchor = connector_payload.get('anchor') or {}
+    anchor_kind = str(anchor.get('anchor_kind') or '')
+    if anchor_kind == 'geometry' or connector_payload.get('geometry_ref') is not None:
+        geometry_ref = anchor.get('geometry_ref') or connector_payload.get('geometry_ref') or {}
+        return _connector_geometry_placement(geometry_ref)
+    if anchor_kind == 'placement':
+        return _placement_from_axes_payload(anchor.get('placement') or {})
+    if anchor_kind == 'forwarded':
+        source_component = _find_component_entry(owner_value, anchor.get('component_id'))
+        source_connector = _connector_payload_for(source_component, anchor.get('connector_id'))
+        source_placement = _placement_from_axes_payload(source_component.get('placement') or {})
+        placement = source_placement.multiply(
+            _connector_local_placement(source_component.get('item') or {}, source_connector)
+        )
+        if anchor.get('offset') is not None:
+            placement = placement.multiply(_placement_from_axes_payload(anchor.get('offset') or {}))
+        return placement
+    return App.Placement()
+
+
 def _freecad_subname_for_kind(kind, index):
     # Convert a 0-based index into a FreeCAD sub-element name string.
     kind_lower = str(kind).lower()
@@ -1558,6 +1627,152 @@ def _resolve_connector_subname(component_entry, connector_payload):
         return '', ''
 
 
+MOTION_GROUPS_BY_COMPONENT = {}
+MOTION_DRIVER_RECORDS = []
+
+
+def _reparent_to_group(obj, group):
+    for owner in list(getattr(obj, 'InList', []) or []):
+        members = list(getattr(owner, 'Group', []) or [])
+        if obj not in members or owner is group:
+            continue
+        try:
+            owner.removeObject(obj)
+        except Exception:
+            pass
+    try:
+        group.addObject(obj)
+    except Exception:
+        pass
+
+
+def _rotation_base_expression(point, axis, angle_expression, coordinate):
+    px, py, pz = (float(value) for value in point)
+    ux, uy, uz = (float(value) for value in axis)
+    values = (px, py, pz)
+    rows = (
+        (
+            (ux * ux, 1.0 - ux * ux, 0.0),
+            (ux * uy, -ux * uy, -uz),
+            (ux * uz, -ux * uz, uy),
+        ),
+        (
+            (uy * ux, -uy * ux, uz),
+            (uy * uy, 1.0 - uy * uy, 0.0),
+            (uy * uz, -uy * uz, -ux),
+        ),
+        (
+            (uz * ux, -uz * ux, -uy),
+            (uz * uy, -uz * uy, ux),
+            (uz * uz, 1.0 - uz * uz, 0.0),
+        ),
+    )
+    terms = []
+    for value, (constant, cos_coefficient, sin_coefficient) in zip(values, rows[coordinate]):
+        if abs(value) <= 1e-12:
+            continue
+        coefficient = (
+            f'({constant:.17g} + {cos_coefficient:.17g} * cos({angle_expression})'
+            f' + {sin_coefficient:.17g} * sin({angle_expression}))'
+        )
+        terms.append(f'{coefficient} * {value:.17g}mm')
+    rotated = ' + '.join(terms) if terms else '0mm'
+    return f'{values[coordinate]:.17g}mm - ({rotated})'
+
+
+def _make_revolute_motion_driver(
+    assembly_value,
+    constraint_payload,
+    component_a,
+    component_b,
+    placement_a,
+    object_name,
+    label,
+):
+    assembly_container = assembly_value.get('container')
+    joint_group = _joint_group_for(assembly_container)
+    driver = doc.addObject('App::FeaturePython', str(object_name) + '_AngleDriver')
+    driver.Label = 'Drive angle: ' + str(label or constraint_payload.get('constraint_id') or object_name)
+    driver.addProperty('App::PropertyAngle', 'Angle', 'Motion')
+    driver.Angle = float(constraint_payload.get('drive_angle_degrees'))
+    angle_limit = constraint_payload.get('angle_limit') or {}
+    if angle_limit:
+        driver.addProperty('App::PropertyAngle', 'AngleMin', 'Motion limits')
+        driver.addProperty('App::PropertyAngle', 'AngleMax', 'Motion limits')
+        driver.AngleMin = float(angle_limit.get('lower_value'))
+        driver.AngleMax = float(angle_limit.get('upper_value'))
+    _ensure_string_property(driver, 'SimpleCADDriveConstraintId')
+    driver.SimpleCADDriveConstraintId = str(constraint_payload.get('constraint_id') or '')
+    _ensure_string_property(driver, 'SimpleCADConstraintTranslationStatus')
+    driver.SimpleCADConstraintTranslationStatus = 'expression_driven_visible_components'
+    try:
+        joint_group.addObject(driver)
+    except Exception:
+        pass
+    _set_visibility(driver, False)
+
+    reference_id = str(component_a.get('component_id'))
+    moving_id = str(component_b.get('component_id'))
+    moving_link = component_b.get('link')
+    parent = MOTION_GROUPS_BY_COMPONENT.get((str(assembly_container.Name), reference_id), assembly_container)
+    motion = doc.addObject('App::Part', str(object_name) + '_Motion')
+    motion.Label = 'Motion: ' + str(label or constraint_payload.get('constraint_id') or object_name)
+    try:
+        parent.addObject(motion)
+    except Exception:
+        pass
+    _hide_origin_tree(motion)
+    _set_visibility(motion, True)
+    _set_expanded(motion, True)
+    _ensure_string_property(motion, 'SimpleCADMotionConstraintId')
+    motion.SimpleCADMotionConstraintId = str(constraint_payload.get('constraint_id') or '')
+    _reparent_to_group(moving_link, motion)
+
+    record = {
+        'assembly': assembly_container,
+        'reference_component_id': reference_id,
+        'moving_component_id': moving_id,
+        'placement_a': placement_a,
+        'initial_angle': float(constraint_payload.get('drive_angle_degrees')),
+        'driver': driver,
+        'motion': motion,
+    }
+    MOTION_DRIVER_RECORDS.append(record)
+    _configure_revolute_motion_record(record, assembly_value)
+    MOTION_GROUPS_BY_COMPONENT[(str(assembly_container.Name), moving_id)] = motion
+    return driver
+
+
+def _configure_revolute_motion_record(record, assembly_value):
+    component_a = _find_component_entry(assembly_value, record.get('reference_component_id'))
+    reference_placement = _placement_from_axes_payload(component_a.get('placement') or {})
+    joint_placement = reference_placement.multiply(record.get('placement_a') or App.Placement())
+    point = joint_placement.Base
+    axis = joint_placement.Rotation.multVec(App.Vector(0, 0, 1))
+    axis.normalize()
+    initial_angle = float(record.get('initial_angle'))
+    driver = record.get('driver')
+    motion = record.get('motion')
+    angle_expression = f'{driver.Name}.Angle - {initial_angle:.17g}deg'
+    motion.setExpression('Placement.Rotation.Angle', None)
+    for name in ('x', 'y', 'z'):
+        motion.setExpression(f'Placement.Base.{name}', None)
+    motion.Placement = App.Placement(App.Vector(), App.Rotation(axis, 0.0))
+    motion.setExpression('Placement.Rotation.Angle', angle_expression)
+    point_values = (float(point.x), float(point.y), float(point.z))
+    axis_values = (float(axis.x), float(axis.y), float(axis.z))
+    for coordinate, name in enumerate(('x', 'y', 'z')):
+        expression = _rotation_base_expression(point_values, axis_values, angle_expression, coordinate)
+        motion.setExpression(f'Placement.Base.{name}', expression)
+
+
+def _refresh_revolute_motion_drivers(assembly_value):
+    assembly_container = assembly_value.get('container')
+    for record in MOTION_DRIVER_RECORDS:
+        if record.get('assembly') is assembly_container:
+            _configure_revolute_motion_record(record, assembly_value)
+
+
 def _make_simplecad_joint(assembly_value, constraint_payload, object_name, label):
     assembly_container = assembly_value.get('container')
     if assembly_container is None:
@@ -1587,21 +1802,24 @@ def _make_simplecad_joint(assembly_value, constraint_payload, object_name, label
     else:
         _ensure_string_property(joint, 'JointType')
         joint.JointType = joint_type
+    link_a = component_a.get('link')
+    link_b = component_b.get('link')
+    placement_a = _connector_local_placement(component_a.get('item') or {}, connector_a_payload)
+    placement_b = _connector_local_placement(component_b.get('item') or {}, connector_b_payload)
     try:
-        link_a = component_a.get('link')
-        link_b = component_b.get('link')
-        sub_a1, sub_a2 = _resolve_connector_subname(component_a, connector_a_payload)
-        sub_b1, sub_b2 = _resolve_connector_subname(component_b, connector_b_payload)
         if hasattr(joint, 'Reference1'):
-            joint.Reference1 = (link_a, [sub_a1, sub_a2])
-            joint.Reference2 = (link_b, [sub_b1, sub_b2])
-            joint.Detach1 = False
-            joint.Detach2 = False
+            joint.Detach1 = True
+            joint.Detach2 = True
+            joint.Reference1 = (link_a, ['', ''])
+            joint.Reference2 = (link_b, ['', ''])
+            joint.Placement1 = placement_a
+            joint.Placement2 = placement_b
     except Exception:
         native_status = 'native_partial'
     if joint_type == 'Revolute' and constraint_payload.get('drive_angle_degrees') is not None:
         try:
             joint.Angle = float(constraint_payload.get('drive_angle_degrees'))
+            joint.Suppressed = True
         except Exception:
             native_status = 'native_partial'
     if joint_type == 'Slider' and constraint_payload.get('drive_distance') is not None:
@@ -1631,11 +1849,24 @@ def _make_simplecad_joint(assembly_value, constraint_payload, object_name, label
     _ensure_string_property(joint, 'SimpleCADConstraintTranslationStatus')
     joint.SimpleCADConstraint = json.dumps(constraint_payload, ensure_ascii=True, sort_keys=True)
     joint.SimpleCADConstraintTranslationStatus = native_status
-    _set_visibility(joint, True)
+    _set_visibility(joint, False)
     try:
         SIMPLECAD_JOINT_OBJECTS[str(joint.Name)] = joint_type
     except Exception:
         pass
+    if (
+        joint_type == 'Revolute'
+        and constraint_payload.get('drive_angle_degrees') is not None
+    ):
+        _make_revolute_motion_driver(
+            assembly_value,
+            constraint_payload,
+            component_a,
+            component_b,
+            placement_a,
+            object_name,
+            label,
+        )
     return joint
 
 
@@ -1658,7 +1889,7 @@ def _make_simplecad_grounded_joint(assembly_value, component_id):
         _ensure_string_property(ground, 'ObjectToGround')
     _ensure_string_property(ground, 'SimpleCADGroundedComponent')
     ground.SimpleCADGroundedComponent = str(component_id)
-    _set_visibility(ground, True)
+    _set_visibility(ground, False)
     try:
         SIMPLECAD_JOINT_OBJECTS[str(ground.Name)] = 'Grounded'
     except Exception:
@@ -1753,20 +1984,32 @@ def _make_part_body_copy(part_container, source_obj, source_node_id):
     return body
 
 
+def _assembly_link_source(product_item):
+    source = product_item.get('link_source')
+    if source is not None:
+        return source
+    container = product_item.get('container')
+    source_name = f'{getattr(container, "Name", "SimpleCADAssembly")}_LinkSource'
+    source = doc.addObject('Part::Feature', source_name)
+    source.Label = f'{getattr(container, "Label", "Assembly")} link source'
+    source.Shape = Part.makeCompound(_shapes_from_product_value(product_item))
+    _ensure_string_property(source, 'SimpleCADAssemblySourceNodeId')
+    source.SimpleCADAssemblySourceNodeId = str(getattr(container, 'SimpleCADNodeId', ''))
+    _add_to_group(_product_library_group(), source)
+    _set_visibility(source, False)
+    product_item['link_source'] = source
+    return source
+
+
 def _make_assembly_component_link(assembly_container, product_item, name, label, placement):
-    link_type = 'Assembly::AssemblyLink' if product_item.get('kind') == 'assembly' else 'App::Link'
-    link = assembly_container.newObject(link_type, name)
+    link = assembly_container.newObject('App::Link', name)
     link.Label = str(label)
     _move_product_source_to_library(product_item)
-    link.LinkedObject = product_item.get('container')
-    if product_item.get('kind') == 'part':
+    if product_item.get('kind') == 'assembly':
+        link.LinkedObject = _assembly_link_source(product_item)
+    else:
         link.LinkedObject = product_item.get('container') or product_item.get('body')
     link.Placement = _placement_from_axes_payload(placement)
-    if link_type == 'Assembly::AssemblyLink':
-        try:
-            link.Rigid = True
-        except Exception:
-            pass
     return link
 
 
@@ -1817,10 +2060,10 @@ def _visibility_for_gui(obj):
         return False
     if name in GUI_VISIBILITY_BY_NAME:
         return bool(GUI_VISIBILITY_BY_NAME[name])
-    try:
-        return bool(obj.Visibility)
-    except Exception:
-        return False
+    # FreeCAD creates origin axes, datum planes, joint helpers, and internal
+    # AssemblyLink children with headless defaults that do not represent the
+    # intended saved view. Only translator-managed objects are visible.
+    return False
 
 
 def _write_gui_document_xml(fcstd_path):
@@ -1890,6 +2133,8 @@ def _write_gui_document_xml(fcstd_path):
 
 def _save_fcstd_with_gui_visibility(output_path):
     doc.recompute()
+    if 'RESULT_NODE_IDS' in globals():
+        _apply_result_visibility(RESULT_NODE_IDS)
     doc.saveAs(output_path)
     _write_gui_document_xml(output_path)
 
@@ -1935,6 +2180,7 @@ def _set_product_tree_visibility(product_value, visible, *, show_source_containe
             _set_visibility(container, visible if show_source_container else False)
             _set_expanded(container, bool(visible and show_source_container))
             _hide_origin_tree(container)
+        _set_visibility(product_value.get('link_source'), False)
         for component in product_value.get('components', []):
             link = component.get('link')
             if link is not None:
@@ -1993,10 +2239,15 @@ def _set_active_result_object(result_node_ids):
 
 def _apply_result_visibility(result_node_ids):
     visible_ids = {str(node_id) for node_id in (result_node_ids or [])}
-    projection_visible_ids = {str(source_id) for node_id, source_id in ASSEMBLY_PROJECTION_INPUTS.items() if str(node_id) in visible_ids}
+    projection_visible_ids = {
+        str(source_id)
+        for node_id, source_id in ASSEMBLY_PROJECTION_INPUTS.items()
+        if str(node_id) in visible_ids
+    }
     for node_id, outputs in GRAPH_OUTPUTS.items():
-        is_visible = str(node_id) in visible_ids or str(node_id) in projection_visible_ids
-        if str(node_id) in ASSEMBLY_PROJECTION_INPUTS:
+        node_id = str(node_id)
+        is_visible = node_id in visible_ids or node_id in projection_visible_ids
+        if node_id in ASSEMBLY_PROJECTION_INPUTS:
             is_visible = False
         for obj in outputs:
             _set_visibility(obj, is_visible)
@@ -4926,6 +5177,7 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"        _component['link'].Placement = _placement_from_axes_payload(_component['placement'])",
                 f"    {var_name}_components.append(_component)",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['components'] = {var_name}_components",
+                f"_refresh_revolute_motion_drivers(PRODUCT_VALUES[{_json_ascii(node.node_id)}])",
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
 
