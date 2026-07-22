@@ -91,3 +91,10 @@ print(json.dumps({
             with self.subTest(name=name):
                 self.assertIn(name, scad.__all__)
                 self.assertIs(getattr(scad, name), implementation)
+
+    def test_tracking_policy_is_public(self):
+        import simplecadapi as scad
+        from simplecadapi.tracking import TrackingPolicy
+
+        self.assertIn("TrackingPolicy", scad.__all__)
+        self.assertIs(scad.TrackingPolicy, TrackingPolicy)

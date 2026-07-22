@@ -210,6 +210,10 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     "revolve_rsolid": {"status": "replayable", "op": "make_revolve_rsolid"},
     "loft_rsolid": {"status": "replayable", "op": "make_loft_rsolid"},
     "sweep_rsolid": {"status": "replayable", "op": "make_sweep_rsolid"},
+    "twisted_sweep_rsolid": {
+        "status": "replayable",
+        "op": "make_twisted_sweep_rsolid",
+    },
     "helical_sweep_rsolid": {
         "status": "expanded_macro",
         "op": "make_sweep_rsolid",
@@ -336,6 +340,7 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_revolve_rsolid",
     "make_loft_rsolid",
     "make_sweep_rsolid",
+    "make_twisted_sweep_rsolid",
     "make_translate_rshape",
     "make_rotate_rshape",
     "make_mirror_rshape",
@@ -464,6 +469,8 @@ def export_session_json(session: "GraphSession", indent: int = 2) -> str:
             "expression_graph": session.expression_graph.to_dict(),
             "tolerance_graph": session.tolerance_graph.to_dict(),
             "frame_graph": session.frame_graph.to_dict(),
+            "result_node_ids": list(session.result_node_ids),
+            "has_explicit_results": session.has_explicit_results,
         },
         indent=indent,
     )
@@ -558,6 +565,8 @@ def import_session_json(json_str: str) -> Dict[str, Any]:
             "expression_graph": expr_graph,
             "tolerance_graph": tolerance_graph,
             "frame_graph": frame_graph,
+            "result_node_ids": [str(v) for v in payload.get("result_node_ids", [])],
+            "has_explicit_results": bool(payload.get("has_explicit_results", False)),
         }
     except Exception as e:
         raise_harness_error(
@@ -580,6 +589,8 @@ def import_session_json(json_str: str) -> Dict[str, Any]:
 def export_model_json(
     session: "GraphSession",
     indent: int = 2,
+    *,
+    result_node_ids: Optional[Sequence[str]] = None,
 ) -> str:
     """Export the canonical 2.0 model seed JSON.
 
@@ -687,7 +698,20 @@ def export_model_json(
 
         _assert_graph_is_canonical(session.graph)
         session.tolerance_graph.validate(raise_on_failure=True)
-        leaf_ids = [node.node_id for node in session.graph.leaf_nodes()]
+        if result_node_ids is not None:
+            leaf_ids = [str(node_id) for node_id in result_node_ids]
+        elif session.has_explicit_results:
+            leaf_ids = list(session.result_node_ids)
+        else:
+            leaf_ids = [node.node_id for node in session.graph.leaf_nodes()]
+        unknown_result_ids = [
+            node_id for node_id in leaf_ids if session.graph.get_node(node_id) is None
+        ]
+        if unknown_result_ids:
+            raise ValueError(
+                "model result node ids are not present in the session graph: "
+                + ", ".join(unknown_result_ids)
+            )
 
         payload: Dict[str, Any] = {
             "schema_version": MODEL_SCHEMA_VERSION,
@@ -2566,6 +2590,9 @@ def _execute_graph(
                                     False,
                                 )
                             ),
+                            tracking_policy=str(
+                                params.get("tracking_policy", "full")
+                            ),
                         )
                         _store_outputs(node, result)
                         continue
@@ -2588,6 +2615,9 @@ def _execute_graph(
                                 clean=bool(_param(ctx, node.node_id, op_name, params, "clean", True)),
                                 glue=bool(_param(ctx, node.node_id, op_name, params, "glue", True)),
                                 tol=cast(Optional[float], _param(ctx, node.node_id, op_name, params, "tol", None)),
+                                tracking_policy=str(
+                                    params.get("tracking_policy", "full")
+                                ),
                             )
                             _store_outputs(node, result)
                         elif all_solids and not ctx.strict:
@@ -2765,7 +2795,11 @@ def _execute_graph(
                         profile_outputs = _all_input_outputs(ctx, outputs, node)
                         if profile_outputs:
                             result = ops.loft_rsolid(
-                                cast(Any, profile_outputs), ruled=bool(params["ruled"])
+                                cast(Any, profile_outputs),
+                                ruled=bool(params["ruled"]),
+                                tracking_policy=str(
+                                    params.get("tracking_policy", "full")
+                                ),
                             )
                             _store_outputs(node, result)
                         elif ctx.strict:
@@ -2783,6 +2817,36 @@ def _execute_graph(
                                 cast(Any, profile_outputs[0]),
                                 cast(Any, path_outputs[0]),
                                 is_frenet=bool(params["is_frenet"]),
+                            )
+                            _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_twisted_sweep_rsolid":
+                        ctx.require_params(
+                            node.node_id,
+                            op_name,
+                            params,
+                            (
+                                "axis",
+                                "origin",
+                                "distance",
+                                "twist_angle",
+                                "guide_radius",
+                            ),
+                        )
+                        if ctx.strict and len(node.inputs) != 1:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) requires exactly one profile input"
+                            )
+                        profile_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if profile_outputs:
+                            result = ops.twisted_sweep_rsolid(
+                                cast(Any, profile_outputs[0]),
+                                distance=params["distance"],
+                                twist_angle=params["twist_angle"],
+                                axis=cast(Any, tuple(params["axis"])),
+                                origin=cast(Any, tuple(params["origin"])),
+                                guide_radius=params["guide_radius"],
                             )
                             _store_outputs(node, result)
                         continue

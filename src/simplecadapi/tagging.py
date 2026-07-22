@@ -775,19 +775,31 @@ def projected_tag_binding(
     source_topo_id: str,
     target_topo_id: str,
     evidence_method: str,
+    topology: TopologyPropagation | str = TopologyPropagation.LOCAL,
 ) -> TagBinding:
     """Project one source binding through a proven feature-generation witness."""
 
     if not isinstance(source, TagBinding):
         raise TypeError("source must be a TagBinding")
     rule_id = "simplecad.feature_source_tag_projection"
+    root_binding_id = str(
+        source.evidence.data.get("source_binding_id", source.binding_id)
+    )
+    root_topo_id = str(source.evidence.data.get("source_topo_id", source_topo_id))
+    source_operation_output_role = source.evidence.data.get(
+        "source_operation_output_role",
+        source.evidence.data.get("operation_output_role"),
+    )
+    source_topology_name = source.evidence.data.get(
+        "source_topology_name", source.evidence.data.get("topology_name")
+    )
     binding_key = "|".join(
         (
             rule_id,
-            source.binding_id,
+            root_binding_id,
             str(operation),
             str(role),
-            str(source_topo_id),
+            root_topo_id,
             str(target_topo_id),
         )
     )
@@ -800,7 +812,7 @@ def projected_tag_binding(
         ),
         target=TagTarget(TagTargetKind.SCOPE_ROOT),
         propagation=TagPropagation(
-            topology=TopologyPropagation.LOCAL,
+            topology=topology,
             lineage=source.propagation.lineage,
             explicit_derivations=source.propagation.explicit_derivations,
         ),
@@ -809,10 +821,20 @@ def projected_tag_binding(
             {
                 "operation": str(operation),
                 "result_role": str(role),
-                "source_binding_id": source.binding_id,
-                "source_topo_id": str(source_topo_id),
+                "source_binding_id": root_binding_id,
+                "source_topo_id": root_topo_id,
                 "target_topo_id": str(target_topo_id),
                 "evidence_method": str(evidence_method),
+                **(
+                    {"source_operation_output_role": deepcopy(source_operation_output_role)}
+                    if isinstance(source_operation_output_role, dict)
+                    else {}
+                ),
+                **(
+                    {"source_topology_name": deepcopy(source_topology_name)}
+                    if isinstance(source_topology_name, dict)
+                    else {}
+                ),
             },
         ),
         certainty=TagCertainty.PROVEN,

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplecad.dev/schemas/presentation-1.0.schema.json",
+  "title": "SimpleCAD Scene Presentation 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "presentation_id", "source_scene_id", "appearances", "node_overrides", "cameras"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "presentation_id": {"$ref": "#/$defs/logicalId"},
+    "source_scene_id": {"$ref": "#/$defs/logicalId"},
+    "appearances": {"type": "array", "items": {"$ref": "#/$defs/appearance"}},
+    "node_overrides": {"type": "array", "items": {"$ref": "#/$defs/nodeOverride"}},
+    "cameras": {"type": "array", "items": {"$ref": "#/$defs/camera"}}
+  },
+  "$defs": {
+    "logicalId": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,127}$"},
+    "structuralId": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9._~%:/-]+$"},
+    "positive": {"type": "number", "exclusiveMinimum": 0},
+    "vec3": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}], "minItems": 3, "maxItems": 3},
+    "color": {"type": "array", "prefixItems": [
+      {"type": "number", "minimum": 0, "maximum": 1}, {"type": "number", "minimum": 0, "maximum": 1},
+      {"type": "number", "minimum": 0, "maximum": 1}, {"const": 1}
+    ], "minItems": 4, "maxItems": 4},
+    "transform": {"type": "object", "additionalProperties": false, "required": ["origin", "x_axis", "y_axis", "z_axis"], "properties": {
+      "origin": {"$ref": "#/$defs/vec3"}, "x_axis": {"$ref": "#/$defs/vec3"}, "y_axis": {"$ref": "#/$defs/vec3"}, "z_axis": {"$ref": "#/$defs/vec3"}
+    }},
+    "appearance": {"type": "object", "additionalProperties": false, "required": ["name", "base_color", "metallic", "roughness", "alpha_mode", "double_sided", "edge_color"], "properties": {
+      "name": {"type": "string", "minLength": 1}, "base_color": {"$ref": "#/$defs/color"},
+      "metallic": {"type": "number", "minimum": 0, "maximum": 1}, "roughness": {"type": "number", "minimum": 0, "maximum": 1},
+      "alpha_mode": {"const": "opaque"}, "double_sided": {"type": "boolean"}, "edge_color": {"$ref": "#/$defs/color"}
+    }},
+    "nodeOverride": {"type": "object", "additionalProperties": false, "required": ["node_id"], "properties": {
+      "node_id": {"$ref": "#/$defs/structuralId"}, "visible": {"type": "boolean"}, "appearance_name": {"type": "string", "minLength": 1}
+    }, "anyOf": [{"required": ["visible"]}, {"required": ["appearance_name"]}]},
+    "cameraBaseProperties": {
+      "name": {"type": "string", "minLength": 1}, "parent_node_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/structuralId"}]},
+      "transform": {"$ref": "#/$defs/transform"}, "near": {"$ref": "#/$defs/positive"}, "far": {"$ref": "#/$defs/positive"}
+    },
+    "perspective": {"type": "object", "additionalProperties": false, "required": ["name", "projection", "parent_node_id", "transform", "near", "far", "vertical_fov_degrees"], "properties": {
+      "name": {"type": "string", "minLength": 1}, "projection": {"const": "perspective"}, "parent_node_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/structuralId"}]},
+      "transform": {"$ref": "#/$defs/transform"}, "near": {"$ref": "#/$defs/positive"}, "far": {"$ref": "#/$defs/positive"},
+      "vertical_fov_degrees": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 180}
+    }},
+    "orthographic": {"type": "object", "additionalProperties": false, "required": ["name", "projection", "parent_node_id", "transform", "near", "far", "vertical_span"], "properties": {
+      "name": {"type": "string", "minLength": 1}, "projection": {"const": "orthographic"}, "parent_node_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/structuralId"}]},
+      "transform": {"$ref": "#/$defs/transform"}, "near": {"$ref": "#/$defs/positive"}, "far": {"$ref": "#/$defs/positive"}, "vertical_span": {"$ref": "#/$defs/positive"}
+    }},
+    "camera": {"oneOf": [{"$ref": "#/$defs/perspective"}, {"$ref": "#/$defs/orthographic"}]}
+  }
+}
