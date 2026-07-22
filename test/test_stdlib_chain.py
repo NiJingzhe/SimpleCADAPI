@@ -52,6 +52,10 @@ class TestRollerChainSprocket(unittest.TestCase):
         self.assertEqual(len(cut_nodes), 1)
         self.assertEqual(cut_nodes[0]["params"]["tool_count"], 19)
         self.assertFalse(cut_nodes[0]["params"]["skip_non_intersecting"])
+        self.assertEqual(cut_nodes[0]["params"]["tracking_policy"], "graph")
+        self.assertTrue(
+            all("topo_delta" not in node for node in payload["graph"]["nodes"])
+        )
 
         replayed = scad.replay_model_json(json_str=model_json, strict=True)
         self.assertEqual(len(replayed), 1)

@@ -91,6 +91,7 @@ from .tracking import (
     TrackedBooleanResult,
     TrackedResult,
     _topo_id,
+    current_tracking_policy,
     tracked_box,
     tracked_chamfer,
     tracked_cone,
@@ -1598,6 +1599,9 @@ def _finalize_tracked_solid(
     delta_entries: Optional[Dict[str, Dict[str, object]]] = None,
     input_shapes: Optional[Sequence[AnyShape]] = None,
 ) -> Solid:
+    if current_tracking_policy() == TrackingPolicy.GRAPH:
+        delta = None
+        delta_entries = None
     if delta is not None:
         apply_tracking_tags_to_delta(
             solid,
@@ -5848,7 +5852,11 @@ def union_rsolid(
     """
 
     try:
-        policy = TrackingPolicy(tracking_policy)
+        policy = (
+            TrackingPolicy.GRAPH
+            if current_tracking_policy() == TrackingPolicy.GRAPH
+            else TrackingPolicy(tracking_policy)
+        )
         remaining = _flatten_boolean_solids(solids, "union_rsolid")
 
         if not remaining:
@@ -5996,7 +6004,11 @@ def cut_rsolid(
         sequences, and returns a single `Solid`.
     """
     try:
-        policy = TrackingPolicy(tracking_policy)
+        policy = (
+            TrackingPolicy.GRAPH
+            if current_tracking_policy() == TrackingPolicy.GRAPH
+            else TrackingPolicy(tracking_policy)
+        )
         remaining = _flatten_boolean_solids(solids, "cut_rsolid")
 
         if not remaining:
@@ -8510,7 +8522,11 @@ def loft_rsolid(
 ) -> Solid:
     """Create a lofted solid, with optional kernel-role-based tags."""
     try:
-        policy = TrackingPolicy(tracking_policy)
+        policy = (
+            TrackingPolicy.GRAPH
+            if current_tracking_policy() == TrackingPolicy.GRAPH
+            else TrackingPolicy(tracking_policy)
+        )
         assignments = _normalize_operation_role_tags(
             _OP_MAKE_LOFT_RSOLID,
             (
