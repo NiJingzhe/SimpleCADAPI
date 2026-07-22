@@ -229,6 +229,7 @@ class _FreeCADCompiler(
         emit("GRAPH_SELECTIONS = {}")
         emit("GRAPH_SPINE_OBJECTS = {}")
         emit("GRAPH_LIMITATIONS = {}")
+        emit("GRAPH_TRANSLATION_LIMITATIONS = {}")
         emit("PRODUCT_VALUES = {}")
         emit("ASSEMBLY_PROJECTION_INPUTS = {}")
         emit("GUI_VISIBILITY_BY_NAME = {}")
@@ -281,6 +282,10 @@ class _FreeCADCompiler(
         emit("if GRAPH_LIMITATIONS:")
         emit(
             "    _make_metadata_note('simplecad_expression_limitations', 'SimpleCAD Expression Limitations', GRAPH_LIMITATIONS)"
+        )
+        emit("if GRAPH_TRANSLATION_LIMITATIONS:")
+        emit(
+            "    _make_metadata_note('simplecad_translation_limitations', 'SimpleCAD Translation Limitations', GRAPH_TRANSLATION_LIMITATIONS)"
         )
         emit("")
 

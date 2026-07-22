@@ -257,6 +257,43 @@ def _scaled_direction(direction, distance):
     return App.Vector(unit.x * dist, unit.y * dist, unit.z * dist)
 
 
+def _twisted_sweep_loft_shape(profile_obj, *, axis, origin, distance, twist_angle):
+    operation = 'make_twisted_sweep_rsolid'
+    face = _face_shape_from_wire_shape(profile_obj, operation)
+    wires = list(getattr(face, 'Wires', []) or [])
+    if len(wires) != 1:
+        raise RuntimeError(f'{operation} emulation requires a face with one outer wire')
+
+    axis_vec = _normalized_vec(axis)
+    origin_vec = _vec(origin)
+    distance_value = float(distance)
+    twist_value = float(twist_angle)
+    if not math.isfinite(distance_value) or distance_value <= 0.0:
+        raise RuntimeError(f'{operation} distance must be finite and positive')
+    if not math.isfinite(twist_value):
+        raise RuntimeError(f'{operation} twist angle must be finite')
+
+    section_count = max(3, int(math.ceil(abs(twist_value) / 30.0)) + 1)
+    sections = []
+    for index in range(section_count):
+        fraction = float(index) / float(section_count - 1)
+        section = wires[0].copy()
+        angle = twist_value * fraction
+        if abs(angle) > 1.0e-12:
+            section.rotate(origin_vec, axis_vec, angle)
+        offset = distance_value * fraction
+        if abs(offset) > 1.0e-12:
+            section.translate(App.Vector(axis_vec.x * offset, axis_vec.y * offset, axis_vec.z * offset))
+        sections.append(section)
+
+    result = Part.makeLoft(sections, True, False, False, 5)
+    if result is None or result.isNull() or not result.isValid():
+        raise RuntimeError(f'{operation} loft emulation produced an invalid shape')
+    if len(list(getattr(result, 'Solids', []) or [])) != 1:
+        raise RuntimeError(f'{operation} loft emulation did not produce one solid')
+    return result
+
+
 def _placement_from_context(context):
     origin = context.get('origin') if isinstance(context, dict) else None
     if isinstance(origin, (list, tuple)) and len(origin) == 3:

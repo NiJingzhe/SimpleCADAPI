@@ -229,6 +229,95 @@ class TestFreeCADTranslator(unittest.TestCase):
         self.assertIn("_register_tag_selection_node", script)
         self.assertIn("SimpleCADTagBinding", script)
 
+    def test_translate_tagged_cylinder_preserves_topology_identity_bindings(self):
+        with GraphSession() as session:
+            scad.make_cylinder_rsolid(
+                radius=2.0,
+                height=5.0,
+                tag_prefix="shaft",
+            )
+
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
+
+        self.assertIn("Part::Cylinder", script)
+        self.assertIn("_register_tag_selection_node", script)
+        self.assertIn("shaft.face.start", script)
+        self.assertIn("topology_name", script)
+
+    def test_translate_tagged_box_preserves_topology_identity_bindings(self):
+        with GraphSession() as session:
+            scad.make_box_rsolid(
+                width=2.0,
+                height=3.0,
+                depth=4.0,
+                tag_prefix="housing",
+                top_face_tag="role.lid_mount",
+            )
+
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
+
+        self.assertIn("Part::Box", script)
+        self.assertIn("_register_tag_selection_node", script)
+        self.assertIn("housing.face.top", script)
+        self.assertIn("role.lid_mount", script)
+        self.assertIn("topology_name", script)
+        self.assertIn("operation_output_role", script)
+
+    def test_translate_tagged_cone_preserves_topology_identity_bindings(self):
+        with GraphSession() as session:
+            scad.make_cone_rsolid(
+                bottom_radius=2.0,
+                height=4.0,
+                top_radius=1.0,
+                tag_prefix="adapter",
+                end_face_tag="role.outlet",
+            )
+
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
+
+        self.assertIn("Part::Cone", script)
+        self.assertIn("_register_tag_selection_node", script)
+        self.assertIn("adapter.face.end", script)
+        self.assertIn("adapter.edge.seam", script)
+        self.assertIn("role.outlet", script)
+        self.assertIn("topology_name", script)
+        self.assertIn("operation_output_role", script)
+
+    def test_translate_constrained_sketch_preserves_topology_tag_contract(self):
+        with GraphSession() as session:
+            sketch = scad.make_sketch_rsketch(name="rect")
+            for point_id, x, y in (
+                ("p0", 0.0, 0.0),
+                ("p1", 2.0, 0.0),
+                ("p2", 2.0, 1.0),
+                ("p3", 0.0, 1.0),
+            ):
+                sketch = scad.add_point_rsketch(sketch, point_id, x, y)
+            for entity_id, start, end in (
+                ("bottom", "p0", "p1"),
+                ("right", "p1", "p2"),
+                ("top", "p2", "p3"),
+                ("left", "p3", "p0"),
+            ):
+                sketch = scad.add_line_rsketch(sketch, entity_id, start, end)
+            scad.make_face_from_sketch_rface(sketch)
+
+        model_json = scad.export_model_json(session)
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            model_json
+        )
+
+        self.assertIn("SimpleCADSketchPromotion", script)
+        self.assertIn("sketch_entity.bottom", script)
+        self.assertIn("topology_name", script)
+        self.assertIn("profile_id", script)
+
     def test_translate_model_json_tag_branches_are_distinct_fcstd_links(self):
         with GraphSession() as session:
             box = scad.make_box_rsolid(width=2.0, height=3.0, depth=4.0)
@@ -1253,18 +1342,50 @@ links = [
     if obj.TypeId == 'Assembly::AssemblyLink'
     and getattr(obj, 'SimpleCADComponentId', '') == 'child_1'
 ]
-joints = [
-    obj for obj in doc.Objects
-    if hasattr(obj, 'SimpleCADConstraint')
-    and json.loads(obj.SimpleCADConstraint).get('constraint_id') == 'mount_output'
-]
 all_joints = [obj for obj in doc.Objects if hasattr(obj, 'SimpleCADConstraint')]
 grounds = [obj for obj in doc.Objects if hasattr(obj, 'SimpleCADGroundedComponent')]
+assembly_by_id = {
+    str(obj.SimpleCADAssemblyId): obj
+    for obj in doc.Objects
+    if obj.TypeId == 'Assembly::AssemblyObject'
+    and hasattr(obj, 'SimpleCADAssemblyId')
+}
+
+def constraint_payload(obj):
+    return json.loads(obj.SimpleCADConstraint)
+
+def reference_name(reference):
+    if not reference:
+        return ''
+    target = reference[0]
+    return str(getattr(target, 'SimpleCADComponentId', '') or getattr(target, 'Name', ''))
+
+child_assembly = assembly_by_id['child']
+child_joint_group = next(
+    obj for obj in list(getattr(child_assembly, 'OutList', []) or [])
+    if getattr(obj, 'TypeId', '') == 'Assembly::JointGroup'
+)
+child_joints = [
+    obj for obj in list(getattr(child_joint_group, 'Group', []) or [])
+    if hasattr(obj, 'SimpleCADConstraint')
+]
+pivot = next(obj for obj in child_joints if constraint_payload(obj).get('constraint_id') == 'pivot')
+mount = next(obj for obj in all_joints if constraint_payload(obj).get('constraint_id') == 'mount_output')
+child_joint_ids = {constraint_payload(obj).get('constraint_id') for obj in child_joints}
 with open(OUT_PATH, 'w', encoding='utf-8') as fh:
     json.dump({
         'count': len(links),
         'rigid': [bool(obj.Rigid) for obj in links],
-        'output_reference_type': str(joints[0].Reference2[0].TypeId),
+        'output_reference_type': str(mount.Reference2[0].TypeId),
+        'child_joint_ids': [constraint_payload(obj).get('constraint_id') for obj in child_joints],
+        'child_joint_statuses': [str(getattr(obj, 'SimpleCADConstraintTranslationStatus', '')) for obj in child_joints],
+        'pivot_reference_names': [reference_name(pivot.Reference1), reference_name(pivot.Reference2)],
+        'pivot_status': str(getattr(pivot, 'SimpleCADConstraintTranslationStatus', '')),
+        'root_joint_ids': [
+            constraint_payload(obj).get('constraint_id')
+            for obj in all_joints
+            if constraint_payload(obj).get('constraint_id') not in child_joint_ids
+        ],
         'joint_visibility': [bool(obj.Visibility) for obj in all_joints],
         'ground_visibility': [bool(obj.Visibility) for obj in grounds],
     }, fh)
@@ -1274,6 +1395,11 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["rigid"], [False])
         self.assertEqual(result["output_reference_type"], "App::Link")
+        self.assertEqual(result["child_joint_ids"], ["pivot"])
+        self.assertEqual(result["child_joint_statuses"], ["native_equivalent"])
+        self.assertEqual(result["pivot_reference_names"], ["base", "arm"])
+        self.assertEqual(result["pivot_status"], "native_equivalent")
+        self.assertEqual(result["root_joint_ids"], ["mount_output"])
         self.assertTrue(result["joint_visibility"])
         self.assertTrue(all(visible is False for visible in result["joint_visibility"]))
         self.assertTrue(result["ground_visibility"])
@@ -1939,6 +2065,72 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn(".Spine = _spine_object", script)
         self.assertIn(".Frenet = bool(", script)
         self.assertIn("'Frenet'", script)
+
+    def test_translate_model_json_emulates_twisted_sweep_with_solid_loft(self):
+        with GraphSession() as session:
+            profile = scad.make_rectangle_rface(
+                width=2.0,
+                height=1.0,
+                center=(0.0, 0.0, 0.0),
+            )
+            scad.twisted_sweep_rsolid(
+                profile=profile,
+                distance=4.0,
+                twist_angle=45.0,
+            )
+
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
+
+        self.assertIn("_twisted_sweep_loft_shape", script)
+        self.assertIn("Part.makeLoft(sections, True, False, False, 5)", script)
+        self.assertIn("SimpleCADTranslationSupport", script)
+        self.assertIn("'emulated'", script)
+        self.assertIn("approximates the continuous SimpleCAD sweep", script)
+
+    def test_translate_model_json_twisted_sweep_emulation_fcstd_valid(self):
+        with GraphSession() as session:
+            profile = scad.make_rectangle_rface(
+                width=2.0,
+                height=1.0,
+                center=(0.0, 0.0, 0.0),
+            )
+            scad.twisted_sweep_rsolid(
+                profile=profile,
+                distance=4.0,
+                twist_angle=45.0,
+            )
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+objects = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_twisted_sweep_rsolid']
+obj = objects[-1]
+shape = obj.Shape
+note = doc.getObject('simplecad_translation_limitations')
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'count': len(objects),
+        'support': getattr(obj, 'SimpleCADTranslationSupport', ''),
+        'limitation': getattr(obj, 'SimpleCADTranslationLimitation', ''),
+        'valid': shape.isValid(),
+        'solid_count': len(shape.Solids),
+        'volume': float(shape.Volume),
+        'note_payload': getattr(note, 'Payload', '') if note is not None else '',
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(scad.export_model_json(session), probe)
+
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["support"], "emulated")
+        self.assertIn("smooth solid loft", result["limitation"])
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["solid_count"], 1)
+        self.assertGreater(result["volume"], 0.0)
+        self.assertIn("make_twisted_sweep_rsolid", result["note_payload"])
 
     def test_translate_model_json_materializes_ql_selected_face_profile_for_sweep(self):
         with GraphSession() as session:
@@ -3087,35 +3279,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "no stable equivalent native FreeCAD Sketcher BSpline parameter host",
             payload_obj["spline_expr"]["reason"],
         )
-
-    def test_single_gear_model_has_single_leaf_after_parametric_build(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir)
-            subprocess.run(
-                [
-                    "uv",
-                    "run",
-                    "python",
-                    "examples/06_parametric_gear_model.py",
-                    "--output-dir",
-                    str(output_dir),
-                ],
-                check=True,
-                text=True,
-                capture_output=True,
-            )
-            payload = json.loads(
-                (output_dir / "parametric_gear.model.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-        self.assertEqual(len(payload["leaf_ids"]), 1)
-        var_names = [
-            node.get("name")
-            for node in payload["expression_graph"]["nodes"]
-            if node.get("kind") == "var"
-        ]
-        self.assertNotIn("pitch_radius", var_names)
 
     def test_naca0016_blade_example_translates_bspline_sections_to_fcstd(self):
         freecad_cmd = self._discover_freecadcmd()

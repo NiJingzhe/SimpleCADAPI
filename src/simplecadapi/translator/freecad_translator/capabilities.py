@@ -89,6 +89,7 @@ _CANONICAL_OPS = (
     "make_revolve_rsolid",
     "make_loft_rsolid",
     "make_sweep_rsolid",
+    "make_twisted_sweep_rsolid",
     "make_translate_rshape",
     "make_rotate_rshape",
     "make_mirror_rshape",
@@ -115,6 +116,13 @@ OP_SUPPORT: Dict[str, OperationCapability] = {
 OP_SUPPORT["make_point_rvertex"] = OperationCapability(
     SupportLevel.UNSUPPORTED,
     reason="The FreeCAD point emitter has not been implemented yet.",
+)
+OP_SUPPORT["make_twisted_sweep_rsolid"] = OperationCapability(
+    SupportLevel.EMULATED,
+    reason=(
+        "FreeCAD has no equivalent auxiliary-spine feature; the backend emits "
+        "a smooth solid loft through rotated and translated profile sections."
+    ),
 )
 for _op in (
     "make_sketch_rsketch",

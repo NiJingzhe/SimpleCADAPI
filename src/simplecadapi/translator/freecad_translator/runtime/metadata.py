@@ -63,6 +63,19 @@ def _record_graph_limitation(node_id, op, param_exprs):
     return limitation
 
 
+def _mark_emulated_translation(obj, *, node_id, op, reason):
+    _ensure_string_property(obj, 'SimpleCADTranslationSupport')
+    _ensure_string_property(obj, 'SimpleCADTranslationLimitation')
+    obj.SimpleCADTranslationSupport = 'emulated'
+    obj.SimpleCADTranslationLimitation = str(reason)
+    GRAPH_TRANSLATION_LIMITATIONS[str(node_id)] = {
+        'op': str(op),
+        'support': 'emulated',
+        'reason': str(reason),
+    }
+    return obj
+
+
 def _simplecad_slug(value, prefix='obj'):
     token = ''.join(ch if str(ch).isalnum() else '_' for ch in str(value or ''))
     token = token.strip('_')
