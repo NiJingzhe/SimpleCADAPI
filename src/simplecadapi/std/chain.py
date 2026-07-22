@@ -6,6 +6,7 @@ import math
 
 from ..core import Solid
 from ..operations import cut_rsolid, make_cylinder_rsolid
+from ..tracking import graph_tracking_scope
 
 __all__ = ["make_roller_chain_sprocket_rsolid"]
 
@@ -17,6 +18,7 @@ def _positive_finite(name: str, value: float) -> float:
     return resolved
 
 
+@graph_tracking_scope
 def make_roller_chain_sprocket_rsolid(
     n_teeth: int,
     chain_pitch: float,

@@ -28,7 +28,7 @@ from typing import List, Optional, Tuple
 
 from ..core import Solid, Wire, Face
 from ..math import fit_cubic_bspline_control_points
-from ..tracking import TrackingPolicy
+from ..tracking import TrackingPolicy, graph_tracking_scope
 from ..operations import (
     _begin_linear_sketch_edits,
     _end_linear_sketch_edits,
@@ -574,6 +574,7 @@ def _profile_face_to_wire(face: Face) -> Wire:
 # ---------------------------------------------------------------------------
 
 
+@graph_tracking_scope
 def make_spur_gear_rsolid(
     n_teeth: int,
     module: float,
@@ -623,6 +624,7 @@ def make_spur_gear_rsolid(
     return extrude_rsolid(face, direction=(0.0, 0.0, 1.0), distance=gear_height)
 
 
+@graph_tracking_scope
 def make_straight_bevel_gear_rsolid(
     n_teeth: int,
     module: float,
@@ -723,6 +725,7 @@ def make_straight_bevel_gear_rsolid(
     return gear
 
 
+@graph_tracking_scope
 def make_helical_gear_rsolid(
     n_teeth: int,
     module: float,
@@ -801,6 +804,7 @@ def make_helical_gear_rsolid(
     )
 
 
+@graph_tracking_scope
 def make_herringbone_gear_rsolid(
     n_teeth: int,
     module: float,
@@ -1240,6 +1244,7 @@ def _build_ring_gear_face(
     return make_face_from_wires_rface(outer_wire, [inner_wire])
 
 
+@graph_tracking_scope
 def make_spur_ring_gear_rsolid(
     n_teeth: int,
     module: float,
@@ -1294,6 +1299,7 @@ def make_spur_ring_gear_rsolid(
     return extrude_rsolid(face, direction=(0.0, 0.0, 1.0), distance=gear_height)
 
 
+@graph_tracking_scope
 def make_helical_ring_gear_rsolid(
     n_teeth: int,
     module: float,
@@ -1393,6 +1399,7 @@ def make_helical_ring_gear_rsolid(
     return cut_rsolid(outer_solid, inner_loft)
 
 
+@graph_tracking_scope
 def make_herringbone_ring_gear_rsolid(
     n_teeth: int,
     module: float,
@@ -1605,6 +1612,7 @@ def _build_cycloidal_disc_profile_wire(
     return wire
 
 
+@graph_tracking_scope
 def make_cycloidal_disc_rsolid(
     n_lobes: int,
     ring_pin_pitch_radius: float,
@@ -1830,6 +1838,7 @@ def _build_rack_profile_face(
     return make_face_from_sketch_rface(sketch, profile=0)
 
 
+@graph_tracking_scope
 def make_spur_rack_rsolid(
     module: float,
     n_teeth: int = 10,
@@ -1861,6 +1870,7 @@ def make_spur_rack_rsolid(
     return extrude_rsolid(face, direction=(0.0, 0.0, 1.0), distance=rack_height)
 
 
+@graph_tracking_scope
 def make_helical_rack_rsolid(
     module: float,
     n_teeth: int = 10,
@@ -1910,6 +1920,7 @@ def make_helical_rack_rsolid(
     return loft_rsolid(sections, ruled=False)
 
 
+@graph_tracking_scope
 def make_herringbone_rack_rsolid(
     module: float,
     n_teeth: int = 10,

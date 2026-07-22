@@ -14,10 +14,13 @@ Supported operations:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import wraps
 import math
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple, TypeVar
 
 from OCP.BRepAlgoAPI import (
     BRepAlgoAPI_Cut,
@@ -85,6 +88,37 @@ class TrackingPolicy(str, Enum):
 
     FULL = "full"
     GRAPH = "graph"
+
+
+_tracking_policy: ContextVar[TrackingPolicy] = ContextVar(
+    "simplecad_tracking_policy",
+    default=TrackingPolicy.FULL,
+)
+_TrackedFactory = TypeVar("_TrackedFactory", bound=Callable[..., Any])
+
+
+def current_tracking_policy() -> TrackingPolicy:
+    return _tracking_policy.get()
+
+
+@contextmanager
+def tracking_policy_scope(policy: TrackingPolicy | str) -> Iterator[None]:
+    token = _tracking_policy.set(TrackingPolicy(policy))
+    try:
+        yield
+    finally:
+        _tracking_policy.reset(token)
+
+
+def graph_tracking_scope(factory: _TrackedFactory) -> _TrackedFactory:
+    """Run a standard-part factory with graph-only intermediate tracking."""
+
+    @wraps(factory)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        with tracking_policy_scope(TrackingPolicy.GRAPH):
+            return factory(*args, **kwargs)
+
+    return wrapped  # type: ignore[return-value]
 
 
 @dataclass
@@ -206,6 +240,9 @@ def _query_exact_history(
     Returns five lists: ``preserved, modified, generated, deleted`` as ``TopoRef``
     lists, plus a list of per-entity metadata dicts.
     """
+    if current_tracking_policy() == TrackingPolicy.GRAPH:
+        return [], [], [], [], []
+
     preserved: List[TopoRef] = []
     modified: List[TopoRef] = []
     generated: List[TopoRef] = []

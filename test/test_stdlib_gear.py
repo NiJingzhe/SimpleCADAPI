@@ -408,6 +408,7 @@ class TestHelicalGear(unittest.TestCase):
             if node["op"] == "make_twisted_sweep_rsolid"
         ]
         self.assertEqual(len(twisted_nodes), 1)
+        self.assertNotIn("topo_delta", twisted_nodes[0])
         self.assertFalse(
             any(node["op"] == "make_loft_rsolid" for node in payload["graph"]["nodes"])
         )
@@ -459,6 +460,13 @@ class TestHerringboneGear(unittest.TestCase):
         self.assertEqual(operations.count("make_twisted_sweep_rsolid"), 2)
         self.assertEqual(operations.count("make_union_rsolid"), 1)
         self.assertNotIn("make_loft_rsolid", operations)
+        self.assertTrue(
+            all(
+                "topo_delta" not in node
+                for node in payload["graph"]["nodes"]
+                if node["op"] == "make_twisted_sweep_rsolid"
+            )
+        )
         self.assertEqual(len(solid.get_faces()), 146)
 
         replayed = scad.replay_model_json(
@@ -466,6 +474,37 @@ class TestHerringboneGear(unittest.TestCase):
         )[0]
         self.assertEqual(len(replayed.get_faces()), 146)
         self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=6)
+
+    def test_stdlib_graph_tracking_scope_does_not_leak(self):
+        with scad.GraphSession() as session:
+            scad.std.gear.make_herringbone_gear_rsolid(
+                n_teeth=8,
+                module=1.0,
+                helix_angle=20.0,
+                gear_height=4.0,
+            )
+            profile = scad.make_rectangle_rface(
+                width=1.0,
+                height=1.0,
+                center=(0.0, 0.0, 0.0),
+            )
+            scad.twisted_sweep_rsolid(
+                profile=profile,
+                distance=2.0,
+                twist_angle=15.0,
+            )
+
+        payload = json.loads(scad.export_model_json(session=session))
+        twisted_nodes = [
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_twisted_sweep_rsolid"
+        ]
+        self.assertEqual(len(twisted_nodes), 3)
+        self.assertEqual(
+            sum("topo_delta" in node for node in twisted_nodes),
+            1,
+        )
 
 
 class TestSpurRingGear(unittest.TestCase):
