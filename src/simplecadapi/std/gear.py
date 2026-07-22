@@ -9,8 +9,10 @@ Each gear profile is assembled in a constraint sketch using:
     concentricity constraints capturing the design intent
 
 The sketch is solved and promoted to a face via
-``make_face_from_sketch_rface``.  Spur gears are extruded; helical and
-herringbone gears use ruled multi-section lofts with small incremental twist.
+``make_face_from_sketch_rface``. Spur gears are extruded; straight bevel gears
+loft similar involute sections along the pitch cone; helical gears use a
+continuous twisted sweep, and herringbone gears fuse two opposite twisted
+halves.
 Spur ring gears build a multi-loop face from an outer rim wire and an inward
 internal-tooth inner wire, then extrude it directly.  Helical and herringbone
 ring gears loft the internal tooth void and subtract it from an extruded outer
@@ -26,7 +28,10 @@ from typing import List, Optional, Tuple
 
 from ..core import Solid, Wire, Face
 from ..math import fit_cubic_bspline_control_points
+from ..tracking import TrackingPolicy
 from ..operations import (
+    _begin_linear_sketch_edits,
+    _end_linear_sketch_edits,
     add_arc_rsketch,
     add_bspline_rsketch,
     add_circle_rsketch,
@@ -49,10 +54,13 @@ from ..operations import (
     make_wire_from_sketch_rwire,
     rotate_shape,
     translate_shape,
+    twisted_sweep_rsolid,
+    union_rsolid,
 )
 
 __all__ = [
     "make_spur_gear_rsolid",
+    "make_straight_bevel_gear_rsolid",
     "make_helical_gear_rsolid",
     "make_herringbone_gear_rsolid",
     "make_spur_ring_gear_rsolid",
@@ -68,6 +76,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Involute geometry helpers
 # ---------------------------------------------------------------------------
+
 
 def _involute_point(base_radius: float, t: float) -> Tuple[float, float]:
     """Return a point on the involute of a circle at parameter *t*."""
@@ -106,7 +115,9 @@ def _pressure_angle_to_radians(pressure_angle: float) -> float:
     if not math.isfinite(angle):
         raise ValueError("pressure_angle must be finite")
     if angle <= 0.0 or angle >= 90.0:
-        raise ValueError("pressure_angle must be greater than 0 and less than 90 degrees")
+        raise ValueError(
+            "pressure_angle must be greater than 0 and less than 90 degrees"
+        )
     return math.radians(angle)
 
 
@@ -114,6 +125,32 @@ def _rotate_xy(point: Tuple[float, float], angle: float) -> Tuple[float, float]:
     """Rotate a 2-D point about the origin by *angle* (radians)."""
     ca, sa = math.cos(angle), math.sin(angle)
     return (point[0] * ca - point[1] * sa, point[0] * sa + point[1] * ca)
+
+
+def _transform_bspline_control_points(
+    control_points: List[List[float]],
+    angle: float,
+    *,
+    mirror: bool = False,
+    reverse: bool = False,
+) -> List[List[float]]:
+    """Apply tooth symmetry to an already fitted canonical B-spline."""
+    transformed = []
+    for x, y in control_points:
+        point = (float(x), -float(y) if mirror else float(y))
+        rx, ry = _rotate_xy(point, angle)
+        transformed.append([rx, ry])
+    return list(reversed(transformed)) if reverse else transformed
+
+
+def _reverse_bspline_parameters(
+    unique_knots: List[float], multiplicities: List[int]
+) -> Tuple[List[float], List[int]]:
+    parameter_sum = float(unique_knots[0]) + float(unique_knots[-1])
+    return (
+        [parameter_sum - float(knot) for knot in reversed(unique_knots)],
+        list(reversed(multiplicities)),
+    )
 
 
 def _unit_xy(angle: float) -> Tuple[float, float]:
@@ -197,15 +234,20 @@ def _compute_tooth_geometry(
 ) -> dict:
     """Compute geometric parameters for an involute tooth-space profile."""
     addendum = _validate_positive_finite("addendum_factor", addendum_factor) * module
-    clearance = _validate_non_negative_finite("clearance_factor", clearance_factor) * module
+    clearance = (
+        _validate_non_negative_finite("clearance_factor", clearance_factor) * module
+    )
     backlash_value = _validate_non_negative_finite("backlash", backlash)
 
     pitch_radius = module * n_teeth / 2.0
     base_radius = pitch_radius * math.cos(pressure_angle)
-    resolved_tip_radius = pitch_radius + addendum if tip_radius is None else float(tip_radius)
+    resolved_tip_radius = (
+        pitch_radius + addendum if tip_radius is None else float(tip_radius)
+    )
     resolved_root_radius = (
         max(pitch_radius - addendum - clearance, base_radius * 0.5)
-        if root_radius is None else float(root_radius)
+        if root_radius is None
+        else float(root_radius)
     )
     if resolved_tip_radius <= resolved_root_radius:
         raise ValueError("tip radius must be greater than root radius")
@@ -248,6 +290,7 @@ def _compute_tooth_geometry(
 # Constraint-sketch-driven gear profile (B-spline flanks + arc root/tip)
 # ---------------------------------------------------------------------------
 
+
 def _build_gear_profile_face(
     n_teeth: int,
     module: float,
@@ -274,8 +317,11 @@ def _build_gear_profile_face(
     constraints.  Profile continuity is expressed by shared point ids.
     """
     geo = _compute_tooth_geometry(
-        n_teeth, module, pressure_angle,
-        root_radius=root_radius, tip_radius=tip_radius,
+        n_teeth,
+        module,
+        pressure_angle,
+        root_radius=root_radius,
+        tip_radius=tip_radius,
         addendum_factor=addendum_factor,
         clearance_factor=clearance_factor,
         backlash=backlash,
@@ -298,16 +344,36 @@ def _build_gear_profile_face(
     root_right_angle = right_start if needs_root_connectors else right_flank_start_angle
     prev_right_start = root_right_angle - tooth_angle
 
+    canonical_cps, flank_degree, flank_knots, flank_mults = (
+        _involute_bspline_control_points(
+            base_radius,
+            tip_radius,
+            flank_start_radius,
+            start_angle=0.0,
+            mirror=False,
+        )
+    )
+    reversed_flank_knots, reversed_flank_mults = _reverse_bspline_parameters(
+        flank_knots, flank_mults
+    )
+
     sketch = make_sketch_rsketch(name=f"gear_{n_teeth}t_m{module}", plane="XY")
+    sketch = _begin_linear_sketch_edits(sketch)
 
     # Add center point for construction circles
     sketch = add_point_rsketch(sketch, "center", 0.0, 0.0)
     sketch = constrain_fix_rsketch(sketch, "center")
 
     # Construction circles
-    sketch = add_circle_rsketch(sketch, "root_circle", "center", root_radius, construction=True)
-    sketch = add_circle_rsketch(sketch, "pitch_circle", "center", geo["pitch_radius"], construction=True)
-    sketch = add_circle_rsketch(sketch, "tip_circle", "center", tip_radius, construction=True)
+    sketch = add_circle_rsketch(
+        sketch, "root_circle", "center", root_radius, construction=True
+    )
+    sketch = add_circle_rsketch(
+        sketch, "pitch_circle", "center", geo["pitch_radius"], construction=True
+    )
+    sketch = add_circle_rsketch(
+        sketch, "tip_circle", "center", tip_radius, construction=True
+    )
     sketch = constrain_radius_rsketch(sketch, "root_circle", root_radius)
     sketch = constrain_radius_rsketch(sketch, "pitch_circle", geo["pitch_radius"])
     sketch = constrain_radius_rsketch(sketch, "tip_circle", tip_radius)
@@ -325,20 +391,62 @@ def _build_gear_profile_face(
         a_tip_start = left_tip_angle + offset
         a_tip_end = right_tip_angle + offset
 
-        tooth_data.append({
-            "rs": (root_radius * math.cos(a_root_start), root_radius * math.sin(a_root_start)),
-            "re": (root_radius * math.cos(a_root_end), root_radius * math.sin(a_root_end)),
-            "bs": (flank_start_radius * math.cos(a_base_start), flank_start_radius * math.sin(a_base_start)),
-            "be": (flank_start_radius * math.cos(a_base_end), flank_start_radius * math.sin(a_base_end)),
-            "ts": (tip_radius * math.cos(a_tip_start), tip_radius * math.sin(a_tip_start)),
-            "te": (tip_radius * math.cos(a_tip_end), tip_radius * math.sin(a_tip_end)),
-        })
+        tooth_data.append(
+            {
+                "rs": (
+                    root_radius * math.cos(a_root_start),
+                    root_radius * math.sin(a_root_start),
+                ),
+                "re": (
+                    root_radius * math.cos(a_root_end),
+                    root_radius * math.sin(a_root_end),
+                ),
+                "bs": (
+                    flank_start_radius * math.cos(a_base_start),
+                    flank_start_radius * math.sin(a_base_start),
+                ),
+                "be": (
+                    flank_start_radius * math.cos(a_base_end),
+                    flank_start_radius * math.sin(a_base_end),
+                ),
+                "ts": (
+                    tip_radius * math.cos(a_tip_start),
+                    tip_radius * math.sin(a_tip_start),
+                ),
+                "te": (
+                    tip_radius * math.cos(a_tip_end),
+                    tip_radius * math.sin(a_tip_end),
+                ),
+            }
+        )
+
+    left_fillet_template = None
+    right_fillet_template = None
+    if needs_root_connectors:
+        left_fillet_template = _root_fillet_control_points(
+            tooth_data[0]["re"],
+            tooth_data[0]["bs"],
+            start_tangent_angle=root_left_angle + math.pi / 2.0,
+            end_tangent_angle=left_start,
+        )
+        right_fillet_template = _root_fillet_control_points(
+            tooth_data[0]["be"],
+            tooth_data[1 % n_teeth]["rs"],
+            start_tangent_angle=right_start + math.pi,
+            end_tangent_angle=root_right_angle + math.pi / 2.0,
+        )
 
     # Phase 1: Add resolved profile points. Edges share these ids to express
     # coincident endpoints without hundreds of redundant fix constraints.
     for i, td in enumerate(tooth_data):
-        for key, (px, py) in [("rs", td["rs"]), ("re", td["re"]), ("bs", td["bs"]),
-                               ("be", td["be"]), ("ts", td["ts"]), ("te", td["te"])]:
+        for key, (px, py) in [
+            ("rs", td["rs"]),
+            ("re", td["re"]),
+            ("bs", td["bs"]),
+            ("be", td["be"]),
+            ("ts", td["ts"]),
+            ("te", td["te"]),
+        ]:
             pid = f"t{i}_{key}"
             sketch = add_point_rsketch(sketch, pid, px, py)
 
@@ -358,59 +466,84 @@ def _build_gear_profile_face(
 
         # Tangent root fillet: re -> bs (only when root lies inside base circle)
         if needs_root_connectors:
-            fillet_cps, fillet_deg, fillet_knots, fillet_mults = _root_fillet_control_points(
-                td["re"], td["bs"],
-                start_tangent_angle=root_left_angle + tooth_angle * i + math.pi / 2.0,
-                end_tangent_angle=left_start + tooth_angle * i,
+            assert left_fillet_template is not None
+            template_cps, fillet_deg, fillet_knots, fillet_mults = (
+                left_fillet_template
+            )
+            fillet_cps = _transform_bspline_control_points(
+                template_cps,
+                tooth_angle * i,
             )
             sketch = add_bspline_rsketch(
-                sketch, f"fillet_left_{i}", re_id, f"t{i}_bs",
-                control_points=fillet_cps, degree=fillet_deg,
-                knots=fillet_knots, multiplicities=fillet_mults,
+                sketch,
+                f"fillet_left_{i}",
+                re_id,
+                f"t{i}_bs",
+                control_points=fillet_cps,
+                degree=fillet_deg,
+                knots=fillet_knots,
+                multiplicities=fillet_mults,
             )
 
         # Left involute flank: bs → ts (B-spline)
-        left_cps, left_deg, left_knots, left_mults = _involute_bspline_control_points(
-            base_radius, tip_radius, flank_start_radius,
-            start_angle=left_start + tooth_angle * i,
-            mirror=False,
+        left_cps = _transform_bspline_control_points(
+            canonical_cps,
+            left_start + tooth_angle * i,
         )
         sketch = add_bspline_rsketch(
-            sketch, f"bspline_left_{i}", bs_id, ts_id,
-            control_points=left_cps, degree=left_deg,
-            knots=left_knots, multiplicities=left_mults,
+            sketch,
+            f"bspline_left_{i}",
+            bs_id,
+            ts_id,
+            control_points=left_cps,
+            degree=flank_degree,
+            knots=flank_knots,
+            multiplicities=flank_mults,
         )
 
         # Tip arc: ts → te
         sketch = add_arc_rsketch(sketch, f"arc_tip_{i}", ts_id, te_id, "center")
 
         # Right involute flank: te → be (B-spline)
-        right_cps, right_deg, right_knots, right_mults = _involute_bspline_control_points(
-            base_radius, tip_radius, flank_start_radius,
-            start_angle=right_start + tooth_angle * i,
+        right_cps = _transform_bspline_control_points(
+            canonical_cps,
+            right_start + tooth_angle * i,
             mirror=True,
             reverse=True,
         )
         sketch = add_bspline_rsketch(
-            sketch, f"bspline_right_{i}", te_id, right_flank_end_id,
-            control_points=right_cps, degree=right_deg,
-            knots=right_knots, multiplicities=right_mults,
+            sketch,
+            f"bspline_right_{i}",
+            te_id,
+            right_flank_end_id,
+            control_points=right_cps,
+            degree=flank_degree,
+            knots=reversed_flank_knots,
+            multiplicities=reversed_flank_mults,
         )
 
         # Tangent root fillet: be -> next rs (only when root lies inside base circle)
         if needs_root_connectors:
-            next_td = tooth_data[(i + 1) % n_teeth]
-            fillet_cps, fillet_deg, fillet_knots, fillet_mults = _root_fillet_control_points(
-                td["be"], next_td["rs"],
-                start_tangent_angle=right_start + tooth_angle * i + math.pi,
-                end_tangent_angle=root_right_angle + tooth_angle * i + math.pi / 2.0,
+            assert right_fillet_template is not None
+            template_cps, fillet_deg, fillet_knots, fillet_mults = (
+                right_fillet_template
+            )
+            fillet_cps = _transform_bspline_control_points(
+                template_cps,
+                tooth_angle * i,
             )
             sketch = add_bspline_rsketch(
-                sketch, f"fillet_right_{i}", be_id, next_rs_id,
-                control_points=fillet_cps, degree=fillet_deg,
-                knots=fillet_knots, multiplicities=fillet_mults,
+                sketch,
+                f"fillet_right_{i}",
+                be_id,
+                next_rs_id,
+                control_points=fillet_cps,
+                degree=fillet_deg,
+                knots=fillet_knots,
+                multiplicities=fillet_mults,
             )
 
+    sketch = _end_linear_sketch_edits(sketch)
     face = make_face_from_sketch_rface(sketch, profile=0) if build_face else None
     if return_sketch:
         return face, sketch
@@ -420,7 +553,9 @@ def _build_gear_profile_face(
 
 
 def _rotate_profile_wire_3d(
-    wire: Wire, angle_deg: float, z: float,
+    wire: Wire,
+    angle_deg: float,
+    z: float,
 ) -> Wire:
     """Return a copy of *wire* rotated about Z and translated to height *z*."""
     rotated = rotate_shape(wire, angle_deg, axis=(0, 0, 1), origin=(0, 0, 0))
@@ -437,6 +572,7 @@ def _profile_face_to_wire(face: Face) -> Wire:
 # ---------------------------------------------------------------------------
 # Public API: External gears
 # ---------------------------------------------------------------------------
+
 
 def make_spur_gear_rsolid(
     n_teeth: int,
@@ -487,6 +623,106 @@ def make_spur_gear_rsolid(
     return extrude_rsolid(face, direction=(0.0, 0.0, 1.0), distance=gear_height)
 
 
+def make_straight_bevel_gear_rsolid(
+    n_teeth: int,
+    module: float,
+    pitch_angle: float = 45.0,
+    pressure_angle: float = 20.0,
+    face_width: float = 8.0,
+    *,
+    addendum_factor: float = 1.0,
+    clearance_factor: float = 0.25,
+    backlash: float = 0.0,
+) -> Solid:
+    """Create a straight bevel gear with standard metric tooth proportions.
+
+    The large-end transverse section uses the same analytic involute profile as
+    :func:`make_spur_gear_rsolid`. A similar small-end section is located on the
+    requested pitch cone and joined with ruled straight tooth surfaces.
+
+    ``face_width`` is measured along the pitch-cone generator. This factory
+    supplies nominal tooth geometry; a released pair still requires mating-gear,
+    mounting-distance, contact-pattern, backlash, material, heat-treatment, and
+    strength checks.
+    """
+    if n_teeth < 3:
+        raise ValueError("n_teeth must be at least 3")
+    resolved_module = _validate_positive_finite("module", module)
+    resolved_face_width = _validate_positive_finite("face_width", face_width)
+    resolved_backlash = _validate_non_negative_finite("backlash", backlash)
+    resolved_addendum = _validate_positive_finite("addendum_factor", addendum_factor)
+    resolved_clearance = _validate_non_negative_finite(
+        "clearance_factor", clearance_factor
+    )
+    pressure_angle_radians = _pressure_angle_to_radians(pressure_angle)
+    resolved_pitch_angle = float(pitch_angle)
+    if not math.isfinite(resolved_pitch_angle):
+        raise ValueError("pitch_angle must be finite")
+    if resolved_pitch_angle <= 0.0 or resolved_pitch_angle >= 90.0:
+        raise ValueError("pitch_angle must be greater than 0 and less than 90 degrees")
+
+    pitch_angle_radians = math.radians(resolved_pitch_angle)
+    outer_pitch_radius = resolved_module * n_teeth / 2.0
+    outer_cone_distance = outer_pitch_radius / math.sin(pitch_angle_radians)
+    if resolved_face_width >= outer_cone_distance:
+        raise ValueError("face_width must be smaller than the pitch-cone distance")
+
+    inner_scale = (outer_cone_distance - resolved_face_width) / outer_cone_distance
+    inner_module = resolved_module * inner_scale
+    axial_width = resolved_face_width * math.cos(pitch_angle_radians)
+    inner_backlash = resolved_backlash * inner_scale
+    profile_kwargs = {
+        "addendum_factor": resolved_addendum,
+        "clearance_factor": resolved_clearance,
+    }
+    _, outer_sketch = _build_gear_profile_face(
+        n_teeth,
+        resolved_module,
+        pressure_angle_radians,
+        return_sketch=True,
+        build_face=False,
+        backlash=resolved_backlash,
+        **profile_kwargs,
+    )
+    _, inner_sketch = _build_gear_profile_face(
+        n_teeth,
+        inner_module,
+        pressure_angle_radians,
+        return_sketch=True,
+        build_face=False,
+        backlash=inner_backlash,
+        **profile_kwargs,
+    )
+    outer_wire = make_wire_from_sketch_rwire(outer_sketch)
+    inner_wire = make_wire_from_sketch_rwire(inner_sketch)
+    inner_wire = translate_shape(
+        inner_wire,
+        (0.0, 0.0, axial_width),
+    )
+    gear = loft_rsolid(
+        [outer_wire, inner_wire],
+        ruled=True,
+    )
+    gear.set_metadata(
+        "std.gear.straight_bevel",
+        {
+            "n_teeth": int(n_teeth),
+            "module": resolved_module,
+            "pitch_angle": resolved_pitch_angle,
+            "pressure_angle": float(pressure_angle),
+            "face_width": resolved_face_width,
+            "axial_width": axial_width,
+            "outer_pitch_radius": outer_pitch_radius,
+            "outer_cone_distance": outer_cone_distance,
+            "inner_scale": inner_scale,
+            "addendum_factor": resolved_addendum,
+            "clearance_factor": resolved_clearance,
+            "backlash": resolved_backlash,
+        },
+    )
+    return gear
+
+
 def make_helical_gear_rsolid(
     n_teeth: int,
     module: float,
@@ -500,10 +736,9 @@ def make_helical_gear_rsolid(
 ) -> Solid:
     """Create an involute helical gear.
 
-    Non-zero helix angles are modeled as small-step ruled lofts through rotated
-    copies of one profile. The small angular step keeps closed-wire section
-    correspondence stable while ruled faces avoid smooth loft bulging in STEP
-    exports.
+    Non-zero helix angles use a continuous twisted sweep along the gear axis.
+    An auxiliary-spine rotation law preserves the profile while generating one
+    continuous side face per profile edge instead of one face per loft interval.
 
     Parameters
     ----------
@@ -544,31 +779,26 @@ def make_helical_gear_rsolid(
     pa = _pressure_angle_to_radians(pressure_angle)
     pitch_diameter = module * n_teeth
     twist_total = math.degrees(
-        2.0 * math.pi * gear_height * math.tan(math.radians(helix_angle))
+        2.0
+        * math.pi
+        * gear_height
+        * math.tan(math.radians(helix_angle))
         / (math.pi * pitch_diameter)
     )
 
-    n_sections = max(6, int(abs(twist_total) / 5.0) + 2)
-    _, sketch = _build_gear_profile_face(
+    face = _build_gear_profile_face(
         n_teeth,
         module,
         pa,
-        return_sketch=True,
         addendum_factor=addendum_factor,
         clearance_factor=clearance_factor,
         backlash=backlash,
-        build_face=False,
     )
-    base_wire = make_wire_from_sketch_rwire(sketch)
-
-    sections = []
-    for i in range(n_sections + 1):
-        frac = i / n_sections
-        z = gear_height * frac
-        twist = twist_total * frac
-        sections.append(_rotate_profile_wire_3d(base_wire, twist, z))
-
-    return loft_rsolid(sections, ruled=True)
+    return twisted_sweep_rsolid(
+        profile=face,
+        distance=gear_height,
+        twist_angle=twist_total,
+    )
 
 
 def make_herringbone_gear_rsolid(
@@ -584,10 +814,8 @@ def make_herringbone_gear_rsolid(
 ) -> Solid:
     """Create an involute herringbone (double-helical) gear.
 
-    Each half is modeled as a small-step ruled loft through rotated copies of
-    one profile, with a shared center section forming the herringbone ridge.
-    This keeps closed-wire section correspondence stable while avoiding smooth
-    loft bulging in STEP exports.
+    Each half uses a continuous twisted sweep with opposite handedness. The two
+    halves share the rotated center profile and are fused into one solid.
 
     Parameters
     ----------
@@ -629,43 +857,50 @@ def make_herringbone_gear_rsolid(
     pitch_diameter = module * n_teeth
     half_height = gear_height / 2.0
     half_twist = math.degrees(
-        2.0 * math.pi * half_height * math.tan(math.radians(helix_angle))
+        2.0
+        * math.pi
+        * half_height
+        * math.tan(math.radians(helix_angle))
         / (math.pi * pitch_diameter)
     )
 
-    n_sections_per_half = max(4, int(abs(half_twist) / 5.0) + 2)
-    _, sketch = _build_gear_profile_face(
+    face = _build_gear_profile_face(
         n_teeth,
         module,
         pa,
-        return_sketch=True,
         addendum_factor=addendum_factor,
         clearance_factor=clearance_factor,
         backlash=backlash,
-        build_face=False,
     )
-    base_wire = make_wire_from_sketch_rwire(sketch)
-
-    sections: List[Wire] = []
-
-    for i in range(n_sections_per_half + 1):
-        frac = i / n_sections_per_half
-        z = half_height * frac
-        twist = half_twist * frac
-        sections.append(_rotate_profile_wire_3d(base_wire, twist, z))
-
-    for i in range(1, n_sections_per_half + 1):
-        frac = i / n_sections_per_half
-        z = half_height + half_height * frac
-        twist = half_twist * (1.0 - frac)
-        sections.append(_rotate_profile_wire_3d(base_wire, twist, z))
-
-    return loft_rsolid(sections, ruled=True)
+    lower = twisted_sweep_rsolid(
+        profile=face,
+        distance=half_height,
+        twist_angle=half_twist,
+    )
+    upper_profile = rotate_shape(
+        face,
+        half_twist,
+        axis=(0.0, 0.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+    )
+    upper_profile = translate_shape(upper_profile, (0.0, 0.0, half_height))
+    upper = twisted_sweep_rsolid(
+        profile=upper_profile,
+        distance=half_height,
+        twist_angle=-half_twist,
+        origin=(0.0, 0.0, half_height),
+    )
+    return union_rsolid(
+        lower,
+        upper,
+        tracking_policy=TrackingPolicy.GRAPH,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Internal ring gears (multi-loop profile faces)
 # ---------------------------------------------------------------------------
+
 
 def _internal_ring_radii(
     n_teeth: int,
@@ -676,7 +911,9 @@ def _internal_ring_radii(
 ) -> Tuple[float, float, float, float]:
     """Return (pitch, internal tooth tip, internal root, outer rim) radii."""
     addendum = _validate_positive_finite("addendum_factor", addendum_factor) * module
-    clearance = _validate_non_negative_finite("clearance_factor", clearance_factor) * module
+    clearance = (
+        _validate_non_negative_finite("clearance_factor", clearance_factor) * module
+    )
     pitch_radius = module * n_teeth / 2.0
     internal_tip_radius = pitch_radius - addendum
     internal_root_radius = pitch_radius + addendum + clearance
@@ -791,9 +1028,15 @@ def _build_internal_gear_profile_wire(
     sketch = add_point_rsketch(sketch, "center", 0.0, 0.0)
     sketch = constrain_fix_rsketch(sketch, "center")
 
-    sketch = add_circle_rsketch(sketch, "tip_circle", "center", tip_radius, construction=True)
-    sketch = add_circle_rsketch(sketch, "pitch_circle", "center", geo["pitch_radius"], construction=True)
-    sketch = add_circle_rsketch(sketch, "root_circle", "center", root_radius, construction=True)
+    sketch = add_circle_rsketch(
+        sketch, "tip_circle", "center", tip_radius, construction=True
+    )
+    sketch = add_circle_rsketch(
+        sketch, "pitch_circle", "center", geo["pitch_radius"], construction=True
+    )
+    sketch = add_circle_rsketch(
+        sketch, "root_circle", "center", root_radius, construction=True
+    )
     sketch = constrain_radius_rsketch(sketch, "tip_circle", tip_radius)
     sketch = constrain_radius_rsketch(sketch, "pitch_circle", geo["pitch_radius"])
     sketch = constrain_radius_rsketch(sketch, "root_circle", root_radius)
@@ -810,19 +1053,42 @@ def _build_internal_gear_profile_wire(
         left_tip_angle = geo["left_tip_angle"] + offset
         right_tip_angle = geo["right_tip_angle"] + offset
 
-        tooth_data.append({
-            "rs": (root_radius * math.cos(root_arc_start_angle), root_radius * math.sin(root_arc_start_angle)),
-            "re": (root_radius * math.cos(root_arc_end_angle), root_radius * math.sin(root_arc_end_angle)),
-            "lb": (flank_tip_radius * math.cos(left_tip_angle), flank_tip_radius * math.sin(left_tip_angle)),
-            "lt": (tip_radius * math.cos(left_tip_angle), tip_radius * math.sin(left_tip_angle)),
-            "rt": (tip_radius * math.cos(right_tip_angle), tip_radius * math.sin(right_tip_angle)),
-            "rb": (flank_tip_radius * math.cos(right_tip_angle), flank_tip_radius * math.sin(right_tip_angle)),
-            "rr": (root_radius * math.cos(right_root_angle), root_radius * math.sin(right_root_angle)),
-            "left_root_angle": left_root_angle,
-            "right_root_angle": right_root_angle,
-            "left_tip_angle": left_tip_angle,
-            "right_tip_angle": right_tip_angle,
-        })
+        tooth_data.append(
+            {
+                "rs": (
+                    root_radius * math.cos(root_arc_start_angle),
+                    root_radius * math.sin(root_arc_start_angle),
+                ),
+                "re": (
+                    root_radius * math.cos(root_arc_end_angle),
+                    root_radius * math.sin(root_arc_end_angle),
+                ),
+                "lb": (
+                    flank_tip_radius * math.cos(left_tip_angle),
+                    flank_tip_radius * math.sin(left_tip_angle),
+                ),
+                "lt": (
+                    tip_radius * math.cos(left_tip_angle),
+                    tip_radius * math.sin(left_tip_angle),
+                ),
+                "rt": (
+                    tip_radius * math.cos(right_tip_angle),
+                    tip_radius * math.sin(right_tip_angle),
+                ),
+                "rb": (
+                    flank_tip_radius * math.cos(right_tip_angle),
+                    flank_tip_radius * math.sin(right_tip_angle),
+                ),
+                "rr": (
+                    root_radius * math.cos(right_root_angle),
+                    root_radius * math.sin(right_root_angle),
+                ),
+                "left_root_angle": left_root_angle,
+                "right_root_angle": right_root_angle,
+                "left_tip_angle": left_tip_angle,
+                "right_tip_angle": right_tip_angle,
+            }
+        )
 
     point_keys = ["rs", "re", "lb", "lt", "rt", "rb", "rr"]
     for i, td in enumerate(tooth_data):
@@ -840,31 +1106,50 @@ def _build_internal_gear_profile_wire(
         rb_id = f"t{i}_rb"
         next_rs_id = f"t{(i + 1) % n_teeth}_rs"
 
-        sketch = add_arc_rsketch(sketch, f"arc_internal_root_{i}", rs_id, re_id, "center")
+        sketch = add_arc_rsketch(
+            sketch, f"arc_internal_root_{i}", rs_id, re_id, "center"
+        )
 
-        left_cps, left_deg, left_knots, left_mults = _internal_involute_bspline_control_points(
-            base_radius,
-            start_radius=flank_tip_radius,
-            end_radius=root_radius,
-            start_angle=geo["left_base_angle"] + tooth_angle * i,
-            mirror=True,
-            reverse=True,
+        left_cps, left_deg, left_knots, left_mults = (
+            _internal_involute_bspline_control_points(
+                base_radius,
+                start_radius=flank_tip_radius,
+                end_radius=root_radius,
+                start_angle=geo["left_base_angle"] + tooth_angle * i,
+                mirror=True,
+                reverse=True,
+            )
         )
         sketch = add_bspline_rsketch(
-            sketch, f"bspline_internal_left_{i}", re_id, lb_id,
-            control_points=left_cps, degree=left_deg,
-            knots=left_knots, multiplicities=left_mults,
+            sketch,
+            f"bspline_internal_left_{i}",
+            re_id,
+            lb_id,
+            control_points=left_cps,
+            degree=left_deg,
+            knots=left_knots,
+            multiplicities=left_mults,
         )
 
         if needs_tip_connectors:
-            transition_angle = math.atan2(td["lt"][1] - td["lb"][1], td["lt"][0] - td["lb"][0])
+            transition_angle = math.atan2(
+                td["lt"][1] - td["lb"][1], td["lt"][0] - td["lb"][0]
+            )
             cps, deg, knots, mults = _root_fillet_control_points(
-                td["lb"], td["lt"], transition_angle, transition_angle,
+                td["lb"],
+                td["lt"],
+                transition_angle,
+                transition_angle,
             )
             sketch = add_bspline_rsketch(
-                sketch, f"transition_internal_left_{i}", lb_id, lt_id,
-                control_points=cps, degree=deg,
-                knots=knots, multiplicities=mults,
+                sketch,
+                f"transition_internal_left_{i}",
+                lb_id,
+                lt_id,
+                control_points=cps,
+                degree=deg,
+                knots=knots,
+                multiplicities=mults,
             )
             tip_left_id = lt_id
             tip_right_id = rt_id
@@ -872,30 +1157,49 @@ def _build_internal_gear_profile_wire(
             tip_left_id = lb_id
             tip_right_id = rb_id
 
-        sketch = add_arc_rsketch(sketch, f"arc_internal_tip_{i}", tip_left_id, tip_right_id, "center")
+        sketch = add_arc_rsketch(
+            sketch, f"arc_internal_tip_{i}", tip_left_id, tip_right_id, "center"
+        )
 
         if needs_tip_connectors:
-            transition_angle = math.atan2(td["rb"][1] - td["rt"][1], td["rb"][0] - td["rt"][0])
+            transition_angle = math.atan2(
+                td["rb"][1] - td["rt"][1], td["rb"][0] - td["rt"][0]
+            )
             cps, deg, knots, mults = _root_fillet_control_points(
-                td["rt"], td["rb"], transition_angle, transition_angle,
+                td["rt"],
+                td["rb"],
+                transition_angle,
+                transition_angle,
             )
             sketch = add_bspline_rsketch(
-                sketch, f"transition_internal_right_{i}", rt_id, rb_id,
-                control_points=cps, degree=deg,
-                knots=knots, multiplicities=mults,
+                sketch,
+                f"transition_internal_right_{i}",
+                rt_id,
+                rb_id,
+                control_points=cps,
+                degree=deg,
+                knots=knots,
+                multiplicities=mults,
             )
 
-        right_cps, right_deg, right_knots, right_mults = _internal_involute_bspline_control_points(
-            base_radius,
-            start_radius=flank_tip_radius,
-            end_radius=root_radius,
-            start_angle=geo["right_base_angle"] + tooth_angle * i,
-            mirror=False,
+        right_cps, right_deg, right_knots, right_mults = (
+            _internal_involute_bspline_control_points(
+                base_radius,
+                start_radius=flank_tip_radius,
+                end_radius=root_radius,
+                start_angle=geo["right_base_angle"] + tooth_angle * i,
+                mirror=False,
+            )
         )
         sketch = add_bspline_rsketch(
-            sketch, f"bspline_internal_right_{i}", rb_id, next_rs_id,
-            control_points=right_cps, degree=right_deg,
-            knots=right_knots, multiplicities=right_mults,
+            sketch,
+            f"bspline_internal_right_{i}",
+            rb_id,
+            next_rs_id,
+            control_points=right_cps,
+            degree=right_deg,
+            knots=right_knots,
+            multiplicities=right_mults,
         )
 
     wire = make_wire_from_sketch_rwire(sketch, profile=0)
@@ -914,12 +1218,14 @@ def _build_ring_gear_face(
     clearance_factor: float = 0.25,
 ) -> Face:
     """Build the 2-D ring-gear face directly from outer and inner loops."""
-    _pitch_radius, _internal_tip_radius, _internal_root_radius, outer_radius = _internal_ring_radii(
-        n_teeth,
-        module,
-        rim_thickness,
-        addendum_factor=addendum_factor,
-        clearance_factor=clearance_factor,
+    _pitch_radius, _internal_tip_radius, _internal_root_radius, outer_radius = (
+        _internal_ring_radii(
+            n_teeth,
+            module,
+            rim_thickness,
+            addendum_factor=addendum_factor,
+            clearance_factor=clearance_factor,
+        )
     )
 
     outer_wire = make_circle_rwire(center=(0.0, 0.0, 0.0), radius=outer_radius)
@@ -1043,17 +1349,22 @@ def make_helical_ring_gear_rsolid(
     pa = _pressure_angle_to_radians(pressure_angle)
     pitch_diameter = module * n_teeth
     twist_total = math.degrees(
-        2.0 * math.pi * gear_height * math.tan(math.radians(helix_angle))
+        2.0
+        * math.pi
+        * gear_height
+        * math.tan(math.radians(helix_angle))
         / (math.pi * pitch_diameter)
     )
 
     n_sections = max(6, int(abs(twist_total) / 5.0) + 2)
-    _pitch_radius, _internal_tip_radius, _internal_root_radius, outer_radius = _internal_ring_radii(
-        n_teeth,
-        module,
-        rim_thickness,
-        addendum_factor=addendum_factor,
-        clearance_factor=clearance_factor,
+    _pitch_radius, _internal_tip_radius, _internal_root_radius, outer_radius = (
+        _internal_ring_radii(
+            n_teeth,
+            module,
+            rim_thickness,
+            addendum_factor=addendum_factor,
+            clearance_factor=clearance_factor,
+        )
     )
 
     outer_wire = make_circle_rwire(center=(0.0, 0.0, 0.0), radius=outer_radius)
@@ -1138,17 +1449,22 @@ def make_herringbone_ring_gear_rsolid(
     pitch_diameter = module * n_teeth
     half_height = gear_height / 2.0
     half_twist = math.degrees(
-        2.0 * math.pi * half_height * math.tan(math.radians(helix_angle))
+        2.0
+        * math.pi
+        * half_height
+        * math.tan(math.radians(helix_angle))
         / (math.pi * pitch_diameter)
     )
 
     n_sections_per_half = max(4, int(abs(half_twist) / 5.0) + 2)
-    _pitch_radius, _internal_tip_radius, _internal_root_radius, outer_radius = _internal_ring_radii(
-        n_teeth,
-        module,
-        rim_thickness,
-        addendum_factor=addendum_factor,
-        clearance_factor=clearance_factor,
+    _pitch_radius, _internal_tip_radius, _internal_root_radius, outer_radius = (
+        _internal_ring_radii(
+            n_teeth,
+            module,
+            rim_thickness,
+            addendum_factor=addendum_factor,
+            clearance_factor=clearance_factor,
+        )
     )
 
     outer_wire = make_circle_rwire(center=(0.0, 0.0, 0.0), radius=outer_radius)
@@ -1180,13 +1496,22 @@ def make_herringbone_ring_gear_rsolid(
         twist = half_twist * (1.0 - frac)
         inner_sections.append(_rotate_profile_wire_3d(inner_wire, twist, z))
 
-    inner_loft = loft_rsolid(inner_sections, ruled=True)
-    return cut_rsolid(outer_solid, inner_loft)
+    inner_loft = loft_rsolid(
+        inner_sections,
+        ruled=True,
+        tracking_policy=TrackingPolicy.GRAPH,
+    )
+    return cut_rsolid(
+        outer_solid,
+        inner_loft,
+        tracking_policy=TrackingPolicy.GRAPH,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Cycloidal reducer discs
 # ---------------------------------------------------------------------------
+
 
 def _cycloidal_disc_point(
     theta: float,
@@ -1448,6 +1773,7 @@ def make_cycloidal_disc_rsolid(
 # Racks (straight / helical / herringbone)
 # ---------------------------------------------------------------------------
 
+
 def _build_rack_profile_points(
     module: float,
     n_teeth: int,
@@ -1563,7 +1889,10 @@ def make_helical_rack_rsolid(
     pa = math.radians(pressure_angle)
     pitch = math.pi * module
     twist_total = math.degrees(
-        2.0 * math.pi * rack_height * math.tan(math.radians(helix_angle))
+        2.0
+        * math.pi
+        * rack_height
+        * math.tan(math.radians(helix_angle))
         / (math.pi * pitch)
     )
 
@@ -1610,7 +1939,10 @@ def make_herringbone_rack_rsolid(
     pitch = math.pi * module
     half_height = rack_height / 2.0
     half_twist = math.degrees(
-        2.0 * math.pi * half_height * math.tan(math.radians(helix_angle))
+        2.0
+        * math.pi
+        * half_height
+        * math.tan(math.radians(helix_angle))
         / (math.pi * pitch)
     )
 
