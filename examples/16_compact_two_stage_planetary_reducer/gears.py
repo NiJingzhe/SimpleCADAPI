@@ -28,6 +28,7 @@ from dimensions import (
 )
 
 
+@scad.requires_session
 def make_stage_ring_gear_rpart(
     *,
     stage: StageSpec,
@@ -46,25 +47,35 @@ def make_stage_ring_gear_rpart(
         addendum_factor=ADDENDUM_FACTOR,
         clearance_factor=CLEARANCE_FACTOR,
     )
+    ring = scad.apply_tag(shape=ring, tag=f"solid.reducer.{stage.stage_id}.ring.gear")
     support = scad.make_cylinder_rsolid(
         radius=HOUSING_INNER_RADIUS,
         height=stage.gear_height,
         bottom_face_center=(0.0, 0.0, 0.0),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"reducer.{stage.stage_id}.ring.support.outer",
+        result_tag=f"solid.reducer.{stage.stage_id}.ring.support.outer",
     )
     support_bore = scad.make_cylinder_rsolid(
         radius=stage.ring_outer_radius - FIXED_RING_HOUSING_SUPPORT_OVERLAP,
         height=stage.gear_height + 2.0,
         bottom_face_center=(0.0, 0.0, -1.0),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"reducer.{stage.stage_id}.ring.support.bore",
+        result_tag=f"solid.reducer.{stage.stage_id}.ring.support.bore.cutter",
     )
     support = scad.cut_rsolid(
         support,
         support_bore,
         skip_non_intersecting=False,
+        tracking_policy=scad.TrackingPolicy.GRAPH,
     )
     support = scad.apply_tag(shape=support, tag=f"role.{stage.stage_id}.fixed_ring_housing_support")
-    ring = scad.union_rsolid([ring, support], glue=False)
+    ring = scad.union_rsolid(
+        [ring, support],
+        glue=False,
+        tracking_policy=scad.TrackingPolicy.GRAPH,
+    )
     ring = _apply_tags(
         ring,
         tags=(f"role.{stage.stage_id}.fixed_ring_gear", "group.two_stage_reducer"),
@@ -91,6 +102,7 @@ def make_stage_ring_gear_rpart(
     )
 
 
+@scad.requires_session
 def make_stage_sun_gear_rpart(
     *,
     stage: StageSpec,
@@ -109,10 +121,12 @@ def make_stage_sun_gear_rpart(
         clearance_factor=CLEARANCE_FACTOR,
         backlash=BACKLASH,
     )
+    sun = scad.apply_tag(shape=sun, tag=f"solid.reducer.{stage.stage_id}.sun.gear")
     sun = _cut_bore_rsolid(
         label=f"{stage.stage_id}_sun_bore",
         solid=sun,
         bore_radius=bore_radius,
+        tag_prefix=f"reducer.{stage.stage_id}.sun.bore",
     )
     sun = _apply_tags(
         sun,
@@ -139,6 +153,7 @@ def make_stage_sun_gear_rpart(
     )
 
 
+@scad.requires_session
 def make_stage_planet_gear_rpart(
     *,
     stage: StageSpec,
@@ -157,11 +172,13 @@ def make_stage_planet_gear_rpart(
         clearance_factor=CLEARANCE_FACTOR,
         backlash=BACKLASH,
     )
+    planet = scad.apply_tag(shape=planet, tag=f"solid.reducer.{stage.stage_id}.planet.gear")
     bore_radius = bearing.outer_diameter / 2.0 + 0.06
     planet = _cut_bore_rsolid(
         label=f"{stage.stage_id}_planet_bearing_seat",
         solid=planet,
         bore_radius=bore_radius,
+        tag_prefix=f"reducer.{stage.stage_id}.planet.bearing.seat",
     )
     planet = _apply_tags(
         planet,
@@ -194,6 +211,7 @@ def make_stage_planet_gear_rpart(
     )
 
 
+@scad.requires_session
 def make_planet_component_rplacement(
     *,
     stage: StageSpec,
@@ -216,19 +234,28 @@ def make_planet_component_rplacement(
     return make_z_rotation_rplacement(origin=center, angle_degrees=planet_spin)
 
 
+@scad.requires_session
 def _cut_bore_rsolid(
     *,
     label: str,
     solid: scad.Solid,
     bore_radius: float,
+    tag_prefix: str,
 ) -> scad.Solid:
     cutter = scad.make_cylinder_rsolid(
         radius=bore_radius,
         height=GEAR_HEIGHT + 2.0,
         bottom_face_center=(0.0, 0.0, -1.0),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=tag_prefix,
+        result_tag=f"solid.{tag_prefix}.cutter",
     )
-    bored = scad.cut_rsolid(solid, cutter, skip_non_intersecting=False)
+    bored = scad.cut_rsolid(
+        solid,
+        cutter,
+        skip_non_intersecting=False,
+        tracking_policy=scad.TrackingPolicy.GRAPH,
+    )
     bored = scad.apply_tag(shape=bored, tag=f"solid.cut.{label}")
     print(f"{label}: bore_radius={bore_radius:.3f} volume={bored.get_volume():.3f}")
     return bored

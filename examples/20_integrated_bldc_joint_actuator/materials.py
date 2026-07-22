@@ -5,6 +5,7 @@ from __future__ import annotations
 import simplecadapi as scad
 
 
+@scad.requires_session
 def make_actuator_materials_rdict() -> dict[str, scad.Material]:
     """Create the materials used by Case 20."""
 

@@ -5,6 +5,7 @@ Run from the repository root with:
 
 Generated files:
     examples/out/naca0016_blade/naca0016_blade.model.json
+    examples/out/naca0016_blade/naca0016_blade.session.json
     examples/out/naca0016_blade/naca0016_blade.step
     examples/out/naca0016_blade/naca0016_blade.fcstd
 
@@ -27,26 +28,38 @@ DEFAULT_OUTPUT_DIR = Path("examples/out/naca0016_blade")
 DEFAULT_FREECAD_CMD = Path("/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd")
 
 
-def build_blade(output_dir: Path, *, freecad_cmd: Path | None = DEFAULT_FREECAD_CMD) -> dict:
+@scad.model(graph_id="naca0016_blade")
+def build_blade() -> scad.ModelResult:
+    blade = scad.make_naca_propeller_blade_rsolid(
+        blade_length=4.0,
+        root_chord=1.25,
+        tip_chord=0.35,
+        total_twist_angle=36.0,
+        num_sections=6,
+    )
+    blade = scad.apply_tag(shape=blade, tag="role.naca0016.blade")
+    blade = scad.apply_tag(shape=blade, tag="part.naca0016.blade")
+    scad.capture_result(value=blade)
+    return blade
+
+
+def write_blade_artifacts(
+    output_dir: Path,
+    *,
+    freecad_cmd: Path | None = DEFAULT_FREECAD_CMD,
+) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     model_json_path = output_dir / "naca0016_blade.model.json"
+    session_json_path = output_dir / "naca0016_blade.session.json"
     step_path = output_dir / "naca0016_blade.step"
     fcstd_path = output_dir / "naca0016_blade.fcstd"
 
-    with scad.GraphSession() as session:
-        blade = scad.make_naca_propeller_blade_rsolid(
-            blade_length=4.0,
-            root_chord=1.25,
-            tip_chord=0.35,
-            total_twist_angle=36.0,
-            num_sections=6,
-        )
-        blade = scad.apply_tag(blade, "role.naca0016.blade")
-
-    model_json = scad.export_model_json(session)
-    payload = json.loads(model_json)
-    model_json_path.write_text(model_json, encoding="utf-8")
-    scad.export_step(blade, str(step_path))
+    result = build_blade()
+    blade = result.value
+    payload = json.loads(result.model_json)
+    model_json_path.write_text(result.model_json, encoding="utf-8")
+    session_json_path.write_text(result.session_json, encoding="utf-8")
+    scad.export_step(shapes=blade, filename=str(step_path))
 
     bspline_nodes = [
         node for node in payload["graph"]["nodes"] if node.get("op") == "make_spline_redge"
@@ -63,12 +76,13 @@ def build_blade(output_dir: Path, *, freecad_cmd: Path | None = DEFAULT_FREECAD_
     print("bspline_knot_counts", knot_counts[:6])
     print("volume", round(blade.get_volume(), 6))
     print("wrote", model_json_path)
+    print("wrote", session_json_path)
     print("wrote", step_path)
 
     if freecad_cmd is not None and freecad_cmd.exists():
         scad.translator.freecad_translator.translate_model_json_to_fcstd(
-            model_json,
-            str(fcstd_path),
+            json_str=result.model_json,
+            output_path=str(fcstd_path),
             document_name="NACA0016Blade",
             freecad_cmd=str(freecad_cmd),
         )
@@ -89,7 +103,7 @@ def main() -> None:
         help="FreeCADCmd path used to write .fcstd; skipped if the path does not exist.",
     )
     args = parser.parse_args()
-    build_blade(args.output_dir, freecad_cmd=args.freecad_cmd)
+    write_blade_artifacts(args.output_dir, freecad_cmd=args.freecad_cmd)
 
 
 if __name__ == "__main__":

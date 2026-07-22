@@ -88,6 +88,7 @@ except ImportError:  # Support direct execution from this example directory.
     from motor import make_bldc_rotor_rassembly, make_bldc_stator_rassembly
 
 
+@scad.requires_session
 def make_integrated_bldc_joint_actuator_rassembly(
     *, materials: dict[str, scad.Material]
 ) -> scad.Assembly:
@@ -116,6 +117,7 @@ def make_integrated_bldc_joint_actuator_rassembly(
     return actuator
 
 
+@scad.requires_session
 def make_integrated_bldc_joint_actuator_components_rtuple(
     *, materials: dict[str, scad.Material]
 ) -> tuple[tuple[str, scad.Part | scad.Assembly, scad.Placement, str], ...]:
@@ -258,6 +260,7 @@ def make_integrated_bldc_joint_actuator_components_rtuple(
     )
 
 
+@scad.requires_session
 def _add_public_connectors_rassembly(*, assembly: scad.Assembly) -> scad.Assembly:
     forwarded = (
         ("case_clamp_axis", "reducer_housing", "case_clamp_axis", "External split-clamp datum"),
@@ -279,6 +282,7 @@ def _add_public_connectors_rassembly(*, assembly: scad.Assembly) -> scad.Assembl
     return assembly
 
 
+@scad.requires_session
 def _add_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assembly:
     assembly = scad.ground_component_rassembly(assembly=assembly, component_id="reducer_housing")
     assembly = scad.ground_component_rassembly(assembly=assembly, component_id="stage1_ring")
@@ -339,6 +343,7 @@ def _add_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assembly:
     return assembly
 
 
+@scad.requires_session
 def _add_stage_constraints_rassembly(
     *,
     assembly: scad.Assembly,
@@ -386,6 +391,7 @@ def _add_stage_constraints_rassembly(
     return assembly
 
 
+@scad.requires_session
 def _add_bearing_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assembly:
     interfaces = (
         ("rear_bearing_outer_to_spider", "rear_bearing_spider", "bearing_axis", "rear_motor_bearing", "outer_axis"),
@@ -437,5 +443,6 @@ def _add_bearing_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assem
     return assembly
 
 
+@scad.requires_session
 def _stage_rplacement(*, stage: StageSpec) -> scad.Placement:
     return scad.make_placement_rplacement(origin=(0.0, 0.0, stage.bottom_z))

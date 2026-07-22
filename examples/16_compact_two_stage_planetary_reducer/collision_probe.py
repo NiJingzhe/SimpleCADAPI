@@ -18,7 +18,10 @@ import time
 
 import simplecadapi as scad
 
-from assembly import make_two_stage_planetary_reducer_rassembly
+if __package__:
+    from .main import _build_compact_two_stage_planetary_reducer
+else:
+    from main import _build_compact_two_stage_planetary_reducer
 
 
 sys.setrecursionlimit(30000)
@@ -28,8 +31,8 @@ def _build_reducer_quietly() -> tuple[scad.Assembly, int, float]:
     log_buffer = io.StringIO()
     start = time.perf_counter()
     with contextlib.redirect_stdout(log_buffer):
-        with scad.GraphSession(graph_id="compact_reducer_collision_probe"):
-            assembly = make_two_stage_planetary_reducer_rassembly()
+        result = _build_compact_two_stage_planetary_reducer()
+        assembly, _preview = result.value
     elapsed = time.perf_counter() - start
     return assembly, len(log_buffer.getvalue().splitlines()), elapsed
 

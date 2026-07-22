@@ -49,6 +49,7 @@ POWER_CAN_TERMINAL_CENTER = (11.0, 0.0)
 MOSFET_ANGLES = (22.5, 67.5, 112.5, 202.5, 247.5, 292.5)
 
 
+@scad.requires_session
 def make_integrated_controller_rassembly(
     *,
     pcb_material: scad.Material,
@@ -139,12 +140,15 @@ def make_integrated_controller_rassembly(
     return controller
 
 
+@scad.requires_session
 def _make_controller_pcb_rpart(*, material: scad.Material) -> scad.Part:
     board = scad.make_cylinder_rsolid(
         radius=PCB_RADIUS,
         height=PCB_THICKNESS,
         bottom_face_center=(0.0, 0.0, PCB_BOTTOM_Z),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix="controller.pcb.board",
+        result_tag="feature.controller.pcb.board",
     )
     cutters: list[scad.Solid] = [
         scad.make_cylinder_rsolid(
@@ -152,6 +156,8 @@ def _make_controller_pcb_rpart(*, material: scad.Material) -> scad.Part:
             height=PCB_THICKNESS + 2.0,
             bottom_face_center=(0.0, 0.0, PCB_BOTTOM_Z - 1.0),
             axis=(0.0, 0.0, 1.0),
+            tag_prefix="controller.pcb.center.bore",
+            result_tag="tool.controller.pcb.center.bore",
         )
     ]
     cutters.extend(
@@ -161,6 +167,7 @@ def _make_controller_pcb_rpart(*, material: scad.Material) -> scad.Part:
             hole_radius=PCB_MOUNT_HOLE_RADIUS,
             bottom_z=PCB_BOTTOM_Z - 1.0,
             height=PCB_THICKNESS + 2.0,
+            tag_prefix="controller.pcb.mount.hole",
             angle_offset=45.0,
         )
     )
@@ -171,9 +178,13 @@ def _make_controller_pcb_rpart(*, material: scad.Material) -> scad.Part:
             hole_radius=3.45,
             bottom_z=PCB_BOTTOM_Z - 1.0,
             height=PCB_THICKNESS + 2.0,
+            tag_prefix="controller.pcb.rear.column.clearance",
         )
     )
-    for x, count in ((PHASE_TERMINAL_CENTER[0], 3), (POWER_CAN_TERMINAL_CENTER[0], 4)):
+    for terminal_id, x, count in (
+        ("phase", PHASE_TERMINAL_CENTER[0], 3),
+        ("power.can", POWER_CAN_TERMINAL_CENTER[0], 4),
+    ):
         for pin in range(count):
             y = (pin - (count - 1) / 2.0) * 1.8
             cutters.append(
@@ -182,6 +193,8 @@ def _make_controller_pcb_rpart(*, material: scad.Material) -> scad.Part:
                     height=PCB_THICKNESS + 2.0,
                     bottom_face_center=(x, y, PCB_BOTTOM_Z - 1.0),
                     axis=(0.0, 0.0, 1.0),
+                    tag_prefix=f"controller.pcb.terminal.{terminal_id}.pin{pin + 1}",
+                    result_tag=f"tool.controller.pcb.terminal.{terminal_id}.pin{pin + 1}",
                 )
             )
     board = scad.cut_rsolid(board, cutters, skip_non_intersecting=False)
@@ -216,12 +229,15 @@ def _make_controller_pcb_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
+@scad.requires_session
 def _make_mosfet_package_rpart(*, material: scad.Material) -> scad.Part:
     package = scad.make_box_rsolid(
         width=4.0,
         height=3.0,
         depth=1.4,
         bottom_face_center=(0.0, 0.0, 0.0),
+        tag_prefix="controller.mosfet.package",
+        result_tag="feature.controller.mosfet.package",
     )
     package = apply_tags(shape=package, tags=("role.power_mosfet", "group.three_phase_bridge"))
     return make_axis_part_rpart(
@@ -233,6 +249,7 @@ def _make_mosfet_package_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
+@scad.requires_session
 def _make_terminal_block_rpart(
     *,
     part_id: str,
@@ -241,11 +258,14 @@ def _make_terminal_block_rpart(
     pin_count: int,
     material: scad.Material,
 ) -> scad.Part:
+    terminal_tag_prefix = part_id.replace("_", ".")
     body = scad.make_box_rsolid(
         width=width,
         height=6.0,
         depth=4.9,
         bottom_face_center=(0.0, 0.0, 0.0),
+        tag_prefix=f"controller.terminal.{terminal_tag_prefix}.body",
+        result_tag=f"feature.controller.terminal.{terminal_tag_prefix}.body",
     )
     access_cutters = []
     for pin in range(pin_count):
@@ -256,6 +276,8 @@ def _make_terminal_block_rpart(
                 height=width + 2.0,
                 bottom_face_center=(-width / 2.0 - 1.0, y, 2.45),
                 axis=(1.0, 0.0, 0.0),
+                tag_prefix=f"controller.terminal.{terminal_tag_prefix}.access{pin + 1}",
+                result_tag=f"tool.controller.terminal.{terminal_tag_prefix}.access{pin + 1}",
             )
         )
     body = scad.cut_rsolid(body, access_cutters, skip_non_intersecting=False)

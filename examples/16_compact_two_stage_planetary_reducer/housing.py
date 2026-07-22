@@ -48,6 +48,7 @@ from dimensions import (
 )
 
 
+@scad.requires_session
 def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
     """Create the through-bolted housing sleeve with internal datum collars."""
 
@@ -56,6 +57,7 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=HOUSING_INNER_RADIUS,
         height=HOUSING_HEIGHT,
         bottom_z=HOUSING_BOTTOM_Z,
+        tag_prefix="reducer.housing.sleeve",
         tag="role.housing_sleeve",
     )
     front_flange = _make_end_flange_rsolid(
@@ -63,14 +65,16 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=OUTPUT_SEAL_BORE_RADIUS,
         thickness=HOUSING_FRONT_FLANGE_THICKNESS,
         bottom_z=HOUSING_BOTTOM_Z + HOUSING_HEIGHT - HOUSING_FRONT_FLANGE_THICKNESS,
+        tag_prefix="reducer.housing.front.end.cap",
     )
     rear_flange = _make_end_flange_rsolid(
         label="rear",
         inner_radius=INPUT_SEAL_BORE_RADIUS,
         thickness=HOUSING_REAR_FLANGE_THICKNESS,
         bottom_z=HOUSING_BOTTOM_Z,
+        tag_prefix="reducer.housing.rear.end.cap",
     )
-    mount_pad = _make_mount_sector_pad_rsolid()
+    mount_pad = _make_mount_sector_pad_rsolid(tag_prefix="reducer.housing.mount.sector.pad")
     collars = []
     datum_zs = (
         INPUT_FLANGE_TOP_Z,
@@ -91,6 +95,7 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
             inner_radius=HOUSING_DATUM_INNER_RADIUS,
             height=0.36,
             bottom_z=target_z - 0.36,
+            tag_prefix=f"reducer.housing.datum.collar.i{index + 1}",
             tag=f"role.housing_axis_datum_{index + 1}",
         )
         collars.append(collar)
@@ -102,8 +107,8 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
     housing = scad.cut_rsolid(
         housing,
         [
-            _make_mount_gap_cutters_rsolids(),
-            _make_mount_hole_cutters_rsolids(),
+            _make_mount_gap_cutters_rsolids(tag_prefix="reducer.housing.mount.gap"),
+            _make_mount_hole_cutters_rsolids(tag_prefix="reducer.housing.mount.hole"),
         ],
         skip_non_intersecting=False,
     )
@@ -155,12 +160,14 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
     return part
 
 
+@scad.requires_session
 def _make_end_flange_rsolid(
     *,
     label: str,
     inner_radius: float,
     thickness: float,
     bottom_z: float,
+    tag_prefix: str,
 ) -> scad.Solid:
     """Build one sealed housing end cap.
 
@@ -174,6 +181,7 @@ def _make_end_flange_rsolid(
         inner_radius=inner_radius,
         height=thickness,
         bottom_z=bottom_z,
+        tag_prefix=tag_prefix,
         tag=f"role.housing_{label}_sealed_end_cap",
     )
     clearance = OUTPUT_SEAL_RUNNING_CLEARANCE if label == "front" else INPUT_SEAL_RUNNING_CLEARANCE
@@ -183,7 +191,8 @@ def _make_end_flange_rsolid(
     return flange
 
 
-def _make_mount_sector_pad_rsolid() -> scad.Solid:
+@scad.requires_session
+def _make_mount_sector_pad_rsolid(*, tag_prefix: str) -> scad.Solid:
     """Build four graceful full-height sector pads before the global hole cut."""
 
     outer = scad.make_cylinder_rsolid(
@@ -191,12 +200,16 @@ def _make_mount_sector_pad_rsolid() -> scad.Solid:
         height=HOUSING_HEIGHT,
         bottom_face_center=(0.0, 0.0, HOUSING_BOTTOM_Z),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.outer",
+        result_tag=f"solid.{tag_prefix}.outer",
     )
     inner = scad.make_cylinder_rsolid(
         radius=HOUSING_MOUNT_PAD_INNER_RADIUS,
         height=HOUSING_HEIGHT + 2.0,
         bottom_face_center=(0.0, 0.0, HOUSING_BOTTOM_Z - 1.0),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.inner",
+        result_tag=f"solid.{tag_prefix}.inner.cutter",
     )
     pad = scad.cut_rsolid(outer, inner, skip_non_intersecting=False)
     pad = _apply_tags(
@@ -211,7 +224,8 @@ def _make_mount_sector_pad_rsolid() -> scad.Solid:
     return pad
 
 
-def _make_mount_gap_cutters_rsolids() -> list[scad.Solid]:
+@scad.requires_session
+def _make_mount_gap_cutters_rsolids(*, tag_prefix: str) -> list[scad.Solid]:
     """Build shallow radial gap cutters that divide the outer band into sectors."""
 
     cutters = []
@@ -229,6 +243,8 @@ def _make_mount_gap_cutters_rsolids() -> list[scad.Solid]:
             height=HOUSING_MOUNT_SECTOR_GAP_WIDTH,
             depth=HOUSING_HEIGHT + 2.0,
             bottom_face_center=(gap_center_radius, 0.0, HOUSING_BOTTOM_Z - 1.0),
+            tag_prefix=f"{tag_prefix}.i{index + 1}",
+            result_tag=f"solid.{tag_prefix}.i{index + 1}.cutter",
         )
         cutters.append(
             scad.rotate_shape(
@@ -245,7 +261,8 @@ def _make_mount_gap_cutters_rsolids() -> list[scad.Solid]:
     return cutters
 
 
-def _make_mount_hole_cutters_rsolids() -> list[scad.Solid]:
+@scad.requires_session
+def _make_mount_hole_cutters_rsolids(*, tag_prefix: str) -> list[scad.Solid]:
     """Build one shared cutter set for the boss and housing body holes."""
 
     cutters = []
@@ -262,11 +279,23 @@ def _make_mount_hole_cutters_rsolids() -> list[scad.Solid]:
         for hole_index in range(HOUSING_MOUNT_HOLES_PER_SECTOR):
             angle_degrees = sector_angle_degrees + offsets[hole_index]
             angle = math.radians(angle_degrees)
-            cutters.extend(_make_single_mount_hole_cutters_rsolids(angle=angle))
+            cutters.extend(
+                _make_single_mount_hole_cutters_rsolids(
+                    angle=angle,
+                    tag_prefix=(
+                        f"{tag_prefix}.sector.i{sector_index + 1}.i{hole_index + 1}"
+                    ),
+                )
+            )
     return cutters
 
 
-def _make_single_mount_hole_cutters_rsolids(*, angle: float) -> list[scad.Solid]:
+@scad.requires_session
+def _make_single_mount_hole_cutters_rsolids(
+    *,
+    angle: float,
+    tag_prefix: str,
+) -> list[scad.Solid]:
     """Build through and counterbore cutters for one housing screw."""
 
     x = HOUSING_MOUNT_HOLE_CIRCLE_RADIUS * math.cos(angle)
@@ -282,6 +311,8 @@ def _make_single_mount_hole_cutters_rsolids(*, angle: float) -> list[scad.Solid]
             height=HOUSING_HEIGHT + 2.0,
             bottom_face_center=(x, y, HOUSING_BOTTOM_Z - 1.0),
             axis=(0.0, 0.0, 1.0),
+            tag_prefix=f"{tag_prefix}.through",
+            result_tag=f"solid.{tag_prefix}.through.cutter",
         )
     )
     # Counterbores are added on both ends so the actuator can be mounted from
@@ -297,6 +328,8 @@ def _make_single_mount_hole_cutters_rsolids(*, angle: float) -> list[scad.Solid]
                 HOUSING_BOTTOM_Z + HOUSING_HEIGHT - HOUSING_MOUNT_COUNTERBORE_DEPTH,
             ),
             axis=(0.0, 0.0, 1.0),
+            tag_prefix=f"{tag_prefix}.front.counterbore",
+            result_tag=f"solid.{tag_prefix}.front.counterbore.cutter",
         )
     )
     cutters.append(
@@ -305,6 +338,8 @@ def _make_single_mount_hole_cutters_rsolids(*, angle: float) -> list[scad.Solid]
             height=HOUSING_MOUNT_COUNTERBORE_DEPTH + 0.4,
             bottom_face_center=(x, y, HOUSING_BOTTOM_Z - 0.2),
             axis=(0.0, 0.0, 1.0),
+            tag_prefix=f"{tag_prefix}.rear.counterbore",
+            result_tag=f"solid.{tag_prefix}.rear.counterbore.cutter",
         )
     )
     return cutters

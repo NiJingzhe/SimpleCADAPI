@@ -102,6 +102,7 @@ except ImportError:  # Support direct execution from this example directory.
     )
 
 
+@scad.requires_session
 def make_motor_shell_rpart(*, material: scad.Material) -> scad.Part:
     """Create the stator sleeve, front attachment land, and rear columns."""
 
@@ -110,6 +111,7 @@ def make_motor_shell_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=MOTOR_SHELL_INNER_RADIUS,
         bottom_z=MOTOR_SHELL_BOTTOM_Z,
         height=MOTOR_SHELL_TOP_Z - MOTOR_SHELL_BOTTOM_Z,
+        tag_prefix="housing.motor.shell.sleeve",
         tags=("role.motor_shell", "role.stator_thermal_path"),
     )
     front_land = make_annulus_rsolid(
@@ -117,16 +119,19 @@ def make_motor_shell_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=HOUSING_INTERFACE_LAND_INNER_RADIUS,
         bottom_z=MOTOR_SHELL_TOP_Z - 1.4,
         height=1.4,
+        tag_prefix="housing.motor.shell.front.land",
         tags=("role.motor_reducer_mount",),
     )
     columns = []
-    for _index, _angle, center in radial_centers(count=4, radius=REAR_COLUMN_PCD / 2.0):
+    for index, _angle, center in radial_centers(count=4, radius=REAR_COLUMN_PCD / 2.0):
         columns.append(
             scad.make_cylinder_rsolid(
                 radius=REAR_COLUMN_RADIUS,
                 height=REAR_SPIDER_BOTTOM_Z - MOTOR_SHELL_BOTTOM_Z,
                 bottom_face_center=(center[0], center[1], MOTOR_SHELL_BOTTOM_Z),
                 axis=(0.0, 0.0, 1.0),
+                tag_prefix=f"housing.motor.shell.rear.column{index + 1}",
+                result_tag=f"feature.housing.motor.shell.rear.column{index + 1}",
             )
         )
     shell = scad.union_rsolid(sleeve, front_land, columns, glue=False)
@@ -138,6 +143,7 @@ def make_motor_shell_rpart(*, material: scad.Material) -> scad.Part:
             hole_radius=M3_CLEARANCE_RADIUS,
             bottom_z=MOTOR_SHELL_TOP_Z - 2.8,
             height=3.6,
+            tag_prefix="housing.motor.shell.interface.clearance",
             angle_offset=30.0,
         ),
         make_axial_hole_cutters_rsolids(
@@ -146,6 +152,7 @@ def make_motor_shell_rpart(*, material: scad.Material) -> scad.Part:
             hole_radius=REAR_FASTENER_HOLE_RADIUS,
             bottom_z=MOTOR_SHELL_BOTTOM_Z - 1.0,
             height=10.4,
+            tag_prefix="housing.motor.shell.rear.fastener.clearance",
         ),
         skip_non_intersecting=False,
     )
@@ -175,6 +182,7 @@ def make_motor_shell_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
+@scad.requires_session
 def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
     """Create the reducer sleeve and front motor-bearing bulkhead."""
 
@@ -183,6 +191,7 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=REDUCER_HOUSING_INNER_RADIUS,
         bottom_z=REDUCER_HOUSING_BOTTOM_Z,
         height=REDUCER_HOUSING_FRONT_Z - REDUCER_HOUSING_BOTTOM_Z,
+        tag_prefix="housing.reducer.sleeve",
         tags=("role.reducer_housing_sleeve",),
     )
     bulkhead = make_annulus_rsolid(
@@ -190,6 +199,7 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=FRONT_MOTOR_BEARING.outer_diameter / 2.0 + 0.05,
         bottom_z=REDUCER_HOUSING_BOTTOM_Z,
         height=STAGE_1.bottom_z - REDUCER_HOUSING_BOTTOM_Z,
+        tag_prefix="housing.reducer.front.bulkhead",
         tags=("role.motor_front_bearing_bulkhead",),
     )
     interstage_divider = make_annulus_rsolid(
@@ -197,6 +207,7 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=INTERSTAGE_BEARING.outer_diameter / 2.0 + 0.05,
         bottom_z=INTERSTAGE_BEARING_CENTER_Z - INTERSTAGE_BEARING.width / 2.0,
         height=INTERSTAGE_BEARING.width,
+        tag_prefix="housing.reducer.interstage.divider",
         tags=("role.interstage_bearing_divider",),
     )
     output_mount_land = make_annulus_rsolid(
@@ -204,6 +215,7 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=HOUSING_INTERFACE_LAND_INNER_RADIUS,
         bottom_z=REDUCER_HOUSING_FRONT_Z - 2.2,
         height=2.2,
+        tag_prefix="housing.reducer.output.mount.land",
         tags=("role.output_cap_mount_land",),
     )
     housing = scad.union_rsolid(
@@ -221,6 +233,7 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
             hole_radius=M3_CLEARANCE_RADIUS,
             bottom_z=REDUCER_HOUSING_BOTTOM_Z - 1.0,
             height=STAGE_1.bottom_z - REDUCER_HOUSING_BOTTOM_Z + 2.0,
+            tag_prefix="housing.reducer.motor.interface.clearance",
             angle_offset=30.0,
         ),
         make_axial_hole_cutters_rsolids(
@@ -229,6 +242,7 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
             hole_radius=M3_CLEARANCE_RADIUS,
             bottom_z=REDUCER_HOUSING_FRONT_Z - 2.2,
             height=3.2,
+            tag_prefix="housing.reducer.output.interface.clearance",
         ),
         skip_non_intersecting=False,
     )
@@ -265,6 +279,7 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
+@scad.requires_session
 def make_rear_bearing_spider_rpart(*, material: scad.Material) -> scad.Part:
     """Create a four-arm removable rear motor-bearing support."""
 
@@ -274,15 +289,18 @@ def make_rear_bearing_spider_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=8.05,
         bottom_z=bottom_z,
         height=5.0,
+        tag_prefix="housing.rear.spider.bearing.hub",
         tags=("role.rear_motor_bearing_seat",),
     )
     solids = [hub]
-    for _index, angle, center in radial_centers(count=4, radius=REAR_COLUMN_PCD / 2.0):
+    for index, angle, center in radial_centers(count=4, radius=REAR_COLUMN_PCD / 2.0):
         arm = scad.make_box_rsolid(
             width=12.0,
             height=3.0,
             depth=5.0,
             bottom_face_center=(14.5, 0.0, bottom_z),
+            tag_prefix=f"housing.rear.spider.arm{index + 1}",
+            result_tag=f"feature.housing.rear.spider.arm{index + 1}",
         )
         solids.append(
             scad.rotate_shape(
@@ -298,6 +316,8 @@ def make_rear_bearing_spider_rpart(*, material: scad.Material) -> scad.Part:
                 height=5.0,
                 bottom_face_center=(center[0], center[1], bottom_z),
                 axis=(0.0, 0.0, 1.0),
+                tag_prefix=f"housing.rear.spider.boss{index + 1}",
+                result_tag=f"feature.housing.rear.spider.boss{index + 1}",
             )
         )
     spider = scad.union_rsolid(solids, glue=False)
@@ -309,6 +329,7 @@ def make_rear_bearing_spider_rpart(*, material: scad.Material) -> scad.Part:
             hole_radius=REAR_FASTENER_HOLE_RADIUS,
             bottom_z=bottom_z - 1.0,
             height=7.0,
+            tag_prefix="housing.rear.spider.fastener.clearance",
         ),
         skip_non_intersecting=False,
     )
@@ -329,6 +350,7 @@ def make_rear_bearing_spider_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
+@scad.requires_session
 def make_rear_electronics_cover_rpart(*, material: scad.Material) -> scad.Part:
     """Create the rear cover with PCB standoffs and terminal apertures."""
 
@@ -337,15 +359,23 @@ def make_rear_electronics_cover_rpart(*, material: scad.Material) -> scad.Part:
         height=REAR_COVER_THICKNESS,
         bottom_face_center=(0.0, 0.0, REAR_COVER_BOTTOM_Z),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix="housing.rear.cover.plate",
+        result_tag="feature.housing.rear.cover.plate",
     )
     standoffs = []
-    for _index, _angle, center in radial_centers(count=4, radius=PCB_STANDOFF_PCD / 2.0, angle_offset=45.0):
+    for index, _angle, center in radial_centers(
+        count=4,
+        radius=PCB_STANDOFF_PCD / 2.0,
+        angle_offset=45.0,
+    ):
         standoffs.append(
             scad.make_cylinder_rsolid(
                 radius=2.4,
                 height=PCB_BOTTOM_Z - REAR_COVER_BOTTOM_Z - REAR_COVER_THICKNESS + 0.1,
                 bottom_face_center=(center[0], center[1], REAR_COVER_BOTTOM_Z + REAR_COVER_THICKNESS - 0.1),
                 axis=(0.0, 0.0, 1.0),
+                tag_prefix=f"housing.rear.cover.pcb.standoff{index + 1}",
+                result_tag=f"feature.housing.rear.cover.pcb.standoff{index + 1}",
             )
         )
     cover = scad.union_rsolid(cover, standoffs, glue=False)
@@ -354,18 +384,24 @@ def make_rear_electronics_cover_rpart(*, material: scad.Material) -> scad.Part:
         height=7.2,
         depth=REAR_COVER_THICKNESS + 2.0,
         bottom_face_center=(-11.0, 0.0, REAR_COVER_BOTTOM_Z - 1.0),
+        tag_prefix="housing.rear.cover.phase.aperture",
+        result_tag="tool.housing.rear.cover.phase.aperture",
     )
     power_aperture = scad.make_box_rsolid(
         width=9.2,
         height=7.2,
         depth=REAR_COVER_THICKNESS + 2.0,
         bottom_face_center=(11.0, 0.0, REAR_COVER_BOTTOM_Z - 1.0),
+        tag_prefix="housing.rear.cover.power.can.aperture",
+        result_tag="tool.housing.rear.cover.power.can.aperture",
     )
     center_service = scad.make_cylinder_rsolid(
         radius=3.2,
         height=REAR_COVER_THICKNESS + 2.0,
         bottom_face_center=(0.0, 0.0, REAR_COVER_BOTTOM_Z - 1.0),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix="housing.rear.cover.center.service",
+        result_tag="tool.housing.rear.cover.center.service",
     )
     cover = scad.cut_rsolid(
         cover,
@@ -378,6 +414,7 @@ def make_rear_electronics_cover_rpart(*, material: scad.Material) -> scad.Part:
             hole_radius=REAR_FASTENER_HOLE_RADIUS,
             bottom_z=REAR_COVER_BOTTOM_Z - 1.0,
             height=REAR_COVER_THICKNESS + 2.0,
+            tag_prefix="housing.rear.cover.column.fastener.clearance",
         ),
         make_axial_hole_cutters_rsolids(
             count=4,
@@ -385,6 +422,7 @@ def make_rear_electronics_cover_rpart(*, material: scad.Material) -> scad.Part:
             hole_radius=1.1,
             bottom_z=REAR_COVER_BOTTOM_Z - 1.0,
             height=PCB_BOTTOM_Z - REAR_COVER_BOTTOM_Z + 2.0,
+            tag_prefix="housing.rear.cover.pcb.fastener.clearance",
             angle_offset=45.0,
         ),
         skip_non_intersecting=False,
@@ -408,6 +446,7 @@ def make_rear_electronics_cover_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
+@scad.requires_session
 def make_output_bearing_cap_rpart(*, material: scad.Material) -> scad.Part:
     """Create the removable paired-bearing cartridge and front cap."""
 
@@ -417,6 +456,7 @@ def make_output_bearing_cap_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=bearing_clearance_radius,
         bottom_z=OUTPUT_CAP_BOTTOM_Z,
         height=3.0,
+        tag_prefix="housing.output.cap.rear.flange",
         tags=("role.output_cap_mount_flange",),
     )
     cartridge = make_annulus_rsolid(
@@ -424,6 +464,7 @@ def make_output_bearing_cap_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=bearing_clearance_radius,
         bottom_z=OUTPUT_CAP_BOTTOM_Z,
         height=OUTPUT_CAP_CARTRIDGE_TOP_Z - OUTPUT_CAP_BOTTOM_Z + 0.1,
+        tag_prefix="housing.output.cap.bearing.cartridge",
         tags=("role.paired_output_bearing_seat",),
     )
     bearing_retainer = make_annulus_rsolid(
@@ -431,6 +472,7 @@ def make_output_bearing_cap_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=8.10,
         bottom_z=OUTPUT_CAP_CARTRIDGE_TOP_Z - 0.1,
         height=0.5,
+        tag_prefix="housing.output.cap.bearing.retainer",
         tags=("role.output_axial_retainer",),
     )
     outer_lip = make_annulus_rsolid(
@@ -438,6 +480,7 @@ def make_output_bearing_cap_rpart(*, material: scad.Material) -> scad.Part:
         inner_radius=OUTPUT_FLANGE_RADIUS + 0.30,
         bottom_z=OUTPUT_CAP_CARTRIDGE_TOP_Z - 0.1,
         height=OUTPUT_CAP_TOP_Z - OUTPUT_CAP_CARTRIDGE_TOP_Z + 0.1,
+        tag_prefix="housing.output.cap.labyrinth.lip",
         tags=("role.output_labyrinth_lip",),
     )
     cap = scad.union_rsolid(rear_flange, cartridge, bearing_retainer, outer_lip, glue=False)
@@ -449,6 +492,7 @@ def make_output_bearing_cap_rpart(*, material: scad.Material) -> scad.Part:
             hole_radius=M3_CLEARANCE_RADIUS,
             bottom_z=OUTPUT_CAP_BOTTOM_Z - 1.0,
             height=OUTPUT_CAP_TOP_Z - OUTPUT_CAP_BOTTOM_Z + 2.0,
+            tag_prefix="housing.output.cap.interface.clearance",
         ),
         skip_non_intersecting=False,
     )
