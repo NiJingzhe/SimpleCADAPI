@@ -27,10 +27,10 @@ SimpleCADAPI 是一个基于 OCP 的 Python CAD SDK，提供清晰的函数式�
 
 - 基于 OCP 的 `Vertex`、`Edge`、`Wire`、`Face` 和 `Solid` 类型。
 - 支持基本体、轮廓、拉伸、旋转、放样、扫掠、布尔运算、变换、阵列、圆角、倒角和抽壳等函数式建模操作。
-- 通过 `GraphSession`、`export_model_json(...)`、`import_model_json(...)` 和 `replay_model_json(...)` 记录并重放建模过程。
+- 通过 `@model`、`ModelResult`、`capture_result(...)`、`import_model_json(...)` 和 `replay_model_json(...)` 记录并重放建模过程。
 - 通过 `var(...)`、算术表达式和可序列化表达式图定义参数。
 - 使用 QL 选择器定位几何、查询拓扑并稳定选择特征。
-- 通过 `apply_tag(shape, tag)` 和 `list_tags(shape)` 管理语义标签。
+- 通过 `apply_tag(shape=..., tag=...)` 和 `list_tags(shape=...)` 管理语义标签。
 - 支持 STEP/STL 导出，以及 FreeCAD 脚本和 `.FCStd` 转换。
 
 ## 安装
@@ -63,36 +63,58 @@ import simplecadapi as scad
 out = Path("out")
 out.mkdir(exist_ok=True)
 
-base = scad.make_box_rsolid(60.0, 36.0, 8.0, bottom_face_center=(0.0, 0.0, 0.0))
-hole = scad.make_cylinder_rsolid(5.0, 14.0, bottom_face_center=(0.0, 0.0, -3.0))
+base = scad.make_box_rsolid(
+    width=60.0, height=36.0, depth=8.0, bottom_face_center=(0.0, 0.0, 0.0)
+)
+hole = scad.make_cylinder_rsolid(
+    radius=5.0, height=14.0, bottom_face_center=(0.0, 0.0, -3.0)
+)
 part = scad.cut_rsolid(base, hole)
-part = scad.apply_tag(part, "role.demo.bracket")
+part = scad.apply_tag(shape=part, tag="role.demo.bracket")
 
 print("volume", round(part.get_volume(), 3))
-print("tags", scad.list_tags(part))
+print("tags", scad.list_tags(shape=part))
 
-scad.export_step(part, str(out / "bracket.step"))
-scad.export_stl(part, str(out / "bracket.stl"))
+scad.export_step(shapes=part, filename=str(out / "bracket.step"))
+scad.export_stl(shapes=part, filename=str(out / "bracket.stl"))
 ```
 
 ## 可重放建模
 
-当模型需要检查、序列化、重放或转换到其他 CAD 环境时，请使用 `GraphSession`：
+当模型需要检查、序列化、重放或转换到其他 CAD 环境时，请使用唯一的
+`@scad.model` 顶层入口。该入口拥有自己的 `GraphSession` 并返回 `ModelResult`：
 
 ```python
 import simplecadapi as scad
 
-with scad.GraphSession() as session:
-    body = scad.make_box_rsolid(40.0, 24.0, 10.0, bottom_face_center=(0.0, 0.0, 0.0))
-    cutter = scad.make_cylinder_rsolid(4.0, 16.0, bottom_face_center=(0.0, 0.0, -3.0))
+@scad.model(graph_id="drilled_block")
+def build_model():
+    body = scad.make_box_rsolid(
+        width=40.0, height=24.0, depth=10.0,
+        bottom_face_center=(0.0, 0.0, 0.0),
+    )
+    cutter = scad.make_cylinder_rsolid(
+        radius=4.0, height=16.0, bottom_face_center=(0.0, 0.0, -3.0)
+    )
     drilled = scad.cut_rsolid(body, cutter)
+    scad.capture_result(value=drilled)
+    return drilled
 
-model_json = scad.export_model_json(session)
-rebuilt = scad.replay_model_json(model_json)
+result = build_model()
+model_json = result.model_json
+rebuilt = result.replay()
 
-print("recorded_nodes", session.graph.node_count)
+print("recorded_nodes", result.session.graph.node_count)
 print("replayed_outputs", len(rebuilt))
 ```
+
+如果模型调用还需要写出最终文件，请向 `@scad.model` 传入
+`export_dir=...`。显式 `capture_result(...)` 的结果会生成一个自包含的
+`<graph_id>.scene.zip`，其中包含 `scene.json`、`model/model.json`、operation
+source mapping 引用的完整项目相对 Python 源文件（位于 `sources/`）以及
+Viewer 所需的 GLB/entity 资源。自动导出不会在旁边生成 model/session JSON、
+STEP、STL 或 FCStd；这些格式仍可通过显式导出 API 生成。文件路径为
+`result.artifact_paths["scene"]`。省略 `export_dir` 时不会写文件。
 
 ## FreeCAD 转换
 

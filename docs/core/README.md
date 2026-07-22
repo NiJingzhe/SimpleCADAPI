@@ -62,7 +62,7 @@ SimpleWorkplane  ← local modeling context
 - **Shape-first API**: users work with `Vertex`, `Edge`, `Wire`, `Face`, and `Solid`, not graph nodes.
 - **Functional modeling style**: public operations return new geometry values, e.g. `make_box_rsolid(...)`, `cut_rsolid(...)`, `fillet_rsolid(...)`.
 - **OCP-native runtime**: geometry construction, topology traversal, properties, booleans, transforms, and export use OCP/OpenCascade helpers.
-- **Replayable graph workflows**: `GraphSession` can record a canonical low-level operation graph and `export_model_json()` can serialize it for `replay_model_json()`.
+- **Replayable graph workflows**: `@scad.model` owns one `GraphSession` and returns a `ModelResult`; `@scad.requires_session` composes child builders, and `scad.capture_result()` selects canonical output nodes for replay and export.
 - **Tags and metadata**: tags are useful for lightweight semantics; structured numeric facts should be stored in metadata such as `metadata["geo"]`.
 - **Indexed topology access**: use plural methods such as `get_edges()` and `get_faces()` for enumeration, and pass an index to the same getter, such as `get_edges(index)` or `get_faces(index)`, for intentional indexed picks that should become graph selection nodes.
 
@@ -74,11 +74,14 @@ import simplecadapi as scad
 with scad.SimpleWorkplane(origin=(0, 0, 0)):
     box = scad.make_box_rsolid(width=5, height=3, depth=2)
 
-scad.apply_tag(box, "role.bracket")
+scad.apply_tag(shape=box, tag="role.bracket")
 box.set_metadata("material", "6061-T6")
 box.auto_tag_faces("box")
 
-top_faces = [face for face in box.get_faces() if "face.top" in scad.list_tags(face)]
+top_faces = [
+    face for face in box.get_faces()
+    if "face.top" in scad.list_tags(shape=face)
+]
 print(len(top_faces))
 ```
 
@@ -87,13 +90,18 @@ print(len(top_faces))
 ```python
 import simplecadapi as scad
 
-with scad.GraphSession() as session:
-    body = scad.make_box_rsolid(10, 10, 4)
-    hole = scad.make_cylinder_rsolid(1.5, 8, bottom_face_center=(0, 0, -2))
+@scad.model(graph_id="drilled_block")
+def build_model():
+    body = scad.make_box_rsolid(width=10, height=10, depth=4)
+    hole = scad.make_cylinder_rsolid(
+        radius=1.5, height=8, bottom_face_center=(0, 0, -2)
+    )
     part = scad.cut_rsolid(body, hole)
+    scad.capture_result(value=part)
+    return part
 
-payload = scad.export_model_json(session)
-rebuilt = scad.replay_model_json(payload)
+result = build_model()
+rebuilt = result.replay()
 print(len(rebuilt))
 ```
 

@@ -45,8 +45,8 @@
 
 这些 role 由 `FirstShape`、`LastShape`、`Generated`、`Modified`、Fillet/Chamfer
 contour API 和 exact result membership 产生；不使用 center/normal、enumeration
-index 或 unmatched-to-generated fallback。Public feature 的 named tag argument 与
-`output_tags` generic mapping lower 为独立 `apply_tag_rselection` node，用户
+ index 或 unmatched-to-generated fallback。Public feature 的 named tag arguments
+ lower 为独立 `apply_tag_rselection` node，用户
 binding 是 `USER_OPERATION + ASSERTED`，自动 role binding 是
 `AUTO_RULE + PROVEN + RECOMPUTE`。Geometry node params 不保存这些 tag。
 

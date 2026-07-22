@@ -60,6 +60,18 @@ result is required and all proven results are tagged.
 
 | Operation | Role | Kind | Cardinality | Named tag argument |
 | --- | --- | --- | --- | --- |
+| Box | `box.bottom` | Face | one | `bottom_face_tag` |
+| Box | `box.top` | Face | one | `top_face_tag` |
+| Box | `box.front` | Face | one | `front_face_tag` |
+| Box | `box.back` | Face | one | `back_face_tag` |
+| Box | `box.left` | Face | one | `left_face_tag` |
+| Box | `box.right` | Face | one | `right_face_tag` |
+| Cone | `cone.start` | Face | one | `start_face_tag` |
+| Cone | `cone.end` | Face | one | `end_face_tag` |
+| Cone | `cone.side` | Face | one | `side_face_tag` |
+| Cone | `cone.start_boundary` | Edge | one | `start_edge_tag` |
+| Cone | `cone.end_boundary` | Edge | one | `end_edge_tag` |
+| Cone | `cone.seam` | Edge | one | `seam_edge_tag` |
 | Extrude | `extrusion.start` | Face | one | `start_face_tag` |
 | Extrude | `extrusion.end` | Face | one | `end_face_tag` |
 | Extrude | `extrusion.side` | Face | many | `side_faces_tag` |
@@ -78,17 +90,59 @@ result is required and all proven results are tagged.
 | Sweep | `sweep.start` | Face | one | `start_face_tag` |
 | Sweep | `sweep.end` | Face | one | `end_face_tag` |
 | Sweep | `sweep.side` | Face | many | `side_faces_tag` |
+| Twisted sweep | `twisted_sweep.start` | Face | one | `start_face_tag` |
+| Twisted sweep | `twisted_sweep.end` | Face | one | `end_face_tag` |
+| Twisted sweep | `twisted_sweep.side` | Face | many | `side_faces_tag` |
 
-Every feature also accepts `result_tag` for its one result Solid and
-`output_tags={"full.role.name": "semantic.tag"}` as the generic role form.
-Unknown roles, duplicate named/generic assignments, malformed tags, unavailable
-roles, and cardinality mismatches fail the operation. A full revolve has no
+Every feature also accepts `result_tag` for its one result Solid. Each output
+role has one semantic tag argument named for the target, such as
+`start_face_tag`, `side_faces_tag`, or `generated_faces_tag`; there is no generic
+role-to-tag mapping. Malformed tags, unavailable roles, and cardinality
+mismatches fail the operation. A full revolve has no
 separate start/end cap roles. Shell roles vary with actual OCC history and are
-not synthesized when unavailable. Sweep rejects profiles with inner wires.
+not synthesized when unavailable. Box Edge roles are unsupported because the
+kernel builder has no equivalent direct Edge witnesses. Sweep and twisted sweep
+reject profiles with inner wires. A pointed cone has no `cone.end` cap Face, but its
+`cone.end_boundary` remains the kernel-proven degenerate apex Edge.
 
 Use `ql.output_role(role_name=...)` to query operation role evidence. Use
 `ql.source_binding(binding_id=...)` and `ql.source_topology(topo_id=...)` only for
 projected local `TagBinding` evidence.
+
+## Unified Tag Contract
+
+Topology identity and user semantics use the same `TagBinding` and public query
+surfaces. The authoring path and evidence determine projection behavior, not the
+tag text:
+
+- `tag_prefix="housing"` creates topology-identity tags such as
+  `housing.face.top` and `housing.solid`. These bindings carry `topology_name`
+  evidence and identify kernel-proven result topology.
+- `top_face_tag="role.cover"` attaches `role.cover` to the kernel-proven top
+  Face. Its binding carries operation output role evidence.
+- `result_tag="part.housing"` attaches `part.housing` to the returned Solid.
+  Its binding carries operation result evidence.
+
+All three are discoverable with `list_tags(...)` and `explain_tag(...)` and
+queryable with `ql.tag(...)`. A topology object may carry all three. Only a
+topology-identity binding projects through the stricter exact-correspondence
+path; a tag string does not opt into that behavior by resembling a topology tag.
+
+## Constrained Sketch Tag Surface
+
+Sketch entity IDs are creation-time local identifiers. When a constrained
+profile is promoted, the exact ordered promotion map creates topology-identity
+`TagBinding`s with `topology_name` evidence:
+
+- Profile `bottom` in sketch `rect`: `sketch.rect.profile.bottom` on the Face or Wire.
+- Entity `right` in sketch `rect`: `sketch.rect.entity.right` on its promoted Edge.
+
+The promotion path validates that the generated Edge count equals the entity
+map before attaching tags. It does not use geometric similarity, area,
+normal, position, or enumeration order to repair a mismatch. Compatibility
+tags such as `sketch_entity.right` remain ordinary compatibility tags.
+Downstream features project topology-identity bindings only when kernel history
+proves exact source-to-target correspondence.
 
 ## Recommended reading order
 
@@ -102,12 +156,16 @@ projected local `TagBinding` evidence.
 ## Typical replayable surface
 
 ```python
-from simplecadapi import GraphSession, export_model_json, replay_model_json
+import simplecadapi as scad
 
-with GraphSession() as session:
-    ...
+@scad.model(graph_id="demo")
+def build_model():
+    result = ...
+    scad.capture_result(value=result)
+    return result
 
-model_json = export_model_json(session=session)
-rebuilt = replay_model_json(json_str=model_json)
+model = build_model()
+model_json = model.model_json
+rebuilt = model.replay()
 print(len(rebuilt))
 ```

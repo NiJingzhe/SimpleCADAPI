@@ -8,7 +8,6 @@ def chamfer_rsolid(
     edges: Union[Sequence[Edge], ShapeSelector],
     distance: ScalarLike,
     *,
-    output_tags: Optional[Mapping[str, str]] = None,
     result_tag: Optional[str] = None,
     generated_faces_tag: Optional[str] = None,
 ) -> Solid
@@ -23,9 +22,8 @@ def chamfer_rsolid(
 ## Description
 
 Apply chamfers to selected solid edges. `generated_faces_tag` targets every face
-with the kernel-proven `chamfer.patch` role. The equivalent generic form is
-`output_tags={"chamfer.patch": "role.label_surface"}`. OCC contour expansion is
-included rather than treating only the seed edge as the feature boundary.
+with the kernel-proven `chamfer.patch` role. OCC contour expansion is included
+rather than treating only the seed edge as the feature boundary.
 
 The operation fails if a requested patch role has no proven result. `result_tag`
 tags the resulting solid, and graph recording lowers assignments to replayable

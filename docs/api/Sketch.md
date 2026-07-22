@@ -22,3 +22,12 @@ Use `make_sketch_rsketch(...)`, `add_point_rsketch(...)`,
 profiles. Public sketch construction APIs are functional and return an
 updated `Sketch` document. The legacy `curves` constructor remains only for
 reading already-built wire/edge containers.
+
+Entity IDs are creation-time local identifiers, not geometry guesses. During
+`make_wire_from_sketch_rwire(...)` or `make_face_from_sketch_rface(...)`, the
+promotion map binds each ordered profile entity to exactly one generated Edge.
+The canonical topology-identity tags are
+`sketch.<sketch-name>.entity.<entity-id>` and
+`sketch.<sketch-name>.profile.<profile-id>`, with `topology_name` evidence.
+Downstream features can project those tags only when their kernel history
+proves one-source/one-target correspondence.

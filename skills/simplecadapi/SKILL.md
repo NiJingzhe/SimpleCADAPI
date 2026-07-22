@@ -37,7 +37,7 @@ metadata:
 4. Prefer the standard parts library for standard parts before hand-modeling with core geometry APIs.
 5. Follow the documented API signatures exactly.
 6. When calling any SimpleCAD public API or standard-library function, use keyword arguments for every documented parameter; do not use positional arguments.
-7. Use the graph/model JSON workflow for replayable tasks: `GraphSession`, `export_session_json`, `export_model_json`, `import_model_json`, and `replay_model_json`.
+7. Use one `@model` entry point for replayable tasks, `@requires_session` for child builders, `capture_result(...)` for explicit outputs, and the returned `ModelResult` for model/session JSON and replay.
 8. Use geometry APIs for integrated parts: profiles, features, booleans, transforms, tagging, QL inspection, serialization, and exports.
 9. Use tags through `apply_tag(shape=..., tag=...)`, `apply_tag_rselection(scope=..., targets=..., tag=...)`, `list_tags(shape=..., scope=...)`, and `explain_tag(shape=..., tag=..., scope=...)`; do not call shape member tag mutators.
 10. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
@@ -47,7 +47,7 @@ metadata:
 14. For automated example/test harnesses, prefer the repo-local examples in `examples/` and avoid scratch scripts in `sandbox/`.
 15. If union cannot produce exactly one merged solid, it fails explicitly; do not silently pick one piece.
 16. If a single merged solid is required and union fails, slightly adjust part placement so intended bodies overlap/embed, then recompute.
-17. If a task depends on model replay or interchange, prefer `export_model_json()` output over hand-written payloads.
+17. If a task depends on model replay or interchange, prefer `ModelResult.model_json` or `export_model_json()` output over hand-written payloads.
 
 ## Standard Parts Library
 - SimpleCAD includes a standard library for parameterized mechanical parts.
@@ -69,11 +69,11 @@ metadata:
 - Build from lower-dimensional geometry to higher-dimensional geometry: `Vertex` / `Edge` / `Wire` / `Face` profiles first, then `Solid` features such as extrude, revolve, loft, and sweep.
 - Keep modeling operations functional. Create new values from public functions such as `make_circle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolid(...)`, and `fillet_rsolid(...)`.
 - Use keyword arguments for all SimpleCAD function calls, for example `make_box_rsolid(width=10.0, height=20.0, depth=3.0)` instead of positional arguments.
-- Use `GraphSession` when the model should be replayable, inspectable, exported as model JSON, or translated to another CAD system.
-- Treat model JSON as the interchange boundary. Prefer `export_model_json(session=...)` and `replay_model_json(json_str=...)` over hand-authored operation payloads.
+- Use `@model` when the top-level model should be replayable, inspectable, exported as model JSON, or translated to another CAD system. It owns one `GraphSession`; reusable graph-producing builders use `@requires_session`.
+- Treat model JSON as the interchange boundary. Prefer `ModelResult.model_json` and `ModelResult.replay()` for top-level models; use `export_model_json(session=...)` for lower-level direct sessions and `replay_model_json(json_str=...)` for standalone payloads.
 - Use QL for precise grounding. Query faces, edges, centers, normals, areas, lengths, curve types, and tags; print only the facts needed to validate the current step.
 - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` when an indexed topology pick is intentional; these picks are preserved as geo select nodes in replayable graph workflows.
-- Use tags for semantic intent and selection anchors, such as `role.mounting_surface`, `anchor.datum.primary`, `face.top`, or `group.fasteners`.
+- Use tags for topology identity, semantic intent, and selection anchors, such as `housing.face.top`, `role.mounting_surface`, `anchor.datum.primary`, or `group.fasteners`.
 - Keep numeric and geometric facts in metadata or graph payloads, not in tags.
 - When a QL-selected face or edge is used by a later feature, expect the graph/model workflow to preserve that selection as a stable geo select node.
 - For FreeCAD translation, prefer canonical model JSON generated from a `GraphSession`; selected profiles and detail-feature selections should come from the graph rather than ad hoc object lookup.
@@ -84,11 +84,14 @@ metadata:
 - Public tag inspection is `list_tags(shape=..., scope=...)`, which returns a stable sorted list. Use `explain_tag(...)` when producer and evidence matter.
 - Tags are normalized lowercase dot-separated semantic tokens, for example `role.mounting_surface`, `anchor.datum.primary`, `group.fasteners`, `face.top`, or `solid.boolean.cut`.
 - Do not encode numeric dimensions or descriptive geometry payloads in tags; store them in metadata such as `shape.get_metadata("geo")` or `shape.set_metadata(...)`.
-- All new user assignments default to local topology propagation; tag prefixes never imply inheritance. Use `TopologyPropagation.DOWNWARD` explicitly when descendants should inherit a binding.
+- Direct user assignments default to local topology propagation regardless of tag text. Constructor-generated topology-identity Face tags may use downward propagation so boundary Edges expose the Face tag; use `TopologyPropagation.DOWNWARD` explicitly for the same behavior in `apply_tag_rselection(...)`.
 - `effective` includes local and inherited bindings but excludes lineage. Use `scope=TagScope.LINEAGE` only when complete topology-history evidence is available.
 - Operation events, source roles, and feature output roles are typed `metadata["track"]`, not flat tags. Query them with `ql.operation_event(...)`, `ql.origin_role(...)`, and `ql.output_role(...)`; unknown correspondence remains partial/unknown.
-- `extrude_rsolid`, `revolve_rsolid`, `fillet_rsolid`, `chamfer_rsolid`, `shell_rsolid`, `loft_rsolid`, and `sweep_rsolid` accept strict role-based output tags. Requested roles must have complete kernel evidence and satisfy their documented cardinality or the whole call fails.
-- Named feature tag arguments and generic `output_tags={role: tag}` lower to canonical `apply_tag_rselection` nodes in a `GraphSession`; they are not geometry parameters. Do not provide the same role through both forms.
+- `extrude_rsolid`, `revolve_rsolid`, `fillet_rsolid`, `chamfer_rsolid`, `shell_rsolid`, `loft_rsolid`, `sweep_rsolid`, and `twisted_sweep_rsolid` accept strict role-specific tag arguments. Requested roles must have complete kernel evidence and satisfy their documented cardinality or the whole call fails.
+- Role-specific tag arguments and `result_tag` lower to canonical `apply_tag_rselection` nodes in a `GraphSession`; they are semantic assignments, not geometry parameters. There is one public argument per target role; do not use a generic role-to-tag mapping.
+- Topology identity and user semantics use the same `TagBinding`, `list_tags(...)`, `explain_tag(...)`, and `ql.tag(...)` surfaces. One topology object may carry multiple tags for different purposes.
+- Geometry constructors and features use `tag_prefix` to create topology-identity tags such as `housing.face.top`; profile APIs use `edge_tag` or `edge_tags` for local Edge tag segments. These bindings carry `topology_name` evidence and project only across exact kernel-proven correspondence.
+- Role-specific `*_tag` arguments and `result_tag` create tags with operation-role or result evidence. Tag text alone does not determine evidence or projection policy.
 - Query proven source projection with `ql.source_binding(...)` or `ql.source_topology(...)`. These predicates inspect canonical local binding evidence, never tag text or geometric similarity.
 - When a tagged profile entity must feed a later feature, pass the semantic view returned by `apply_tag_rselection(...)` into that feature. Tagging a detached branch and then using the original profile does not create hidden graph coupling.
 - Prefer scoped QL tag predicates (`ql.tag("role.*", scope="effective")`, `ql.select(...).where(...)`) for inspection and grounding.
@@ -106,20 +109,22 @@ metadata:
 
 ```python
 import simplecadapi as scad
-from simplecadapi import GraphSession, export_model_json, make_box_rsolid
+from simplecadapi import ModelResult, capture_result, model, requires_session
 ```
 
 Typical replayable usage in a Python script:
 
 ```python
 import simplecadapi as scad
-from simplecadapi import GraphSession, export_model_json, replay_model_json
 
-with GraphSession() as session:
+@scad.model(graph_id="box")
+def build_box():
     shape = scad.make_box_rsolid(width=10.0, height=20.0, depth=30.0)
+    scad.capture_result(value=shape)
+    return shape
 
-model_json = export_model_json(session=session)
-rebuilt = replay_model_json(json_str=model_json)
+result = build_box()
+rebuilt = result.replay()
 print(len(rebuilt))
 ```
 

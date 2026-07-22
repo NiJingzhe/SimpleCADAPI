@@ -6,36 +6,40 @@
 - Use the standard parts library first when a requested standard component is available and does not need complex custom geometry changes.
 - Start from profiles and reference geometry, then create solids with features such as extrude, revolve, loft, and sweep.
 - Use booleans and detail features after the base form is clear: cut openings, union intended merged bodies, then apply fillets, chamfers, or shell operations.
-- Use `GraphSession` whenever the result should be replayable, inspectable, serialized, or translated.
+- Use `@scad.model` for a top-level replayable entry point. It owns one `GraphSession` and returns a `ModelResult`; use `@scad.requires_session` for child builders.
 - Use QL for grounding and selection. Query the facts you need, such as face normals, centers, areas, edge lengths, curve types, and tags.
 - Use indexed child-geometry getters such as `get_edges(index)` and `get_faces(index)` when an indexed topology pick is intentional.
 - Use semantic tags for design intent and anchors. Keep numeric measurements and geometry facts in metadata or model JSON payloads.
-- Treat `export_model_json()` as the interchange boundary for replay and CAD translation.
+- Treat `ModelResult.model_json` as the interchange boundary for new model entry points. Use `export_model_json(session=...)` for lower-level direct sessions.
 - Declare directly controlled dimensions with `var(..., unit=..., tolerance=..., tolerance_unit=...)`, and attach derived requirements with `GraphSession.require_tolerance(...)` when manufacturing variation matters.
 - Validate incrementally: after each major step, print small QL-derived facts such as selected face count, top face center, edge count, volume, or replay result count.
 
 ## 1) Capture a replayable modeling flow
 
 ```python
-from simplecadapi import GraphSession, export_model_json
+import simplecadapi as scad
 
-with GraphSession() as session:
-    ...
+@scad.model(graph_id="bracket")
+def build_bracket():
+    body = scad.make_box_rsolid(width=20.0, height=10.0, depth=3.0)
+    scad.capture_result(value=body)
+    return body
 
-payload = export_model_json(session=session)
+result = build_bracket()
+payload = result.model_json
+rebuilt = result.replay()
 ```
 
 ## 2) Import and use in Python
 
 ```python
 import simplecadapi as scad
-from simplecadapi import GraphSession, export_model_json
 ```
 
 ## 3) Keep replay payloads as the interchange boundary
 
 - Prefer `export_model_json()` output instead of hand-written payloads.
-- Use `replay_model_json()` when you need deterministic reconstruction.
+- Use `ModelResult.replay()` for a model invocation, or `replay_model_json(json_str=...)` when consuming standalone model JSON.
 - Use `import_model_json()` when consuming previously exported payloads.
 
 ## 4) Use standard parts when they fit
@@ -50,10 +54,10 @@ gear = scad.std.gear.make_spur_gear_rsolid(
 )
 rack = scad.std.gear.make_spur_rack_rsolid(module=1.5, n_teeth=18)
 bearing = scad.std.bearing.make_ball_bearing_rassembly(
-    8.0,
-    22.0,
-    7.0,
-    3.5,
+    bore_diameter=8.0,
+    outer_diameter=22.0,
+    bearing_width=7.0,
+    ball_diameter=3.5,
 )
 ```
 
@@ -67,7 +71,8 @@ bearing = scad.std.bearing.make_ball_bearing_rassembly(
 import simplecadapi as scad
 from simplecadapi import ql
 
-with scad.GraphSession() as session:
+@scad.model(graph_id="swept_profile")
+def build_model():
     profile = scad.make_circle_rface(center=(0, 0, 0), radius=1.0)
     body = scad.extrude_rsolid(
         profile=profile,
@@ -85,9 +90,11 @@ with scad.GraphSession() as session:
     print("end face center", end_face.get_center())
     path = scad.make_segment_rwire(start=(0, 0, 4), end=(0, 0, 8))
     swept = scad.sweep_rsolid(profile=end_face, path=path)
+    scad.capture_result(value=swept)
+    return swept
 
-payload = scad.export_model_json(session=session)
-rebuilt = scad.replay_model_json(json_str=payload)
+result = build_model()
+rebuilt = result.replay()
 print("rebuilt", len(rebuilt))
 ```
 
@@ -97,16 +104,19 @@ print("rebuilt", len(rebuilt))
 - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` for intentional indexed picks in examples.
 - Attach local semantic tags with `apply_tag(shape=..., tag=...)`. Use `apply_tag_rselection(...)` for selector targets, explicit downward inheritance, or immutable semantic branches.
 - Inspect with `list_tags(shape=..., scope=...)` and `explain_tag(...)`; `effective` excludes `lineage`.
-- Use tags for intent, roles, anchors, groups, and topology names.
+- Use tags for topology identity, intent, roles, anchors, and groups.
 - Store dimensions, positions, measured geometry, operation events, source roles, and descriptive payloads in metadata or model JSON, not in tags.
 - Keep QL result prints concise: selected count, centers, normals, areas, lengths, or tags.
 
 ## 7) Kernel-proven feature output roles
 
 - Feature output roles are typed tracking evidence, not user tag strings. Query them with `ql.output_role(role_name=...)`.
-- The feature APIs accept named tag arguments and a generic `output_tags={role: tag}` mapping. Every requested role is strict: `one` roles require exactly one proven target, and `many` roles require at least one and tag the full proven set.
-- Generic and named forms cannot assign the same role in one call. Unknown roles and non-normalized tags fail before returning geometry.
+- The feature APIs expose one named tag argument per output role. Every requested role is strict: `one` roles require exactly one proven target, and `many` roles require at least one and tag the full proven set.
+- There is no generic role-to-tag mapping. Unknown or unavailable roles and non-normalized tags fail before returning geometry.
 - `result_tag` targets the one result Solid. Role tags target Faces except for `shell.wall`, which targets Edges.
+- `tag_prefix` creates topology-identity tags such as `body.face.side.right`; role-specific tag parameters and `result_tag` create tags such as `role.mounting_surface` and `part.body`. They share one tag API, while their evidence and projection policies differ. Tag text alone never establishes topology identity.
+- Box exposes the exact `box.bottom`, `box.top`, `box.front`, `box.back`, `box.left`, and `box.right` Face roles. It does not expose Edge roles; use tagged incident Faces with QL `incident_to(...)` or `shared_boundary(...)` for exact Box Edge selection.
+- Cone exposes `cone.start`, optional `cone.end`, and `cone.side` Face roles plus `cone.start_boundary`, `cone.end_boundary`, and `cone.seam` Edge roles. A pointed cone has no end cap Face, but its end boundary is retained as the kernel's degenerate apex Edge.
 - A 360-degree revolve has no distinct start/end caps. Requesting those tags fails rather than inventing cap roles.
 - Shell role availability follows actual OCC evidence. For example, an operation may prove offset faces, closing descendants, and wall edges without proving a `shell.body_face` set.
 - Sweep currently rejects a profile with inner wires rather than silently sweeping only its outer wire.
@@ -180,14 +190,23 @@ text or infer ancestry from geometry. Calling `apply_tag_rselection(...)` but th
 passing the original profile to the feature creates a detached semantic branch and
 does not authorize hidden coupling.
 
-## 9) Boolean and body discipline
+## 9) Constrained Sketch topology tags
+
+- Give every profile entity a stable explicit `entity_id` when constructing a constrained Sketch.
+- Promote through `make_wire_from_sketch_rwire(...)` or `make_face_from_sketch_rface(...)`; the promotion map is the exact entity-to-Edge correspondence.
+- Inspect canonical topology-identity tags with `ql.tag("sketch.rect.entity.right")` or `explain_tag(...)`; the evidence contains `topology_name` and `SketchPromotionMap`.
+- A promoted profile receives `sketch.<sketch-name>.profile.<profile-id>` and each boundary Edge receives `sketch.<sketch-name>.entity.<entity-id>`.
+- If the generated Edge count differs from the promotion map, fail rather than guessing correspondence.
+- A feature can project a Sketch entity topology tag only when kernel history proves one source Edge to one result Face.
+
+## 10) Boolean and body discipline
 
 - Use `union_rsolid(...)` when multiple solids should become one integrated body.
 - Ensure bodies that should union into one solid have real geometric overlap or embedding.
 - Use `cut_rsolid(...)` for subtractive features and `intersect_rsolid(...)` for common-volume workflows.
 - Validate body count and volume after major boolean operations.
 
-## 8) Dimension tolerance chains
+## 11) Dimension tolerance chains
 
 ```python
 width = scad.var("width", 10.0, unit="mm", tolerance=0.1)

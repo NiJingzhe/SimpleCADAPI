@@ -9,7 +9,7 @@ def revolve_rsolid(
     angle: ScalarLike = 360,
     origin: Tuple[float, float, float] = (0, 0, 0),
     *,
-    output_tags: Optional[Mapping[str, str]] = None,
+    tag_prefix: Optional[str] = None,
     result_tag: Optional[str] = None,
     start_face_tag: Optional[str] = None,
     end_face_tag: Optional[str] = None,

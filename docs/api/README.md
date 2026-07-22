@@ -65,6 +65,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [loft_rsolid](loft_rsolid.md) *(from operations.py)* `top-level`
 - [revolve_rsolid](revolve_rsolid.md) *(from operations.py)* `top-level`
 - [sweep_rsolid](sweep_rsolid.md) *(from operations.py)* `top-level`
+- [twisted_sweep_rsolid](twisted_sweep_rsolid.md) *(from operations.py)* `top-level`
 
 ## Tagging and Selection
 
@@ -74,6 +75,27 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [list_tags](list_tags.md) *(from operations.py)* `top-level`
 - [select_edges_by_tag](select_edges_by_tag.md) *(from operations.py)* `top-level`
 - [select_faces_by_tag](select_faces_by_tag.md) *(from operations.py)* `top-level`
+
+Creation-time topology-identity tags are supported by profile constructors and
+native feature primitives through `tag_prefix`. QL selectors also support `shared_boundary(...)`,
+`intersection(...)`, `incident_to(...)`, `incident_face_count(...)`, and
+`solids()` for relation-aware Edge selection.
+
+## Unified Tag Contract
+
+Topology identity and user semantics share one public tag model. Every binding
+is inspected with `list_tags(...)` and `explain_tag(...)` and queried with
+`ql.tag(...)`; one topology object may carry several tags for different uses.
+
+`tag_prefix="housing"` creates topology-identity tags such as
+`housing.face.top` and `housing.solid`. These bindings carry `topology_name`
+evidence and project only when kernel history proves exact correspondence.
+
+Role parameters such as `top_face_tag`, `side_faces_tag`, and
+`generated_faces_tag`, plus `result_tag`, create tags whose evidence identifies
+the kernel-proven role or result. Their tag text alone does not establish
+topology identity. There is one public tag parameter per target role, not a
+generic role-to-tag mapping.
 
 ## Boolean Operations
 
@@ -100,6 +122,10 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 ## Modeling Graph and Replay
 
 - [GraphSession](GraphSession.md) *(from graph.py)* `top-level`
+- [ModelResult](ModelResult.md) *(from graph.py)* `top-level`
+- [capture_result](capture_result.md) *(from graph.py)* `top-level`
+- [model](model.md) *(from graph.py)* `top-level`
+- [requires_session](requires_session.md) *(from graph.py)* `top-level`
 - [export_graph_json](export_graph_json.md) *(from serializer.py)* `top-level`
 - [export_model_json](export_model_json.md) *(from serializer.py)* `top-level`
 - [export_session_json](export_session_json.md) *(from serializer.py)* `top-level`
@@ -236,6 +262,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`
+- [solids](solids.md) *(from ql.py)* `submodule:ql`
 - [solve_assembly_constraints_rassembly](solve_assembly_constraints_rassembly.md) *(from operations.py)* `top-level`
 - [source_binding](source_binding.md) *(from ql.py)* `submodule:ql`
 - [source_topology](source_topology.md) *(from ql.py)* `submodule:ql`
