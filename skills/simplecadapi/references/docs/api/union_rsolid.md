@@ -3,7 +3,13 @@
 ## API Definition
 
 ```python
-def union_rsolid(*solids: Union[Solid, Sequence[Solid]], clean: bool = True, glue: bool = _DEFAULT_UNION_GLUE, tol: Optional[float] = None) -> Solid
+def union_rsolid(
+    *solids: Union[Solid, Sequence[Solid]],
+    clean: bool = True,
+    glue: bool = _DEFAULT_UNION_GLUE,
+    tol: Optional[float] = None,
+    tracking_policy: TrackingPolicy | str = TrackingPolicy.FULL,
+) -> Solid
 ```
 
 *Source: operations.py*
@@ -39,6 +45,10 @@ returning multiple pieces.
 
 - **Type**: `Optional fuzzy-boolean tolerance used by the OCC union kernel. When`
 - **Description**: omitted, SimpleCAD chooses a conservative scale-aware tolerance.
+
+### tracking_policy
+
+- **Description**: `TrackingPolicy.FULL` computes topology history and lineage. `TrackingPolicy.GRAPH` preserves the canonical union node, parameters, inputs, result topology references, and replay while omitting `TopoDelta` and history-derived topology lineage. Geometry options `clean`, `glue`, and `tol` are unchanged.
 
 ## Returns
 

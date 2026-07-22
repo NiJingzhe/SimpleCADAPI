@@ -17,4 +17,5 @@ def make_sketch_rsketch(name: Optional[str] = None, *, plane: Any = 'XY', sketch
 Create an empty declarative sketch document.
 
 Use this API, not concrete edge/wire constructors, when the intent is to
-build a sketch profile with constraints.
+build a sketch profile with constraints. The sketch name and explicit entity
+IDs are stable local identifiers used by constrained profile promotion.

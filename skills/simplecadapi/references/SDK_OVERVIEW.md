@@ -25,7 +25,7 @@
 - Graph/model serialization and replay APIs.
 - Expression, parameter, and semantic reference types.
 - Source-preserving tagging with `apply_tag(...)`, `apply_tag_rselection(...)`, scoped `list_tags(...)`/`explain_tag(...)`, and scoped QL tag predicates.
-- Kernel-proven feature output roles and strict role-based output tag assignment for extrude, revolve, fillet, chamfer, shell, loft, and sweep.
+- Kernel-proven primitive and feature output roles with strict role-based output tag assignment for box, cylinder, extrude, revolve, fillet, chamfer, shell, loft, sweep, and twisted sweep.
 - Serializable QL predicates for `output_role`, projected `source_binding`, and projected `source_topology` evidence.
 
 ## Preferred replayable workflow

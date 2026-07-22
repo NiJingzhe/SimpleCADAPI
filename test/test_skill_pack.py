@@ -181,6 +181,9 @@ class TestSkillPackPathResolution(unittest.TestCase):
             content = packager._build_skill_markdown()
 
             self.assertIn("GraphSession", content)
+            self.assertIn("ModelResult", content)
+            self.assertIn("@model", content)
+            self.assertIn("capture_result", content)
             self.assertIn("export_model_json", content)
             self.assertIn("replay_model_json", content)
             self.assertIn("Use the graph/model JSON workflow", content)

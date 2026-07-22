@@ -9,7 +9,7 @@ def revolve_rsolid(
     angle: ScalarLike = 360,
     origin: Tuple[float, float, float] = (0, 0, 0),
     *,
-    output_tags: Optional[Mapping[str, str]] = None,
+    tag_prefix: Optional[str] = None,
     result_tag: Optional[str] = None,
     start_face_tag: Optional[str] = None,
     end_face_tag: Optional[str] = None,
@@ -31,4 +31,6 @@ Create a solid by revolving a profile around an axis. Kernel history assigns
 Start and end roles require exactly one proven face; side tags apply to every
 proven side face. A full 360-degree revolve normally has no separate start or end
 face, so requesting either cap tag raises a capability error rather than guessing.
-`result_tag` tags the resulting solid. Role tags are replayable semantic nodes.
+The semantic role tag arguments attach tags to the proven cap or side Faces.
+`result_tag` tags the resulting Solid. These assignments are replayable
+semantic nodes.

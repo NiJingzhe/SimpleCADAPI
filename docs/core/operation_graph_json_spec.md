@@ -336,7 +336,7 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 
 - `make_*_face` 与 `make_face_from_wire` -> `Sketch`
 - `make_*_edge` / `make_*_wire` -> `Profile`
-- `make_extrude_rsolid` / `make_revolve_rsolid` / `make_loft_rsolid` / `make_sweep_rsolid` / `make_fillet_rsolid` / `make_chamfer_rsolid` / `make_shell_rsolid` / `make_cut_rsolid` / `make_union_rsolid` / `make_intersect_rsolid` -> `Feature`
+- `make_extrude_rsolid` / `make_revolve_rsolid` / `make_loft_rsolid` / `make_sweep_rsolid` / `make_twisted_sweep_rsolid` / `make_fillet_rsolid` / `make_chamfer_rsolid` / `make_shell_rsolid` / `make_cut_rsolid` / `make_union_rsolid` / `make_intersect_rsolid` -> `Feature`
 
 ## 7. Topology Delta Schema
 
@@ -1028,6 +1028,7 @@ New canonical profile nodes use the `make_*_r*` names listed in `canonical_contr
 - `make_revolve_rsolid`
 - `make_loft_rsolid`
 - `make_sweep_rsolid`
+- `make_twisted_sweep_rsolid`
 - `make_translate_rshape`
 - `make_rotate_rshape`
 - `make_mirror_rshape`
@@ -1387,6 +1388,23 @@ Important:
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `is_frenet` | `bool` | sweep orientation mode |
+
+#### `make_twisted_sweep_rsolid`
+
+- Inputs: 1 profile `Face`
+- Outputs: 1 `Solid`
+- Params:
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `axis` | 3-number array | sweep and rotation-axis direction in caller coordinates |
+| `origin` | 3-number array | sweep start and a point on the rotation axis |
+| `distance` | positive number | axial sweep distance |
+| `twist_angle` | number | signed total rotation in degrees |
+| `guide_radius` | positive number | internal auxiliary-spine radius |
+
+Replay rebuilds the auxiliary spine deterministically inside the operation. It
+does not infer section counts or lower to transient loft nodes.
 
 ### 14.6 Boolean Ops
 
