@@ -8,6 +8,14 @@ from ....topology import OperationNode
 from ..codegen import *
 
 
+_TWISTED_SWEEP_EMULATION_LIMITATION = (
+    "FreeCAD has no auxiliary-spine twisted-sweep feature. This object is a "
+    "smooth solid loft through rotated and translated profile sections; it "
+    "approximates the continuous SimpleCAD sweep, and expressions are evaluated "
+    "when the generated script runs rather than remaining dynamically bound."
+)
+
+
 class FeatureEmitterMixin:
     def _emit_features(
         self,
@@ -146,6 +154,12 @@ class FeatureEmitterMixin:
                 f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
             )
             lines.extend(finish())
+            return lines
+        if node.op == "make_twisted_sweep_rsolid" and len(inputs) == 1:
+            lines = [
+                f"{var_name} = _make_feature({_json_ascii(object_name)}, _twisted_sweep_loft_shape(GRAPH_NODES[{_json_ascii(inputs[0])}], axis=_resolve_vec3_param({rp}, {re}, 'axis'), origin=_resolve_vec3_param({rp}, {re}, 'origin'), distance=float(_resolve_param_value({rp}, {re}, 'distance')), twist_angle=float(_resolve_param_value({rp}, {re}, 'twist_angle'))), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+                f"_mark_emulated_translation({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, reason={_json_ascii(_TWISTED_SWEEP_EMULATION_LIMITATION)})",
+            ]
             return lines
         return None
 

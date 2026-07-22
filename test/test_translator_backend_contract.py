@@ -75,6 +75,10 @@ class TestTranslatorBackendContract(unittest.TestCase):
             CAPABILITIES.operations["apply_tag_rselection"].level,
             SupportLevel.METADATA_ONLY,
         )
+        self.assertIs(
+            CAPABILITIES.operations["make_twisted_sweep_rsolid"].level,
+            SupportLevel.EMULATED,
+        )
         supported_ops = {
             op
             for op, capability in CAPABILITIES.operations.items()

@@ -86,6 +86,7 @@ EMITTER_METHOD_BY_OP: Dict[str, str] = {
     "make_revolve_rsolid": "_emit_features",
     "make_loft_rsolid": "_emit_features",
     "make_sweep_rsolid": "_emit_features",
+    "make_twisted_sweep_rsolid": "_emit_features",
     "make_cut_rsolid": "_emit_booleans",
     "make_union_rsolid": "_emit_booleans",
     "make_intersect_rsolid": "_emit_booleans",
