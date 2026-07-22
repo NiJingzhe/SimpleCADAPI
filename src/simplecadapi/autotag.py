@@ -331,6 +331,8 @@ def _project_source_bindings(
     source_entities: Dict[str, AnyShape],
     *,
     op: str,
+    require_lineage_policy: bool = False,
+    topology_source_targets: Optional[Dict[str, set[str]]] = None,
 ) -> None:
     if projected_tag_binding is None:
         return
@@ -352,9 +354,60 @@ def _project_source_bindings(
         local_bindings = getattr(source, "_local_tag_bindings", None)
         if not callable(local_bindings):
             continue
-        role = str(witness.get("result_role", "generated"))
+        derivation = str(witness.get("derivation", "unknown")).lower()
+        event = _event_name(witness.get("event"))
+        role = str(witness.get("result_role") or event or derivation)
+        evidence_method = witness.get("evidence_method")
+        if evidence_method is None:
+            evidence_method = (
+                {
+                    "preserved": "Identity",
+                    "modified": "Modified",
+                    "generated": "Generated",
+                }.get(event, "KernelHistory")
+                if event is not None
+                else "KernelHistory"
+            )
         for binding in local_bindings():
-            if binding.producer.kind != TagProducerKind.USER_OPERATION:
+            is_user_binding = binding.producer.kind == TagProducerKind.USER_OPERATION
+            is_prior_projection = (
+                binding.producer.kind == TagProducerKind.AUTO_RULE
+                and binding.producer.rule_id
+                == "simplecad.feature_source_tag_projection"
+            )
+            is_operation_output_naming = isinstance(
+                binding.evidence.data.get("operation_output_role"), dict
+            ) or isinstance(
+                binding.evidence.data.get("source_operation_output_role"), dict
+            )
+            is_topology_naming = isinstance(
+                binding.evidence.data.get("topology_name"), dict
+            ) or isinstance(
+                binding.evidence.data.get("source_topology_name"), dict
+            )
+            if is_topology_naming:
+                source_ids = {
+                    str(item.get("input_topo_id"))
+                    for item in _normalized_witnesses(entry)
+                    if item.get("input_topo_id") is not None
+                }
+                exact_target_ids = (
+                    (topology_source_targets or {}).get(source.topo_id, set())
+                )
+                # Do not project a topology identity through a split or merge.
+                if len(source_ids) != 1 or exact_target_ids != {target.topo_id}:
+                    continue
+            if require_lineage_policy:
+                if (
+                    (not is_operation_output_naming and not is_topology_naming)
+                    or (not is_user_binding and not is_prior_projection)
+                ):
+                    continue
+            elif not (is_user_binding or is_prior_projection):
+                continue
+            if require_lineage_policy and not lineage_policy_allows(
+                binding.propagation, derivation
+            ):
                 continue
             add_binding(
                 projected_tag_binding(
@@ -363,7 +416,12 @@ def _project_source_bindings(
                     role=role,
                     source_topo_id=source.topo_id,
                     target_topo_id=target.topo_id,
-                    evidence_method=str(witness.get("evidence_method", "Generated")),
+                    evidence_method=str(evidence_method),
+                    topology=(
+                        "downward"
+                        if target.__class__.__name__ == "Face" and is_topology_naming
+                        else "local"
+                    ),
                 )
             )
 
@@ -425,6 +483,21 @@ def apply_tracking_tags(
         )
     }
 
+    topology_source_targets: Dict[str, set[str]] = {}
+    for target_id, entry in entries.items():
+        if str(entry.get("kind", "")).upper() != TopoKind.FACE.name:
+            continue
+        for witness in _normalized_witnesses(entry):
+            if (
+                witness.get("project_source_tags")
+                and str(witness.get("source_kind", "")).upper()
+                == TopoKind.EDGE.name
+                and witness.get("input_topo_id") is not None
+            ):
+                topology_source_targets.setdefault(
+                    str(witness["input_topo_id"]), set()
+                ).add(str(target_id))
+
     for face in solid.get_faces():
         topo_id = _topo_id(face.wrapped)
         entry = _matching_entry(entries, topo_id, TopoKind.FACE)
@@ -452,8 +525,22 @@ def apply_tracking_tags(
         )
         if source_faces and track["status"] == "proven":
             _carry_source_lineage(face, entry, source_faces, op=op_prefix)
+            _project_source_bindings(
+                face,
+                entry,
+                source_faces,
+                op=op_prefix,
+                require_lineage_policy=True,
+                topology_source_targets=topology_source_targets,
+            )
         if source_edges and track["status"] == "proven":
-            _project_source_bindings(face, entry, source_edges, op=op_prefix)
+            _project_source_bindings(
+                face,
+                entry,
+                source_edges,
+                op=op_prefix,
+                topology_source_targets=topology_source_targets,
+            )
 
     section_ids = {
         ref.topo_id for ref in delta.section_edges if ref.kind == TopoKind.EDGE

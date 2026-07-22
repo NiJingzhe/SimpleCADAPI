@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplecad.dev/schemas/normalized-product-1.schema.json",
+  "title": "SimpleCAD Normalized Product Definition 1",
+  "oneOf": [{"$ref": "#/$defs/part"}, {"$ref": "#/$defs/assembly"}],
+  "$defs": {
+    "safeInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "productId": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"},
+    "structuralId": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9._~%:/-]+$"},
+    "vec3": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}], "minItems": 3, "maxItems": 3},
+    "transform": {"type": "object", "additionalProperties": false, "required": ["origin", "x_axis", "y_axis", "z_axis"], "properties": {
+      "origin": {"$ref": "#/$defs/vec3"}, "x_axis": {"$ref": "#/$defs/vec3"}, "y_axis": {"$ref": "#/$defs/vec3"}, "z_axis": {"$ref": "#/$defs/vec3"}
+    }},
+    "modelBodySource": {"type": "object", "additionalProperties": false, "required": ["kind", "graph_id", "node_id", "output_slot"], "properties": {
+      "kind": {"const": "model_output"}, "graph_id": {"$ref": "#/$defs/productId"}, "node_id": {"$ref": "#/$defs/productId"}, "output_slot": {"$ref": "#/$defs/safeInteger"}
+    }},
+    "manualBodySource": {"type": "object", "additionalProperties": false, "required": ["kind", "source_id"], "properties": {
+      "kind": {"const": "manual"}, "source_id": {"$ref": "#/$defs/productId"}
+    }},
+    "bodySource": {"oneOf": [{"$ref": "#/$defs/modelBodySource"}, {"$ref": "#/$defs/manualBodySource"}]},
+    "material": {"type": "object", "additionalProperties": false, "required": ["material_id", "name", "density", "density_unit", "color", "metadata"], "properties": {
+      "material_id": {"$ref": "#/$defs/productId"}, "name": {"type": ["string", "null"]},
+      "density": {"type": ["number", "null"]}, "density_unit": {"type": ["string", "null"]},
+      "color": {"oneOf": [{"type": "null"}, {"type": "array", "prefixItems": [
+        {"type": "number", "minimum": 0, "maximum": 1}, {"type": "number", "minimum": 0, "maximum": 1}, {"type": "number", "minimum": 0, "maximum": 1}
+      ], "minItems": 3, "maxItems": 3}]}, "metadata": {"type": "object"}
+    }},
+    "geometryRef": {"type": "object", "additionalProperties": false, "required": ["kind", "source_node_id", "geo_selector", "flip"], "properties": {
+      "kind": {"enum": ["face", "edge", "vertex"]}, "source_node_id": {"type": ["string", "null"]}, "geo_selector": {"type": "object"}, "flip": {"type": "boolean"}
+    }},
+    "geometryAnchor": {"type": "object", "additionalProperties": false, "required": ["anchor_kind", "geometry_ref"], "properties": {
+      "anchor_kind": {"const": "geometry"}, "geometry_ref": {"$ref": "#/$defs/geometryRef"}
+    }},
+    "placementAnchor": {"type": "object", "additionalProperties": false, "required": ["anchor_kind", "placement"], "properties": {
+      "anchor_kind": {"const": "placement"}, "placement": {"$ref": "#/$defs/transform"}
+    }},
+    "forwardedAnchor": {"type": "object", "additionalProperties": false, "required": ["anchor_kind", "source_component_id", "source_connector_id", "offset"], "properties": {
+      "anchor_kind": {"const": "forwarded"}, "source_component_id": {"$ref": "#/$defs/productId"}, "source_connector_id": {"$ref": "#/$defs/productId"},
+      "offset": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/transform"}]}
+    }},
+    "connector": {"type": "object", "additionalProperties": false, "required": ["connector_id", "name", "anchor"], "properties": {
+      "connector_id": {"$ref": "#/$defs/productId"}, "name": {"type": ["string", "null"]},
+      "anchor": {"oneOf": [{"$ref": "#/$defs/geometryAnchor"}, {"$ref": "#/$defs/placementAnchor"}, {"$ref": "#/$defs/forwardedAnchor"}]},
+      "geometry_ref": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/geometryRef"}]}
+    }, "allOf": [
+      {"if": {"properties": {"anchor": {"properties": {"anchor_kind": {"const": "geometry"}}, "required": ["anchor_kind"]}}, "required": ["anchor"]}, "then": {"required": ["geometry_ref"]}},
+      {"if": {"properties": {"anchor": {"properties": {"anchor_kind": {"enum": ["placement", "forwarded"]}}, "required": ["anchor_kind"]}}, "required": ["anchor"]}, "then": {"not": {"required": ["geometry_ref"]}}}
+    ]},
+    "component": {"type": "object", "additionalProperties": false, "required": ["component_id", "name", "definition_ref", "local_placement"], "properties": {
+      "component_id": {"$ref": "#/$defs/productId"}, "name": {"type": ["string", "null"]}, "definition_ref": {"$ref": "#/$defs/structuralId"}, "local_placement": {"$ref": "#/$defs/transform"}
+    }},
+    "connectorRef": {"type": "object", "additionalProperties": false, "required": ["component_id", "connector_id"], "properties": {
+      "component_id": {"$ref": "#/$defs/productId"}, "connector_id": {"$ref": "#/$defs/productId"}
+    }},
+    "limit": {"type": "object", "additionalProperties": false, "required": ["lower_value", "upper_value"], "properties": {
+      "lower_value": {"type": "number"}, "upper_value": {"type": "number"}
+    }},
+    "constraint": {"type": "object", "additionalProperties": false, "required": [
+      "constraint_id", "constraint_kind", "connector_a", "connector_b", "drive_distance", "distance_limit", "drive_angle_degrees", "angle_limit",
+      "pitch_radius_a", "pitch_radius_b", "pulley_radius_a", "pulley_radius_b", "pitch_radius", "phase_offset", "name"
+    ], "properties": {
+      "constraint_id": {"$ref": "#/$defs/productId"}, "constraint_kind": {"enum": ["fixed", "revolute", "prismatic", "gear", "belt", "rack_pinion"]},
+      "connector_a": {"$ref": "#/$defs/connectorRef"}, "connector_b": {"$ref": "#/$defs/connectorRef"},
+      "drive_distance": {"type": ["number", "null"]}, "distance_limit": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/limit"}]},
+      "drive_angle_degrees": {"type": ["number", "null"]}, "angle_limit": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/limit"}]},
+      "pitch_radius_a": {"type": ["number", "null"]}, "pitch_radius_b": {"type": ["number", "null"]},
+      "pulley_radius_a": {"type": ["number", "null"]}, "pulley_radius_b": {"type": ["number", "null"]},
+      "pitch_radius": {"type": ["number", "null"]}, "phase_offset": {"type": ["number", "null"]}, "name": {"type": ["string", "null"]}
+    }},
+    "part": {"type": "object", "additionalProperties": false, "required": ["kind", "part_id", "body_source", "name", "material", "connectors", "metadata"], "properties": {
+      "kind": {"const": "part"}, "part_id": {"$ref": "#/$defs/productId"}, "body_source": {"$ref": "#/$defs/bodySource"}, "name": {"type": ["string", "null"]},
+      "material": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/material"}]}, "connectors": {"type": "array", "items": {"$ref": "#/$defs/connector"}}, "metadata": {"type": "object"}
+    }},
+    "assembly": {"type": "object", "additionalProperties": false, "required": ["kind", "assembly_id", "name", "components", "connectors", "constraints", "grounded_component_ids", "metadata"], "properties": {
+      "kind": {"const": "assembly"}, "assembly_id": {"$ref": "#/$defs/productId"}, "name": {"type": ["string", "null"]},
+      "components": {"type": "array", "items": {"$ref": "#/$defs/component"}}, "connectors": {"type": "array", "items": {"$ref": "#/$defs/connector"}},
+      "constraints": {"type": "array", "items": {"$ref": "#/$defs/constraint"}}, "grounded_component_ids": {"type": "array", "items": {"$ref": "#/$defs/productId"}, "uniqueItems": true},
+      "metadata": {"type": "object"}
+    }}
+  }
+}

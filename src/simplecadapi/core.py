@@ -380,18 +380,79 @@ class TaggedMixin:
     def __init__(self, entity: Optional[_TopoEntity] = None):
         self._entity = entity
         if entity is None:
-            self._tag_cache: Set[str] = set()
-            self._tag_bindings: List[TagBinding] = []
-            self._tag_lineage: List[TagLineageWitness] = []
-            self._metadata: Dict[str, Any] = {}
-            self._runtime: Dict[str, Any] = {}
+            self._standalone_tag_cache: Set[str] = set()
+            self._standalone_tag_bindings: List[TagBinding] = []
+            self._standalone_tag_lineage: List[TagLineageWitness] = []
+            self._standalone_metadata: Dict[str, Any] = {}
+            self._standalone_runtime: Dict[str, Any] = {}
         else:
-            self._tag_cache = entity.tags
-            self._tag_bindings = entity.tag_bindings
-            self._tag_lineage = entity.tag_lineage
-            self._metadata = entity.metadata
-            self._runtime = entity.runtime
             entity.wrappers.append(self)
+
+    @property
+    def _tag_cache(self) -> Set[str]:
+        entity = getattr(self, "_entity", None)
+        if entity is not None:
+            return entity.tags
+        return self._standalone_tag_cache
+
+    @_tag_cache.setter
+    def _tag_cache(self, values: Iterable[str]) -> None:
+        replacement = set(values)
+        target = self._tag_cache
+        target.clear()
+        target.update(replacement)
+
+    @property
+    def _tag_bindings(self) -> List[TagBinding]:
+        entity = getattr(self, "_entity", None)
+        if entity is not None:
+            return entity.tag_bindings
+        return self._standalone_tag_bindings
+
+    @_tag_bindings.setter
+    def _tag_bindings(self, values: Iterable[TagBinding]) -> None:
+        replacement = list(values)
+        self._tag_bindings[:] = replacement
+
+    @property
+    def _tag_lineage(self) -> List[TagLineageWitness]:
+        entity = getattr(self, "_entity", None)
+        if entity is not None:
+            return entity.tag_lineage
+        return self._standalone_tag_lineage
+
+    @_tag_lineage.setter
+    def _tag_lineage(self, values: Iterable[TagLineageWitness]) -> None:
+        replacement = list(values)
+        self._tag_lineage[:] = replacement
+
+    @property
+    def _metadata(self) -> Dict[str, Any]:
+        entity = getattr(self, "_entity", None)
+        if entity is not None:
+            return entity.metadata
+        return self._standalone_metadata
+
+    @_metadata.setter
+    def _metadata(self, values: Dict[str, Any]) -> None:
+        replacement = dict(values)
+        target = self._metadata
+        target.clear()
+        target.update(replacement)
+
+    @property
+    def _runtime(self) -> Dict[str, Any]:
+        entity = getattr(self, "_entity", None)
+        if entity is not None:
+            return entity.runtime
+        return self._standalone_runtime
+
+    @_runtime.setter
+    def _runtime(self, values: Dict[str, Any]) -> None:
+        replacement = dict(values)
+        target = self._runtime
+        target.clear()
+        target.update(replacement)
 
     @property
     def _tags(self) -> Set[str]:
@@ -444,7 +505,9 @@ class TaggedMixin:
             raise TypeError("binding must be a TagBinding")
         if not any(item.binding_id == binding.binding_id for item in self._tag_bindings):
             self._tag_bindings.append(binding)
-        self._refresh_tag_cache(recursive=True)
+        self._refresh_tag_cache(
+            recursive=binding.propagation.topology == TopologyPropagation.DOWNWARD
+        )
 
     def _add_tag_lineage(
         self,

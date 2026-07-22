@@ -6,6 +6,7 @@ import json
 import unittest
 
 import simplecadapi as scad
+from simplecadapi import ql as Q
 
 
 class TestSketchApi(unittest.TestCase):
@@ -91,6 +92,108 @@ class TestSketchApi(unittest.TestCase):
         face = scad.make_face_from_sketch_rface(sketch, require_fully_constrained=True)
         self.assertAlmostEqual(face.get_area(), 3.141592653589793 * 2.25, places=5)
         self.assertIn("sketch_entity.outer", scad.list_tags(face.get_edges(0)))
+
+    def test_constrained_sketch_promotion_has_topology_identity_tags(self):
+        sketch = self._make_constrained_rectangle()
+        face = scad.make_face_from_sketch_rface(
+            sketch, require_fully_constrained=True
+        )
+
+        self.assertEqual(
+            len(Q.faces().where(Q.tag("sketch.rect.profile.bottom")).resolve(face)),
+            1,
+        )
+        for entity_id in ("bottom", "right", "top", "left"):
+            edges = Q.edges().where(
+                Q.tag(f"sketch.rect.entity.{entity_id}")
+            ).resolve(face)
+            self.assertEqual(len(edges), 1)
+            evidence = scad.explain_tag(
+                edges[0], f"sketch.rect.entity.{entity_id}", scope="local"
+            )[0]["binding"]["evidence"]
+            self.assertEqual(evidence["evidence_method"], "SketchPromotionMap")
+            self.assertEqual(
+                evidence["sketch_promotion"]["entity_id"], entity_id
+            )
+            self.assertEqual(evidence["topology_name"]["kind"], "edge")
+
+    def test_constrained_sketch_wire_promotion_has_topology_identity_tags(self):
+        sketch = self._make_constrained_rectangle()
+        wire = scad.make_wire_from_sketch_rwire(
+            sketch, require_fully_constrained=True
+        )
+
+        self.assertEqual(
+            len(Q.wires().where(Q.tag("sketch.rect.profile.bottom")).resolve(wire)),
+            1,
+        )
+        for entity_id in ("bottom", "right", "top", "left"):
+            edges = Q.edges().where(
+                Q.tag(f"sketch.rect.entity.{entity_id}")
+            ).resolve(wire)
+            self.assertEqual(len(edges), 1)
+            evidence = scad.explain_tag(
+                edges[0], f"sketch.rect.entity.{entity_id}", scope="local"
+            )[0]["binding"]["evidence"]
+            self.assertEqual(evidence["evidence_method"], "SketchPromotionMap")
+            self.assertEqual(
+                evidence["sketch_promotion"]["entity_id"], entity_id
+            )
+            self.assertEqual(evidence["topology_name"]["kind"], "edge")
+
+    def test_constrained_sketch_topology_tags_project_and_replay(self):
+        with scad.GraphSession() as session:
+            sketch = self._make_constrained_rectangle()
+            profile = scad.make_face_from_sketch_rface(sketch)
+            body = scad.extrude_rsolid(
+                profile, (0, 0, 1), 2.0, tag_prefix="body"
+            )
+
+        expected_tags = {
+            "body.face.side.bottom",
+            "body.face.side.right",
+            "body.face.side.top",
+            "body.face.side.left",
+        }
+        self.assertEqual(
+            {
+                tag
+                for face in body.get_faces()
+                for tag in scad.list_tags(face, scope="local")
+                if tag.startswith("body.face.side.")
+            },
+            expected_tags,
+        )
+
+        payload = json.loads(scad.export_model_json(session))
+        promotion = next(
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_face_from_sketch_rface"
+        )
+        self.assertEqual(
+            promotion["params"]["promotion_map"]["topology_name"]["kind"],
+            "face",
+        )
+        self.assertEqual(
+            [
+                edge["topology_name"]["local_name"]
+                for edge in promotion["params"]["promotion_map"]["edges"]
+            ],
+            ["bottom", "right", "top", "left"],
+        )
+
+        replayed = scad.replay_model_json(json.dumps(payload))
+        rebuilt = next(shape for shape in replayed if isinstance(shape, scad.Solid))
+        self.assertEqual(
+            {
+                tag
+                for face in rebuilt.get_faces()
+                for tag in scad.list_tags(face, scope="local")
+                if tag.startswith("body.face.side.")
+            },
+            expected_tags,
+        )
 
     def test_underconstrained_and_conflicting_sketches_report_diagnostics(self):
         sketch = scad.make_sketch_rsketch("open")

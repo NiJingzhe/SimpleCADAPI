@@ -15,6 +15,8 @@ from enum import Enum, auto
 from importlib import metadata as importlib_metadata
 from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
+from .source_mapping import canonical_source_payload
+
 
 GRAPH_SCHEMA_VERSION = "2.0"
 
@@ -44,6 +46,8 @@ def graph_capabilities_payload() -> Dict[str, Any]:
         "expression_graph": True,
         "semantic_tag_bindings": True,
         "tag_binding_schema": "1.0",
+        "source_mapping": True,
+        "source_mapping_schema": "1.0",
     }
 
 
@@ -402,6 +406,7 @@ class OperationNode:
         output_count: Number of output shapes this node produces (usually 1).
         topo_delta:   Topological change set (may be ``None`` for simple primitives).
         tags:         Free-form labels for annotation.
+        source:       Best-effort Python source provenance; ignored by replay.
     """
 
     node_id: str
@@ -414,6 +419,8 @@ class OperationNode:
     semantic_delta: Optional[SemanticDelta] = None
     topo_delta: Optional[TopoDelta] = None
     tags: FrozenSet[str] = frozenset()
+    graph_id: Optional[str] = None
+    source: Optional[Dict[str, Any]] = None
 
 
 def _make_id(prefix: str = "node") -> str:
@@ -454,6 +461,7 @@ def _node_display_category(op: str) -> str:
         "make_revolve_rsolid",
         "make_loft_rsolid",
         "make_sweep_rsolid",
+        "make_twisted_sweep_rsolid",
     }:
         return "feature"
     if op in {
@@ -564,6 +572,7 @@ class OperationGraph:
         topo_delta: Optional[TopoDelta] = None,
         context: Optional[Dict[str, Any]] = None,
         tags: Optional[Set[str]] = None,
+        source: Optional[Dict[str, Any]] = None,
     ) -> OperationNode:
         """Add an operation node and wire its input edges.
 
@@ -575,9 +584,18 @@ class OperationGraph:
 
         input_nodes = tuple(inputs) if inputs else ()
         for inp in input_nodes:
+            if inp.graph_id is not None and inp.graph_id != self.graph_id:
+                raise ValueError(
+                    f"input node '{inp.node_id}' belongs to graph "
+                    f"'{inp.graph_id}', active graph is '{self.graph_id}'"
+                )
             if inp.node_id not in self._nodes:
                 raise ValueError(
                     f"input node '{inp.node_id}' is not part of this graph"
+                )
+            if self._nodes[inp.node_id] is not inp:
+                raise ValueError(
+                    f"input node '{inp.node_id}' is not the node owned by this graph"
                 )
 
         bound_semantic_delta = bind_semantic_delta(semantic_delta, self.graph_id, nid)
@@ -594,6 +612,8 @@ class OperationGraph:
             semantic_delta=bound_semantic_delta,
             topo_delta=bound_topo_delta,
             tags=frozenset(tags) if tags else frozenset(),
+            graph_id=self.graph_id,
+            source=dict(source) if source else None,
         )
         self._nodes[nid] = node
 
@@ -708,6 +728,8 @@ class OperationGraph:
                 "tags": sorted(node.tags),
                 "display": _node_display_payload(node.op, node.params),
             }
+            if node.source is not None:
+                node_data["source"] = canonical_source_payload(node.source)
             if node.param_exprs:
                 node_data["param_exprs"] = dict(node.param_exprs)
             if node.context:
@@ -765,6 +787,7 @@ class OperationGraph:
                 ),
                 context=nd.get("context"),
                 tags=tags_set if tags_set else None,
+                source=nd.get("source"),
             )
             node_map[nd["node_id"]] = node
 
@@ -810,6 +833,8 @@ class OperationGraph:
                     semantic_delta=node.semantic_delta,
                     topo_delta=node.topo_delta,
                     tags=node.tags,
+                    graph_id=graph.graph_id,
+                    source=dict(node.source) if node.source else None,
                 )
 
         return graph

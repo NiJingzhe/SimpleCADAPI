@@ -514,6 +514,152 @@ def test_constraint_graph_model_json_and_replay_roundtrip():
     assert solved.get_component("slider").placement.origin == (0.0, 0.0, 4.0)
 
 
+def test_boolean_named_face_connector_resolves_after_replay():
+    with scad.GraphSession() as session:
+        flange = scad.extrude_rsolid(
+            scad.make_circle_rface(
+                center=(0.0, 0.0, 0.0),
+                radius=2.0,
+                normal=(1.0, 0.0, 0.0),
+            ),
+            direction=(1.0, 0.0, 0.0),
+            distance=2.0,
+            end_face_tag="cap.face.end",
+        )
+        body = scad.make_cylinder_rsolid(
+            radius=1.5,
+            height=4.0,
+            bottom_face_center=(-1.0, 0.0, 0.0),
+            axis=(1.0, 0.0, 0.0),
+        )
+        bridge = scad.make_box_rsolid(
+            width=1.0,
+            height=1.0,
+            depth=1.0,
+            bottom_face_center=(-0.5, -0.5, -0.5),
+        )
+        fused = scad.union_rsolid(body, flange, bridge, glue=False)
+        result = scad.cut_rsolid(
+            fused,
+            scad.make_cylinder_rsolid(
+                radius=0.25,
+                height=4.0,
+                bottom_face_center=(-1.0, 1.0, 0.0),
+                axis=(1.0, 0.0, 0.0),
+            ),
+        )
+        named_face = (
+            ql.faces()
+            .where(ql.tag("cap.face.end"))
+            .exactly(1)
+            .resolve(result)[0]
+        )
+        connector = scad.make_face_connector_rconnector("mount", named_face)
+        part = scad.add_connector_rpart(
+            scad.make_part_rpart("boolean_named_part", result),
+            connector,
+        )
+        session.capture_result(value=part)
+
+    replayed = scad.replay_model_json(scad.export_model_json(session))[0]
+    assert isinstance(replayed, scad.Part)
+    replayed_face = (
+        ql.faces()
+        .where(ql.tag("cap.face.end"))
+        .exactly(1)
+        .resolve(replayed.body)[0]
+    )
+    assert replayed.get_connector("mount").placement.origin == pytest.approx(
+        tuple(replayed_face.get_center())
+    )
+
+    package = scad.compile_scene(
+        scene_id="boolean-named-connector",
+        roots=(scad.SceneRoot(root_id="main", value=replayed),),
+    )
+    snapshot = package.manifest["connectors"][0]
+    asset = next(
+        item
+        for item in package.manifest["entity_assets"]
+        if item["entity_asset_id"] == snapshot["target"]["entity_asset_id"]
+    )
+    entity_document = json.loads(package.blobs[asset["uri"]])
+    target = next(
+        item
+        for item in entity_document["entities"]
+        if item["entity_id"] == snapshot["target"]["entity_id"]
+    )
+    assert "cap.face.end" in target["evaluated_tags"]
+
+
+def test_nested_constraint_graph_replay_preserves_child_assembly_constraints():
+    with scad.GraphSession() as session:
+        part = _part_with_placement_connector("nested_replay_part")
+        child = scad.make_assembly_rassembly(assembly_id="nested_replay_child")
+        child = scad.add_component_rassembly(
+            assembly=child,
+            item=part,
+            component_id="base",
+            placement=scad.identity_placement_rplacement(),
+        )
+        child = scad.add_component_rassembly(
+            assembly=child,
+            item=part,
+            component_id="arm",
+            placement=scad.identity_placement_rplacement(),
+        )
+        child = scad.ground_component_rassembly(
+            assembly=child,
+            component_id="base",
+        )
+        child = scad.add_revolute_constraint_rassembly(
+            assembly=child,
+            constraint_id="pivot",
+            connector_a=scad.make_connector_ref_rconnectorref(
+                component_id="base",
+                connector_id="axis",
+            ),
+            connector_b=scad.make_connector_ref_rconnectorref(
+                component_id="arm",
+                connector_id="axis",
+            ),
+            drive_angle_degrees=30.0,
+        )
+        child = scad.solve_assembly_constraints_rassembly(assembly=child)
+
+        root = scad.make_assembly_rassembly(assembly_id="nested_replay_root")
+        root = scad.add_component_rassembly(
+            assembly=root,
+            item=child,
+            component_id="child",
+            placement=scad.make_placement_rplacement(origin=(10.0, 20.0, 30.0)),
+        )
+
+    payload = json.loads(scad.export_model_json(session))
+    ops = [node["op"] for node in payload["graph"]["nodes"]]
+    assert ops.count("make_revolute_constraint_rassembly") == 1
+    assert ops.count("make_solve_assembly_constraints_rassembly") == 1
+    assert ops.count("make_add_component_rassembly") == 3
+
+    replayed = scad.replay_model_json(json.dumps(payload))
+    assert len(replayed) == 1
+    replayed_root = replayed[0]
+    assert isinstance(replayed_root, scad.Assembly)
+    replayed_child = replayed_root.get_component("child").item
+    assert isinstance(replayed_child, scad.Assembly)
+    assert replayed_child.assembly_id == "nested_replay_child"
+    assert replayed_child.component_ids() == ("base", "arm")
+    assert replayed_child.constraint_ids() == ("pivot",)
+    assert replayed_child.grounded_component_ids == ("base",)
+    assert replayed_child.get_constraint("pivot").drive_angle_degrees == 30.0
+    assert replayed_child.get_component("arm").placement.x_axis == (
+        math.cos(math.radians(30.0)),
+        math.sin(math.radians(30.0)),
+        0.0,
+    )
+    assert replayed_root.get_component("child").placement.origin == (10.0, 20.0, 30.0)
+
+
 def test_graph_session_rejects_duplicate_product_ids():
     with pytest.raises(Exception, match="duplicate part"):
         with scad.GraphSession():

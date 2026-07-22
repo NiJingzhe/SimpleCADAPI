@@ -537,6 +537,11 @@ class ShapeSelector:
     cardinality: Dict[str, int] = field(default_factory=dict)
     source_node_id: Optional[str] = None
     source_output_slot: Optional[int] = None
+    set_operation: Optional[str] = None
+    operands: Tuple["ShapeSelector", ...] = ()
+    incident_face_selectors: Tuple["ShapeSelector", ...] = ()
+    incident_faces_distinct: bool = False
+    incident_face_cardinality: Dict[str, int] = field(default_factory=dict)
 
     def where(self, predicate: SerializablePredicate) -> "ShapeSelector":
         if not isinstance(predicate, SerializablePredicate):
@@ -561,6 +566,11 @@ class ShapeSelector:
             cardinality=dict(self.cardinality),
             source_node_id=self.source_node_id,
             source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def order_by(self, key: SerializableKey, desc: bool = False) -> "ShapeSelector":
@@ -579,6 +589,11 @@ class ShapeSelector:
             cardinality=dict(self.cardinality),
             source_node_id=self.source_node_id,
             source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def from_source(
@@ -600,6 +615,11 @@ class ShapeSelector:
             cardinality=dict(self.cardinality),
             source_node_id=node_id,
             source_output_slot=int(output_slot),
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def take(self, count: int) -> "ShapeSelector":
@@ -617,6 +637,11 @@ class ShapeSelector:
             cardinality=dict(self.cardinality),
             source_node_id=self.source_node_id,
             source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def exactly(self, count: int) -> "ShapeSelector":
@@ -636,6 +661,11 @@ class ShapeSelector:
             cardinality=card,
             source_node_id=self.source_node_id,
             source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def at_least(self, count: int) -> "ShapeSelector":
@@ -655,6 +685,11 @@ class ShapeSelector:
             cardinality=card,
             source_node_id=self.source_node_id,
             source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def at_most(self, count: int) -> "ShapeSelector":
@@ -674,6 +709,11 @@ class ShapeSelector:
             cardinality=card,
             source_node_id=self.source_node_id,
             source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def traverse(self, relation: str, to_kind: str) -> "ShapeSelector":
@@ -694,8 +734,98 @@ class ShapeSelector:
     def boundary(self, to_kind: str) -> "ShapeSelector":
         return self.traverse("boundary", to_kind)
 
+    def intersection(self, other: "ShapeSelector") -> "ShapeSelector":
+        """Return entities present in both selector result sets."""
+
+        if not isinstance(other, ShapeSelector):
+            raise TypeError("intersection requires another ShapeSelector")
+        if self.target_kind != other.target_kind:
+            raise ValueError("intersection operands must select the same topology kind")
+        return ShapeSelector(
+            target_kind=self.target_kind,
+            set_operation="intersection",
+            operands=(self, other),
+        )
+
+    def shared_boundary(
+        self, other: "ShapeSelector", to_kind: str = "edge"
+    ) -> "ShapeSelector":
+        """Select current-topology boundary entities shared by both operands."""
+
+        return self.boundary(to_kind).intersection(other.boundary(to_kind))
+
+    def incident_to(
+        self,
+        *face_selectors: "ShapeSelector",
+        distinct: bool = False,
+    ) -> "ShapeSelector":
+        """Restrict Edges by their distinct incident Face witnesses."""
+
+        if self.target_kind != "edge":
+            raise ValueError("incident_to is only valid on an Edge selector")
+        if not face_selectors or not all(
+            isinstance(selector, ShapeSelector) and selector.target_kind == "face"
+            for selector in face_selectors
+        ):
+            raise TypeError("incident_to requires one or more Face selectors")
+        return ShapeSelector(
+            target_kind="edge",
+            source_selector=self.source_selector,
+            traversal=self.traversal,
+            predicate=self.predicate,
+            order_key=self.order_key,
+            order_keys=tuple(self.order_keys),
+            order_desc=self.order_desc,
+            limit_count=self.limit_count,
+            cardinality=dict(self.cardinality),
+            source_node_id=self.source_node_id,
+            source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(face_selectors),
+            incident_faces_distinct=bool(distinct),
+            incident_face_cardinality=dict(self.incident_face_cardinality),
+        )
+
+    def incident_face_count(self, *, exactly: int) -> "ShapeSelector":
+        if self.target_kind != "edge":
+            raise ValueError("incident_face_count is only valid on an Edge selector")
+        if exactly < 0:
+            raise ValueError("incident face count must be >= 0")
+        return ShapeSelector(
+            target_kind="edge",
+            source_selector=self.source_selector,
+            traversal=self.traversal,
+            predicate=self.predicate,
+            order_key=self.order_key,
+            order_keys=tuple(self.order_keys),
+            order_desc=self.order_desc,
+            limit_count=self.limit_count,
+            cardinality=dict(self.cardinality),
+            source_node_id=self.source_node_id,
+            source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality={"exactly": int(exactly)},
+        )
+
     def resolve(self, scope: Any) -> List[Any]:
-        if self.source_selector is None:
+        if self.set_operation is not None:
+            if self.set_operation != "intersection" or len(self.operands) < 2:
+                raise ValueError(f"unsupported selector set operation: {self.set_operation}")
+            operand_items = [operand.resolve(scope) for operand in self.operands]
+            shared = [
+                {_shape_identity(item) for item in items}
+                for items in operand_items[1:]
+            ]
+            items = [
+                item
+                for item in operand_items[0]
+                if all(_shape_identity(item) in markers for markers in shared)
+            ]
+        elif self.source_selector is None:
             items = _resolve_scope_items(scope, self.target_kind)
         else:
             if self.traversal is None:
@@ -707,6 +837,42 @@ class ShapeSelector:
             )
         if self.predicate is not None:
             items = [item for item in items if self.predicate(item)]
+
+        if self.incident_face_selectors:
+            face_sets = [
+                {
+                    _shape_identity(face)
+                    for face in selector.resolve(scope)
+                }
+                for selector in self.incident_face_selectors
+            ]
+
+            def has_incident_witnesses(edge: Any) -> bool:
+                incident = getattr(edge, "get_incident_faces", lambda: [])()
+                incident_ids = [_shape_identity(face) for face in incident]
+                if self.incident_faces_distinct:
+                    return _has_distinct_witnesses(incident_ids, face_sets)
+                return all(
+                    any(face_id in face_set for face_id in incident_ids)
+                    for face_set in face_sets
+                )
+
+            items = [item for item in items if has_incident_witnesses(item)]
+
+        if self.incident_face_cardinality:
+            exact_incident = self.incident_face_cardinality.get("exactly")
+            if exact_incident is not None:
+                items = [
+                    item
+                    for item in items
+                    if len(
+                        {
+                            _shape_identity(face)
+                            for face in getattr(item, "get_incident_faces", lambda: [])()
+                        }
+                    )
+                    == exact_incident
+                ]
 
         order_specs = self.order_keys
         if not order_specs and self.order_key is not None:
@@ -762,10 +928,69 @@ class ShapeSelector:
         if self.source_node_id is not None:
             payload["source_node_id"] = self.source_node_id
             payload["source_output_slot"] = int(self.source_output_slot or 0)
+        if self.set_operation is not None:
+            payload["set_operation"] = {
+                "op": self.set_operation,
+                "operands": [operand.to_dict() for operand in self.operands],
+            }
+        if self.incident_face_selectors:
+            payload["incident_faces"] = {
+                "selectors": [selector.to_dict() for selector in self.incident_face_selectors],
+                "distinct": self.incident_faces_distinct,
+            }
+        if self.incident_face_cardinality:
+            payload["incident_face_cardinality"] = dict(self.incident_face_cardinality)
         return payload
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ShapeSelector":
+        set_operation = None
+        operands: Tuple[ShapeSelector, ...] = ()
+        incident_face_selectors: Tuple[ShapeSelector, ...] = ()
+        incident_faces_distinct = False
+        incident_face_cardinality: Dict[str, int] = {}
+        raw_set_operation = data.get("set_operation")
+        if raw_set_operation is not None:
+            if not isinstance(raw_set_operation, dict):
+                raise ValueError("selector set_operation must be an object")
+            if set(raw_set_operation) != {"op", "operands"}:
+                raise ValueError("selector set_operation has invalid fields")
+            set_operation = str(raw_set_operation["op"]).strip().lower()
+            if set_operation != "intersection":
+                raise ValueError(f"unsupported selector set operation: {set_operation}")
+            raw_operands = raw_set_operation["operands"]
+            if not isinstance(raw_operands, list) or len(raw_operands) < 2:
+                raise ValueError("selector intersection requires at least two operands")
+            operands = tuple(ShapeSelector.from_dict(item) for item in raw_operands)
+            target_kind = str(data["target_kind"])
+            if any(operand.target_kind != target_kind for operand in operands):
+                raise ValueError("selector intersection operands must match target_kind")
+        raw_incident = data.get("incident_faces")
+        if raw_incident is not None:
+            if not isinstance(raw_incident, dict) or set(raw_incident) != {
+                "selectors", "distinct"
+            }:
+                raise ValueError("selector incident_faces has invalid fields")
+            if str(data.get("target_kind", "")).lower() != "edge":
+                raise ValueError("incident_faces is only valid for edge selectors")
+            raw_selectors = raw_incident["selectors"]
+            if not isinstance(raw_selectors, list) or not raw_selectors:
+                raise ValueError("incident_faces requires one or more selectors")
+            incident_face_selectors = tuple(
+                ShapeSelector.from_dict(item) for item in raw_selectors
+            )
+            if any(selector.target_kind != "face" for selector in incident_face_selectors):
+                raise ValueError("incident_faces selectors must select faces")
+            incident_faces_distinct = bool(raw_incident["distinct"])
+        raw_incident_cardinality = data.get("incident_face_cardinality")
+        if raw_incident_cardinality is not None:
+            if not isinstance(raw_incident_cardinality, dict) or set(
+                raw_incident_cardinality
+            ) != {"exactly"}:
+                raise ValueError("incident_face_cardinality only supports exactly")
+            incident_face_cardinality = {
+                "exactly": int(raw_incident_cardinality["exactly"])
+            }
         source_selector = None
         if isinstance(data.get("source"), dict):
             source_selector = ShapeSelector.from_dict(data["source"])
@@ -812,10 +1037,40 @@ class ShapeSelector:
                 if data.get("source_node_id") is not None
                 else None
             ),
+            set_operation=set_operation,
+            operands=operands,
+            incident_face_selectors=incident_face_selectors,
+            incident_faces_distinct=incident_faces_distinct,
+            incident_face_cardinality=incident_face_cardinality,
         )
 
 
+def _has_distinct_witnesses(
+    incident_ids: Sequence[Any], candidate_sets: Sequence[set[Any]]
+) -> bool:
+    """Return whether each relation has a distinct incident-face witness."""
+
+    used: set[Any] = set()
+
+    def visit(index: int) -> bool:
+        if index == len(candidate_sets):
+            return True
+        for face_id in incident_ids:
+            if face_id in used or face_id not in candidate_sets[index]:
+                continue
+            used.add(face_id)
+            if visit(index + 1):
+                return True
+            used.remove(face_id)
+        return False
+
+    return visit(0)
+
+
 def _shape_identity(obj: Any) -> Any:
+    entity = getattr(obj, "_entity", None)
+    if entity is not None:
+        return (obj.__class__.__name__, id(entity))
     topo_id = getattr(obj, "topo_id", None)
     if topo_id is not None:
         return (obj.__class__.__name__, topo_id)
@@ -1208,6 +1463,10 @@ def wires() -> ShapeSelector:
 
 def vertices() -> ShapeSelector:
     return ShapeSelector(target_kind="vertex")
+
+
+def solids() -> ShapeSelector:
+    return ShapeSelector(target_kind="solid")
 
 
 def selector_from_dict(data: Dict[str, Any]) -> ShapeSelector:

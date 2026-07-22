@@ -1,7 +1,8 @@
 import unittest
+from unittest import mock
 
 import simplecadapi as scad
-from simplecadapi import tagging
+from simplecadapi import operations, tagging
 
 
 class TestTaggingRefactor(unittest.TestCase):
@@ -228,6 +229,39 @@ class TestTaggingRefactor(unittest.TestCase):
         for member_name in ("add_tag", "apply_tag", "get_tags", "has_tag", "remove_tag"):
             self.assertFalse(hasattr(vertex, member_name))
         self.assertFalse(hasattr(scad, "set_tag"))
+
+    def test_apply_tag_mutates_without_cloning_semantic_topology(self):
+        box = scad.make_box_rsolid(1.0, 1.0, 1.0)
+
+        with mock.patch.object(
+            operations,
+            "clone_semantic_shape_view",
+            wraps=operations.clone_semantic_shape_view,
+        ) as clone:
+            tagged = scad.apply_tag(box, "role.structure")
+
+        self.assertIs(tagged, box)
+        self.assertEqual(clone.call_count, 0)
+        self.assertIn("role.structure", scad.list_tags(box, scope="local"))
+
+    def test_apply_tag_rselection_keeps_independent_clone(self):
+        box = scad.make_box_rsolid(1.0, 1.0, 1.0)
+
+        with mock.patch.object(
+            operations,
+            "clone_semantic_shape_view",
+            wraps=operations.clone_semantic_shape_view,
+        ) as clone:
+            tagged = scad.apply_tag_rselection(
+                box,
+                scad.ql.solids().exactly(1),
+                "role.structure",
+            )
+
+        self.assertIsNot(tagged, box)
+        self.assertEqual(clone.call_count, 1)
+        self.assertNotIn("role.structure", scad.list_tags(box, scope="local"))
+        self.assertIn("role.structure", scad.list_tags(tagged, scope="local"))
 
     def test_apply_tag_rselection_and_explain_tag_public_surface(self):
         box = scad.make_box_rsolid(1.0, 1.0, 1.0)

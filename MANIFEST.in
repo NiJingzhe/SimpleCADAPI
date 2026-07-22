@@ -8,6 +8,7 @@ recursive-include docs *.md
 
 # 包含源码
 recursive-include src *.py
+recursive-include src/simplecadapi/scene/contracts *.json *.md
 include src/simplecadapi/py.typed
 
 recursive-include src/auto_tools *.py

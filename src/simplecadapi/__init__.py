@@ -116,6 +116,7 @@ from .operations import (
     loft_rsolid,
     revolve_rsolid,
     sweep_rsolid,
+    twisted_sweep_rsolid,
     # 标签和选择
     apply_tag,
     apply_tag_rselection,
@@ -150,7 +151,15 @@ from .evolve import (
     make_threaded_rod_rsolid,
 )
 
-from .graph import GraphSession, suspend_graph_recording
+from .graph import (
+    GraphSession,
+    ModelResult,
+    capture_result,
+    get_active_session,
+    model,
+    requires_session,
+    suspend_graph_recording,
+)
 from .serializer import export_graph_json, import_graph_json, replay_graph
 from .serializer import export_session_json, import_session_json
 from .serializer import export_model_json, import_model_json, replay_model_json
@@ -256,8 +265,29 @@ from .tagging import (
     TagTargetKind,
     TopologyPropagation,
 )
+from .tracking import TrackingPolicy
 from .topology import SemanticDelta, SemanticRef
 from .errors import SimpleCADError
+from .scene import (
+    CanonicalEdgeBlock,
+    CanonicalTriangleBlock,
+    CompiledScenePackage,
+    RenderEdgeMesh,
+    RenderGroup,
+    RenderMesh,
+    SceneCompileOptions,
+    SceneRoot,
+    SceneSource,
+    build_edge_mesh,
+    build_render_mesh,
+    cad_direction_to_gltf,
+    cad_to_gltf,
+    compile_scene,
+    export_scene,
+    solid_asset_bounds,
+    write_line_glb,
+    write_triangle_glb,
+)
 
 from . import ql
 from . import math
@@ -434,6 +464,7 @@ __all__ = [
     "loft_rsolid",
     "revolve_rsolid",
     "sweep_rsolid",
+    "twisted_sweep_rsolid",
     # 标签和选择
     "apply_tag",
     "apply_tag_rselection",
@@ -470,6 +501,11 @@ __all__ = [
     "verifier",
     # Graph/session + serialization APIs
     "GraphSession",
+    "ModelResult",
+    "capture_result",
+    "get_active_session",
+    "model",
+    "requires_session",
     "suspend_graph_recording",
     "export_graph_json",
     "import_graph_json",
@@ -561,9 +597,28 @@ __all__ = [
     "TagTarget",
     "TagTargetKind",
     "TopologyPropagation",
+    "TrackingPolicy",
     "SemanticRef",
     "SemanticDelta",
     "SimpleCADError",
+    "CompiledScenePackage",
+    "CanonicalEdgeBlock",
+    "CanonicalTriangleBlock",
+    "RenderEdgeMesh",
+    "RenderGroup",
+    "RenderMesh",
+    "SceneCompileOptions",
+    "SceneRoot",
+    "SceneSource",
+    "compile_scene",
+    "export_scene",
+    "build_edge_mesh",
+    "build_render_mesh",
+    "cad_direction_to_gltf",
+    "cad_to_gltf",
+    "solid_asset_bounds",
+    "write_line_glb",
+    "write_triangle_glb",
     "Assembly",
     "Component",
     "Connector",

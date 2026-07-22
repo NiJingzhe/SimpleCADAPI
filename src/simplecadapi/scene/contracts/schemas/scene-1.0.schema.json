@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplecad.dev/schemas/scene-1.0.schema.json",
+  "title": "SimpleCAD Evaluated Scene 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "extensions_used",
+    "extensions_required",
+    "extensions",
+    "scene_id",
+    "revision",
+    "generator",
+    "source",
+    "coordinate_system",
+    "compile_options",
+    "definitions",
+    "nodes",
+    "geometry_assets",
+    "edge_assets",
+    "appearances",
+    "entity_assets",
+    "connectors",
+    "cameras",
+    "lights",
+    "annotations",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "extensions_used": {"type": "array", "maxItems": 0},
+    "extensions_required": {"type": "array", "maxItems": 0},
+    "extensions": {"type": "object", "maxProperties": 0},
+    "scene_id": {"$ref": "#/$defs/logicalId"},
+    "revision": {"$ref": "#/$defs/hash"},
+    "generator": {"$ref": "#/$defs/generator"},
+    "source": {"$ref": "#/$defs/sceneSource"},
+    "presentation_source": {"$ref": "#/$defs/presentationSource"},
+    "coordinate_system": {"$ref": "#/$defs/coordinateSystem"},
+    "compile_options": {"$ref": "#/$defs/compileOptions"},
+    "definitions": {"type": "array", "items": {"$ref": "#/$defs/definition"}},
+    "nodes": {"type": "array", "items": {"$ref": "#/$defs/node"}},
+    "geometry_assets": {"type": "array", "items": {"$ref": "#/$defs/geometryAsset"}},
+    "edge_assets": {"type": "array", "items": {"$ref": "#/$defs/edgeAsset"}},
+    "appearances": {"type": "array", "items": {"$ref": "#/$defs/appearance"}},
+    "entity_assets": {"type": "array", "items": {"$ref": "#/$defs/entityAsset"}},
+    "connectors": {"type": "array", "items": {"$ref": "#/$defs/connector"}},
+    "cameras": {"type": "array", "items": {"$ref": "#/$defs/camera"}},
+    "lights": {"type": "array", "maxItems": 0},
+    "annotations": {"type": "array", "maxItems": 0},
+    "diagnostics": {"type": "array", "maxItems": 0}
+  },
+  "$defs": {
+    "safeInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "number": {"type": "number"},
+    "positiveNumber": {"type": "number", "exclusiveMinimum": 0},
+    "logicalId": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,127}$"},
+    "productId": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"},
+    "structuralId": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9._~%:/-]+$"},
+    "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "uri": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"},
+    "token": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"},
+    "vec3": {
+      "type": "array",
+      "prefixItems": [{"$ref": "#/$defs/number"}, {"$ref": "#/$defs/number"}, {"$ref": "#/$defs/number"}],
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "color": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "number", "minimum": 0, "maximum": 1},
+        {"type": "number", "minimum": 0, "maximum": 1},
+        {"type": "number", "minimum": 0, "maximum": 1},
+        {"const": 1}
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "x_axis", "y_axis", "z_axis"],
+      "properties": {
+        "origin": {"$ref": "#/$defs/vec3"},
+        "x_axis": {"$ref": "#/$defs/vec3"},
+        "y_axis": {"$ref": "#/$defs/vec3"},
+        "z_axis": {"$ref": "#/$defs/vec3"}
+      }
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {"min": {"$ref": "#/$defs/vec3"}, "max": {"$ref": "#/$defs/vec3"}}
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "simplecadapi_version", "ocp_version", "ocp_bindings_version", "python_abi", "platform_tag", "toolchain_hash", "profile"],
+      "properties": {
+        "name": {"const": "simplecadapi"},
+        "simplecadapi_version": {"$ref": "#/$defs/token"},
+        "ocp_version": {"$ref": "#/$defs/token"},
+        "ocp_bindings_version": {"$ref": "#/$defs/token"},
+        "python_abi": {"$ref": "#/$defs/token"},
+        "platform_tag": {"$ref": "#/$defs/token"},
+        "toolchain_hash": {"$ref": "#/$defs/hash"},
+        "profile": {"enum": ["scene-1.0-ocp-glb-1", "scene-1.0-ocp-glb-2"]}
+      }
+    },
+    "modelSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "graph_id", "model_schema_version", "artifact_hash"],
+      "properties": {
+        "kind": {"const": "model"},
+        "graph_id": {"$ref": "#/$defs/productId"},
+        "model_schema_version": {"const": "2.0"},
+        "artifact_hash": {"$ref": "#/$defs/hash"},
+        "embedded_artifact_uri": {"const": "model/model.json"},
+        "embedded_artifact_byte_length": {"$ref": "#/$defs/safeInteger"},
+        "source_files": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/sourceFile"},
+          "maxItems": 25000
+        }
+      },
+      "dependentRequired": {
+        "embedded_artifact_uri": ["embedded_artifact_byte_length"],
+        "embedded_artifact_byte_length": ["embedded_artifact_uri"],
+        "source_files": ["embedded_artifact_uri", "embedded_artifact_byte_length"]
+      }
+    },
+    "sourceFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "uri", "media_type", "byte_length", "content_hash"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*\\.py$"},
+        "uri": {"$ref": "#/$defs/uri"},
+        "media_type": {"const": "text/x-python; charset=utf-8"},
+        "byte_length": {"$ref": "#/$defs/safeInteger"},
+        "content_hash": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "importedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "format", "artifact_hash"],
+      "properties": {
+        "kind": {"const": "imported"},
+        "format": {"$ref": "#/$defs/token"},
+        "artifact_hash": {"$ref": "#/$defs/hash"},
+        "embedded_artifact_uri": {"const": "source/source.bin"},
+        "embedded_artifact_byte_length": {"$ref": "#/$defs/safeInteger"}
+      },
+      "dependentRequired": {
+        "embedded_artifact_uri": ["embedded_artifact_byte_length"],
+        "embedded_artifact_byte_length": ["embedded_artifact_uri"]
+      }
+    },
+    "manualSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "source_id"],
+      "properties": {"kind": {"const": "manual"}, "source_id": {"$ref": "#/$defs/logicalId"}}
+    },
+    "sceneSource": {"oneOf": [{"$ref": "#/$defs/modelSource"}, {"$ref": "#/$defs/importedSource"}, {"$ref": "#/$defs/manualSource"}]},
+    "presentationSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["presentation_id", "schema_version", "artifact_hash"],
+      "properties": {
+        "presentation_id": {"$ref": "#/$defs/logicalId"},
+        "schema_version": {"const": "1.0"},
+        "artifact_hash": {"$ref": "#/$defs/hash"},
+        "embedded_artifact_uri": {"const": "presentation/presentation.json"},
+        "embedded_artifact_byte_length": {"$ref": "#/$defs/safeInteger"}
+      },
+      "dependentRequired": {
+        "embedded_artifact_uri": ["embedded_artifact_byte_length"],
+        "embedded_artifact_byte_length": ["embedded_artifact_uri"]
+      }
+    },
+    "coordinateSystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["length_unit", "handedness", "up_axis"],
+      "properties": {"length_unit": {"const": "mm"}, "handedness": {"const": "right"}, "up_axis": {"const": "+Z"}}
+    },
+    "compileOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["linear_tolerance", "angular_tolerance", "embed_source", "embed_presentation"],
+      "properties": {
+        "linear_tolerance": {"type": "number", "exclusiveMinimum": 0, "maximum": 1000000},
+        "angular_tolerance": {"type": "number", "exclusiveMinimum": 0, "maximum": 3.141592653589793},
+        "embed_source": {"type": "boolean"},
+        "embed_presentation": {"type": "boolean"}
+      }
+    },
+    "productModelSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "root_id", "semantic_type", "semantic_id", "graph_id", "node_id", "output_slot"],
+      "properties": {
+        "kind": {"const": "product_model"}, "root_id": {"$ref": "#/$defs/logicalId"},
+        "semantic_type": {"enum": ["Part", "Assembly"]}, "semantic_id": {"$ref": "#/$defs/productId"},
+        "graph_id": {"$ref": "#/$defs/productId"}, "node_id": {"$ref": "#/$defs/productId"}, "output_slot": {"$ref": "#/$defs/safeInteger"}
+      }
+    },
+    "productManualSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "root_id", "semantic_type", "semantic_id"],
+      "properties": {
+        "kind": {"const": "product_manual"}, "root_id": {"$ref": "#/$defs/logicalId"},
+        "semantic_type": {"enum": ["Part", "Assembly"]}, "semantic_id": {"$ref": "#/$defs/productId"}
+      }
+    },
+    "modelOutputSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "root_id", "graph_id", "node_id", "output_slot"],
+      "properties": {
+        "kind": {"const": "model_output"}, "root_id": {"$ref": "#/$defs/logicalId"},
+        "graph_id": {"$ref": "#/$defs/productId"}, "node_id": {"$ref": "#/$defs/productId"}, "output_slot": {"$ref": "#/$defs/safeInteger"}
+      }
+    },
+    "importedDefinitionSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "root_id", "source_element_id"],
+      "properties": {"kind": {"const": "imported"}, "root_id": {"$ref": "#/$defs/logicalId"}, "source_element_id": {"type": "string", "minLength": 1}}
+    },
+    "manualDefinitionSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "root_id", "source_id"],
+      "properties": {"kind": {"const": "manual"}, "root_id": {"$ref": "#/$defs/logicalId"}, "source_id": {"$ref": "#/$defs/logicalId"}}
+    },
+    "definitionSource": {"oneOf": [
+      {"$ref": "#/$defs/productModelSource"}, {"$ref": "#/$defs/productManualSource"},
+      {"$ref": "#/$defs/modelOutputSource"}, {"$ref": "#/$defs/importedDefinitionSource"}, {"$ref": "#/$defs/manualDefinitionSource"}
+    ]},
+    "definition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["definition_id", "kind", "name", "source", "sdk_metadata"],
+      "properties": {
+        "definition_id": {"$ref": "#/$defs/structuralId"}, "kind": {"enum": ["part", "assembly", "shape"]},
+        "name": {"type": ["string", "null"]}, "source": {"$ref": "#/$defs/definitionSource"}, "sdk_metadata": {"type": "object"},
+        "geometry_asset_id": {"$ref": "#/$defs/hash"}, "edge_asset_id": {"$ref": "#/$defs/hash"},
+        "entity_asset_id": {"$ref": "#/$defs/hash"}, "appearance_id": {"$ref": "#/$defs/structuralId"}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "assembly"}}, "required": ["kind"]}, "then": {"not": {"anyOf": [
+          {"required": ["geometry_asset_id"]}, {"required": ["edge_asset_id"]}, {"required": ["entity_asset_id"]}, {"required": ["appearance_id"]}
+        ]}}},
+        {"if": {"properties": {"kind": {"enum": ["part", "shape"]}}, "required": ["kind"]}, "then": {"required": ["geometry_asset_id", "edge_asset_id", "entity_asset_id", "appearance_id"]}}
+      ]
+    },
+    "productOccurrenceSource": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "root_id", "component_path"],
+      "properties": {"kind": {"const": "product_occurrence"}, "root_id": {"$ref": "#/$defs/logicalId"}, "component_path": {"type": "array", "items": {"$ref": "#/$defs/productId"}}}
+    },
+    "shapeRootSource": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "root_id"],
+      "properties": {"kind": {"const": "shape_root"}, "root_id": {"$ref": "#/$defs/logicalId"}}
+    },
+    "node": {
+      "type": "object", "additionalProperties": false,
+      "required": ["node_id", "parent_node_id", "order", "definition_id", "name", "transform", "visible", "selectable", "appearance_override_id", "source", "sdk_metadata"],
+      "properties": {
+        "node_id": {"$ref": "#/$defs/structuralId"}, "parent_node_id": {"anyOf": [{"$ref": "#/$defs/structuralId"}, {"type": "null"}]},
+        "order": {"$ref": "#/$defs/safeInteger"}, "definition_id": {"$ref": "#/$defs/structuralId"}, "name": {"type": ["string", "null"]},
+        "transform": {"$ref": "#/$defs/transform"}, "visible": {"type": "boolean"}, "selectable": {"type": "boolean"},
+        "appearance_override_id": {"anyOf": [{"$ref": "#/$defs/structuralId"}, {"type": "null"}]},
+        "source": {"oneOf": [{"$ref": "#/$defs/productOccurrenceSource"}, {"$ref": "#/$defs/shapeRootSource"}]}, "sdk_metadata": {"type": "object"}
+      }
+    },
+    "assetBase": {
+      "type": "object",
+      "properties": {
+        "asset_id": {"$ref": "#/$defs/hash"}, "uri": {"$ref": "#/$defs/uri"}, "media_type": {"const": "model/gltf-binary"},
+        "byte_length": {"$ref": "#/$defs/safeInteger"}, "content_hash": {"$ref": "#/$defs/hash"}, "scene_local_bounds": {"$ref": "#/$defs/bounds"},
+        "asset_to_scene": {"const": [1000, 0, 0, 0, 0, 0, -1000, 0, 0, 1000, 0, 0, 0, 0, 0, 1]}
+      }
+    },
+    "geometryAsset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["asset_id", "uri", "media_type", "byte_length", "content_hash", "scene_local_bounds", "asset_to_scene", "tessellation"],
+      "properties": {
+        "asset_id": {"$ref": "#/$defs/hash"}, "uri": {"$ref": "#/$defs/uri"}, "media_type": {"const": "model/gltf-binary"},
+        "byte_length": {"$ref": "#/$defs/safeInteger"}, "content_hash": {"$ref": "#/$defs/hash"}, "scene_local_bounds": {"$ref": "#/$defs/bounds"},
+        "asset_to_scene": {"const": [1000, 0, 0, 0, 0, 0, -1000, 0, 0, 1000, 0, 0, 0, 0, 0, 1]},
+        "tessellation": {"type": "object", "additionalProperties": false, "required": ["linear_tolerance", "angular_tolerance"], "properties": {"linear_tolerance": {"$ref": "#/$defs/positiveNumber"}, "angular_tolerance": {"$ref": "#/$defs/positiveNumber"}}}
+      }
+    },
+    "edgeAsset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["asset_id", "uri", "media_type", "byte_length", "content_hash", "scene_local_bounds", "asset_to_scene", "tessellation"],
+      "properties": {
+        "asset_id": {"$ref": "#/$defs/hash"}, "uri": {"$ref": "#/$defs/uri"}, "media_type": {"const": "model/gltf-binary"},
+        "byte_length": {"$ref": "#/$defs/safeInteger"}, "content_hash": {"$ref": "#/$defs/hash"}, "scene_local_bounds": {"$ref": "#/$defs/bounds"},
+        "asset_to_scene": {"const": [1000, 0, 0, 0, 0, 0, -1000, 0, 0, 1000, 0, 0, 0, 0, 0, 1]},
+        "tessellation": {"type": "object", "additionalProperties": false, "required": ["linear_tolerance"], "properties": {"linear_tolerance": {"$ref": "#/$defs/positiveNumber"}}}
+      }
+    },
+    "entityAsset": {
+      "type": "object", "additionalProperties": false, "required": ["entity_asset_id", "uri", "media_type", "byte_length", "content_hash"],
+      "properties": {
+        "entity_asset_id": {"$ref": "#/$defs/hash"}, "uri": {"$ref": "#/$defs/uri"},
+        "media_type": {"const": "application/vnd.simplecad.entities+json"}, "byte_length": {"$ref": "#/$defs/safeInteger"}, "content_hash": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "productMaterialSource": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "root_id", "material_id"],
+      "properties": {"kind": {"const": "product_material"}, "root_id": {"$ref": "#/$defs/logicalId"}, "material_id": {"$ref": "#/$defs/productId"}}
+    },
+    "presentationAppearanceSource": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "presentation_id", "appearance_name"],
+      "properties": {"kind": {"const": "presentation"}, "presentation_id": {"$ref": "#/$defs/logicalId"}, "appearance_name": {"type": "string", "minLength": 1}}
+    },
+    "appearance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["appearance_id", "name", "source", "base_color", "metallic", "roughness", "alpha_mode", "double_sided", "edge_color", "sdk_metadata"],
+      "properties": {
+        "appearance_id": {"type": "string", "pattern": "^appearance/evaluated/[0-9a-f]{64}$"}, "name": {"type": ["string", "null"]},
+        "source": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/productMaterialSource"}, {"$ref": "#/$defs/presentationAppearanceSource"}]},
+        "base_color": {"$ref": "#/$defs/color"}, "metallic": {"type": "number", "minimum": 0, "maximum": 1},
+        "roughness": {"type": "number", "minimum": 0, "maximum": 1}, "alpha_mode": {"const": "opaque"}, "double_sided": {"type": "boolean"},
+        "edge_color": {"$ref": "#/$defs/color"}, "sdk_metadata": {"type": "object"}
+      }
+    },
+    "modelOperationSource": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "graph_id", "node_id", "output_slot"],
+      "properties": {"kind": {"const": "model_operation"}, "graph_id": {"$ref": "#/$defs/productId"}, "node_id": {"$ref": "#/$defs/productId"}, "output_slot": {"$ref": "#/$defs/safeInteger"}}
+    },
+    "manualConnectorSource": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "source_id"],
+      "properties": {"kind": {"const": "manual"}, "source_id": {"$ref": "#/$defs/logicalId"}}
+    },
+    "connectorTarget": {
+      "type": "object", "additionalProperties": false, "required": ["entity_asset_id", "entity_id"],
+      "properties": {"entity_asset_id": {"$ref": "#/$defs/hash"}, "entity_id": {"type": "string", "pattern": "^entity/(face|edge|vertex)/(0|[1-9][0-9]*)$"}}
+    },
+    "forwardedFrom": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_component_id", "source_definition_id", "source_connector_id", "source_connector_snapshot_id", "offset"],
+      "properties": {
+        "source_component_id": {"$ref": "#/$defs/productId"}, "source_definition_id": {"$ref": "#/$defs/structuralId"},
+        "source_connector_id": {"$ref": "#/$defs/productId"}, "source_connector_snapshot_id": {"$ref": "#/$defs/structuralId"},
+        "offset": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/transform"}]}
+      }
+    },
+    "connector": {
+      "type": "object", "additionalProperties": false,
+      "required": ["connector_snapshot_id", "owner_definition_id", "connector_id", "name", "anchor_kind", "local_transform", "source", "sdk_metadata"],
+      "properties": {
+        "connector_snapshot_id": {"$ref": "#/$defs/structuralId"}, "owner_definition_id": {"$ref": "#/$defs/structuralId"},
+        "connector_id": {"$ref": "#/$defs/productId"}, "name": {"type": ["string", "null"]}, "anchor_kind": {"enum": ["geometry", "placement", "forwarded"]},
+        "local_transform": {"$ref": "#/$defs/transform"}, "target": {"$ref": "#/$defs/connectorTarget"}, "forwarded_from": {"$ref": "#/$defs/forwardedFrom"},
+        "source": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/modelOperationSource"}, {"$ref": "#/$defs/manualConnectorSource"}]},
+        "sdk_metadata": {"type": "object", "maxProperties": 0}
+      },
+      "allOf": [
+        {"if": {"properties": {"anchor_kind": {"const": "geometry"}}, "required": ["anchor_kind"]}, "then": {"required": ["target"], "not": {"required": ["forwarded_from"]}}},
+        {"if": {"properties": {"anchor_kind": {"const": "placement"}}, "required": ["anchor_kind"]}, "then": {"not": {"anyOf": [{"required": ["target"]}, {"required": ["forwarded_from"]}]}}},
+        {"if": {"properties": {"anchor_kind": {"const": "forwarded"}}, "required": ["anchor_kind"]}, "then": {"required": ["forwarded_from"], "not": {"required": ["target"]}}}
+      ]
+    },
+    "cameraBase": {
+      "type": "object",
+      "properties": {
+        "camera_id": {"$ref": "#/$defs/structuralId"}, "name": {"type": "string", "minLength": 1},
+        "parent_node_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/structuralId"}]}, "transform": {"$ref": "#/$defs/transform"},
+        "near": {"$ref": "#/$defs/positiveNumber"}, "far": {"$ref": "#/$defs/positiveNumber"}
+      }
+    },
+    "perspectiveCamera": {
+      "type": "object", "additionalProperties": false,
+      "required": ["camera_id", "name", "projection", "parent_node_id", "transform", "near", "far", "vertical_fov_degrees"],
+      "properties": {
+        "camera_id": {"$ref": "#/$defs/structuralId"}, "name": {"type": "string", "minLength": 1}, "projection": {"const": "perspective"},
+        "parent_node_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/structuralId"}]}, "transform": {"$ref": "#/$defs/transform"},
+        "near": {"$ref": "#/$defs/positiveNumber"}, "far": {"$ref": "#/$defs/positiveNumber"},
+        "vertical_fov_degrees": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 180}
+      }
+    },
+    "orthographicCamera": {
+      "type": "object", "additionalProperties": false,
+      "required": ["camera_id", "name", "projection", "parent_node_id", "transform", "near", "far", "vertical_span"],
+      "properties": {
+        "camera_id": {"$ref": "#/$defs/structuralId"}, "name": {"type": "string", "minLength": 1}, "projection": {"const": "orthographic"},
+        "parent_node_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/structuralId"}]}, "transform": {"$ref": "#/$defs/transform"},
+        "near": {"$ref": "#/$defs/positiveNumber"}, "far": {"$ref": "#/$defs/positiveNumber"}, "vertical_span": {"$ref": "#/$defs/positiveNumber"}
+      }
+    },
+    "camera": {"oneOf": [{"$ref": "#/$defs/perspectiveCamera"}, {"$ref": "#/$defs/orthographicCamera"}]}
+  }
+}

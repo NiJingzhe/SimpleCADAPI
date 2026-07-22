@@ -15,20 +15,25 @@ Supported operations:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 import math
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from OCP.BRepAlgoAPI import (
     BRepAlgoAPI_Cut,
-    BRepAlgoAPI_Fuse,
     BRepAlgoAPI_Common,
     BRepAlgoAPI_BooleanOperation,
 )
-from OCP.BOPAlgo import BOPAlgo_GlueOff, BOPAlgo_GlueShift
+from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.BRepBuilderAPI import (
+    BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_Transform,
     BRepBuilderAPI_MakeShape,
+    BRepBuilderAPI_MakeWire,
 )
+from OCP.BRepCheck import BRepCheck_Analyzer
+from OCP.BRepFill import BRepFill_TypeOfContact
+from OCP.BRepLib import BRepLib
 from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol
 from OCP.BRepFilletAPI import (
@@ -41,10 +46,12 @@ from OCP.BRepOffsetAPI import (
     BRepOffsetAPI_ThruSections,
 )
 from OCP.BRepOffset import BRepOffset_Skin
-from OCP.GeomAbs import GeomAbs_Arc
-from OCP.gp import gp_Vec
+from OCP.GeomAbs import GeomAbs_Arc, GeomAbs_Plane
+from OCP.GCE2d import GCE2d_MakeSegment
+from OCP.Geom import Geom_CylindricalSurface
+from OCP.gp import gp_Ax3, gp_Dir, gp_Pnt, gp_Pnt2d, gp_Vec
 from OCP.TopTools import TopTools_ListOfShape
-from OCP.TopExp import TopExp_Explorer
+from OCP.TopExp import TopExp, TopExp_Explorer
 from OCP.TopAbs import (
     TopAbs_COMPOUND,
     TopAbs_EDGE,
@@ -56,6 +63,12 @@ from OCP.TopAbs import (
 from OCP.TopoDS import TopoDS
 
 from .core import Solid, Face, Edge, Vertex
+from .kernel.ocp_booleans import fuse_shapes_with_history, solids_of
+from .kernel.ocp_builders import (
+    build_box_primitive,
+    build_cone_primitive,
+    build_cylinder_primitive,
+)
 from .topology import (
     TopoKind,
     TopoEvent,
@@ -65,6 +78,13 @@ from .topology import (
     TopoRoleEntry,
     _make_id,
 )
+
+
+class TrackingPolicy(str, Enum):
+    """Controls how much topology provenance an operation computes."""
+
+    FULL = "full"
+    GRAPH = "graph"
 
 
 @dataclass
@@ -163,7 +183,7 @@ def _dedupe_shapes(shapes: Iterable[Any]) -> List[Any]:
 
 
 def _query_exact_history(
-    builder: BRepAlgoAPI_BooleanOperation,
+    builder: Any,
     input_shapes: Iterable[Any],
     graph_id: str,
     node_id: str,
@@ -195,7 +215,10 @@ def _query_exact_history(
     for sub in _dedupe_shapes(input_shapes):
         input_id = _topo_id(sub)
 
-        is_deleted = bool(builder.IsDeleted(sub))
+        if hasattr(builder, "IsDeleted"):
+            is_deleted = bool(builder.IsDeleted(sub))
+        else:
+            is_deleted = bool(builder.IsRemoved(sub))
         if is_deleted:
             ref = TopoRef(graph_id, node_id, 0, kind, input_id)
             deleted.append(ref)
@@ -336,7 +359,7 @@ def _query_exact_history(
 
 
 def _query_history(
-    builder: BRepAlgoAPI_BooleanOperation,
+    builder: Any,
     input_solid,
     graph_id: str,
     node_id: str,
@@ -734,6 +757,7 @@ def _build_boolean_result(
         TopoKind.FACE,
         TopAbs_FACE,
         result_shape=result_shape,
+        project_source_tags=True,
     )
     # Query face-level history for tool
     t_pres, t_mod, t_gen, t_del, t_entries = _query_history(
@@ -745,6 +769,7 @@ def _build_boolean_result(
         TopoKind.FACE,
         TopAbs_FACE,
         result_shape=result_shape,
+        project_source_tags=True,
     )
 
     # Section edges
@@ -819,29 +844,84 @@ def tracked_union(
     Returns:
         :class:`TrackedBooleanResult` with the fused solid and topological delta.
     """
-    fuse_op = BRepAlgoAPI_Fuse()
-    fuse_op.SetRunParallel(True)
-    fuse_op.SetUseOBB(True)
-    fuse_op.SetToFillHistory(True)
-    fuse_op.SetGlue(BOPAlgo_GlueShift if glue else BOPAlgo_GlueOff)
-    if tol is not None:
-        fuse_op.SetFuzzyValue(float(tol))
+    fused = fuse_shapes_with_history(
+        [body.wrapped, tool.wrapped],
+        glue=glue,
+        tol=tol,
+        clean=False,
+    )
+    result_solids = solids_of(fused.shape)
+    if len(result_solids) != 1:
+        raise ValueError("Boolean union did not produce exactly one solid")
+    return track_union_history(
+        [body, tool],
+        Solid(result_solids[0]),
+        fused.history,
+        fused.section_edges,
+    )
 
-    args = TopTools_ListOfShape()
-    args.Append(body.wrapped)
-    tools = TopTools_ListOfShape()
-    tools.Append(tool.wrapped)
 
-    fuse_op.SetArguments(args)
-    fuse_op.SetTools(tools)
-    fuse_op.Build()
+def track_union_history(
+    solids: Iterable[Solid],
+    result_solid: Solid,
+    history: Any,
+    section_edges: Iterable[Any] = (),
+) -> TrackedBooleanResult:
+    """Build one face-level union delta from retained N-ary OCC history."""
 
-    if not fuse_op.IsDone():
-        raise ValueError("Boolean union failed: OCC build did not complete")
+    inputs = list(solids)
+    if len(inputs) < 2:
+        raise ValueError("Union history tracking requires at least two solids")
 
-    result = _build_boolean_result(fuse_op, body, tool, "union")
-    # Add section edges from the builder
-    return result
+    graph_id = _make_id("g")
+    node_id = _make_id("n")
+    preserved: List[TopoRef] = []
+    modified: List[TopoRef] = []
+    generated: List[TopoRef] = []
+    deleted: List[TopoRef] = []
+    history_entries: List[Dict[str, Any]] = []
+
+    for index, solid in enumerate(inputs):
+        origin_role = "body" if index == 0 else ("tool" if index == 1 else f"tool_{index}")
+        pres, mod, gen, del_, entries = _query_history(
+            history,
+            solid.wrapped,
+            graph_id,
+            node_id,
+            origin_role,
+            TopoKind.FACE,
+            TopAbs_FACE,
+            result_shape=result_solid.wrapped,
+            project_source_tags=True,
+        )
+        preserved.extend(pres)
+        modified.extend(mod)
+        generated.extend(gen)
+        deleted.extend(del_)
+        history_entries.extend(entries)
+
+    section_refs = tuple(
+        TopoRef(graph_id, node_id, 0, TopoKind.EDGE, _topo_id(edge))
+        for edge in _dedupe_shapes(section_edges)
+        if _is_result_member(result_solid.wrapped, edge)
+    )
+    delta = TopoDelta(
+        preserved=tuple(preserved),
+        modified=tuple(modified),
+        generated=tuple(generated),
+        deleted=tuple(deleted),
+        section_edges=section_refs,
+        entries=_canonical_topo_entries(
+            history_entries,
+            graph_id=graph_id,
+            node_id=node_id,
+        ),
+    )
+    return TrackedBooleanResult(
+        solid=result_solid,
+        delta=delta,
+        delta_entries=_aggregate_delta_entries(history_entries),
+    )
 
 
 def tracked_intersect(body: Solid, tool: Solid) -> TrackedBooleanResult:
@@ -1064,6 +1144,114 @@ def tracked_mirror(
 # ---------------------------------------------------------------------------
 # Feature tracking
 # ---------------------------------------------------------------------------
+
+
+def tracked_box(
+    corner: Tuple[float, float, float],
+    width: float,
+    height: float,
+    depth: float,
+) -> TrackedResult:
+    """Build a box with operation-native Face role witnesses."""
+
+    graph_id = _make_id("g")
+    node_id = _make_id("n")
+    built = build_box_primitive(corner, width, height, depth)
+    result_solid = Solid(built.solid)
+    roles: List[Dict[str, Any]] = []
+    for witness in built.roles:
+        role_entry = _operation_role(
+            witness.shape,
+            result_shape=result_solid.wrapped,
+            graph_id=graph_id,
+            node_id=node_id,
+            role=witness.role,
+            evidence_method=witness.evidence_method,
+        )
+        if role_entry is not None:
+            roles.append(role_entry)
+
+    delta = TopoDelta(
+        roles=_canonical_topo_roles(roles, graph_id=graph_id, node_id=node_id)
+    )
+    return TrackedResult(
+        shape=result_solid,
+        delta=delta,
+        delta_entries=_aggregate_delta_entries([], roles),
+    )
+
+
+def tracked_cylinder(
+    origin: Tuple[float, float, float],
+    axis: Tuple[float, float, float],
+    radius: float,
+    height: float,
+) -> TrackedResult:
+    """Build a cylinder with operation-native Face and Edge role witnesses."""
+
+    graph_id = _make_id("g")
+    node_id = _make_id("n")
+    built = build_cylinder_primitive(origin, axis, radius, height)
+    result_solid = Solid(built.solid)
+    roles: List[Dict[str, Any]] = []
+    for witness in built.roles:
+        role_entry = _operation_role(
+            witness.shape,
+            result_shape=result_solid.wrapped,
+            graph_id=graph_id,
+            node_id=node_id,
+            role=witness.role,
+            evidence_method=witness.evidence_method,
+        )
+        if role_entry is not None:
+            roles.append(role_entry)
+
+    delta = TopoDelta(
+        roles=_canonical_topo_roles(roles, graph_id=graph_id, node_id=node_id)
+    )
+    return TrackedResult(
+        shape=result_solid,
+        delta=delta,
+        delta_entries=_aggregate_delta_entries([], roles),
+    )
+
+
+def tracked_cone(
+    origin: Tuple[float, float, float],
+    axis: Tuple[float, float, float],
+    bottom_radius: float,
+    top_radius: float,
+    height: float,
+) -> TrackedResult:
+    """Build a cone with operation-native Face and Edge role witnesses."""
+
+    graph_id = _make_id("g")
+    node_id = _make_id("n")
+    built = build_cone_primitive(
+        origin, axis, bottom_radius, top_radius, height
+    )
+    result_solid = Solid(built.solid)
+    roles: List[Dict[str, Any]] = []
+    for witness in built.roles:
+        role_entry = _operation_role(
+            witness.shape,
+            result_shape=result_solid.wrapped,
+            graph_id=graph_id,
+            node_id=node_id,
+            role=witness.role,
+            evidence_method=witness.evidence_method,
+        )
+        if role_entry is not None:
+            roles.append(role_entry)
+
+    delta = TopoDelta(
+        roles=_canonical_topo_roles(roles, graph_id=graph_id, node_id=node_id)
+    )
+    return TrackedResult(
+        shape=result_solid,
+        delta=delta,
+        delta_entries=_aggregate_delta_entries([], roles),
+    )
 
 
 def tracked_extrude(
@@ -1542,6 +1730,157 @@ def tracked_sweep(profile: Face, path: Wire, is_frenet: bool = False) -> Tracked
     for candidate, role, method in (
         (sweep_op.FirstShape(), "sweep.start", "FirstShape"),
         (sweep_op.LastShape(), "sweep.end", "LastShape"),
+    ):
+        role_entry = _operation_role(
+            candidate,
+            result_shape=result_solid.wrapped,
+            graph_id=graph_id,
+            node_id=node_id,
+            role=role,
+            evidence_method=method,
+        )
+        if role_entry is not None:
+            roles.append(role_entry)
+
+    delta = TopoDelta(
+        preserved=tuple(p_pres),
+        modified=tuple(p_mod),
+        generated=tuple(p_gen),
+        deleted=tuple(p_del),
+        entries=_canonical_topo_entries(
+            history_entries,
+            graph_id=graph_id,
+            node_id=node_id,
+        ),
+        roles=_canonical_topo_roles(roles, graph_id=graph_id, node_id=node_id),
+    )
+    return TrackedResult(
+        shape=result_solid,
+        delta=delta,
+        delta_entries=_aggregate_delta_entries(history_entries, roles),
+    )
+
+
+def tracked_twisted_sweep(
+    profile: Face,
+    *,
+    axis: Tuple[float, float, float],
+    origin: Tuple[float, float, float],
+    distance: float,
+    twist_angle: float,
+    guide_radius: float,
+) -> TrackedResult:
+    """Sweep a profile along a line with a linear axial rotation law."""
+
+    graph_id = _make_id("g")
+    node_id = _make_id("n")
+
+    if profile.get_inner_wires():
+        raise ValueError("Twisted sweep profiles with inner wires are unsupported")
+    if BRepAdaptor_Surface(profile.wrapped, True).GetType() != GeomAbs_Plane:
+        raise ValueError("Twisted sweep requires a planar profile")
+
+    normal = profile.get_normal_at()
+    normal_array = (float(normal.x), float(normal.y), float(normal.z))
+    alignment = abs(sum(normal_array[index] * axis[index] for index in range(3)))
+    if alignment < 1.0 - 1.0e-8:
+        raise ValueError("Twisted sweep profile must be normal to the sweep axis")
+    center = profile.get_center()
+    axial_offset = sum(
+        (float(value) - origin[index]) * axis[index]
+        for index, value in enumerate((center.x, center.y, center.z))
+    )
+    if abs(axial_offset) > max(1.0e-7, distance * 1.0e-9):
+        raise ValueError("Twisted sweep profile must lie at the sweep origin")
+
+    axis_dir = gp_Dir(*axis)
+    axis_array = tuple(float(value) for value in axis)
+    seed = (1.0, 0.0, 0.0) if abs(axis_array[0]) < 0.9 else (0.0, 1.0, 0.0)
+    projection = sum(seed[index] * axis_array[index] for index in range(3))
+    reference = tuple(
+        seed[index] - projection * axis_array[index] for index in range(3)
+    )
+    reference_dir = gp_Dir(*reference)
+
+    start = gp_Pnt(*origin)
+    end = gp_Pnt(
+        origin[0] + axis[0] * distance,
+        origin[1] + axis[1] * distance,
+        origin[2] + axis[2] * distance,
+    )
+    spine_edge_builder = BRepBuilderAPI_MakeEdge(start, end)
+    if not spine_edge_builder.IsDone():
+        raise ValueError("Twisted sweep failed to build its straight spine")
+    spine_edge = spine_edge_builder.Edge()
+    spine_builder = BRepBuilderAPI_MakeWire(spine_edge)
+    if not spine_builder.IsDone():
+        raise ValueError("Twisted sweep failed to build its spine wire")
+    spine = spine_builder.Wire()
+
+    cylinder = Geom_CylindricalSurface(
+        gp_Ax3(start, axis_dir, reference_dir), float(guide_radius)
+    )
+    guide_curve = GCE2d_MakeSegment(
+        gp_Pnt2d(0.0, 0.0),
+        gp_Pnt2d(math.radians(twist_angle), float(distance)),
+    ).Value()
+    guide_edge_builder = BRepBuilderAPI_MakeEdge(guide_curve, cylinder)
+    if not guide_edge_builder.IsDone():
+        raise ValueError("Twisted sweep failed to build its rotation guide")
+    guide_builder = BRepBuilderAPI_MakeWire(guide_edge_builder.Edge())
+    if not guide_builder.IsDone():
+        raise ValueError("Twisted sweep failed to build its rotation guide wire")
+    guide = guide_builder.Wire()
+    BRepLib.BuildCurves3d_s(guide, 1.0e-7, MaxSegment=2000)
+
+    sweep_op = BRepOffsetAPI_MakePipeShell(spine)
+    sweep_op.SetTolerance(1.0e-6, 1.0e-6, 1.0e-4)
+    sweep_op.SetMaxDegree(11)
+    sweep_op.SetMaxSegments(200)
+    sweep_op.SetMode(
+        guide,
+        True,
+        BRepFill_TypeOfContact.BRepFill_NoContact,
+    )
+    sweep_op.Add(
+        profile.get_outer_wire().wrapped,
+        TopExp.FirstVertex_s(spine_edge, True),
+        False,
+        False,
+    )
+    if not sweep_op.IsReady():
+        raise ValueError("Twisted sweep is not ready after adding the profile")
+    sweep_op.Build()
+    if not sweep_op.IsDone():
+        raise ValueError(f"Twisted sweep failed: {sweep_op.GetStatus().name}")
+    approximation_error = float(sweep_op.ErrorOnSurface())
+    if not sweep_op.MakeSolid():
+        raise ValueError("Twisted sweep failed to convert its shell into a solid")
+
+    result_solid = Solid(sweep_op.Shape())
+    if not BRepCheck_Analyzer(result_solid.wrapped, True).IsValid():
+        raise ValueError("Twisted sweep produced an invalid solid")
+    result_solid.set_metadata(
+        "twisted_sweep.kernel",
+        {"surface_error": approximation_error},
+    )
+
+    p_pres, p_mod, p_gen, p_del, history_entries = _query_history(
+        sweep_op,
+        profile.get_outer_wire().wrapped,
+        graph_id,
+        node_id,
+        "profile",
+        TopoKind.EDGE,
+        TopAbs_EDGE,
+        result_shape=result_solid.wrapped,
+        generated_result_role="twisted_sweep.side",
+        project_source_tags=True,
+    )
+    roles = _roles_from_history(history_entries, evidence_method="Generated")
+    for candidate, role, method in (
+        (sweep_op.FirstShape(), "twisted_sweep.start", "FirstShape"),
+        (sweep_op.LastShape(), "twisted_sweep.end", "LastShape"),
     ):
         role_entry = _operation_role(
             candidate,

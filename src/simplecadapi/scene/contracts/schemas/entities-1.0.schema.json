@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplecad.dev/schemas/entities-1.0.schema.json",
+  "title": "SimpleCAD Entity Snapshot 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "definition_id", "geometry_asset_id", "edge_asset_id", "geometry_engine", "entities", "face_groups", "edge_groups"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "definition_id": {"$ref": "#/$defs/structuralId"},
+    "geometry_asset_id": {"$ref": "#/$defs/hash"},
+    "edge_asset_id": {"$ref": "#/$defs/hash"},
+    "geometry_engine": {"$ref": "#/$defs/geometryEngine"},
+    "entities": {"type": "array", "items": {"$ref": "#/$defs/entity"}, "minItems": 4},
+    "face_groups": {"type": "array", "items": {"$ref": "#/$defs/group"}, "minItems": 1},
+    "edge_groups": {"type": "array", "items": {"$ref": "#/$defs/group"}}
+  },
+  "$defs": {
+    "safeInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "positiveInteger": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+    "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "productId": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"},
+    "structuralId": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9._~%:/-]+$"},
+    "entityId": {"type": "string", "pattern": "^entity/(solid|face|edge|vertex)/(0|[1-9][0-9]*)$"},
+    "vec3": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}], "minItems": 3, "maxItems": 3},
+    "transform": {"type": "object", "additionalProperties": false, "required": ["origin", "x_axis", "y_axis", "z_axis"], "properties": {
+      "origin": {"$ref": "#/$defs/vec3"}, "x_axis": {"$ref": "#/$defs/vec3"}, "y_axis": {"$ref": "#/$defs/vec3"}, "z_axis": {"$ref": "#/$defs/vec3"}
+    }},
+    "bounds": {"type": "object", "additionalProperties": false, "required": ["min", "max"], "properties": {
+      "min": {"$ref": "#/$defs/vec3"}, "max": {"$ref": "#/$defs/vec3"}
+    }},
+    "geometryEngine": {"type": "object", "additionalProperties": false, "required": ["name", "version", "profile"], "properties": {
+      "name": {"const": "OpenCascade"}, "version": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"}, "profile": {"const": "ocp-evaluated-properties-1"}
+    }},
+    "modelOutput": {"type": "object", "additionalProperties": false, "required": ["kind", "graph_id", "node_id", "output_slot"], "properties": {
+      "kind": {"const": "model_output"}, "graph_id": {"$ref": "#/$defs/productId"}, "node_id": {"$ref": "#/$defs/productId"}, "output_slot": {"$ref": "#/$defs/safeInteger"}
+    }},
+    "modelTopology": {"type": "object", "additionalProperties": false, "required": ["kind", "graph_id", "node_id", "output_slot", "topology_kind", "topo_id"], "properties": {
+      "kind": {"const": "model_topology"}, "graph_id": {"$ref": "#/$defs/productId"}, "node_id": {"$ref": "#/$defs/productId"}, "output_slot": {"$ref": "#/$defs/safeInteger"},
+      "topology_kind": {"enum": ["SOLID", "FACE", "EDGE", "VERTEX"]}, "topo_id": {"type": "string", "minLength": 1}
+    }},
+    "importedPrimitive": {"type": "object", "additionalProperties": false, "required": ["kind", "source_element_id"], "properties": {
+      "kind": {"const": "imported_primitive"}, "source_element_id": {"type": "string", "minLength": 1}
+    }},
+    "unbound": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "unbound"}}},
+    "source": {"oneOf": [{"$ref": "#/$defs/modelOutput"}, {"$ref": "#/$defs/modelTopology"}, {"$ref": "#/$defs/importedPrimitive"}, {"$ref": "#/$defs/unbound"}]},
+    "brepSolid": {"type": "object", "additionalProperties": false, "required": ["type"], "properties": {"type": {"const": "brep_solid"}}},
+    "point": {"type": "object", "additionalProperties": false, "required": ["type", "position"], "properties": {"type": {"const": "point"}, "position": {"$ref": "#/$defs/vec3"}}},
+    "line": {"type": "object", "additionalProperties": false, "required": ["type", "origin", "direction"], "properties": {"type": {"const": "line"}, "origin": {"$ref": "#/$defs/vec3"}, "direction": {"$ref": "#/$defs/vec3"}}},
+    "circle": {"type": "object", "additionalProperties": false, "required": ["type", "center", "normal", "x_direction", "radius"], "properties": {
+      "type": {"const": "circle"}, "center": {"$ref": "#/$defs/vec3"}, "normal": {"$ref": "#/$defs/vec3"}, "x_direction": {"$ref": "#/$defs/vec3"}, "radius": {"type": "number", "exclusiveMinimum": 0}
+    }},
+    "ellipse": {"type": "object", "additionalProperties": false, "required": ["type", "center", "normal", "x_direction", "major_radius", "minor_radius"], "properties": {
+      "type": {"const": "ellipse"}, "center": {"$ref": "#/$defs/vec3"}, "normal": {"$ref": "#/$defs/vec3"}, "x_direction": {"$ref": "#/$defs/vec3"},
+      "major_radius": {"type": "number", "exclusiveMinimum": 0}, "minor_radius": {"type": "number", "exclusiveMinimum": 0}
+    }},
+    "bsplineCurve": {"type": "object", "additionalProperties": false, "required": ["type", "degree", "rational", "periodic", "poles_count", "knots_count"], "properties": {
+      "type": {"const": "bspline_curve"}, "degree": {"$ref": "#/$defs/safeInteger"}, "rational": {"type": "boolean"}, "periodic": {"type": "boolean"},
+      "poles_count": {"$ref": "#/$defs/safeInteger"}, "knots_count": {"$ref": "#/$defs/safeInteger"}
+    }},
+    "otherCurve": {"type": "object", "additionalProperties": false, "required": ["type", "engine_type"], "properties": {"type": {"const": "other_curve"}, "engine_type": {"type": "string", "minLength": 1}}},
+    "plane": {"type": "object", "additionalProperties": false, "required": ["type", "origin", "normal", "x_direction"], "properties": {
+      "type": {"const": "plane"}, "origin": {"$ref": "#/$defs/vec3"}, "normal": {"$ref": "#/$defs/vec3"}, "x_direction": {"$ref": "#/$defs/vec3"}
+    }},
+    "cylinder": {"type": "object", "additionalProperties": false, "required": ["type", "origin", "axis", "x_direction", "radius"], "properties": {
+      "type": {"const": "cylinder"}, "origin": {"$ref": "#/$defs/vec3"}, "axis": {"$ref": "#/$defs/vec3"}, "x_direction": {"$ref": "#/$defs/vec3"}, "radius": {"type": "number", "exclusiveMinimum": 0}
+    }},
+    "cone": {"type": "object", "additionalProperties": false, "required": ["type", "origin", "axis", "x_direction", "reference_radius", "semi_angle_degrees"], "properties": {
+      "type": {"const": "cone"}, "origin": {"$ref": "#/$defs/vec3"}, "axis": {"$ref": "#/$defs/vec3"}, "x_direction": {"$ref": "#/$defs/vec3"},
+      "reference_radius": {"type": "number", "minimum": 0}, "semi_angle_degrees": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 90}
+    }},
+    "sphere": {"type": "object", "additionalProperties": false, "required": ["type", "center", "axis", "x_direction", "radius"], "properties": {
+      "type": {"const": "sphere"}, "center": {"$ref": "#/$defs/vec3"}, "axis": {"$ref": "#/$defs/vec3"}, "x_direction": {"$ref": "#/$defs/vec3"}, "radius": {"type": "number", "exclusiveMinimum": 0}
+    }},
+    "torus": {"type": "object", "additionalProperties": false, "required": ["type", "center", "axis", "x_direction", "major_radius", "minor_radius"], "properties": {
+      "type": {"const": "torus"}, "center": {"$ref": "#/$defs/vec3"}, "axis": {"$ref": "#/$defs/vec3"}, "x_direction": {"$ref": "#/$defs/vec3"},
+      "major_radius": {"type": "number", "exclusiveMinimum": 0}, "minor_radius": {"type": "number", "exclusiveMinimum": 0}
+    }},
+    "bsplineSurface": {"type": "object", "additionalProperties": false, "required": ["type", "u_degree", "v_degree", "u_rational", "v_rational", "u_periodic", "v_periodic", "u_poles_count", "v_poles_count", "u_knots_count", "v_knots_count"], "properties": {
+      "type": {"const": "bspline_surface"}, "u_degree": {"$ref": "#/$defs/safeInteger"}, "v_degree": {"$ref": "#/$defs/safeInteger"},
+      "u_rational": {"type": "boolean"}, "v_rational": {"type": "boolean"}, "u_periodic": {"type": "boolean"}, "v_periodic": {"type": "boolean"},
+      "u_poles_count": {"$ref": "#/$defs/safeInteger"}, "v_poles_count": {"$ref": "#/$defs/safeInteger"}, "u_knots_count": {"$ref": "#/$defs/safeInteger"}, "v_knots_count": {"$ref": "#/$defs/safeInteger"}
+    }},
+    "otherSurface": {"type": "object", "additionalProperties": false, "required": ["type", "engine_type"], "properties": {"type": {"const": "other_surface"}, "engine_type": {"type": "string", "minLength": 1}}},
+    "geometry": {"oneOf": [
+      {"$ref": "#/$defs/brepSolid"}, {"$ref": "#/$defs/point"}, {"$ref": "#/$defs/line"}, {"$ref": "#/$defs/circle"}, {"$ref": "#/$defs/ellipse"},
+      {"$ref": "#/$defs/bsplineCurve"}, {"$ref": "#/$defs/otherCurve"}, {"$ref": "#/$defs/plane"}, {"$ref": "#/$defs/cylinder"}, {"$ref": "#/$defs/cone"},
+      {"$ref": "#/$defs/sphere"}, {"$ref": "#/$defs/torus"}, {"$ref": "#/$defs/bsplineSurface"}, {"$ref": "#/$defs/otherSurface"}
+    ]},
+    "solidProperties": {"type": "object", "additionalProperties": false, "required": ["quality", "bounds", "volume", "surface_area", "centroid"], "properties": {
+      "quality": {"const": "kernel_evaluated"}, "bounds": {"$ref": "#/$defs/bounds"}, "volume": {"type": "number", "minimum": 0}, "surface_area": {"type": "number", "minimum": 0}, "centroid": {"$ref": "#/$defs/vec3"}
+    }},
+    "faceProperties": {"type": "object", "additionalProperties": false, "required": ["quality", "bounds", "area", "centroid", "orientation"], "properties": {
+      "quality": {"const": "kernel_evaluated"}, "bounds": {"$ref": "#/$defs/bounds"}, "area": {"type": "number", "minimum": 0}, "centroid": {"$ref": "#/$defs/vec3"}, "orientation": {"enum": ["forward", "reversed", "internal", "external"]}
+    }},
+    "edgeProperties": {"type": "object", "additionalProperties": false, "required": ["quality", "bounds", "length", "centroid"], "properties": {
+      "quality": {"const": "kernel_evaluated"}, "bounds": {"$ref": "#/$defs/bounds"}, "length": {"type": "number", "minimum": 0}, "centroid": {"$ref": "#/$defs/vec3"}
+    }},
+    "vertexProperties": {"type": "object", "additionalProperties": false, "required": ["quality", "bounds", "position"], "properties": {
+      "quality": {"const": "kernel_evaluated"}, "bounds": {"$ref": "#/$defs/bounds"}, "position": {"$ref": "#/$defs/vec3"}
+    }},
+    "entity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["entity_id", "kind", "parent_entity_ids", "child_entity_ids", "source", "geometry", "properties", "sdk_connector_frame", "render_status", "connector_binding_status", "semantic_binding_ids", "evaluated_tags", "sdk_metadata"],
+      "properties": {
+        "entity_id": {"$ref": "#/$defs/entityId"}, "kind": {"enum": ["solid", "face", "edge", "vertex"]},
+        "parent_entity_ids": {"type": "array", "items": {"$ref": "#/$defs/entityId"}, "uniqueItems": true},
+        "child_entity_ids": {"type": "array", "items": {"$ref": "#/$defs/entityId"}, "uniqueItems": true},
+        "source": {"$ref": "#/$defs/source"}, "geometry": {"$ref": "#/$defs/geometry"},
+        "properties": {"oneOf": [{"$ref": "#/$defs/solidProperties"}, {"$ref": "#/$defs/faceProperties"}, {"$ref": "#/$defs/edgeProperties"}, {"$ref": "#/$defs/vertexProperties"}]},
+        "sdk_connector_frame": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/transform"}]},
+        "render_status": {"enum": ["rendered", "degenerate"]},
+        "connector_binding_status": {"enum": ["not_applicable", "owner_not_part", "source_not_model", "frame_undefined", "selector_ambiguous", "selector_unstable", "supported"]},
+        "semantic_binding_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "evaluated_tags": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "sdk_metadata": {"type": "object"}
+      }
+    },
+    "group": {"type": "object", "additionalProperties": false, "required": ["group_id", "entity_id", "mesh_index", "primitive_index", "first_index", "index_count"], "properties": {
+      "group_id": {"$ref": "#/$defs/safeInteger"}, "entity_id": {"$ref": "#/$defs/entityId"}, "mesh_index": {"const": 0}, "primitive_index": {"const": 0},
+      "first_index": {"$ref": "#/$defs/safeInteger"}, "index_count": {"$ref": "#/$defs/positiveInteger"}
+    }}
+  }
+}

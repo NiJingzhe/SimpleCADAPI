@@ -254,6 +254,63 @@ class TestSerializableGeometrySelectors(unittest.TestCase):
         edges = selector.resolve(result)
         self.assertGreater(len(edges), 0)
 
+    def test_incident_face_query_selects_one_named_edge(self):
+        profile = scad.make_rectangle_rface(
+            4.0,
+            2.0,
+            tag_prefix="profile",
+            edge_tags=["bottom", "right", "top", "left"],
+        )
+        solid = scad.extrude_rsolid(
+            profile, (0, 0, 1), 3.0, tag_prefix="boss"
+        )
+        selector = (
+            Q.faces()
+            .where(Q.tag("boss.face.start"))
+            .boundary("edge")
+            .incident_to(
+                Q.faces().where(Q.tag("boss.face.start")),
+                Q.faces().where(Q.tag("boss.face.side.right")),
+                distinct=True,
+            )
+            .incident_face_count(exactly=2)
+            .exactly(1)
+        )
+
+        edges = selector.resolve(solid)
+        self.assertEqual(len(edges), 1)
+        restored = Q.selector_from_dict(selector.to_dict())
+        self.assertEqual(len(restored.resolve(solid)), 1)
+
+    def test_shared_boundary_intersection_uses_topology_identity(self):
+        solid = scad.make_cylinder_rsolid(2.0, 3.0, tag_prefix="shaft")
+        start = Q.faces().where(Q.tag("shaft.face.start"))
+        side = Q.faces().where(Q.tag("shaft.face.side"))
+        shared = start.shared_boundary(side).exactly(1)
+        self.assertEqual(len(shared.resolve(solid)), 1)
+        self.assertEqual(
+            len(Q.selector_from_dict(shared.to_dict()).resolve(solid)), 1
+        )
+
+        first = scad.make_cylinder_rsolid(2.0, 3.0, tag_prefix="first")
+        second = scad.make_cylinder_rsolid(2.0, 3.0, tag_prefix="second")
+        self.assertEqual(
+            Q.solids()
+            .where(Q.tag("first.solid"))
+            .shared_boundary(Q.solids().where(Q.tag("first.solid")))
+            .resolve(first),
+            first.get_edges(),
+        )
+        self.assertEqual(
+            len(
+                Q.solids()
+                .where(Q.tag("first.solid"))
+                .shared_boundary(Q.solids().where(Q.tag("second.solid")))
+                .resolve([first, second])
+            ),
+            0,
+        )
+
     def test_selector_exactly_enforces_cardinality(self):
         box = scad.make_box_rsolid(1.0, 1.0, 1.0)
         selector = (

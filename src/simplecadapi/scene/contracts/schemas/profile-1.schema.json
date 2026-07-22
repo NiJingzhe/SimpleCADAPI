@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplecad.dev/schemas/profile-1.schema.json",
+  "title": "SimpleCAD Profile 1 Dispatcher",
+  "oneOf": [
+    {"$ref": "render-profile-2.schema.json"},
+    {"$ref": "evaluated-properties-profile-1.schema.json"}
+  ]
+}
