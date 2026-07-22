@@ -1,0 +1,22 @@
+{
+  "name": "simplecad-scene-viewer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "prepare:example": "uv run python ../examples/10_part_assembly.py"
+  },
+  "dependencies": {
+    "fflate": "0.8.2",
+    "lucide": "^0.547.0",
+    "three": "0.178.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.178.1",
+    "typescript": "5.7.2",
+    "vite": "7.3.6"
+  }
+}
