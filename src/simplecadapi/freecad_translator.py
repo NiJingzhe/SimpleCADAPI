@@ -1526,75 +1526,6 @@ def _connector_payload_for(component_entry, connector_id):
     raise RuntimeError(f'Missing connector {connector_id!r} on component {component_entry.get("component_id")!r}')
 
 
-def _orthogonal_jcs_axis(z_axis):
-    candidates = [App.Vector(1, 0, 0), App.Vector(0, 1, 0), App.Vector(0, 0, 1)]
-    best = min(candidates, key=lambda candidate: abs(z_axis.dot(candidate)))
-    x_axis = best - z_axis * z_axis.dot(best)
-    if float(x_axis.Length) <= 1e-12:
-        raise RuntimeError('Connector axis does not define a stable orthogonal frame')
-    x_axis.normalize()
-    return x_axis
-
-
-def _connector_geometry_placement(geometry_ref):
-    geometry_ref = geometry_ref or {}
-    selector = geometry_ref.get('geo_selector') or {}
-    kind = str(geometry_ref.get('kind') or selector.get('kind') or '').lower()
-    if kind == 'vertex':
-        center = selector.get('coordinates', selector.get('center', (0.0, 0.0, 0.0)))
-        z_axis = App.Vector(0, 0, 1)
-    elif kind == 'edge':
-        center = selector.get('center', (0.0, 0.0, 0.0))
-        start = selector.get('start')
-        end = selector.get('end')
-        if start is not None and end is not None:
-            z_axis = App.Vector(
-                float(end[0]) - float(start[0]),
-                float(end[1]) - float(start[1]),
-                float(end[2]) - float(start[2]),
-            )
-        else:
-            z_axis = App.Vector(1, 0, 0)
-    else:
-        center = selector.get('center', (0.0, 0.0, 0.0))
-        z_axis = App.Vector(*selector.get('normal', (0.0, 0.0, 1.0)))
-    if float(z_axis.Length) <= 1e-12:
-        raise RuntimeError('Connector geometry has a degenerate axis')
-    z_axis.normalize()
-    if bool(geometry_ref.get('flip', False)):
-        z_axis = -z_axis
-    x_axis = _orthogonal_jcs_axis(z_axis)
-    y_axis = z_axis.cross(x_axis)
-    y_axis.normalize()
-    matrix = App.Matrix()
-    matrix.A11 = x_axis.x; matrix.A12 = y_axis.x; matrix.A13 = z_axis.x; matrix.A14 = float(center[0])
-    matrix.A21 = x_axis.y; matrix.A22 = y_axis.y; matrix.A23 = z_axis.y; matrix.A24 = float(center[1])
-    matrix.A31 = x_axis.z; matrix.A32 = y_axis.z; matrix.A33 = z_axis.z; matrix.A34 = float(center[2])
-    return App.Placement(matrix)
-
-
-def _connector_local_placement(owner_value, connector_payload):
-    connector_payload = connector_payload or {}
-    anchor = connector_payload.get('anchor') or {}
-    anchor_kind = str(anchor.get('anchor_kind') or '')
-    if anchor_kind == 'geometry' or connector_payload.get('geometry_ref') is not None:
-        geometry_ref = anchor.get('geometry_ref') or connector_payload.get('geometry_ref') or {}
-        return _connector_geometry_placement(geometry_ref)
-    if anchor_kind == 'placement':
-        return _placement_from_axes_payload(anchor.get('placement') or {})
-    if anchor_kind == 'forwarded':
-        source_component = _find_component_entry(owner_value, anchor.get('component_id'))
-        source_connector = _connector_payload_for(source_component, anchor.get('connector_id'))
-        source_placement = _placement_from_axes_payload(source_component.get('placement') or {})
-        placement = source_placement.multiply(
-            _connector_local_placement(source_component.get('item') or {}, source_connector)
-        )
-        if anchor.get('offset') is not None:
-            placement = placement.multiply(_placement_from_axes_payload(anchor.get('offset') or {}))
-        return placement
-    return App.Placement()
-
-
 def _freecad_subname_for_kind(kind, index):
     # Convert a 0-based index into a FreeCAD sub-element name string.
     kind_lower = str(kind).lower()
@@ -1627,152 +1558,6 @@ def _resolve_connector_subname(component_entry, connector_payload):
         return '', ''
 
 
-MOTION_GROUPS_BY_COMPONENT = {}
-MOTION_DRIVER_RECORDS = []
-
-
-def _reparent_to_group(obj, group):
-    for owner in list(getattr(obj, 'InList', []) or []):
-        members = list(getattr(owner, 'Group', []) or [])
-        if obj not in members or owner is group:
-            continue
-        try:
-            owner.removeObject(obj)
-        except Exception:
-            pass
-    try:
-        group.addObject(obj)
-    except Exception:
-        pass
-
-
-def _rotation_base_expression(point, axis, angle_expression, coordinate):
-    px, py, pz = (float(value) for value in point)
-    ux, uy, uz = (float(value) for value in axis)
-    values = (px, py, pz)
-    rows = (
-        (
-            (ux * ux, 1.0 - ux * ux, 0.0),
-            (ux * uy, -ux * uy, -uz),
-            (ux * uz, -ux * uz, uy),
-        ),
-        (
-            (uy * ux, -uy * ux, uz),
-            (uy * uy, 1.0 - uy * uy, 0.0),
-            (uy * uz, -uy * uz, -ux),
-        ),
-        (
-            (uz * ux, -uz * ux, -uy),
-            (uz * uy, -uz * uy, ux),
-            (uz * uz, 1.0 - uz * uz, 0.0),
-        ),
-    )
-    terms = []
-    for value, (constant, cos_coefficient, sin_coefficient) in zip(values, rows[coordinate]):
-        if abs(value) <= 1e-12:
-            continue
-        coefficient = (
-            f'({constant:.17g} + {cos_coefficient:.17g} * cos({angle_expression})'
-            f' + {sin_coefficient:.17g} * sin({angle_expression}))'
-        )
-        terms.append(f'{coefficient} * {value:.17g}mm')
-    rotated = ' + '.join(terms) if terms else '0mm'
-    return f'{values[coordinate]:.17g}mm - ({rotated})'
-
-
-def _make_revolute_motion_driver(
-    assembly_value,
-    constraint_payload,
-    component_a,
-    component_b,
-    placement_a,
-    object_name,
-    label,
-):
-    assembly_container = assembly_value.get('container')
-    joint_group = _joint_group_for(assembly_container)
-    driver = doc.addObject('App::FeaturePython', str(object_name) + '_AngleDriver')
-    driver.Label = 'Drive angle: ' + str(label or constraint_payload.get('constraint_id') or object_name)
-    driver.addProperty('App::PropertyAngle', 'Angle', 'Motion')
-    driver.Angle = float(constraint_payload.get('drive_angle_degrees'))
-    angle_limit = constraint_payload.get('angle_limit') or {}
-    if angle_limit:
-        driver.addProperty('App::PropertyAngle', 'AngleMin', 'Motion limits')
-        driver.addProperty('App::PropertyAngle', 'AngleMax', 'Motion limits')
-        driver.AngleMin = float(angle_limit.get('lower_value'))
-        driver.AngleMax = float(angle_limit.get('upper_value'))
-    _ensure_string_property(driver, 'SimpleCADDriveConstraintId')
-    driver.SimpleCADDriveConstraintId = str(constraint_payload.get('constraint_id') or '')
-    _ensure_string_property(driver, 'SimpleCADConstraintTranslationStatus')
-    driver.SimpleCADConstraintTranslationStatus = 'expression_driven_visible_components'
-    try:
-        joint_group.addObject(driver)
-    except Exception:
-        pass
-    _set_visibility(driver, False)
-
-    reference_id = str(component_a.get('component_id'))
-    moving_id = str(component_b.get('component_id'))
-    moving_link = component_b.get('link')
-    parent = MOTION_GROUPS_BY_COMPONENT.get((str(assembly_container.Name), reference_id), assembly_container)
-    motion = doc.addObject('App::Part', str(object_name) + '_Motion')
-    motion.Label = 'Motion: ' + str(label or constraint_payload.get('constraint_id') or object_name)
-    try:
-        parent.addObject(motion)
-    except Exception:
-        pass
-    _hide_origin_tree(motion)
-    _set_visibility(motion, True)
-    _set_expanded(motion, True)
-    _ensure_string_property(motion, 'SimpleCADMotionConstraintId')
-    motion.SimpleCADMotionConstraintId = str(constraint_payload.get('constraint_id') or '')
-    _reparent_to_group(moving_link, motion)
-
-    record = {
-        'assembly': assembly_container,
-        'reference_component_id': reference_id,
-        'moving_component_id': moving_id,
-        'placement_a': placement_a,
-        'initial_angle': float(constraint_payload.get('drive_angle_degrees')),
-        'driver': driver,
-        'motion': motion,
-    }
-    MOTION_DRIVER_RECORDS.append(record)
-    _configure_revolute_motion_record(record, assembly_value)
-    MOTION_GROUPS_BY_COMPONENT[(str(assembly_container.Name), moving_id)] = motion
-    return driver
-
-
-def _configure_revolute_motion_record(record, assembly_value):
-    component_a = _find_component_entry(assembly_value, record.get('reference_component_id'))
-    reference_placement = _placement_from_axes_payload(component_a.get('placement') or {})
-    joint_placement = reference_placement.multiply(record.get('placement_a') or App.Placement())
-    point = joint_placement.Base
-    axis = joint_placement.Rotation.multVec(App.Vector(0, 0, 1))
-    axis.normalize()
-    initial_angle = float(record.get('initial_angle'))
-    driver = record.get('driver')
-    motion = record.get('motion')
-    angle_expression = f'{driver.Name}.Angle - {initial_angle:.17g}deg'
-    motion.setExpression('Placement.Rotation.Angle', None)
-    for name in ('x', 'y', 'z'):
-        motion.setExpression(f'Placement.Base.{name}', None)
-    motion.Placement = App.Placement(App.Vector(), App.Rotation(axis, 0.0))
-    motion.setExpression('Placement.Rotation.Angle', angle_expression)
-    point_values = (float(point.x), float(point.y), float(point.z))
-    axis_values = (float(axis.x), float(axis.y), float(axis.z))
-    for coordinate, name in enumerate(('x', 'y', 'z')):
-        expression = _rotation_base_expression(point_values, axis_values, angle_expression, coordinate)
-        motion.setExpression(f'Placement.Base.{name}', expression)
-
-
-def _refresh_revolute_motion_drivers(assembly_value):
-    assembly_container = assembly_value.get('container')
-    for record in MOTION_DRIVER_RECORDS:
-        if record.get('assembly') is assembly_container:
-            _configure_revolute_motion_record(record, assembly_value)
-
-
 def _make_simplecad_joint(assembly_value, constraint_payload, object_name, label):
     assembly_container = assembly_value.get('container')
     if assembly_container is None:
@@ -1802,24 +1587,21 @@ def _make_simplecad_joint(assembly_value, constraint_payload, object_name, label
     else:
         _ensure_string_property(joint, 'JointType')
         joint.JointType = joint_type
-    link_a = component_a.get('link')
-    link_b = component_b.get('link')
-    placement_a = _connector_local_placement(component_a.get('item') or {}, connector_a_payload)
-    placement_b = _connector_local_placement(component_b.get('item') or {}, connector_b_payload)
     try:
+        link_a = component_a.get('link')
+        link_b = component_b.get('link')
+        sub_a1, sub_a2 = _resolve_connector_subname(component_a, connector_a_payload)
+        sub_b1, sub_b2 = _resolve_connector_subname(component_b, connector_b_payload)
         if hasattr(joint, 'Reference1'):
-            joint.Detach1 = True
-            joint.Detach2 = True
-            joint.Reference1 = (link_a, ['', ''])
-            joint.Reference2 = (link_b, ['', ''])
-            joint.Placement1 = placement_a
-            joint.Placement2 = placement_b
+            joint.Reference1 = (link_a, [sub_a1, sub_a2])
+            joint.Reference2 = (link_b, [sub_b1, sub_b2])
+            joint.Detach1 = False
+            joint.Detach2 = False
     except Exception:
         native_status = 'native_partial'
     if joint_type == 'Revolute' and constraint_payload.get('drive_angle_degrees') is not None:
         try:
             joint.Angle = float(constraint_payload.get('drive_angle_degrees'))
-            joint.Suppressed = True
         except Exception:
             native_status = 'native_partial'
     if joint_type == 'Slider' and constraint_payload.get('drive_distance') is not None:
@@ -1849,24 +1631,11 @@ def _make_simplecad_joint(assembly_value, constraint_payload, object_name, label
     _ensure_string_property(joint, 'SimpleCADConstraintTranslationStatus')
     joint.SimpleCADConstraint = json.dumps(constraint_payload, ensure_ascii=True, sort_keys=True)
     joint.SimpleCADConstraintTranslationStatus = native_status
-    _set_visibility(joint, False)
+    _set_visibility(joint, True)
     try:
         SIMPLECAD_JOINT_OBJECTS[str(joint.Name)] = joint_type
     except Exception:
         pass
-    if (
-        joint_type == 'Revolute'
-        and constraint_payload.get('drive_angle_degrees') is not None
-    ):
-        _make_revolute_motion_driver(
-            assembly_value,
-            constraint_payload,
-            component_a,
-            component_b,
-            placement_a,
-            object_name,
-            label,
-        )
     return joint
 
 
@@ -1889,7 +1658,7 @@ def _make_simplecad_grounded_joint(assembly_value, component_id):
         _ensure_string_property(ground, 'ObjectToGround')
     _ensure_string_property(ground, 'SimpleCADGroundedComponent')
     ground.SimpleCADGroundedComponent = str(component_id)
-    _set_visibility(ground, False)
+    _set_visibility(ground, True)
     try:
         SIMPLECAD_JOINT_OBJECTS[str(ground.Name)] = 'Grounded'
     except Exception:
@@ -1984,32 +1753,20 @@ def _make_part_body_copy(part_container, source_obj, source_node_id):
     return body
 
 
-def _assembly_link_source(product_item):
-    source = product_item.get('link_source')
-    if source is not None:
-        return source
-    container = product_item.get('container')
-    source_name = f'{getattr(container, "Name", "SimpleCADAssembly")}_LinkSource'
-    source = doc.addObject('Part::Feature', source_name)
-    source.Label = f'{getattr(container, "Label", "Assembly")} link source'
-    source.Shape = Part.makeCompound(_shapes_from_product_value(product_item))
-    _ensure_string_property(source, 'SimpleCADAssemblySourceNodeId')
-    source.SimpleCADAssemblySourceNodeId = str(getattr(container, 'SimpleCADNodeId', ''))
-    _add_to_group(_product_library_group(), source)
-    _set_visibility(source, False)
-    product_item['link_source'] = source
-    return source
-
-
 def _make_assembly_component_link(assembly_container, product_item, name, label, placement):
-    link = assembly_container.newObject('App::Link', name)
+    link_type = 'Assembly::AssemblyLink' if product_item.get('kind') == 'assembly' else 'App::Link'
+    link = assembly_container.newObject(link_type, name)
     link.Label = str(label)
     _move_product_source_to_library(product_item)
-    if product_item.get('kind') == 'assembly':
-        link.LinkedObject = _assembly_link_source(product_item)
-    else:
+    link.LinkedObject = product_item.get('container')
+    if product_item.get('kind') == 'part':
         link.LinkedObject = product_item.get('container') or product_item.get('body')
     link.Placement = _placement_from_axes_payload(placement)
+    if link_type == 'Assembly::AssemblyLink':
+        try:
+            link.Rigid = True
+        except Exception:
+            pass
     return link
 
 
@@ -2060,10 +1817,10 @@ def _visibility_for_gui(obj):
         return False
     if name in GUI_VISIBILITY_BY_NAME:
         return bool(GUI_VISIBILITY_BY_NAME[name])
-    # FreeCAD creates origin axes, datum planes, joint helpers, and internal
-    # AssemblyLink children with headless defaults that do not represent the
-    # intended saved view. Only translator-managed objects are visible.
-    return False
+    try:
+        return bool(obj.Visibility)
+    except Exception:
+        return False
 
 
 def _write_gui_document_xml(fcstd_path):
@@ -2133,8 +1890,6 @@ def _write_gui_document_xml(fcstd_path):
 
 def _save_fcstd_with_gui_visibility(output_path):
     doc.recompute()
-    if 'RESULT_NODE_IDS' in globals():
-        _apply_result_visibility(RESULT_NODE_IDS)
     doc.saveAs(output_path)
     _write_gui_document_xml(output_path)
 
@@ -2180,7 +1935,6 @@ def _set_product_tree_visibility(product_value, visible, *, show_source_containe
             _set_visibility(container, visible if show_source_container else False)
             _set_expanded(container, bool(visible and show_source_container))
             _hide_origin_tree(container)
-        _set_visibility(product_value.get('link_source'), False)
         for component in product_value.get('components', []):
             link = component.get('link')
             if link is not None:
@@ -2239,15 +1993,10 @@ def _set_active_result_object(result_node_ids):
 
 def _apply_result_visibility(result_node_ids):
     visible_ids = {str(node_id) for node_id in (result_node_ids or [])}
-    projection_visible_ids = {
-        str(source_id)
-        for node_id, source_id in ASSEMBLY_PROJECTION_INPUTS.items()
-        if str(node_id) in visible_ids
-    }
+    projection_visible_ids = {str(source_id) for node_id, source_id in ASSEMBLY_PROJECTION_INPUTS.items() if str(node_id) in visible_ids}
     for node_id, outputs in GRAPH_OUTPUTS.items():
-        node_id = str(node_id)
-        is_visible = node_id in visible_ids or node_id in projection_visible_ids
-        if node_id in ASSEMBLY_PROJECTION_INPUTS:
+        is_visible = str(node_id) in visible_ids or str(node_id) in projection_visible_ids
+        if str(node_id) in ASSEMBLY_PROJECTION_INPUTS:
             is_visible = False
         for obj in outputs:
             _set_visibility(obj, is_visible)
@@ -2799,6 +2548,7 @@ def _canonical_geom_type_name(value):
         ('B-SPLINE', 'BSPLINE'),
         ('NURBS', 'BSPLINE'),
         ('BEZIER', 'BEZIER'),
+        ('INTERSECTION', 'INTERSECTION'),
         ('ELLIPTICALARC', 'ELLIPSE'),
         ('ELLIPSE', 'ELLIPSE'),
         ('CYLINDER', 'CYLINDER'),
@@ -2956,10 +2706,97 @@ def _directions_parallel(left, right, tolerance=1e-6):
     return alignment >= 1.0 - tolerance
 
 
-def _same_edge_support(first, second, scale):
-    geom_type = _candidate_geom_type(first, 'edge')
-    if geom_type != _candidate_geom_type(second, 'edge'):
+def _fragment_candidate_type_allowed(expected_type, candidate_type):
+    if candidate_type == expected_type:
+        return True
+    return (
+        expected_type == 'ELLIPSE'
+        and candidate_type in {'BSPLINE', 'BEZIER'}
+    )
+
+
+def _sample_edge_points(candidate, count=9):
+    try:
+        first = float(candidate.FirstParameter)
+        last = float(candidate.LastParameter)
+        return [
+            _point_tuple(candidate.valueAt(first + (last - first) * index / (count - 1)))
+            for index in range(count)
+        ]
+    except Exception:
+        return []
+
+
+def _ellipse_fragment_support_matches(first, second, scale):
+    tolerance = max(1e-7, float(scale) * 1e-5)
+    first_endpoints = _edge_endpoints(first)
+    second_endpoints = _edge_endpoints(second)
+    if first_endpoints is None or second_endpoints is None:
         return False
+    joins = [
+        (first_index, second_index, first_point)
+        for first_index, first_point in enumerate(first_endpoints)
+        for second_index, second_point in enumerate(second_endpoints)
+        if _dist3(first_point, second_point) <= tolerance
+    ]
+    if len(joins) != 1:
+        return False
+    first_index, second_index, _join = joins[0]
+    try:
+        first_parameter = (
+            float(first.FirstParameter) if first_index == 0 else float(first.LastParameter)
+        )
+        second_parameter = (
+            float(second.FirstParameter) if second_index == 0 else float(second.LastParameter)
+        )
+        first_tangent = _unit_tuple_or_none(first.tangentAt(first_parameter))
+        second_tangent = _unit_tuple_or_none(second.tangentAt(second_parameter))
+    except Exception:
+        return False
+    if first_tangent is None or second_tangent is None:
+        return False
+    alignment = abs(sum(
+        first_tangent[index] * second_tangent[index] for index in range(3)
+    ))
+    if alignment < 1.0 - 1e-5:
+        return False
+
+    first_points = _sample_edge_points(first)
+    second_points = _sample_edge_points(second)
+    if len(first_points) < 3 or len(second_points) < 3:
+        return False
+    origin = App.Vector(*first_points[0])
+    offsets = [App.Vector(*point) - origin for point in first_points[1:]]
+    plane_normal = None
+    plane_normal_length = 0.0
+    for left_index, left in enumerate(offsets):
+        for right in offsets[left_index + 1:]:
+            normal = left.cross(right)
+            length = float(getattr(normal, 'Length', 0.0))
+            if length > plane_normal_length:
+                plane_normal = normal
+                plane_normal_length = length
+    if plane_normal is None or plane_normal_length <= max(1e-12, scale * scale * 1e-10):
+        return False
+    return all(
+        abs((App.Vector(*point) - origin).dot(plane_normal)) / plane_normal_length
+        <= tolerance
+        for point in second_points
+    )
+
+
+def _same_edge_support(first, second, scale, expected_type=None):
+    geom_type = _candidate_geom_type(first, 'edge')
+    second_geom_type = _candidate_geom_type(second, 'edge')
+    if geom_type != second_geom_type:
+        if expected_type != 'ELLIPSE' or not all(
+            _fragment_candidate_type_allowed(expected_type, value)
+            for value in (geom_type, second_geom_type)
+        ):
+            return False
+        return _ellipse_fragment_support_matches(first, second, scale)
+    if expected_type == 'ELLIPSE' and geom_type in {'BSPLINE', 'BEZIER'}:
+        return _ellipse_fragment_support_matches(first, second, scale)
     tolerance = max(1e-7, float(scale) * 1e-5)
     first_curve = getattr(first, 'Curve', None)
     second_curve = getattr(second, 'Curve', None)
@@ -3105,14 +2942,10 @@ def _fragmented_edge_group_indices(source_shape, selector, context=None):
     )
     if len(ranked) < 2:
         return None
-    best_score = _geo_selector_score(ranked[0][1], selector, ranked[0][0])
-    score_window = max(0.1, abs(best_score) * 0.2)
     eligible = []
     for candidate_index, candidate in ranked:
-        score = _geo_selector_score(candidate, selector, candidate_index)
-        if score > best_score + score_window:
-            continue
-        if _candidate_geom_type(candidate, 'edge') != expected_type:
+        candidate_type = _candidate_geom_type(candidate, 'edge')
+        if not _fragment_candidate_type_allowed(expected_type, candidate_type):
             continue
         if float(candidate.Length) >= float(expected_length) * (1.0 - 1e-6):
             continue
@@ -3143,7 +2976,9 @@ def _fragmented_edge_group_indices(source_shape, selector, context=None):
                 for candidate_index, candidate, candidate_endpoints in eligible:
                     if candidate_index in path_indices:
                         continue
-                    if not _same_edge_support(path_candidates[0], candidate, scale):
+                    if not _same_edge_support(
+                        path_candidates[-1], candidate, scale, expected_type
+                    ):
                         continue
                     next_points = []
                     if _dist3(candidate_endpoints[0], point) <= connection_tolerance:
@@ -3364,6 +3199,249 @@ def _selection_indices_for_selector(source_shape, selector, context=None):
         return [int(index) for index in fragmented]
 
 
+def _edge_endpoints_including_closed(candidate):
+    endpoints = _edge_endpoints(candidate)
+    if endpoints is not None:
+        return endpoints
+    try:
+        return (
+            _point_tuple(candidate.valueAt(float(candidate.FirstParameter))),
+            _point_tuple(candidate.valueAt(float(candidate.LastParameter))),
+        )
+    except Exception:
+        return None
+
+
+def _circle_candidate_contains_selector_endpoints(candidate, endpoints, scale):
+    curve = getattr(candidate, 'Curve', None)
+    center = _vector_tuple_or_none(getattr(curve, 'Center', None))
+    axis = _unit_tuple_or_none(getattr(curve, 'Axis', None))
+    radius = getattr(curve, 'Radius', None)
+    if center is None or axis is None or radius is None:
+        return False
+    radius = float(radius)
+    tolerance = max(1e-7, float(scale) * 1e-5)
+    for point in endpoints:
+        offset = tuple(point[index] - center[index] for index in range(3))
+        axial = sum(offset[index] * axis[index] for index in range(3))
+        radial_squared = sum(
+            (offset[index] - axial * axis[index]) ** 2
+            for index in range(3)
+        )
+        if abs(axial) > tolerance:
+            return False
+        if abs(math.sqrt(max(0.0, radial_squared)) - radius) > tolerance:
+            return False
+    return True
+
+
+def _coalesced_edge_selector_pairs(candidates, selectors):
+    selectors = [dict(selector or {}) for selector in selectors]
+    matches = []
+    for left_index, left in enumerate(selectors):
+        if str(left.get('kind', '')).lower() != 'edge':
+            continue
+        left_type = _selector_geom_type(left)
+        left_endpoints = _edge_endpoints_including_closed_selector(left)
+        left_length = left.get('length')
+        if not left_type or left_endpoints is None or left_length is None:
+            continue
+        for right_index in range(left_index + 1, len(selectors)):
+            right = selectors[right_index]
+            if _selector_geom_type(right) != left_type:
+                continue
+            right_endpoints = _edge_endpoints_including_closed_selector(right)
+            right_length = right.get('length')
+            if right_endpoints is None or right_length is None:
+                continue
+            scale = max(
+                _selector_length_scale(left),
+                _selector_length_scale(right),
+            )
+            tolerance = max(1e-7, scale * 1e-5)
+            endpoint_pairs = [
+                (left_key, right_key)
+                for left_key, left_point in enumerate(left_endpoints)
+                for right_key, right_point in enumerate(right_endpoints)
+                if _dist3(left_point, right_point) <= tolerance
+            ]
+            closes_loop = len(endpoint_pairs) == 2
+            joins_path = len(endpoint_pairs) == 1
+            if not (closes_loop or joins_path):
+                continue
+            external_endpoints = None
+            if joins_path:
+                left_shared, right_shared = endpoint_pairs[0]
+                external_endpoints = (
+                    left_endpoints[1 - left_shared],
+                    right_endpoints[1 - right_shared],
+                )
+            left_bbox = left.get('bbox')
+            right_bbox = right.get('bbox')
+            if not isinstance(left_bbox, dict) or not isinstance(right_bbox, dict):
+                continue
+            left_min = _tuple3(left_bbox.get('min'))
+            left_max = _tuple3(left_bbox.get('max'))
+            right_min = _tuple3(right_bbox.get('min'))
+            right_max = _tuple3(right_bbox.get('max'))
+            if None in (left_min, left_max, right_min, right_max):
+                continue
+            expected_min = tuple(
+                min(left_min[axis], right_min[axis]) for axis in range(3)
+            )
+            expected_max = tuple(
+                max(left_max[axis], right_max[axis]) for axis in range(3)
+            )
+            total_length = float(left_length) + float(right_length)
+            if total_length <= 1e-12:
+                continue
+            left_center = _tuple3(left.get('center'))
+            right_center = _tuple3(right.get('center'))
+            if left_center is None or right_center is None:
+                continue
+            expected_center = tuple(
+                (
+                    left_center[axis] * float(left_length)
+                    + right_center[axis] * float(right_length)
+                ) / total_length
+                for axis in range(3)
+            )
+            candidate_indices = []
+            for candidate_index, candidate in enumerate(candidates):
+                candidate_type = _candidate_geom_type(candidate, 'edge')
+                if closes_loop:
+                    if candidate_type != 'INTERSECTION':
+                        continue
+                elif candidate_type != left_type:
+                    continue
+                if (
+                    left_type == 'CIRCLE'
+                    and not _circle_candidate_contains_selector_endpoints(
+                        candidate,
+                        left_endpoints + right_endpoints,
+                        scale,
+                    )
+                ):
+                    continue
+                candidate_endpoints = _edge_endpoints_including_closed(candidate)
+                candidate_center = _candidate_center(candidate)
+                candidate_length = getattr(candidate, 'Length', None)
+                if (
+                    candidate_endpoints is None
+                    or candidate_center is None
+                    or candidate_length is None
+                ):
+                    continue
+                if closes_loop:
+                    if _dist3(candidate_endpoints[0], candidate_endpoints[1]) > tolerance:
+                        continue
+                else:
+                    direct = (
+                        _dist3(candidate_endpoints[0], external_endpoints[0]) <= tolerance
+                        and _dist3(candidate_endpoints[1], external_endpoints[1]) <= tolerance
+                    )
+                    reverse = (
+                        _dist3(candidate_endpoints[0], external_endpoints[1]) <= tolerance
+                        and _dist3(candidate_endpoints[1], external_endpoints[0]) <= tolerance
+                    )
+                    if not (direct or reverse):
+                        continue
+                if _relative_error(candidate_length, total_length) > 1e-4:
+                    continue
+                combined_selector = {
+                    'bbox': {'min': expected_min, 'max': expected_max},
+                    'kind': 'edge',
+                }
+                if _bbox_selector_score(candidate, combined_selector) > 5e-4:
+                    continue
+                if _dist3(candidate_center, expected_center) / scale > 1e-4:
+                    continue
+                candidate_indices.append(candidate_index)
+            if len(candidate_indices) == 1:
+                matches.append((left_index, right_index, candidate_indices[0]))
+            elif len(candidate_indices) > 1:
+                raise RuntimeError(
+                    'Coalesced edge selector is ambiguous; '
+                    f'selectors=({left_index}, {right_index}), '
+                    f'candidates={candidate_indices!r}'
+                )
+    used_selectors = set()
+    used_candidates = set()
+    result = []
+    for left_index, right_index, candidate_index in matches:
+        if (
+            left_index in used_selectors
+            or right_index in used_selectors
+            or candidate_index in used_candidates
+        ):
+            raise RuntimeError(
+                'Coalesced edge selector groups overlap and are ambiguous; '
+                f'matches={matches!r}'
+            )
+        used_selectors.update((left_index, right_index))
+        used_candidates.add(candidate_index)
+        result.append((left_index, right_index, candidate_index))
+    return result
+
+
+def _edge_endpoints_including_closed_selector(selector):
+    start = _tuple3(selector.get('start'))
+    end = _tuple3(selector.get('end'))
+    if start is None or end is None:
+        return None
+    return start, end
+
+
+def _selection_indices_for_selectors(source_shape, selectors, context=None):
+    selectors = [dict(selector or {}) for selector in selectors]
+    individual = []
+    failures = {}
+    for selector_index, selector in enumerate(selectors):
+        try:
+            individual.append(
+                _selection_indices_for_selector(
+                    source_shape,
+                    selector,
+                    context=f'{context or "selector set"} selector {selector_index}',
+                )
+            )
+        except RuntimeError as error:
+            individual.append(None)
+            failures[selector_index] = error
+    if not failures:
+        return list(dict.fromkeys(
+            int(index) for indices in individual for index in indices
+        ))
+    if any(str(selector.get('kind', '')).lower() != 'edge' for selector in selectors):
+        raise failures[min(failures)]
+    candidates = _subshape_candidates_for_kind(source_shape, 'edge')
+    pairs = _coalesced_edge_selector_pairs(candidates, selectors)
+    pairs = [
+        pair for pair in pairs
+        if pair[0] in failures or pair[1] in failures
+    ]
+    if not pairs:
+        raise failures[min(failures)]
+    coalesced_by_selector = {
+        left_index: (right_index, candidate_index)
+        for left_index, right_index, candidate_index in pairs
+    }
+    consumed_selectors = {
+        right_index for _left_index, right_index, _candidate_index in pairs
+    }
+    selected = []
+    for selector_index, indices in enumerate(individual):
+        if selector_index in consumed_selectors:
+            continue
+        if selector_index in coalesced_by_selector:
+            selected.append(coalesced_by_selector[selector_index][1])
+            continue
+        if indices is None:
+            raise failures[selector_index]
+        selected.extend(indices)
+    return list(dict.fromkeys(int(index) for index in selected))
+
+
 def _selection_index_for_trimmed_line_successor(source_shape, selector, context=None):
     if str(selector.get('kind', '')).lower() != 'edge':
         raise RuntimeError('Trimmed successor matching only supports edges')
@@ -3436,6 +3514,20 @@ def _sequential_chamfer_shape(source_shape, selectors, distance):
     if not _valid_single_solid_shape(source_shape):
         return None
     selectors = [dict(selector or {}) for selector in selectors]
+    try:
+        edge_indices = _selection_indices_for_selectors(
+            source_shape,
+            selectors,
+            context='batch chamfer',
+        )
+        batch_result = source_shape.makeChamfer(
+            float(distance),
+            [source_shape.Edges[edge_index] for edge_index in edge_indices],
+        )
+        if _valid_single_solid_shape(batch_result):
+            return batch_result
+    except Exception:
+        pass
     orders = [
         list(range(len(selectors))),
         list(reversed(range(len(selectors)))),
@@ -3505,17 +3597,26 @@ def _register_geo_selection_node(*, node_id, op, params, inputs, tags, context, 
     selector = dict(params.get('geo_selector') or {})
     source_node_id = str(inputs[0])
     source_shape = _shape_from_graph_node(source_node_id)
-    indices = _selection_indices_for_selector(
-        source_shape,
-        selector,
-        context=f'node {node_id} from source {source_node_id}',
-    )
+    resolution_error = None
+    try:
+        indices = _selection_indices_for_selector(
+            source_shape,
+            selector,
+            context=f'node {node_id} from source {source_node_id}',
+        )
+    except RuntimeError as error:
+        if str(selector.get('kind', '')).lower() != 'edge':
+            raise
+        # A later detail feature can resolve two serialized source edges onto
+        # one target edge only after it has the complete selector set.
+        indices = []
+        resolution_error = str(error)
     candidates = _subshape_candidates_for_kind(source_shape, selector.get('kind'))
     selected_shapes = [candidates[index] for index in indices]
     selected_shape = (
         selected_shapes[0]
         if len(selected_shapes) == 1
-        else Part.makeCompound(selected_shapes)
+        else Part.makeCompound(selected_shapes) if selected_shapes else Part.Shape()
     )
     payload = {
         'node_id': node_id,
@@ -3526,8 +3627,9 @@ def _register_geo_selection_node(*, node_id, op, params, inputs, tags, context, 
         'tags': list(tags or []),
         'output_count': int(output_count),
         'selector': selector,
-        'index': int(indices[0]),
+        'index': int(indices[0]) if indices else None,
         'indices': [int(index) for index in indices],
+        'resolution_error': resolution_error,
         'kind': str(selector.get('kind', '')),
         'shape': selected_shape,
     }
@@ -3551,7 +3653,7 @@ def _register_geo_selection_node(*, node_id, op, params, inputs, tags, context, 
 
 
 def _selected_indices_from_nodes(node_ids, fallback_indices, base_shape=None, kind=None):
-    indices = []
+    selectors = []
     for node_id in node_ids or []:
         payload = GRAPH_SELECTIONS.get(str(node_id)) or GRAPH_NODES.get(str(node_id))
         if isinstance(payload, dict) and base_shape is not None:
@@ -3559,18 +3661,22 @@ def _selected_indices_from_nodes(node_ids, fallback_indices, base_shape=None, ki
             if kind is not None:
                 selector['kind'] = str(kind)
             if selector:
-                for index in _selection_indices_for_selector(base_shape, selector):
-                    if index not in indices:
-                        indices.append(index)
+                selectors.append(selector)
                 continue
         raise RuntimeError(
             f'Geometry selector payload is required for {kind or "shape"} selection node {node_id!r}'
         )
-    if not indices and fallback_indices:
+    if selectors:
+        return _selection_indices_for_selectors(
+            base_shape,
+            selectors,
+            context=f'{kind or "shape"} detail selector set',
+        )
+    if fallback_indices:
         raise RuntimeError(
             f'Index-only {kind or "shape"} selection is not supported; geometry selectors are required'
         )
-    return indices
+    return []
 
 
 def _local_line_from_edge(obj, origin, x_axis, y_axis):
@@ -5177,7 +5283,6 @@ def _resolve_vec3_param(params, param_exprs, key):
                 f"        _component['link'].Placement = _placement_from_axes_payload(_component['placement'])",
                 f"    {var_name}_components.append(_component)",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['components'] = {var_name}_components",
-                f"_refresh_revolute_motion_drivers(PRODUCT_VALUES[{_json_ascii(node.node_id)}])",
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
 
