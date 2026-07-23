@@ -7,10 +7,10 @@ Modules:
     gear    — involute spur / straight-bevel / helical / herringbone gears
     bearing — ball bearing standard assemblies
     chain   — roller-chain sprockets
-    screw   — (future) threaded fasteners
+    fastener — parameterized bolts and nuts
     pin     — (future) dowel pins, flat keys, split pins
 """
 
-from . import bearing, chain, gear
+from . import bearing, chain, fastener, gear
 
-__all__ = ["bearing", "chain", "gear"]
+__all__ = ["bearing", "chain", "fastener", "gear"]
