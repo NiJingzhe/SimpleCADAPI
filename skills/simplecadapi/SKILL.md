@@ -52,7 +52,7 @@ metadata:
 ## Standard Parts Library
 - SimpleCAD includes a standard library for parameterized mechanical parts.
 - When the user needs a standard part and does not require complex custom geometry changes, use a standard-library function first.
-- Current package-level standard-library surfaces include `scad.std.gear` for involute gears, internal ring gears, racks, and cycloidal discs, plus `scad.std.bearing` for ball bearing assemblies.
+- Current package-level standard-library surfaces include `scad.std.gear` for gears and racks, `scad.std.bearing` for ball bearing assemblies, `scad.std.chain` for roller-chain sprockets, and `scad.std.fastener` for bolts and nuts.
 - Read `references/docs/stdlib/README.md` to discover standard-library functions.
 - Read `references/docs/stdlib/<function_name>.md` before calling a standard-library function.
 - Standard-library functions return normal SimpleCAD shapes or product assemblies that can be transformed, tagged, assembled, exported, and used with graph/model JSON workflows.

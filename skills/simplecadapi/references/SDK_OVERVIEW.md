@@ -20,7 +20,7 @@
 ## Main SDK surfaces
 
 - Geometry and modeling operations in `docs/api/`.
-- Standard parts library in `docs/stdlib/`, including `scad.std.gear` gear, ring gear, rack, and cycloidal disc factories plus `scad.std.bearing` bearing assembly factories.
+- Standard parts library in `docs/stdlib/`, including `scad.std.gear`, `scad.std.bearing`, `scad.std.chain`, and `scad.std.fastener` factories.
 - Core shape/type semantics in `docs/core/`.
 - Graph/model serialization and replay APIs.
 - Expression, parameter, and semantic reference types.
