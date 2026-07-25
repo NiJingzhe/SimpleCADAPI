@@ -21,25 +21,75 @@ def _local_arc_from_edge(obj, origin, x_axis, y_axis):
     )
 
 
-def _angle_arc_axes(normal):
-    normal_vec = _normalized_vec(normal)
-    ref_vec = App.Vector(1.0, 0.0, 0.0) if abs(normal_vec.z) > 0.9 else App.Vector(0.0, 0.0, 1.0)
-    local_x = normal_vec.cross(ref_vec)
-    x_len = float(getattr(local_x, 'Length', 0.0))
-    if x_len == 0.0:
-        ref_vec = App.Vector(0.0, 1.0, 0.0)
-        local_x = normal_vec.cross(ref_vec)
-        x_len = float(getattr(local_x, 'Length', 0.0))
-    local_x = App.Vector(local_x.x / x_len, local_x.y / x_len, local_x.z / x_len)
-    local_y = normal_vec.cross(local_x)
-    y_len = float(getattr(local_y, 'Length', 0.0))
-    local_y = App.Vector(local_y.x / y_len, local_y.y / y_len, local_y.z / y_len)
-    return local_x, local_y
+def _angle_arc_axes(normal, kernel_x_axis=None, kernel_y_axis=None):
+    if kernel_x_axis is not None and kernel_y_axis is not None:
+        return _normalized_vec(kernel_x_axis), _normalized_vec(kernel_y_axis)
+    circle = Part.Circle(
+        App.Vector(0.0, 0.0, 0.0),
+        _normalized_vec(normal),
+        1.0,
+    )
+    return _normalized_vec(circle.XAxis), _normalized_vec(circle.YAxis)
 
 
-def _angle_arc_world_point(circle_center, radius, angle, normal):
+def _periodic_axis_x(axis, kernel_x_axis=None, kernel_y_axis=None):
+    z_axis = _normalized_vec(axis)
+    if kernel_x_axis is not None:
+        x_axis = _normalized_vec(kernel_x_axis)
+    elif kernel_y_axis is not None:
+        x_axis = _normalized_vec(_normalized_vec(kernel_y_axis).cross(z_axis))
+    else:
+        x_axis = _normalized_vec(
+            Part.Circle(App.Vector(0.0, 0.0, 0.0), z_axis, 1.0).XAxis
+        )
+    projected = x_axis - z_axis * float(x_axis.dot(z_axis))
+    if float(getattr(projected, 'Length', 0.0)) <= 1e-12:
+        projected = Part.Circle(
+            App.Vector(0.0, 0.0, 0.0), z_axis, 1.0
+        ).XAxis
+    return _normalized_vec(projected)
+
+
+def _periodic_axis_rotation(axis, kernel_x_axis=None, kernel_y_axis=None):
+    z_axis = _normalized_vec(axis)
+    x_axis = _periodic_axis_x(z_axis, kernel_x_axis, kernel_y_axis)
+    y_axis = _normalized_vec(z_axis.cross(x_axis))
+    x_axis = _normalized_vec(y_axis.cross(z_axis))
+    return App.Rotation(x_axis, y_axis, z_axis, 'ZXY')
+
+
+def _kernel_circle_from_params(params, param_exprs):
+    normal = (
+        _resolve_vec3_param(params, param_exprs, 'normal')
+        if 'normal' in params
+        else (0.0, 0.0, 1.0)
+    )
+    circle = Part.Circle(
+        _vec(_resolve_vec3_param(params, param_exprs, 'center')),
+        _vec(normal),
+        float(_resolve_param_value(params, param_exprs, 'radius')),
+    )
+    dynamic_normal = _contains_expr_refs(
+        param_exprs.get('normal') if isinstance(param_exprs, dict) else None
+    )
+    circle.XAxis = _periodic_axis_x(
+        normal,
+        None if dynamic_normal else params.get('_kernel_x_axis'),
+        None if dynamic_normal else params.get('_kernel_y_axis'),
+    )
+    return circle
+
+
+def _angle_arc_world_point(
+    circle_center,
+    radius,
+    angle,
+    normal,
+    kernel_x_axis=None,
+    kernel_y_axis=None,
+):
     center = _vec(circle_center)
-    local_x, local_y = _angle_arc_axes(normal)
+    local_x, local_y = _angle_arc_axes(normal, kernel_x_axis, kernel_y_axis)
     r = float(radius)
     theta = float(angle)
     return App.Vector(
@@ -49,34 +99,65 @@ def _angle_arc_world_point(circle_center, radius, angle, normal):
     )
 
 
-def _angle_arc_curve(circle_center, radius, start_angle, end_angle, normal):
+def _angle_arc_curve(
+    circle_center,
+    radius,
+    start_angle,
+    end_angle,
+    normal,
+    kernel_x_axis=None,
+    kernel_y_axis=None,
+):
     sa = float(start_angle)
     ea = float(end_angle)
     mid_angle = 0.5 * (sa + ea)
-    start_world = _angle_arc_world_point(circle_center, radius, sa, normal)
-    mid_world = _angle_arc_world_point(circle_center, radius, mid_angle, normal)
-    end_world = _angle_arc_world_point(circle_center, radius, ea, normal)
+    start_world = _angle_arc_world_point(
+        circle_center, radius, sa, normal, kernel_x_axis, kernel_y_axis
+    )
+    mid_world = _angle_arc_world_point(
+        circle_center, radius, mid_angle, normal, kernel_x_axis, kernel_y_axis
+    )
+    end_world = _angle_arc_world_point(
+        circle_center, radius, ea, normal, kernel_x_axis, kernel_y_axis
+    )
     return Part.Arc(start_world, mid_world, end_world)
 
 
-def _local_angle_arc(circle_center, radius, start_angle, end_angle, normal, origin, x_axis, y_axis):
+def _local_angle_arc(
+    circle_center,
+    radius,
+    start_angle,
+    end_angle,
+    normal,
+    origin,
+    x_axis,
+    y_axis,
+    kernel_x_axis=None,
+    kernel_y_axis=None,
+):
     sa = float(start_angle)
     ea = float(end_angle)
     mid_angle = 0.5 * (sa + ea)
     start_local = _local_point_on_frame(
-        _vec_tuple(_angle_arc_world_point(circle_center, radius, sa, normal)),
+        _vec_tuple(_angle_arc_world_point(
+            circle_center, radius, sa, normal, kernel_x_axis, kernel_y_axis
+        )),
         origin,
         x_axis,
         y_axis,
     )
     mid_local = _local_point_on_frame(
-        _vec_tuple(_angle_arc_world_point(circle_center, radius, mid_angle, normal)),
+        _vec_tuple(_angle_arc_world_point(
+            circle_center, radius, mid_angle, normal, kernel_x_axis, kernel_y_axis
+        )),
         origin,
         x_axis,
         y_axis,
     )
     end_local = _local_point_on_frame(
-        _vec_tuple(_angle_arc_world_point(circle_center, radius, ea, normal)),
+        _vec_tuple(_angle_arc_world_point(
+            circle_center, radius, ea, normal, kernel_x_axis, kernel_y_axis
+        )),
         origin,
         x_axis,
         y_axis,

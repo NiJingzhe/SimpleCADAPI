@@ -32,7 +32,10 @@ class TestTaggingRefactor(unittest.TestCase):
         face = box.get_faces(0)
         edge = face.get_edges(0)
 
-        self.assertEqual(face._list_tags("local"), ["face.left"])
+        self.assertEqual(
+            face._list_tags("local"), ["face.box.back", "face.left"]
+        )
+        self.assertNotIn("role.mounting_surface", face._list_tags("local"))
         self.assertIn("role.mounting_surface", face._list_tags("inherited"))
         self.assertIn("role.mounting_surface", edge._list_tags("inherited"))
         self.assertNotIn(binding, face._tag_bindings)

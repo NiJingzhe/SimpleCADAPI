@@ -78,6 +78,7 @@ class TransformEmitterMixin:
             lines = [
                 f"{var_name} = doc.addObject('App::Link', {_json_ascii(object_name)})",
                 f"{var_name}.LinkedObject = GRAPH_NODES[{_json_ascii(inputs[0])}]",
+                f"{var_name}.LinkTransform = True",
                 f"{var_name}.Placement = App.Placement(_vec(_resolve_vec3_param({rp}, {re}, 'vector')), App.Rotation())",
             ]
             lines.append(
@@ -109,6 +110,7 @@ class TransformEmitterMixin:
             lines = [
                 f"{var_name} = doc.addObject('App::Link', {_json_ascii(object_name)})",
                 f"{var_name}.LinkedObject = GRAPH_NODES[{_json_ascii(inputs[0])}]",
+                f"{var_name}.LinkTransform = True",
                 f"{var_name}.Placement = _placement_for_rotation(_resolve_vec3_param({rp}, {re}, 'origin') if 'origin' in {rp} else (0.0, 0.0, 0.0), _resolve_vec3_param({rp}, {re}, 'axis') if 'axis' in {rp} else (0.0, 0.0, 1.0), _resolve_param_value({rp}, {re}, 'angle'))",
             ]
             lines.append(

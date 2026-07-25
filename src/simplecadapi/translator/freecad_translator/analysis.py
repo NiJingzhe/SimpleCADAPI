@@ -3,8 +3,46 @@
 from __future__ import annotations
 
 from typing import AbstractSet, Set
+import math
 
 from ...topology import OperationGraph, OperationNode
+
+
+def _contains_expr_refs(value: object) -> bool:
+    if isinstance(value, dict):
+        if isinstance(value.get("expr_id"), str) and value["expr_id"]:
+            return True
+        return any(_contains_expr_refs(child) for child in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_expr_refs(child) for child in value)
+    return False
+
+
+def can_lower_circle_extrusion_to_cylinder(
+    circle_node: OperationNode,
+    extrusion_node: OperationNode,
+) -> bool:
+    """Return whether a circle extrusion exactly matches a native cylinder."""
+
+    if _contains_expr_refs(circle_node.param_exprs) or _contains_expr_refs(
+        extrusion_node.param_exprs
+    ):
+        return False
+    try:
+        normal = tuple(float(value) for value in circle_node.params["normal"])
+        direction = tuple(float(value) for value in extrusion_node.params["direction"])
+        if len(normal) != 3 or len(direction) != 3:
+            return False
+        normal_length = math.sqrt(sum(value * value for value in normal))
+        direction_length = math.sqrt(sum(value * value for value in direction))
+        if normal_length <= 1e-12 or direction_length <= 1e-12:
+            return False
+        cosine = sum(normal[index] * direction[index] for index in range(3)) / (
+            normal_length * direction_length
+        )
+        return abs(abs(cosine) - 1.0) <= 1e-9
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def find_cylinder_profile_nodes(
@@ -13,7 +51,7 @@ def find_cylinder_profile_nodes(
 ) -> Set[str]:
     """Find single-use circle profiles represented by native cylinders."""
 
-    use_counts = {}
+    use_counts: dict[str, int] = {}
     for graph_node in graph.topological_order():
         for input_ref in graph_node.inputs:
             use_counts[input_ref.node_id] = use_counts.get(input_ref.node_id, 0) + 1
@@ -39,6 +77,8 @@ def find_cylinder_profile_nodes(
             continue
         edge_node = graph.get_node(profile_node.inputs[0].node_id)
         if edge_node is None or edge_node.op != "make_circle_redge":
+            continue
+        if not can_lower_circle_extrusion_to_cylinder(edge_node, graph_node):
             continue
         profile_ids = [profile_node.node_id]
         if face_node is not None:
@@ -134,6 +174,7 @@ def should_materialize_transform_for_loft_section(
 
 __all__ = [
     "can_fold_transform_into_input",
+    "can_lower_circle_extrusion_to_cylinder",
     "find_cylinder_profile_nodes",
     "should_materialize_transform_for_loft_section",
     "transform_feeds_only_loft",

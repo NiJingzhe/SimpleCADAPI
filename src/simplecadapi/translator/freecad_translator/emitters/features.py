@@ -73,13 +73,15 @@ class FeatureEmitterMixin:
                 edge_node = graph.get_node(profile_node.inputs[0].node_id)
                 if edge_node is not None and edge_node.op == "make_circle_redge":
                     circle_node = edge_node
-            if circle_node is not None:
+            if circle_node is not None and self._can_lower_circle_extrusion_to_cylinder(
+                circle_node, node
+            ):
                 circle_var = _safe_name(circle_node.node_id)
                 lines = [
                     f"{var_name} = doc.addObject('Part::Cylinder', {_json_ascii(object_name)})",
                     f"{var_name}.Radius = float(_resolve_param_value({circle_var}_params, {circle_var}_param_exprs, 'radius'))",
                     f"{var_name}.Height = float(_resolve_param_value({rp}, {re}, 'distance'))",
-                    f"{var_name}.Placement = App.Placement(_vec(_resolve_vec3_param({circle_var}_params, {circle_var}_param_exprs, 'center')), App.Rotation(App.Vector(0.0, 0.0, 1.0), _normalized_vec(_resolve_vec3_param({rp}, {re}, 'direction'))))",
+                    f"{var_name}.Placement = App.Placement(_vec(_resolve_vec3_param({circle_var}_params, {circle_var}_param_exprs, 'center')), _periodic_axis_rotation(_resolve_vec3_param({rp}, {re}, 'direction'), {circle_var}_params.get('_kernel_x_axis'), {circle_var}_params.get('_kernel_y_axis')))",
                 ]
                 lines.extend(finish())
                 return lines
@@ -116,15 +118,21 @@ class FeatureEmitterMixin:
                 return lines
         if node.op == "make_revolve_rsolid" and len(inputs) == 1:
             base_node = graph.get_node(inputs[0])
-            if base_node is not None and base_node.op == "make_face_from_wire_rface":
-                lines = [
+            if base_node is not None and base_node.op in {
+                "make_face_from_wire_rface",
+                "make_wire_from_edges_rwire",
+                "make_wire_from_sketch_rwire",
+            }:
+                source_expr = f"GRAPH_NODES[{_json_ascii(inputs[0])}]"
+                lines: List[str] = []
+                lines.extend([
                     f"{var_name} = doc.addObject('Part::Revolution', {_json_ascii(object_name)})",
-                    f"{var_name}.Source = GRAPH_NODES[{_json_ascii(inputs[0])}]",
+                    f"{var_name}.Source = {source_expr}",
                     f"{var_name}.Axis = _vec(_resolve_vec3_param({rp}, {re}, 'axis') if 'axis' in {rp} else (0.0, 0.0, 1.0))",
                     f"{var_name}.Base = _vec(_resolve_vec3_param({rp}, {re}, 'origin') if 'origin' in {rp} else (0.0, 0.0, 0.0))",
                     f"{var_name}.Angle = float(_resolve_param_value({rp}, {re}, 'angle') if 'angle' in {rp} else 360.0)",
                     f"{var_name}.Solid = True",
-                ]
+                ])
                 lines.append(
                     f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
                 )
