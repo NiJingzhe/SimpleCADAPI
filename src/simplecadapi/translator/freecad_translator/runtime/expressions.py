@@ -284,8 +284,15 @@ def _angle_arc_local_point_formula(params, param_exprs, angle_key, origin, sketc
     if center_component is None or radius_expr is None or angle_expr is None:
         return None
     normal = params.get('normal', (0.0, 0.0, 1.0))
+    dynamic_normal = _contains_expr_refs(
+        param_exprs.get('normal') if isinstance(param_exprs, dict) else None
+    )
     try:
-        arc_x, arc_y = _angle_arc_axes(normal)
+        arc_x, arc_y = _angle_arc_axes(
+            normal,
+            None if dynamic_normal else params.get('_kernel_x_axis'),
+            None if dynamic_normal else params.get('_kernel_y_axis'),
+        )
     except Exception:
         return None
     cos_term = _formula_scale(

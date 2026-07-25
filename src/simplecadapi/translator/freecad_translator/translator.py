@@ -15,6 +15,7 @@ from ..base import BaseTranslator
 from ..types import BackendCapabilities, TranslationArtifact
 from .analysis import (
     can_fold_transform_into_input,
+    can_lower_circle_extrusion_to_cylinder,
     find_cylinder_profile_nodes,
     should_materialize_transform_for_loft_section,
     transform_feeds_only_loft,
@@ -45,6 +46,24 @@ from .emitters import (
     emit_native_node,
 )
 from .runtime import assemble_runtime_source
+
+
+def _curve_params_with_kernel_axes(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Add the source OCC periodic basis without mutating graph parameters."""
+
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
+
+    enriched = dict(params)
+    normal = enriched.get("normal", (0.0, 0.0, 1.0))
+    axis = gp_Ax2(
+        gp_Pnt(0.0, 0.0, 0.0),
+        gp_Dir(float(normal[0]), float(normal[1]), float(normal[2])),
+    )
+    x_axis = axis.XDirection()
+    y_axis = axis.YDirection()
+    enriched["_kernel_x_axis"] = [x_axis.X(), x_axis.Y(), x_axis.Z()]
+    enriched["_kernel_y_axis"] = [y_axis.X(), y_axis.Y(), y_axis.Z()]
+    return enriched
 
 
 class _FreeCADCompiler(
@@ -304,6 +323,11 @@ class _FreeCADCompiler(
     def _find_cylinder_profile_nodes(self, graph: OperationGraph) -> Set[str]:
         return find_cylinder_profile_nodes(graph, self._result_node_ids)
 
+    def _can_lower_circle_extrusion_to_cylinder(
+        self, circle_node: OperationNode, extrusion_node: OperationNode
+    ) -> bool:
+        return can_lower_circle_extrusion_to_cylinder(circle_node, extrusion_node)
+
     def _emit_expression_graph(self, expression_graph_payload: Any) -> List[str]:
         if not isinstance(expression_graph_payload, dict):
             return []
@@ -464,7 +488,10 @@ class _FreeCADCompiler(
 
 
     def _emit_node(self, node: OperationNode) -> List[str]:
-        params_literal = _py_literal(dict(node.params))
+        params = dict(node.params)
+        if node.op in {"make_angle_arc_redge", "make_circle_redge"}:
+            params = _curve_params_with_kernel_axes(params)
+        params_literal = _py_literal(params)
         inputs_literal = _py_literal([inp.node_id for inp in node.inputs])
         tags_literal = _py_literal(sorted(node.tags))
         context_literal = _py_literal(node.context or {})

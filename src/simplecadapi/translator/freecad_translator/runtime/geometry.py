@@ -367,7 +367,7 @@ def _pick_perpendicular_axis(vec):
     return App.Vector(perp.x / length, perp.y / length, perp.z / length)
 
 
-def _frame_from_points(points, fallback_context=None):
+def _frame_from_points(points, fallback_context=None, preferred_normal=None):
     if not points:
         raise RuntimeError('Expected at least one point for sketch frame')
     origin = _vec(points[0])
@@ -393,6 +393,47 @@ def _frame_from_points(points, fallback_context=None):
                 fallback_z = _normalized_vec(raw_z)
             except Exception:
                 fallback_z = None
+
+    preferred_z = None
+    if isinstance(preferred_normal, (list, tuple)) and len(preferred_normal) == 3:
+        try:
+            preferred_z = _normalized_vec(preferred_normal)
+        except Exception:
+            preferred_z = None
+    if preferred_z is not None:
+        on_preferred_plane = True
+        for point in points[1:]:
+            delta = App.Vector(
+                float(point[0]) - origin.x,
+                float(point[1]) - origin.y,
+                float(point[2]) - origin.z,
+            )
+            offset = abs(float(delta.dot(preferred_z)))
+            if offset > max(1e-7, float(getattr(delta, 'Length', 0.0)) * 1e-7):
+                on_preferred_plane = False
+                break
+        if on_preferred_plane:
+            preferred_x = None
+            for candidate in (fallback_x, fallback_y):
+                if candidate is None:
+                    continue
+                projected = candidate - preferred_z * float(candidate.dot(preferred_z))
+                if float(getattr(projected, 'Length', 0.0)) > 1e-12:
+                    preferred_x = _normalized_vec(projected)
+                    break
+            if preferred_x is None:
+                preferred_x = _pick_perpendicular_axis(preferred_z)
+            preferred_y = _normalized_vec(preferred_z.cross(preferred_x))
+            m = App.Matrix()
+            m.A11, m.A21, m.A31 = preferred_x.x, preferred_x.y, preferred_x.z
+            m.A12, m.A22, m.A32 = preferred_y.x, preferred_y.y, preferred_y.z
+            m.A13, m.A23, m.A33 = preferred_z.x, preferred_z.y, preferred_z.z
+            return (
+                App.Placement(origin, App.Rotation(m)),
+                origin,
+                preferred_x,
+                preferred_y,
+            )
 
     if fallback_x is not None and fallback_y is not None and fallback_z is not None:
         scale = 1.0
@@ -500,16 +541,33 @@ def _arc_from_edge(obj):
     return Part.Arc(_vec(_edge_start_point(obj)), _vec(_edge_mid_point(obj)), _vec(_edge_end_point(obj)))
 
 
+def _shape_from_object_value(value, seen=None):
+    if value is None:
+        return None
+    seen = set() if seen is None else seen
+    marker = id(value)
+    if marker in seen:
+        raise RuntimeError('Cyclic FreeCAD link chain while resolving graph shape')
+    seen.add(marker)
+    linked_object = getattr(value, 'LinkedObject', None)
+    if linked_object is not None:
+        shape = _shape_from_object_value(linked_object, seen).copy()
+        placement = getattr(value, 'Placement', None)
+        if placement is not None:
+            shape.Placement = placement.multiply(shape.Placement)
+        return shape
+    if hasattr(value, 'Shape'):
+        return getattr(value, 'Shape', None)
+    return value
+
+
 def _shape_from_graph_node(node_id):
     value = GRAPH_NODES.get(node_id)
     if value is None:
         raise RuntimeError(f'Missing graph node {node_id!r}')
     if isinstance(value, dict) and 'shape' in value:
         return value['shape']
-    if hasattr(value, 'Shape'):
-        shape = getattr(value, 'Shape', None)
-    else:
-        shape = value
+    shape = _shape_from_object_value(value)
     try:
         shape_invalid = shape is None or shape.isNull()
     except Exception:
@@ -519,8 +577,7 @@ def _shape_from_graph_node(node_id):
             doc.recompute()
         except Exception:
             pass
-        if hasattr(value, 'Shape'):
-            shape = getattr(value, 'Shape', None)
+        shape = _shape_from_object_value(value)
     if shape is None or shape.isNull():
         raise RuntimeError(f'Graph node {node_id!r} has no valid shape')
     return shape

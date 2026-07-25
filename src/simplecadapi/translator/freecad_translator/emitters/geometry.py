@@ -8,6 +8,13 @@ from ....topology import OperationNode
 from ..codegen import *
 
 
+_DYNAMIC_CURVE_NORMAL_LIMITATION = (
+    "FreeCAD Sketcher cannot bind a sketch placement orientation to this vector "
+    "expression. The translated profile uses the expression's value when the "
+    "script runs, but later spreadsheet edits do not reorient the sketch."
+)
+
+
 class GeometryEmitterMixin:
     def _emit_geometry(
         self,
@@ -56,12 +63,12 @@ class GeometryEmitterMixin:
             return lines
         if node.op == "make_circle_redge":
             lines = [
-                f"{var_name} = _register_graph_value(Part.Circle(_vec(_resolve_vec3_param({rp}, {re}, 'center')), _vec(_resolve_vec3_param({rp}, {re}, 'normal') if 'normal' in {rp} else (0.0, 0.0, 1.0)), float(_resolve_param_value({rp}, {re}, 'radius'))).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+                f"{var_name} = _register_graph_value(_kernel_circle_from_params({rp}, {re}).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
             return lines
         if node.op == "make_angle_arc_redge":
             lines = [
-                f"{var_name} = _register_graph_value(Part.ArcOfCircle(Part.Circle(_vec(_resolve_vec3_param({rp}, {re}, 'center')), _vec(_resolve_vec3_param({rp}, {re}, 'normal') if 'normal' in {rp} else (0.0, 0.0, 1.0)), float(_resolve_param_value({rp}, {re}, 'radius'))), float(_resolve_param_value({rp}, {re}, 'start_angle')), float(_resolve_param_value({rp}, {re}, 'end_angle'))).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+                f"{var_name} = _register_graph_value(Part.ArcOfCircle(_kernel_circle_from_params({rp}, {re}), float(_resolve_param_value({rp}, {re}, 'start_angle')), float(_resolve_param_value({rp}, {re}, 'end_angle'))).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
             return lines
         if node.op == "make_three_point_arc_redge":
@@ -134,6 +141,15 @@ class GeometryEmitterMixin:
                         point_exprs.append(f"_edge_mid_point({edge_obj_expr})")
                         point_exprs.append(f"_edge_end_point({edge_obj_expr})")
                     limitation_payload = _node_expression_limitation(input_node)
+                    if (
+                        input_node.op
+                        in {"make_circle_redge", "make_angle_arc_redge"}
+                        and _contains_expr_refs(input_node.param_exprs.get("normal"))
+                    ):
+                        limitation_payload = {
+                            "op": input_node.op,
+                            "reason": _DYNAMIC_CURVE_NORMAL_LIMITATION,
+                        }
                     if limitation_payload is not None:
                         lines.append(
                             f"{var_name}_expr_limitations.append({_py_literal(limitation_payload)})"
@@ -150,8 +166,20 @@ class GeometryEmitterMixin:
                     lines.append(f"{var_name}.Placement = {var_name}_placement")
                 else:
                     frame_points = "[" + ", ".join(point_exprs) + "]"
+                    preferred_normal_expr = "None"
+                    if all(
+                        input_node is not None
+                        and input_node.op == "make_circle_redge"
+                        for input_node in input_nodes
+                    ):
+                        circle_var = _safe_name(input_nodes[0].node_id)
+                        preferred_normal_expr = (
+                            f"_resolve_vec3_param({circle_var}_params, "
+                            f"{circle_var}_param_exprs, 'normal') "
+                            f"if 'normal' in {circle_var}_params else (0.0, 0.0, 1.0)"
+                        )
                     lines.append(
-                        f"{var_name}_placement, {var_name}_origin, {var_name}_xaxis, {var_name}_yaxis = _frame_from_points({frame_points}, {context_literal})"
+                        f"{var_name}_placement, {var_name}_origin, {var_name}_xaxis, {var_name}_yaxis = _frame_from_points({frame_points}, {context_literal}, {preferred_normal_expr})"
                     )
                     lines.append(f"{var_name}.Placement = {var_name}_placement")
                 for geom_index, input_node in enumerate(input_nodes):
