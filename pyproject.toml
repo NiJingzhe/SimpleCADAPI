@@ -43,6 +43,9 @@ editor = []
 collision = [
     "python-fcl>=0.7.0.11",
 ]
+inverse-engineer = [
+    "matplotlib>=3.7.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/NiJingzhe/SimpleCADAPI"
@@ -94,3 +97,4 @@ evolve = "simplecadapi.auto_tools.evolution:main"
 make-export = "simplecadapi.auto_tools.make_export:main"
 auto-docs-gen = "simplecadapi.auto_tools.auto_docs_gen:main"
 skill-pack = "simplecadapi.auto_tools.skill_pack:main"
+simplecad-brep = "simplecadapi.inverse_engineer.brep.cli:main"
