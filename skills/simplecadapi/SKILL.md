@@ -29,6 +29,7 @@ metadata:
   - `<skill_root>/references/SDK_OVERVIEW.md`
   - `<skill_root>/references/SDK_SURFACES.md`
   - `<skill_root>/references/MODELING_WORKFLOWS.md`
+  - `<skill_root>/references/inverse_engineer/brep-reverse-engineering.md`
 
 ## MUST Requirements
 1. Read `SKILL.md`, `references/docs/api/README.md`, and `references/docs/stdlib/README.md` before choosing APIs.
@@ -48,6 +49,15 @@ metadata:
 15. If union cannot produce exactly one merged solid, it fails explicitly; do not silently pick one piece.
 16. If a single merged solid is required and union fails, slightly adjust part placement so intended bodies overlap/embed, then recompute.
 17. If a task depends on model replay or interchange, prefer `ModelResult.model_json` or `export_model_json()` output over hand-written payloads.
+18. For STEP/BREP reverse engineering, geometry reconstruction, topology matching, feature-history inference, or target/candidate CAD comparison, read `references/inverse_engineer/brep-reverse-engineering.md` completely before inspecting or modeling.
+19. In BREP reverse engineering, geometry equality and topology equality are hard requirements. Use engineering prior only to choose among processes that satisfy both; do not accept visual, volume, area, or topology-count similarity as completion.
+
+## Task Router
+- **Standard mechanical part**: read `references/docs/stdlib/README.md`, then the exact stdlib API page.
+- **General integrated modeling**: read `references/MODELING_WORKFLOWS.md` and each exact API page used.
+- **STEP/BREP reverse engineering or exact target comparison**: read `references/inverse_engineer/brep-reverse-engineering.md`; use `simplecadapi.inverse_engineer.brep` for inspection, strict comparison, views, and slice XOR diagnostics.
+- **Sketch and constraints**: read the relevant sketch API pages and `references/docs/core/declarative_constraints.md` when needed.
+- **Model JSON, graph replay, or translation**: read the graph/serialization API pages and the relevant translator documentation.
 
 ## Standard Parts Library
 - SimpleCAD includes a standard library for parameterized mechanical parts.
@@ -138,3 +148,4 @@ Use the graph/model JSON workflow when the task needs reproducibility, interchan
 - `references/docs/api/`
 - `references/docs/stdlib/`
 - `references/docs/core/`
+- `references/inverse_engineer/brep-reverse-engineering.md`
