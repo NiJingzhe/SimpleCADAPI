@@ -122,6 +122,40 @@ Replay effect:
 2. Replay path wire from input 1.
 3. Call `sweep_rsolid(profile, path, is_frenet=...)`.
 
+## Twisted Sweep
+
+Source:
+
+```python
+profile = scad.make_rectangle_rface(width=2.0, height=1.0)
+solid = scad.twisted_sweep_rsolid(
+    profile=profile,
+    distance=8.0,
+    twist_angle=30.0,
+)
+```
+
+Serialized node:
+
+```json
+{
+  "op": "make_twisted_sweep_rsolid",
+  "params": {
+    "axis": [0.0, 0.0, 1.0],
+    "origin": [0.0, 0.0, 0.0],
+    "distance": 8.0,
+    "twist_angle": 30.0,
+    "guide_radius": 1.0
+  },
+  "inputs": ["node_for_profile_face"],
+  "output_count": 1
+}
+```
+
+Replay reconstructs the continuous auxiliary-spine rotation law from the
+recorded parameters and invokes `twisted_sweep_rsolid(...)`. No sampled loft
+sections are stored or inferred.
+
 ## Helical sweep macro lowering
 
 Source:

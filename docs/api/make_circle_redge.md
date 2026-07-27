@@ -3,7 +3,13 @@
 ## API Definition
 
 ```python
-def make_circle_redge(center: Tuple[float, float, float], radius: ScalarLike, normal: Tuple[float, float, float] = (0, 0, 1)) -> Edge
+def make_circle_redge(
+    center: Tuple[float, float, float],
+    radius: ScalarLike,
+    normal: Tuple[float, float, float] = (0, 0, 1),
+    *,
+    tag_prefix: Optional[str] = None,
+) -> Edge
 ```
 
 *Source: operations.py*
@@ -14,4 +20,5 @@ def make_circle_redge(center: Tuple[float, float, float], radius: ScalarLike, no
 
 ## Description
 
-Create a circular edge.
+Create a circular edge. `tag_prefix` optionally creates the topology tag
+`<tag_prefix>.edge`.

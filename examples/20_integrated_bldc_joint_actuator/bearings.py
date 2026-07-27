@@ -14,6 +14,7 @@ else:
     from gears import planet_center_xy
 
 
+@scad.requires_session
 def make_standard_planet_bearing_rassembly(
     *,
     bearing_id: str,
@@ -34,6 +35,7 @@ def make_standard_planet_bearing_rassembly(
     return bearing
 
 
+@scad.requires_session
 def make_main_bearing_rassembly(
     *,
     bearing_id: str,
@@ -48,11 +50,16 @@ def make_main_bearing_rassembly(
     pitch_radius = (bore_radius + outer_radius) / 2.0
     inner_outer_radius = pitch_radius - ball_radius * 0.55
     outer_inner_radius = pitch_radius + ball_radius * 0.55
+    bearing_tag_prefix = ".".join(
+        f"size{token}" if token[0].isdigit() else token
+        for token in bearing_id.split("_")
+    )
     inner_ring = make_annulus_rsolid(
         outer_radius=inner_outer_radius,
         inner_radius=bore_radius,
         bottom_z=-spec.width / 2.0,
         height=spec.width,
+        tag_prefix=f"bearing.{bearing_tag_prefix}.inner.ring",
         tags=("role.bearing_inner_ring",),
     )
     outer_ring = make_annulus_rsolid(
@@ -60,11 +67,16 @@ def make_main_bearing_rassembly(
         inner_radius=outer_inner_radius,
         bottom_z=-spec.width / 2.0,
         height=spec.width,
+        tag_prefix=f"bearing.{bearing_tag_prefix}.outer.ring",
         tags=("role.bearing_outer_ring",),
     )
     ball = scad.make_sphere_rsolid(
         radius=ball_radius,
         center=(pitch_radius, 0.0, 0.0),
+    )
+    ball = scad.apply_tag(
+        shape=ball,
+        tag=f"solid.bearing.{bearing_tag_prefix}.rolling.element",
     )
     inner_part = make_axis_part_rpart(
         part_id=f"{bearing_id}_inner_ring",
@@ -148,12 +160,14 @@ def make_main_bearing_rassembly(
     return bearing
 
 
+@scad.requires_session
 def make_coaxial_bearing_rplacement(*, center_z: float) -> scad.Placement:
     """Place a standard bearing center plane on the actuator Z axis."""
 
     return make_z_rotation_rplacement(origin=(0.0, 0.0, center_z), angle_degrees=0.0)
 
 
+@scad.requires_session
 def make_planet_bearing_rplacement(
     *,
     stage: StageSpec,

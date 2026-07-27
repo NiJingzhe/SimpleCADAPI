@@ -5,6 +5,7 @@ from __future__ import annotations
 import simplecadapi as scad
 
 
+@scad.requires_session
 def make_reducer_materials_rdict() -> dict[str, scad.Material]:
     """Create the small set of reusable material records for the assembly."""
 

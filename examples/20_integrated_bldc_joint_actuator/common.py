@@ -9,6 +9,7 @@ import simplecadapi as scad
 from simplecadapi import ql
 
 
+@scad.requires_session
 def apply_tags(*, shape: scad.Solid, tags: Iterable[str]) -> scad.Solid:
     """Apply semantic tags through the public functional API."""
 
@@ -18,12 +19,14 @@ def apply_tags(*, shape: scad.Solid, tags: Iterable[str]) -> scad.Solid:
     return tagged
 
 
+@scad.requires_session
 def make_annulus_rsolid(
     *,
     outer_radius: float,
     inner_radius: float,
     bottom_z: float,
     height: float,
+    tag_prefix: str,
     tags: Iterable[str],
 ) -> scad.Solid:
     """Create a strict single-solid annular cylinder."""
@@ -33,17 +36,22 @@ def make_annulus_rsolid(
         height=height,
         bottom_face_center=(0.0, 0.0, bottom_z),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.outer",
+        result_tag=f"feature.{tag_prefix}.outer",
     )
     bore = scad.make_cylinder_rsolid(
         radius=inner_radius,
         height=height + 2.0,
         bottom_face_center=(0.0, 0.0, bottom_z - 1.0),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.bore",
+        result_tag=f"tool.{tag_prefix}.bore",
     )
     annulus = scad.cut_rsolid(outer, bore, skip_non_intersecting=False)
     return apply_tags(shape=annulus, tags=tags)
 
 
+@scad.requires_session
 def make_axis_part_rpart(
     *,
     part_id: str,
@@ -70,6 +78,7 @@ def make_axis_part_rpart(
     return part
 
 
+@scad.requires_session
 def make_z_rotation_rplacement(
     *,
     origin: tuple[float, float, float],
@@ -94,6 +103,7 @@ def radial_centers(*, count: int, radius: float, angle_offset: float = 0.0):
         yield index, angle_degrees, (radius * math.cos(angle), radius * math.sin(angle))
 
 
+@scad.requires_session
 def make_axial_hole_cutters_rsolids(
     *,
     count: int,
@@ -101,12 +111,13 @@ def make_axial_hole_cutters_rsolids(
     hole_radius: float,
     bottom_z: float,
     height: float,
+    tag_prefix: str,
     angle_offset: float = 0.0,
 ) -> list[scad.Solid]:
     """Create equally spaced axial hole cutters."""
 
     cutters = []
-    for _index, _angle, center in radial_centers(
+    for index, _angle, center in radial_centers(
         count=count,
         radius=pcd / 2.0,
         angle_offset=angle_offset,
@@ -117,6 +128,8 @@ def make_axial_hole_cutters_rsolids(
                 height=height,
                 bottom_face_center=(center[0], center[1], bottom_z),
                 axis=(0.0, 0.0, 1.0),
+                tag_prefix=f"{tag_prefix}.hole{index + 1}",
+                result_tag=f"tool.{tag_prefix}.hole{index + 1}",
             )
         )
     return cutters
@@ -126,9 +139,13 @@ def ground_solid(*, label: str, solid: scad.Solid) -> None:
     """Print a concise QL-backed solid summary."""
 
     faces = ql.select(items=solid.get_faces()).all()
-    role_faces = ql.select(items=faces).where(ql.tag(pattern="role.*")).all()
+    local_roles = [
+        tag
+        for tag in scad.list_tags(shape=solid, scope="local")
+        if tag.startswith("role.")
+    ]
     print(
-        f"{label}: faces={len(faces)} role_faces={len(role_faces)} "
+        f"{label}: faces={len(faces)} local_roles={len(local_roles)} "
         f"volume={solid.get_volume():.3f} tags={','.join(scad.list_tags(shape=solid))}"
     )
 
@@ -142,6 +159,7 @@ def ground_compound(*, label: str, compound: scad.Compound) -> None:
     print(f"{label}: solids={len(solids)} faces={faces} volume={volume:.3f}")
 
 
+@scad.requires_session
 def connector_ref(*, component_id: str, connector_id: str) -> scad.ConnectorRef:
     """Create a component-scoped connector reference."""
 

@@ -232,7 +232,7 @@ class Sketch(TaggedMixin, TopoMixein):
 
     def clone(self, *, include_solve: bool = True) -> "Sketch":
         cloned = Sketch(name=self.name, plane=self.plane, sketch_id=self.sketch_id)
-        cloned._tags = self._tags.copy()
+        cloned._copy_tag_state_from(self)
         cloned._metadata = self._metadata.copy()
         cloned.entities = dict(self.entities)
         cloned.entity_order = list(self.entity_order)

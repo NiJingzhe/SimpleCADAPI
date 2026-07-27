@@ -163,6 +163,7 @@ class TestCoverageMatrix(unittest.TestCase):
             "revolve_rsolid",
             "loft_rsolid",
             "sweep_rsolid",
+            "twisted_sweep_rsolid",
             "helical_sweep_rsolid",
             "union_rsolid",
             "cut_rsolid",
@@ -302,6 +303,7 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_revolve_rsolid",
             "make_loft_rsolid",
             "make_sweep_rsolid",
+            "make_twisted_sweep_rsolid",
             "make_translate_rshape",
             "make_rotate_rshape",
             "make_mirror_rshape",
@@ -352,6 +354,31 @@ class TestCoverageMatrix(unittest.TestCase):
 
 
 class TestReplay(unittest.TestCase):
+    @staticmethod
+    def _tag_node(payload, tag):
+        return next(
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "apply_tag_rselection"
+            and node["params"]["tag_binding"]["tag"] == tag
+        )
+
+    @staticmethod
+    def _topology_ref_map(shape):
+        refs = {}
+        for entity in shape._topology_cache.entities():
+            wrapper = entity.wrappers[0]
+            ref = wrapper.get_metadata("topo_ref")
+            if isinstance(ref, dict):
+                refs[(entity.kind, entity.topo_id)] = (
+                    ref["graph_id"],
+                    ref["node_id"],
+                    ref["output_slot"],
+                    ref["kind"],
+                    ref["topo_id"],
+                )
+        return refs
+
     def test_replay_builds_graph(self):
         """A simple low-level graph can be replayed."""
         with GraphSession() as session:
@@ -368,6 +395,222 @@ class TestReplay(unittest.TestCase):
         results = replay_graph(session.graph)
         self.assertIsNotNone(results)
         self.assertGreater(len(results), 0)
+
+    def test_terminal_tag_selector_roundtrip_preserves_binding_and_topology_refs(self):
+        tag = "role.selector_target"
+        selector = (
+            scad.ql.faces()
+            .order_by(scad.ql.key("geom.center.z"), desc=True)
+            .take(1)
+            .exactly(1)
+        )
+        with scad.GraphSession() as session:
+            source = scad.make_box_rsolid(2.0, 3.0, 4.0)
+            source_refs = self._topology_ref_map(source)
+            geometry_node_id = source.get_metadata("graph")["node_id"]
+            tagged = scad.apply_tag_rselection(source, selector, tag)
+
+        self.assertEqual(self._topology_ref_map(tagged), source_refs)
+        self.assertEqual(scad.select_faces_by_tag(source, tag, scope="local"), [])
+        self.assertEqual(len(scad.select_faces_by_tag(tagged, tag, scope="local")), 1)
+
+        payload = json.loads(scad.export_model_json(session))
+        node = self._tag_node(payload, tag)
+        binding = node["params"]["tag_binding"]
+        self.assertEqual(payload["leaf_ids"], [node["node_id"]])
+        self.assertEqual(node["inputs"], [geometry_node_id])
+        self.assertEqual(binding["producer"]["node_id"], node["node_id"])
+        self.assertEqual(binding["scope"]["node_id"], geometry_node_id)
+        self.assertEqual(binding["target"]["kind"], "selection_query")
+        self.assertEqual(binding["evidence"]["selected_count"], 1)
+        self.assertEqual(payload["semantic_bindings"], [binding])
+
+        replayed = scad.replay_model_json(json.dumps(payload))
+        self.assertEqual(len(replayed), 1)
+        result = replayed[0]
+        self.assertEqual(result.get_metadata("graph")["node_id"], node["node_id"])
+        self.assertEqual(
+            result.get_metadata("topo_ref")["node_id"], geometry_node_id
+        )
+        selected = scad.select_faces_by_tag(result, tag, scope="local")
+        self.assertEqual(len(selected), 1)
+        explanation = scad.explain_tag(selected[0], tag, scope="local")
+        self.assertEqual(explanation[0]["binding_id"], binding["binding_id"])
+
+    def test_terminal_tag_explicit_refs_roundtrip(self):
+        tag = "role.explicit_target"
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(2.0, 3.0, 4.0)
+            top_face = max(box.get_faces(), key=lambda face: face.get_center().z)
+            expected_ref = top_face.get_metadata("topo_ref")
+            scad.apply_tag_rselection(box, [top_face], tag)
+
+        payload = json.loads(scad.export_model_json(session))
+        node = self._tag_node(payload, tag)
+        binding = node["params"]["tag_binding"]
+        self.assertEqual(binding["target"]["kind"], "explicit_refs")
+        self.assertEqual(
+            binding["target"]["refs"][0]["topo_id"], expected_ref["topo_id"]
+        )
+        self.assertFalse(
+            any(
+                item["op"].startswith("make_select_")
+                for item in payload["graph"]["nodes"]
+            )
+        )
+
+        result = scad.replay_model_json(json.dumps(payload))[0]
+        selected = scad.select_faces_by_tag(result, tag, scope="local")
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(
+            selected[0].get_metadata("topo_ref")["topo_id"], expected_ref["topo_id"]
+        )
+
+    def test_apply_tag_chain_roundtrip_preserves_nodes_bindings_and_topology_refs(self):
+        tags = ("role.alpha", "role.beta", "role.alpha")
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(2.0, 3.0, 4.0)
+            geometry_node_id = box.get_metadata("graph")["node_id"]
+            source_refs = self._topology_ref_map(box)
+            for tag in tags:
+                self.assertIs(scad.apply_tag(box, tag), box)
+
+        self.assertEqual(self._topology_ref_map(box), source_refs)
+        payload = json.loads(scad.export_model_json(session))
+        tag_nodes = [
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "apply_tag_rselection"
+        ]
+        self.assertEqual(
+            [node["params"]["tag_binding"]["tag"] for node in tag_nodes],
+            list(tags),
+        )
+
+        previous_node_id = geometry_node_id
+        binding_ids = []
+        for node in tag_nodes:
+            binding = node["params"]["tag_binding"]
+            self.assertEqual(node["inputs"], [previous_node_id])
+            self.assertEqual(binding["scope"]["node_id"], previous_node_id)
+            self.assertEqual(binding["producer"]["node_id"], node["node_id"])
+            binding_ids.append(binding["binding_id"])
+            previous_node_id = node["node_id"]
+
+        self.assertEqual(len(binding_ids), len(set(binding_ids)))
+        self.assertEqual(payload["leaf_ids"], [previous_node_id])
+        self.assertEqual(box.get_metadata("graph")["node_id"], previous_node_id)
+        self.assertEqual(
+            [binding["binding_id"] for binding in payload["semantic_bindings"]],
+            binding_ids,
+        )
+
+        replayed = scad.replay_model_json(json.dumps(payload))
+        self.assertEqual(len(replayed), 1)
+        result = replayed[0]
+        self.assertTrue(
+            {"role.alpha", "role.beta"}.issubset(
+                scad.list_tags(result, scope="local")
+            )
+        )
+        self.assertEqual(
+            len(scad.explain_tag(result, "role.alpha", scope="local")),
+            2,
+        )
+        self.assertEqual(self._topology_ref_map(result), source_refs)
+
+    def test_tag_semantic_branches_are_isolated_after_replay(self):
+        selector = (
+            scad.ql.faces()
+            .order_by(scad.ql.key("geom.center.z"), desc=True)
+            .take(1)
+            .exactly(1)
+        )
+        with scad.GraphSession() as session:
+            source = scad.make_box_rsolid(2.0, 3.0, 4.0)
+            left = scad.apply_tag_rselection(source, selector, "role.left_branch")
+            right = scad.apply_tag_rselection(source, selector, "role.right_branch")
+
+        self.assertEqual(
+            len(scad.select_faces_by_tag(left, "role.left_branch", scope="local")), 1
+        )
+        self.assertEqual(
+            scad.select_faces_by_tag(left, "role.right_branch", scope="local"), []
+        )
+        self.assertEqual(
+            scad.select_faces_by_tag(right, "role.left_branch", scope="local"), []
+        )
+        self.assertEqual(
+            len(scad.select_faces_by_tag(right, "role.right_branch", scope="local")),
+            1,
+        )
+
+        payload = json.loads(scad.export_model_json(session))
+        left_node = self._tag_node(payload, "role.left_branch")
+        right_node = self._tag_node(payload, "role.right_branch")
+        replayed = {
+            shape.get_metadata("graph")["node_id"]: shape
+            for shape in scad.replay_model_json(json.dumps(payload))
+        }
+        replayed_left = replayed[left_node["node_id"]]
+        replayed_right = replayed[right_node["node_id"]]
+        self.assertEqual(
+            len(
+                scad.select_faces_by_tag(
+                    replayed_left, "role.left_branch", scope="local"
+                )
+            ),
+            1,
+        )
+        self.assertEqual(
+            scad.select_faces_by_tag(
+                replayed_left, "role.right_branch", scope="local"
+            ),
+            [],
+        )
+        self.assertEqual(
+            scad.select_faces_by_tag(
+                replayed_right, "role.left_branch", scope="local"
+            ),
+            [],
+        )
+        self.assertEqual(
+            len(
+                scad.select_faces_by_tag(
+                    replayed_right, "role.right_branch", scope="local"
+                )
+            ),
+            1,
+        )
+
+    def test_strict_tag_replay_rejects_binding_tampering(self):
+        selector = (
+            scad.ql.faces()
+            .order_by(scad.ql.key("geom.center.z"), desc=True)
+            .take(1)
+            .exactly(1)
+        )
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(2.0, 3.0, 4.0)
+            scad.apply_tag_rselection(box, selector, "role.target")
+
+        raw = json.loads(scad.export_model_json(session))
+
+        damaged = deepcopy(raw)
+        node = self._tag_node(damaged, "role.target")
+        node["params"]["tag_binding"]["producer"]["node_id"] = node["inputs"][0]
+        damaged["semantic_bindings"] = [node["params"]["tag_binding"]]
+        with self.assertRaisesRegex(ValueError, "does not match binding producer"):
+            scad.replay_model_json(json.dumps(damaged))
+
+        damaged = deepcopy(raw)
+        node = self._tag_node(damaged, "role.target")
+        node["params"]["tag_binding"]["target"]["selector"]["order_keys"][0][
+            "desc"
+        ] = False
+        damaged["semantic_bindings"] = [node["params"]["tag_binding"]]
+        with self.assertRaisesRegex(ValueError, "target evidence drifted"):
+            scad.replay_model_json(json.dumps(damaged))
 
     def test_replay_preserves_volume(self):
         with GraphSession() as session:
@@ -846,6 +1089,38 @@ class TestReplay(unittest.TestCase):
         self.assertIsInstance(results[0], scad.Solid)
         self.assertAlmostEqual(results[0].get_volume(), swept.get_volume(), places=5)
 
+    def test_replay_twisted_sweep_roundtrip(self):
+        with scad.GraphSession() as session:
+            profile = scad.make_rectangle_rface(width=2.0, height=1.0)
+            swept = scad.twisted_sweep_rsolid(
+                profile=profile,
+                distance=5.0,
+                twist_angle=45.0,
+            )
+
+        payload = json.loads(export_graph_json(session.graph))
+        node = next(
+            item
+            for item in payload["nodes"]
+            if item["op"] == "make_twisted_sweep_rsolid"
+        )
+        self.assertEqual(len(node["inputs"]), 1)
+        self.assertEqual(
+            node["params"],
+            {
+                "axis": [0.0, 0.0, 1.0],
+                "origin": [0.0, 0.0, 0.0],
+                "distance": 5.0,
+                "twist_angle": 45.0,
+                "guide_radius": 1.0,
+            },
+        )
+
+        results = replay_graph(import_graph_json(json.dumps(payload)), strict=True)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(len(results[0].get_faces()), 6)
+        self.assertAlmostEqual(results[0].get_volume(), swept.get_volume(), places=8)
+
     def test_replay_sweep_records_ql_selected_extrude_end_face_profile(self):
         with scad.GraphSession() as session:
             base = scad.make_circle_rface((0, 0, 0), 0.25)
@@ -1021,6 +1296,25 @@ class TestReplay(unittest.TestCase):
 
         replayed = scad.replay_model_json(json.dumps(payload))
         self.assertAlmostEqual(replayed[0].get_volume(), original.get_volume(), places=5)
+
+    def test_boolean_replay_defaults_missing_tracking_policy_to_full(self):
+        with scad.GraphSession() as session:
+            body = scad.make_box_rsolid(4.0, 4.0, 4.0)
+            tool = scad.make_cylinder_rsolid(
+                0.75,
+                6.0,
+                bottom_face_center=(0.0, 0.0, -1.0),
+            )
+            original = scad.cut_rsolid(body, tool)
+
+        payload = json.loads(scad.export_model_json(session))
+        cut_node = next(
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_cut_rsolid"
+        )
+        self.assertEqual(cut_node["params"].pop("tracking_policy"), "full")
+
+        replayed = scad.replay_model_json(json.dumps(payload))
+        self.assertAlmostEqual(replayed[0].get_volume(), original.get_volume(), places=6)
 
     def test_replay_selection_cardinality_mismatch_raises_by_default(self):
         with scad.GraphSession() as session:

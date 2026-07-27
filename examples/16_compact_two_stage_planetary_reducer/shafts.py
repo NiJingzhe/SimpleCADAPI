@@ -8,6 +8,7 @@ from common import _apply_tags, add_placement_axis_connector_rpart, make_axis_pa
 from dimensions import INPUT_BEARING_Z, INPUT_FLANGE_TOP_Z, INPUT_SHAFT_RADIUS, STAGE_1
 
 
+@scad.requires_session
 def make_input_shaft_rpart(*, material: scad.Material) -> scad.Part:
     """Create the input shaft linking the input flange and stage 1 sun."""
 
@@ -17,6 +18,8 @@ def make_input_shaft_rpart(*, material: scad.Material) -> scad.Part:
         height=height,
         bottom_face_center=(0.0, 0.0, INPUT_FLANGE_TOP_Z),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix="reducer.input.shaft",
+        result_tag="solid.reducer.input.shaft",
     )
     shaft = _apply_tags(
         shaft,

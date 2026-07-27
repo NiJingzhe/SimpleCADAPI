@@ -2,33 +2,11 @@
 
 from __future__ import annotations
 
-import json
-import os
-import shutil
-import subprocess
-import tempfile
-from typing import Any, Optional
+from typing import Optional
 
 from ...errors import raise_harness_error
-from .script_translator import FreeCADScriptTranslator
-
-
-def _json_ascii(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=True, sort_keys=True)
-
-
-def _discover_freecad_executable() -> Optional[str]:
-    candidates = [
-        shutil.which("FreeCADCmd"),
-        shutil.which("freecadcmd"),
-        shutil.which("FreeCAD"),
-        "/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd",
-        "/Applications/FreeCAD.app/Contents/MacOS/FreeCAD",
-    ]
-    for candidate in candidates:
-        if candidate and os.path.exists(candidate):
-            return candidate
-    return None
+from .exporter import discover_freecad_executable, export_freecad_script_to_fcstd
+from .translator import FreeCADTranslator
 
 
 def translate_model_json_to_freecad_script(
@@ -44,7 +22,7 @@ def translate_model_json_to_freecad_script(
     workbench module is available.
     """
 
-    return FreeCADScriptTranslator(
+    return FreeCADTranslator(
         document_name=document_name
     ).translate_model_json_to_script(json_str)
 
@@ -72,7 +50,7 @@ def translate_model_json_to_fcstd(
     tree.
     """
 
-    freecad_exe = freecad_cmd or _discover_freecad_executable()
+    freecad_exe = freecad_cmd or discover_freecad_executable()
     if not freecad_exe:
         raise_harness_error(
             operation="translate_model_json_to_fcstd",
@@ -91,35 +69,12 @@ def translate_model_json_to_fcstd(
     script = translate_model_json_to_freecad_script(
         json_str, document_name=document_name
     )
-    resolved_output_path = os.path.abspath(output_path)
-    save_tail = (
-        f"\nOUTPUT_PATH = {_json_ascii(resolved_output_path)}\n"
-        "_apply_result_visibility(RESULT_NODE_IDS)\n"
-        "_set_active_result_object(RESULT_NODE_IDS)\n"
-        "_save_fcstd_with_gui_visibility(OUTPUT_PATH)\n"
-        "print(OUTPUT_PATH)\n"
-    )
-
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix="_simplecad_freecad_export.py", delete=False
-    ) as handle:
-        temp_script_path = handle.name
-        handle.write(script)
-        handle.write(save_tail)
-
     try:
-        completed = subprocess.run(
-            [freecad_exe, temp_script_path],
-            check=True,
-            text=True,
-            capture_output=True,
+        return export_freecad_script_to_fcstd(
+            script,
+            output_path,
+            freecad_executable=freecad_exe,
         )
-        if not os.path.exists(resolved_output_path) or os.path.getsize(resolved_output_path) <= 0:
-            raise RuntimeError(
-                "FreeCAD export completed without creating a non-empty .FCStd file. "
-                f"stderr={completed.stderr.strip()!r}"
-            )
-        return output_path
     except Exception as e:
         raise_harness_error(
             operation="translate_model_json_to_fcstd",
@@ -136,3 +91,20 @@ def translate_model_json_to_fcstd(
             ],
             error=e,
         )
+
+
+def export_model_json_to_fcstd(
+    json_str: str,
+    output_path: str,
+    *,
+    document_name: str = "SimpleCADModel",
+    freecad_cmd: Optional[str] = None,
+) -> str:
+    """Export canonical model JSON to `.FCStd` via FreeCADCmd/FreeCAD."""
+
+    return translate_model_json_to_fcstd(
+        json_str,
+        output_path,
+        document_name=document_name,
+        freecad_cmd=freecad_cmd,
+    )

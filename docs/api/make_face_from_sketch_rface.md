@@ -14,4 +14,12 @@ def make_face_from_sketch_rface(sketch: Sketch, profile: int | str = 0, *, requi
 
 ## Description
 
-Promote a sketch profile to a concrete face, solving internally.
+Promote a sketch profile to a concrete face, solving internally. The promoted
+Face receives the canonical profile topology-identity tag and each boundary
+Edge receives the exact Sketch entity tag from the promotion map. For example,
+a Sketch with `name="rect"` and profile `bottom` produces `sketch.rect.profile.bottom` and
+`sketch.rect.entity.bottom`.
+
+These are creation-time tags with `topology_name` evidence backed by the solved Sketch
+promotion map. They replay from the Sketch payload and promotion parameters;
+ordinary compatibility tags such as `sketch_entity.bottom` remain separate.

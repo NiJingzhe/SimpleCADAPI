@@ -285,9 +285,14 @@ class TestBooleanOperations(unittest.TestCase):
         with self.assertRaises(scad.SimpleCADError) as ctx:
             scad.union_rsolid(solids)
 
-        message = str(ctx.exception)
-        self.assertIn("union_rsolid", message)
-        self.assertIn("单个Solid结果", message)
+        error = ctx.exception
+        self.assertEqual(error.operation, "union_rsolid")
+        self.assertEqual(
+            error.guidance.what_happened, "Failed to compute the boolean union."
+        )
+        self.assertTrue(
+            any("exactly one solid" in cause for cause in error.guidance.possible_causes)
+        )
 
     def test_union_touching_boxes_cleans_splitter_faces(self):
         """Test union of face-touching boxes follows CadQuery-style clean behavior."""
@@ -642,7 +647,7 @@ class TestComplexExamples(unittest.TestCase):
         tooth = scad.extrude_rsolid(tooth_profile, (0, 0, 1), 1.2)
 
         # 合并一个齿到基础上
-        gear = scad.union_rsolid([gear_base, tooth])
+        gear = scad.union_rsolid([gear_base, tooth], glue=False)
 
         # 验证
         self.assertIsInstance(gear, scad.Solid)

@@ -14,4 +14,6 @@ def add_line_rsketch(sketch: Sketch, entity_id: str, start: Union[SketchRef, str
 
 ## Description
 
-Add a named line entity and return an updated sketch document.
+Add an identified line entity and return an updated sketch document. Its
+`entity_id` becomes the local segment of the canonical topology-identity tag for
+the corresponding promoted profile Edge.

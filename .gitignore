@@ -15,6 +15,7 @@ output/
 
 # Sandbox artifacts
 sandbox/
+design-doc/
 
 # Generated skills archives
 skills/*.tar.gz
@@ -25,3 +26,8 @@ skills/*.tar.gz
 *.step
 *.stl
 examples.py
+
+# Browser viewer dependencies and build output
+viewer/node_modules/
+viewer/dist/
+viewer/pnpm-lock.yaml

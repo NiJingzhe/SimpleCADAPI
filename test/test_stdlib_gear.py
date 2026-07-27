@@ -3,6 +3,7 @@
 import json
 import math
 import unittest
+from unittest import mock
 
 import simplecadapi as scad
 
@@ -12,21 +13,26 @@ def _loft_nodes_for(factory):
         factory()
 
     payload = json.loads(scad.export_model_json(session=session))
-    return [node for node in payload["graph"]["nodes"] if node["op"] == "make_loft_rsolid"]
+    return [
+        node for node in payload["graph"]["nodes"] if node["op"] == "make_loft_rsolid"
+    ]
 
 
 class TestStdGearSurface(unittest.TestCase):
     def test_preferred_nested_std_export_surface(self):
         self.assertFalse(hasattr(scad, "std" + "_gear"))
         solid = scad.std.gear.make_spur_gear_rsolid(
-            n_teeth=8, module=1.0, gear_height=2.0,
+            n_teeth=8,
+            module=1.0,
+            gear_height=2.0,
         )
 
         self.assertGreater(solid.get_volume(), 0.0)
 
     def test_public_gear_factories_follow_make_rtype_naming(self):
         factory_names = [
-            name for name in scad.std.gear.__all__
+            name
+            for name in scad.std.gear.__all__
             if callable(getattr(scad.std.gear, name, None))
         ]
 
@@ -42,24 +48,37 @@ class TestSpurGear(unittest.TestCase):
 
     def test_basic_spur_gear(self):
         solid = scad.std.gear.make_spur_gear_rsolid(
-            n_teeth=10, module=2.0, pressure_angle=20.0, gear_height=5.0,
+            n_teeth=10,
+            module=2.0,
+            pressure_angle=20.0,
+            gear_height=5.0,
         )
         self.assertGreater(solid.get_volume(), 0.0)
 
     def test_default_pressure_angle(self):
         solid = scad.std.gear.make_spur_gear_rsolid(
-            n_teeth=20, module=1.5, gear_height=4.0,
+            n_teeth=20,
+            module=1.5,
+            gear_height=4.0,
         )
         self.assertGreater(solid.get_volume(), 0.0)
 
     def test_more_teeth_larger_volume(self):
-        small = scad.std.gear.make_spur_gear_rsolid(n_teeth=10, module=2.0, gear_height=5.0)
-        large = scad.std.gear.make_spur_gear_rsolid(n_teeth=24, module=2.0, gear_height=5.0)
+        small = scad.std.gear.make_spur_gear_rsolid(
+            n_teeth=10, module=2.0, gear_height=5.0
+        )
+        large = scad.std.gear.make_spur_gear_rsolid(
+            n_teeth=24, module=2.0, gear_height=5.0
+        )
         self.assertGreater(large.get_volume(), small.get_volume())
 
     def test_height_scales_volume(self):
-        short = scad.std.gear.make_spur_gear_rsolid(n_teeth=12, module=2.0, gear_height=4.0)
-        tall = scad.std.gear.make_spur_gear_rsolid(n_teeth=12, module=2.0, gear_height=8.0)
+        short = scad.std.gear.make_spur_gear_rsolid(
+            n_teeth=12, module=2.0, gear_height=4.0
+        )
+        tall = scad.std.gear.make_spur_gear_rsolid(
+            n_teeth=12, module=2.0, gear_height=8.0
+        )
         self.assertAlmostEqual(tall.get_volume(), 2.0 * short.get_volume(), places=0)
 
     def test_invalid_params(self):
@@ -72,12 +91,16 @@ class TestSpurGear(unittest.TestCase):
         with self.assertRaises(Exception):
             scad.std.gear.make_spur_gear_rsolid(n_teeth=10, module=2.0, backlash=-0.1)
         with self.assertRaises(Exception):
-            scad.std.gear.make_spur_gear_rsolid(n_teeth=10, module=2.0, addendum_factor=0.0)
+            scad.std.gear.make_spur_gear_rsolid(
+                n_teeth=10, module=2.0, addendum_factor=0.0
+            )
 
     def test_tip_radius_bounds(self):
         n_teeth = 20
         module = 2.0
-        solid = scad.std.gear.make_spur_gear_rsolid(n_teeth=n_teeth, module=module, gear_height=4.0)
+        solid = scad.std.gear.make_spur_gear_rsolid(
+            n_teeth=n_teeth, module=module, gear_height=4.0
+        )
         expected_tip = module * n_teeth / 2.0 + module
         max_r = 0.0
         for face in solid.get_faces():
@@ -126,7 +149,9 @@ class TestSpurGear(unittest.TestCase):
             pressure_angle=math.radians(20.0),
             return_sketch=True,
         )
-        fix_constraints = [constraint for constraint in sketch.constraints if constraint.kind == "fix"]
+        fix_constraints = [
+            constraint for constraint in sketch.constraints if constraint.kind == "fix"
+        ]
 
         self.assertEqual(len(fix_constraints), 1)
         self.assertEqual(fix_constraints[0].targets[0]["entity_id"], "center")
@@ -137,10 +162,16 @@ class TestSpurGear(unittest.TestCase):
         pressure_angle = math.radians(20.0)
         backlash = 0.12
         no_backlash = scad.std.gear._compute_tooth_geometry(
-            n_teeth, module, pressure_angle, backlash=0.0,
+            n_teeth,
+            module,
+            pressure_angle,
+            backlash=0.0,
         )
         with_backlash = scad.std.gear._compute_tooth_geometry(
-            n_teeth, module, pressure_angle, backlash=backlash,
+            n_teeth,
+            module,
+            pressure_angle,
+            backlash=backlash,
         )
 
         no_backlash_width = no_backlash["right_start"] - no_backlash["left_start"]
@@ -187,8 +218,149 @@ class TestSpurGear(unittest.TestCase):
         finally:
             scad.std.gear.fit_cubic_bspline_control_points = original
 
-        self.assertGreater(len(calls), 0)
+        self.assertEqual(len(calls), 1)
         self.assertTrue(all(call[1]["tolerance"] == 1e-4 for call in calls))
+
+    def test_external_gear_reuses_rotated_canonical_involute(self):
+        n_teeth = 12
+        _face, sketch = scad.std.gear._build_gear_profile_face(
+            n_teeth=n_teeth,
+            module=1.5,
+            pressure_angle=math.radians(20.0),
+            return_sketch=True,
+        )
+        tooth_angle = 2.0 * math.pi / n_teeth
+        first = sketch.entities["bspline_left_0"].data["control_points"]
+        second = sketch.entities["bspline_left_1"].data["control_points"]
+
+        for source, actual in zip(first, second):
+            expected = scad.std.gear._rotate_xy(tuple(source), tooth_angle)
+            self.assertAlmostEqual(actual[0], expected[0], places=10)
+            self.assertAlmostEqual(actual[1], expected[1], places=10)
+
+    def test_external_gear_builds_only_two_canonical_root_fillets(self):
+        original = scad.std.gear._root_fillet_control_points
+        calls = []
+
+        def wrapped(*args, **kwargs):
+            calls.append((args, kwargs))
+            return original(*args, **kwargs)
+
+        scad.std.gear._root_fillet_control_points = wrapped
+        try:
+            scad.std.gear._build_gear_profile_face(
+                n_teeth=18,
+                module=1.5,
+                pressure_angle=math.radians(20.0),
+            )
+        finally:
+            scad.std.gear._root_fillet_control_points = original
+
+        self.assertEqual(len(calls), 2)
+
+    def test_external_gear_builds_sketch_with_bounded_clone_count(self):
+        from simplecadapi.sketch import Sketch
+
+        original = Sketch.clone
+        calls = []
+
+        def wrapped(sketch, *args, **kwargs):
+            calls.append(sketch)
+            return original(sketch, *args, **kwargs)
+
+        with mock.patch.object(Sketch, "clone", wrapped):
+            scad.std.gear._build_gear_profile_face(
+                n_teeth=18,
+                module=1.5,
+                pressure_angle=math.radians(20.0),
+            )
+
+        self.assertLessEqual(len(calls), 2)
+
+    def test_external_gear_linear_sketch_edits_strict_replay(self):
+        with scad.GraphSession() as session:
+            original = scad.std.gear.make_spur_gear_rsolid(
+                n_teeth=12,
+                module=2.0,
+                gear_height=4.0,
+            )
+
+        replayed = scad.replay_model_json(
+            json_str=scad.export_model_json(session=session), strict=True
+        )[0]
+        self.assertAlmostEqual(replayed.get_volume(), original.get_volume(), places=6)
+
+
+class TestStraightBevelGear(unittest.TestCase):
+    def setUp(self):
+        scad.GraphSession()
+
+    def test_basic_straight_bevel_gear(self):
+        solid = scad.std.gear.make_straight_bevel_gear_rsolid(
+            n_teeth=18,
+            module=4.0,
+            pitch_angle=45.0,
+            pressure_angle=20.0,
+            face_width=18.0,
+        )
+
+        self.assertGreater(solid.get_volume(), 0.0)
+        meta = solid.get_metadata("std.gear.straight_bevel")
+        self.assertEqual(meta["n_teeth"], 18)
+        self.assertEqual(meta["module"], 4.0)
+        self.assertEqual(meta["pitch_angle"], 45.0)
+        self.assertAlmostEqual(meta["outer_pitch_radius"], 36.0)
+        self.assertAlmostEqual(
+            meta["outer_cone_distance"],
+            36.0 / math.sin(math.radians(45.0)),
+        )
+        print(
+            "straight_bevel_gear: "
+            f"volume={solid.get_volume():.3f} "
+            f"inner_scale={meta['inner_scale']:.6f}"
+        )
+
+    def test_straight_bevel_gear_uses_ruled_similar_sections(self):
+        loft_nodes = _loft_nodes_for(
+            lambda: scad.std.gear.make_straight_bevel_gear_rsolid(
+                n_teeth=18,
+                module=4.0,
+                pitch_angle=45.0,
+                face_width=18.0,
+            )
+        )
+
+        self.assertEqual(len(loft_nodes), 1)
+        self.assertEqual(loft_nodes[0]["params"]["profile_count"], 2)
+        self.assertTrue(loft_nodes[0]["params"]["ruled"])
+
+    def test_straight_bevel_gear_strict_replay(self):
+        with scad.GraphSession() as session:
+            original = scad.std.gear.make_straight_bevel_gear_rsolid(
+                n_teeth=18,
+                module=4.0,
+                pitch_angle=45.0,
+                face_width=18.0,
+            )
+            model_json = scad.export_model_json(session=session)
+
+        replayed = scad.replay_model_json(json_str=model_json, strict=True)
+        self.assertEqual(len(replayed), 1)
+        self.assertAlmostEqual(
+            replayed[0].get_volume(), original.get_volume(), places=5
+        )
+
+    def test_invalid_straight_bevel_gear_params(self):
+        invalid_kwargs = (
+            {"n_teeth": 2, "module": 4.0},
+            {"n_teeth": 18, "module": 0.0},
+            {"n_teeth": 18, "module": 4.0, "pitch_angle": 0.0},
+            {"n_teeth": 18, "module": 4.0, "pitch_angle": 90.0},
+            {"n_teeth": 18, "module": 4.0, "face_width": 60.0},
+        )
+        for kwargs in invalid_kwargs:
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                scad.std.gear.make_straight_bevel_gear_rsolid(**kwargs)
 
 
 class TestHelicalGear(unittest.TestCase):
@@ -197,14 +369,22 @@ class TestHelicalGear(unittest.TestCase):
 
     def test_basic_helical_gear(self):
         solid = scad.std.gear.make_helical_gear_rsolid(
-            n_teeth=12, module=2.0, helix_angle=25.0, gear_height=8.0,
+            n_teeth=12,
+            module=2.0,
+            helix_angle=25.0,
+            gear_height=8.0,
         )
         self.assertGreater(solid.get_volume(), 0.0)
 
     def test_zero_helix_falls_back_to_spur(self):
-        spur = scad.std.gear.make_spur_gear_rsolid(n_teeth=12, module=2.0, gear_height=6.0)
+        spur = scad.std.gear.make_spur_gear_rsolid(
+            n_teeth=12, module=2.0, gear_height=6.0
+        )
         helical = scad.std.gear.make_helical_gear_rsolid(
-            n_teeth=12, module=2.0, gear_height=6.0, helix_angle=0.0,
+            n_teeth=12,
+            module=2.0,
+            gear_height=6.0,
+            helix_angle=0.0,
         )
         self.assertAlmostEqual(spur.get_volume(), helical.get_volume(), places=0)
 
@@ -212,19 +392,33 @@ class TestHelicalGear(unittest.TestCase):
         with self.assertRaises(Exception):
             scad.std.gear.make_helical_gear_rsolid(n_teeth=2, module=2.0)
 
-    def test_helical_gear_uses_small_step_ruled_loft(self):
-        loft_nodes = _loft_nodes_for(
-            lambda: scad.std.gear.make_helical_gear_rsolid(
+    def test_helical_gear_uses_one_continuous_twisted_sweep(self):
+        with scad.GraphSession() as session:
+            solid = scad.std.gear.make_helical_gear_rsolid(
                 n_teeth=12,
                 module=2.0,
                 helix_angle=25.0,
                 gear_height=8.0,
             )
-        )
 
-        self.assertEqual(len(loft_nodes), 1)
-        self.assertEqual(loft_nodes[0]["params"]["profile_count"], 7)
-        self.assertTrue(loft_nodes[0]["params"]["ruled"])
+        payload = json.loads(scad.export_model_json(session=session))
+        twisted_nodes = [
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_twisted_sweep_rsolid"
+        ]
+        self.assertEqual(len(twisted_nodes), 1)
+        self.assertNotIn("topo_delta", twisted_nodes[0])
+        self.assertFalse(
+            any(node["op"] == "make_loft_rsolid" for node in payload["graph"]["nodes"])
+        )
+        self.assertEqual(len(solid.get_faces()), 74)
+
+        replayed = scad.replay_model_json(
+            json_str=json.dumps(payload), strict=True
+        )[0]
+        self.assertEqual(len(replayed.get_faces()), 74)
+        self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=6)
 
 
 class TestHerringboneGear(unittest.TestCase):
@@ -233,30 +427,84 @@ class TestHerringboneGear(unittest.TestCase):
 
     def test_basic_herringbone_gear(self):
         solid = scad.std.gear.make_herringbone_gear_rsolid(
-            n_teeth=12, module=2.0, helix_angle=25.0, gear_height=10.0,
+            n_teeth=12,
+            module=2.0,
+            helix_angle=25.0,
+            gear_height=10.0,
         )
         self.assertGreater(solid.get_volume(), 0.0)
 
     def test_zero_helix_falls_back_to_spur(self):
-        spur = scad.std.gear.make_spur_gear_rsolid(n_teeth=12, module=2.0, gear_height=8.0)
+        spur = scad.std.gear.make_spur_gear_rsolid(
+            n_teeth=12, module=2.0, gear_height=8.0
+        )
         herringbone = scad.std.gear.make_herringbone_gear_rsolid(
-            n_teeth=12, module=2.0, gear_height=8.0, helix_angle=0.0,
+            n_teeth=12,
+            module=2.0,
+            gear_height=8.0,
+            helix_angle=0.0,
         )
         self.assertAlmostEqual(spur.get_volume(), herringbone.get_volume(), places=0)
 
-    def test_herringbone_gear_uses_small_step_ruled_loft(self):
-        loft_nodes = _loft_nodes_for(
-            lambda: scad.std.gear.make_herringbone_gear_rsolid(
+    def test_herringbone_gear_unions_two_replayable_twisted_halves(self):
+        with scad.GraphSession() as session:
+            solid = scad.std.gear.make_herringbone_gear_rsolid(
                 n_teeth=12,
                 module=2.0,
                 helix_angle=25.0,
                 gear_height=10.0,
             )
-        )
 
-        self.assertEqual(len(loft_nodes), 1)
-        self.assertEqual(loft_nodes[0]["params"]["profile_count"], 9)
-        self.assertTrue(loft_nodes[0]["params"]["ruled"])
+        payload = json.loads(scad.export_model_json(session=session))
+        operations = [node["op"] for node in payload["graph"]["nodes"]]
+        self.assertEqual(operations.count("make_twisted_sweep_rsolid"), 2)
+        self.assertEqual(operations.count("make_union_rsolid"), 1)
+        self.assertNotIn("make_loft_rsolid", operations)
+        self.assertTrue(
+            all(
+                "topo_delta" not in node
+                for node in payload["graph"]["nodes"]
+                if node["op"] == "make_twisted_sweep_rsolid"
+            )
+        )
+        self.assertEqual(len(solid.get_faces()), 146)
+
+        replayed = scad.replay_model_json(
+            json_str=json.dumps(payload), strict=True
+        )[0]
+        self.assertEqual(len(replayed.get_faces()), 146)
+        self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=6)
+
+    def test_stdlib_graph_tracking_scope_does_not_leak(self):
+        with scad.GraphSession() as session:
+            scad.std.gear.make_herringbone_gear_rsolid(
+                n_teeth=8,
+                module=1.0,
+                helix_angle=20.0,
+                gear_height=4.0,
+            )
+            profile = scad.make_rectangle_rface(
+                width=1.0,
+                height=1.0,
+                center=(0.0, 0.0, 0.0),
+            )
+            scad.twisted_sweep_rsolid(
+                profile=profile,
+                distance=2.0,
+                twist_angle=15.0,
+            )
+
+        payload = json.loads(scad.export_model_json(session=session))
+        twisted_nodes = [
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_twisted_sweep_rsolid"
+        ]
+        self.assertEqual(len(twisted_nodes), 3)
+        self.assertEqual(
+            sum("topo_delta" in node for node in twisted_nodes),
+            1,
+        )
 
 
 class TestSpurRingGear(unittest.TestCase):
@@ -265,7 +513,10 @@ class TestSpurRingGear(unittest.TestCase):
 
     def test_basic_ring_gear(self):
         solid = scad.std.gear.make_spur_ring_gear_rsolid(
-            n_teeth=20, module=2.0, gear_height=5.0, rim_thickness=4.0,
+            n_teeth=20,
+            module=2.0,
+            gear_height=5.0,
+            rim_thickness=4.0,
         )
         self.assertGreater(solid.get_volume(), 0.0)
 
@@ -274,7 +525,10 @@ class TestSpurRingGear(unittest.TestCase):
         module = 2.0
         rim_thickness = 4.0
         ring = scad.std.gear.make_spur_ring_gear_rsolid(
-            n_teeth=n_teeth, module=module, gear_height=5.0, rim_thickness=rim_thickness,
+            n_teeth=n_teeth,
+            module=module,
+            gear_height=5.0,
+            rim_thickness=rim_thickness,
         )
         pitch_radius = module * n_teeth / 2.0
         outer_r = pitch_radius + 1.25 * module + rim_thickness
@@ -302,13 +556,18 @@ class TestSpurRingGear(unittest.TestCase):
         pitch_radius = module * n_teeth / 2.0
         base_radius = pitch_radius * math.cos(pressure_angle)
         self.assertAlmostEqual(min(vertex_radii), pitch_radius - module, places=5)
-        self.assertAlmostEqual(max(vertex_radii), pitch_radius + 1.25 * module, places=5)
+        self.assertAlmostEqual(
+            max(vertex_radii), pitch_radius + 1.25 * module, places=5
+        )
         self.assertGreater(min(vertex_radii), base_radius + 0.5 * module)
 
     def test_spur_ring_gear_uses_direct_multi_loop_face_not_2d_cut(self):
         with scad.GraphSession() as session:
             scad.std.gear.make_spur_ring_gear_rsolid(
-                n_teeth=20, module=2.0, gear_height=5.0, rim_thickness=4.0,
+                n_teeth=20,
+                module=2.0,
+                gear_height=5.0,
+                rim_thickness=4.0,
             )
 
         payload = json.loads(scad.export_model_json(session))
@@ -337,7 +596,9 @@ class TestSpurRingGear(unittest.TestCase):
             pressure_angle=math.radians(20.0),
             return_sketch=True,
         )
-        fix_constraints = [constraint for constraint in sketch.constraints if constraint.kind == "fix"]
+        fix_constraints = [
+            constraint for constraint in sketch.constraints if constraint.kind == "fix"
+        ]
 
         self.assertEqual(len(fix_constraints), 1)
         self.assertEqual(fix_constraints[0].targets[0]["entity_id"], "center")
@@ -348,10 +609,16 @@ class TestSpurRingGear(unittest.TestCase):
         pressure_angle = math.radians(20.0)
         backlash = 0.12
         no_backlash = scad.std.gear._compute_internal_tooth_geometry(
-            n_teeth, module, pressure_angle, backlash=0.0,
+            n_teeth,
+            module,
+            pressure_angle,
+            backlash=0.0,
         )
         with_backlash = scad.std.gear._compute_internal_tooth_geometry(
-            n_teeth, module, pressure_angle, backlash=backlash,
+            n_teeth,
+            module,
+            pressure_angle,
+            backlash=backlash,
         )
 
         no_backlash_space = no_backlash["tooth_angle"] - (
@@ -387,9 +654,13 @@ class TestSpurRingGear(unittest.TestCase):
         with self.assertRaises(Exception):
             scad.std.gear.make_spur_ring_gear_rsolid(n_teeth=2, module=2.0)
         with self.assertRaises(Exception):
-            scad.std.gear.make_spur_ring_gear_rsolid(n_teeth=10, module=2.0, rim_thickness=0.0)
+            scad.std.gear.make_spur_ring_gear_rsolid(
+                n_teeth=10, module=2.0, rim_thickness=0.0
+            )
         with self.assertRaises(Exception):
-            scad.std.gear.make_spur_ring_gear_rsolid(n_teeth=10, module=2.0, backlash=-0.1)
+            scad.std.gear.make_spur_ring_gear_rsolid(
+                n_teeth=10, module=2.0, backlash=-0.1
+            )
 
 
 class TestHelicalRingGear(unittest.TestCase):
@@ -398,7 +669,10 @@ class TestHelicalRingGear(unittest.TestCase):
 
     def test_basic_helical_ring(self):
         solid = scad.std.gear.make_helical_ring_gear_rsolid(
-            n_teeth=20, module=2.0, helix_angle=20.0, gear_height=8.0,
+            n_teeth=20,
+            module=2.0,
+            helix_angle=20.0,
+            gear_height=8.0,
         )
         self.assertGreater(solid.get_volume(), 0.0)
 
@@ -423,23 +697,41 @@ class TestHerringboneRingGear(unittest.TestCase):
 
     def test_basic_herringbone_ring(self):
         solid = scad.std.gear.make_herringbone_ring_gear_rsolid(
-            n_teeth=20, module=2.0, helix_angle=20.0, gear_height=10.0,
+            n_teeth=20,
+            module=2.0,
+            helix_angle=20.0,
+            gear_height=10.0,
         )
         self.assertGreater(solid.get_volume(), 0.0)
 
     def test_herringbone_ring_uses_small_step_ruled_inner_loft(self):
-        loft_nodes = _loft_nodes_for(
-            lambda: scad.std.gear.make_herringbone_ring_gear_rsolid(
+        with scad.GraphSession() as session:
+            scad.std.gear.make_herringbone_ring_gear_rsolid(
                 n_teeth=20,
                 module=2.0,
                 helix_angle=20.0,
                 gear_height=10.0,
             )
-        )
+
+        payload = json.loads(scad.export_model_json(session=session))
+        loft_nodes = [
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_loft_rsolid"
+        ]
+        cut_nodes = [
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_cut_rsolid"
+        ]
 
         self.assertEqual(len(loft_nodes), 1)
         self.assertEqual(loft_nodes[0]["params"]["profile_count"], 9)
         self.assertTrue(loft_nodes[0]["params"]["ruled"])
+        self.assertEqual(loft_nodes[0]["params"]["tracking_policy"], "graph")
+        self.assertEqual(len(cut_nodes), 1)
+        self.assertEqual(cut_nodes[0]["params"]["tracking_policy"], "graph")
+        self.assertNotIn("topo_delta", cut_nodes[0])
 
 
 class TestCycloidalDisc(unittest.TestCase):
@@ -580,12 +872,18 @@ class TestSpurRack(unittest.TestCase):
         scad.GraphSession()
 
     def test_basic_rack(self):
-        solid = scad.std.gear.make_spur_rack_rsolid(module=2.0, n_teeth=8, rack_height=5.0)
+        solid = scad.std.gear.make_spur_rack_rsolid(
+            module=2.0, n_teeth=8, rack_height=5.0
+        )
         self.assertGreater(solid.get_volume(), 0.0)
 
     def test_more_teeth_larger_volume(self):
-        short = scad.std.gear.make_spur_rack_rsolid(module=2.0, n_teeth=5, rack_height=5.0)
-        long = scad.std.gear.make_spur_rack_rsolid(module=2.0, n_teeth=10, rack_height=5.0)
+        short = scad.std.gear.make_spur_rack_rsolid(
+            module=2.0, n_teeth=5, rack_height=5.0
+        )
+        long = scad.std.gear.make_spur_rack_rsolid(
+            module=2.0, n_teeth=10, rack_height=5.0
+        )
         self.assertGreater(long.get_volume(), short.get_volume())
 
     def test_invalid_params(self):
@@ -609,7 +907,10 @@ class TestHelicalRack(unittest.TestCase):
 
     def test_basic_helical_rack(self):
         solid = scad.std.gear.make_helical_rack_rsolid(
-            module=2.0, n_teeth=8, helix_angle=25.0, rack_height=8.0,
+            module=2.0,
+            n_teeth=8,
+            helix_angle=25.0,
+            rack_height=8.0,
         )
         self.assertGreater(solid.get_volume(), 0.0)
 
@@ -620,7 +921,10 @@ class TestHerringboneRack(unittest.TestCase):
 
     def test_basic_herringbone_rack(self):
         solid = scad.std.gear.make_herringbone_rack_rsolid(
-            module=2.0, n_teeth=8, helix_angle=30.0, rack_height=10.0,
+            module=2.0,
+            n_teeth=8,
+            helix_angle=30.0,
+            rack_height=10.0,
         )
         self.assertGreater(solid.get_volume(), 0.0)
 
@@ -634,7 +938,9 @@ class Test2DFaceBoolean(unittest.TestCase):
         inner = scad.make_circle_rface(center=(0, 0, 0), radius=4.0)
         ring = scad.make_2d_cut_rface(outer, inner)
         self.assertAlmostEqual(
-            ring.get_area(), math.pi * (100 - 16), places=1,
+            ring.get_area(),
+            math.pi * (100 - 16),
+            places=1,
         )
         self.assertEqual(len(ring.get_inner_wires()), 1)
 
@@ -643,7 +949,9 @@ class Test2DFaceBoolean(unittest.TestCase):
         inner = scad.make_circle_rwire(center=(0, 0, 0), radius=4.0)
         ring = scad.make_face_from_wires_rface(outer, [inner])
         self.assertAlmostEqual(
-            ring.get_area(), math.pi * (100 - 16), places=1,
+            ring.get_area(),
+            math.pi * (100 - 16),
+            places=1,
         )
         self.assertEqual(len(ring.get_inner_wires()), 1)
 

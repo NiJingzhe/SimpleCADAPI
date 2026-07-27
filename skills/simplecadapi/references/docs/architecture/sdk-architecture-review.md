@@ -33,7 +33,7 @@ SimpleCADAPI 的顶层 API 选择是正确的：它没有把用户拖进传统 C
 - historical scalar-field/SDF implementation, now removed from the active public/support surface
 - `docs/core/serialization/`
 - `docs/core/operation_graph_json_spec.md`
-- `examples/07_serialization_operation_tree.py`
+- retained replayable examples under `examples/`
 - `test/` 与 `tests/`
 
 ## 顶层 API 评价
@@ -46,7 +46,7 @@ SimpleCADAPI 的顶层 API 选择是正确的：它没有把用户拖进传统 C
 
 - `__init__.py` 明确导出建模函数、核心类型、graph/session、serializer、expression 和 `ql` 子模块，公开面可见性好。参考：`src/simplecadapi/__init__.py`。
 - 大多数核心创建函数遵守返回类型后缀，例如 `make_point_rvertex -> Vertex`、`make_line_redge -> Edge`、`make_circle_rwire -> Wire`、`make_box_rsolid -> Solid`。参考：`src/simplecadapi/operations.py:691`、`src/simplecadapi/operations.py:723`、`src/simplecadapi/operations.py:1465`。
-- composite convenience API 在 `GraphSession` 内降低为 canonical low-level graph，这个设计非常正确。用户调用 `make_box_rsolid`，图里记录 rectangle/profile/extrude，这是 CAD DSL 和 replay IR 分层的正确方式。参考：`src/simplecadapi/operations.py:1480`、`examples/07_serialization_operation_tree.py:52`、`examples/07_serialization_operation_tree.py:272`。
+- composite convenience API 在 `GraphSession` 内降低为 canonical low-level graph，这个设计非常正确。用户调用 `make_box_rsolid`，图里记录 rectangle/profile/extrude，这是 CAD DSL 和 replay IR 分层的正确方式。参考：`src/simplecadapi/operations.py` 与 `test/test_serialization.py`。
 - `union_rsolid(...)` 明确返回单个 `Solid`，失败就报错，不默默返回多个实体。这对机械 CAD 是正确的默认语义。参考：`src/simplecadapi/operations.py:2856`、`src/simplecadapi/operations.py:2876`。
 - `GraphSession` + `export_model_json` + `replay_model_json` 的主线是对的。它把脚本建模提升为可交换、可 replay 的模型记录。参考：`src/simplecadapi/graph.py:44`、`src/simplecadapi/serializer.py:416`、`src/simplecadapi/serializer.py:732`。
 - `ql` 被放到子模块而非全部塞进顶层，是正确的边界意识。参考：`src/simplecadapi/__init__.py`、`docs/api/README.md:5`。
@@ -154,7 +154,7 @@ QL 是架构上最应该继续投资的部分。
 - `OperationGraph` 是 DAG，节点保存 op、params、param_exprs、inputs、context、semantic_delta、topo_delta、tags。结构完整。参考：`src/simplecadapi/topology.py:318`、`src/simplecadapi/topology.py:476`。
 - `export_model_json` 输出 graph、leaf_ids、expression_graph、frame_graph、registries、delta logs、canonical contract。方向很对。参考：`src/simplecadapi/serializer.py:627`。
 - `_assert_graph_is_canonical` 在 export model 前拒绝非 canonical ops，这是保持 IR 干净的正确动作。参考：`src/simplecadapi/serializer.py:246`、`src/simplecadapi/serializer.py:624`。
-- `examples/07_serialization_operation_tree.py` 非常有价值。它把 source API 到 operation tree 的映射讲清楚，是 SDK 最该保留和扩展的示例。参考：`examples/07_serialization_operation_tree.py:1`、`examples/07_serialization_operation_tree.py:217`。
+- `test/test_serialization.py` 系统覆盖 source API 到 operation tree 的映射，是该契约的主要回归入口。
 
 严重问题：
 
@@ -164,7 +164,7 @@ QL 是架构上最应该继续投资的部分。
 - graph schema version 是 `1.0`，model schema 是 `2.0-draft`，canonical contract 是 `2.0-final-state`。这三个版本信号混在一起，会让外部消费者不知道哪个才是稳定承诺。参考：`src/simplecadapi/topology.py:19`、`src/simplecadapi/serializer.py:221`、`src/simplecadapi/serializer.py:628`。
 - node.context 和 frame_graph 被记录，但 replay 不恢复 frame/workplane；所有 ops 按当前 ambient world context 执行。参考：`src/simplecadapi/graph.py:132`、`src/simplecadapi/serializer.py:991`。
 - `leaf_ids` 自动来自 graph leaves，而不是用户显式声明的 final outputs。debug/intermediate 独立节点会成为 replay 输出。参考：`src/simplecadapi/serializer.py:624`、`src/simplecadapi/topology.py:563`。
-- expression replay 是 numeric snapshot，不是 parametric replay。这个可以接受，但必须在 SDK 主文档里反复强调。参考：`examples/07_serialization_operation_tree.py:40`、`examples/07_serialization_operation_tree.py:287`。
+- expression replay 是 numeric snapshot，不是 parametric replay。这个可以接受，但必须在 SDK 主文档里反复强调。参考：`test/test_serialization.py`。
 
 建议：replay 应该默认 strict。所有 missing input、missing param、unknown op、leaf missing output、selection cardinality mismatch 都应该 hard failure。需要宽松模式时显式 `strict=False`。
 
