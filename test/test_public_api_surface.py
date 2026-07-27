@@ -60,3 +60,41 @@ print(json.dumps({
         self.assertTrue(payload["has_apply_tag"])
         self.assertTrue(payload["has_list_tags"])
         self.assertFalse(payload["has_set_tag"])
+
+    def test_canonical_tagging_exports(self):
+        import simplecadapi as scad
+        from simplecadapi import operations, tagging
+
+        expected = {
+            "apply_tag_rselection": operations.apply_tag_rselection,
+            "explain_tag": operations.explain_tag,
+            "LineageDerivation": tagging.LineageDerivation,
+            "LineagePolicy": tagging.LineagePolicy,
+            "TagAttachment": tagging.TagAttachment,
+            "TagBinding": tagging.TagBinding,
+            "TagBindingScope": tagging.TagBindingScope,
+            "TagCertainty": tagging.TagCertainty,
+            "TagEvidence": tagging.TagEvidence,
+            "TagEvidenceKind": tagging.TagEvidenceKind,
+            "TagLifecycle": tagging.TagLifecycle,
+            "TagLineageWitness": tagging.TagLineageWitness,
+            "TagProducer": tagging.TagProducer,
+            "TagProducerKind": tagging.TagProducerKind,
+            "TagPropagation": tagging.TagPropagation,
+            "TagScope": tagging.TagScope,
+            "TagTarget": tagging.TagTarget,
+            "TagTargetKind": tagging.TagTargetKind,
+            "TopologyPropagation": tagging.TopologyPropagation,
+        }
+
+        for name, implementation in expected.items():
+            with self.subTest(name=name):
+                self.assertIn(name, scad.__all__)
+                self.assertIs(getattr(scad, name), implementation)
+
+    def test_tracking_policy_is_public(self):
+        import simplecadapi as scad
+        from simplecadapi.tracking import TrackingPolicy
+
+        self.assertIn("TrackingPolicy", scad.__all__)
+        self.assertIs(scad.TrackingPolicy, TrackingPolicy)

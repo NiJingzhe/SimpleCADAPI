@@ -9,6 +9,7 @@ import simplecadapi as scad
 from simplecadapi import ql
 
 
+@scad.requires_session
 def make_z_rotation_rplacement(
     *,
     origin: tuple[float, float, float],
@@ -26,12 +27,14 @@ def make_z_rotation_rplacement(
     )
 
 
+@scad.requires_session
 def make_annular_cylinder_rsolid(
     *,
     outer_radius: float,
     inner_radius: float,
     height: float,
     bottom_z: float,
+    tag_prefix: str,
     tag: str,
 ) -> scad.Solid:
     """Create a single hollow cylindrical solid with a through bore."""
@@ -43,12 +46,16 @@ def make_annular_cylinder_rsolid(
         height=height,
         bottom_face_center=(0.0, 0.0, bottom_z),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.outer",
+        result_tag=f"solid.{tag_prefix}.outer",
     )
     bore = scad.make_cylinder_rsolid(
         radius=inner_radius,
         height=height + 2.0,
         bottom_face_center=(0.0, 0.0, bottom_z - 1.0),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.bore",
+        result_tag=f"solid.{tag_prefix}.bore.cutter",
     )
     annular = scad.cut_rsolid(outer, bore, skip_non_intersecting=False)
     annular = scad.apply_tag(shape=annular, tag=tag)
@@ -56,6 +63,7 @@ def make_annular_cylinder_rsolid(
     return annular
 
 
+@scad.requires_session
 def make_axis_connector_rconnector(
     *,
     connector_id: str,
@@ -83,6 +91,7 @@ def make_axis_connector_rconnector(
     )
 
 
+@scad.requires_session
 def make_axis_part_rpart(
     *,
     part_id: str,
@@ -113,6 +122,7 @@ def make_axis_part_rpart(
     return part
 
 
+@scad.requires_session
 def add_placement_axis_connector_rpart(
     *,
     part: scad.Part,
@@ -130,6 +140,7 @@ def add_placement_axis_connector_rpart(
     return scad.add_connector_rpart(part=part, connector=connector)
 
 
+@scad.requires_session
 def _apply_tags(shape: scad.Solid, tags: Iterable[str]) -> scad.Solid:
     """Apply normalized tags through the public SimpleCAD tag API."""
 
@@ -172,9 +183,13 @@ def _axis_face(
 
 def _ground_solid(*, label: str, solid: scad.Solid) -> None:
     faces = ql.select(items=solid.get_faces()).all()
-    role_faces = ql.select(items=faces).where(ql.tag(pattern="role.*")).all()
+    local_roles = [
+        tag
+        for tag in scad.list_tags(shape=solid, scope="local")
+        if tag.startswith("role.")
+    ]
     print(
-        f"{label}: faces={len(faces)} role_faces={len(role_faces)} "
+        f"{label}: faces={len(faces)} local_roles={len(local_roles)} "
         f"volume={solid.get_volume():.3f} tags={','.join(scad.list_tags(shape=solid))}"
     )
 

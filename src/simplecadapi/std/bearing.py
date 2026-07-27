@@ -34,6 +34,7 @@ from ..operations import (
     revolve_rsolid,
 )
 from ..core import Face, Solid
+from ..tracking import graph_tracking_scope
 
 __all__ = ["make_ball_bearing_rassembly"]
 
@@ -228,6 +229,7 @@ def _ball_placement(ball_pitch_radius: float, angle_degrees: float):
     )
 
 
+@graph_tracking_scope
 def make_ball_bearing_rassembly(
     bore_diameter: float,
     outer_diameter: float,

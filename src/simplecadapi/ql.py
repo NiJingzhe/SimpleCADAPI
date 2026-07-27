@@ -3,6 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, cast
 
+from .tagging import (
+    SemanticCapabilityError,
+    TagScope,
+    UnsupportedQueryCapabilityError,
+    normalize_tag_scope,
+)
+
 
 Predicate = Callable[[Any], bool]
 KeyFn = Callable[[Any], Any]
@@ -10,16 +17,41 @@ MISSING = object()
 _PROPERTY_RESOLVERS: Dict[str, Callable[[Any, str], Any]] = {}
 
 
-def _get_tags(obj: Any) -> List[str]:
+def _get_tags(
+    obj: Any, scope: str | TagScope = TagScope.EFFECTIVE
+) -> List[str]:
+    resolved_scope = normalize_tag_scope(scope)
     if hasattr(obj, "_list_tags"):
-        try:
-            return list(obj._list_tags())
-        except Exception:
-            return []
+        return list(obj._list_tags(resolved_scope))
     tags = getattr(obj, "_tags", None)
     if tags is None:
         return []
+    if resolved_scope != TagScope.EFFECTIVE:
+        raise UnsupportedQueryCapabilityError(
+            f"{resolved_scope.value} tag scope is unavailable for legacy flat-tag objects"
+        )
     return list(tags)
+
+
+def _track_values(track: dict, plural: str, singular: str) -> List[str]:
+    values = track.get(plural)
+    if isinstance(values, (list, tuple, set, frozenset)):
+        return [str(value) for value in values]
+    value = track.get(singular)
+    return [str(value)] if value is not None else []
+
+
+def _operation_names(value: Any) -> set[str]:
+    token = str(value).strip()
+    token = token[len("op.") :] if token.startswith("op.") else token
+    names = {token}
+    alias = token[5:] if token.startswith("make_") else token
+    for suffix in ("_rsolid", "_rshape", "_rface", "_rwire", "_redge"):
+        if alias.endswith(suffix):
+            alias = alias[: -len(suffix)]
+            break
+    names.add(alias)
+    return names
 
 
 def _get_metadata_root(obj: Any) -> dict:
@@ -87,6 +119,8 @@ def _lookup_property(obj: Any, path: str) -> Any:
                     return "outer"
                 if obj._has_tag("wire.inner"):
                     return "inner"
+            except SemanticCapabilityError:
+                raise
             except Exception:
                 return MISSING
         return MISSING
@@ -266,10 +300,57 @@ class SerializablePredicate:
     def __call__(self, obj: Any) -> bool:
         if self.kind == "tag":
             pattern = str(self.data["pattern"])
+            scope = normalize_tag_scope(str(self.data.get("scope", "effective")))
+            tags = _get_tags(obj, scope)
             if pattern.endswith("*"):
                 prefix = pattern[:-1]
-                return any(tag.startswith(prefix) for tag in _get_tags(obj))
-            return pattern in _get_tags(obj)
+                return any(tag.startswith(prefix) for tag in tags)
+            return pattern in tags
+
+        if self.kind == "operation_event":
+            track = _lookup_metadata(obj, "track")
+            if not isinstance(track, dict):
+                return False
+            actual_names: set[str] = set()
+            for key in ("op", "operation"):
+                if track.get(key) is not None:
+                    actual_names.update(_operation_names(track[key]))
+            if not actual_names.intersection(_operation_names(self.data["op"])):
+                return False
+            expected = str(self.data.get("event", "*"))
+            events = _track_values(track, "events", "event")
+            return bool(events) if expected == "*" else expected in events
+
+        if self.kind == "origin_role":
+            track = _lookup_metadata(obj, "track")
+            if not isinstance(track, dict):
+                return False
+            roles = _track_values(track, "origin_roles", "origin_role")
+            return str(self.data["role"]) in roles
+
+        if self.kind == "output_role":
+            track = _lookup_metadata(obj, "track")
+            if not isinstance(track, dict):
+                return False
+            roles = _track_values(track, "result_roles", "result_role")
+            return str(self.data["role"]) in roles
+
+        if self.kind in {"source_binding", "source_topology"}:
+            list_bindings = getattr(obj, "_local_tag_bindings", None)
+            if not callable(list_bindings):
+                raise UnsupportedQueryCapabilityError(
+                    f"{self.kind} requires canonical local TagBinding evidence"
+                )
+            field = (
+                "source_binding_id"
+                if self.kind == "source_binding"
+                else "source_topo_id"
+            )
+            expected = str(self.data[field])
+            return any(
+                str(binding.evidence.data.get(field, "")) == expected
+                for binding in list_bindings()
+            )
 
         if self.kind == "meta":
             actual = _lookup_metadata(obj, str(self.data["path"]))
@@ -309,12 +390,60 @@ class SerializablePredicate:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SerializablePredicate":
+        if not isinstance(data, dict):
+            raise ValueError("predicate payload must be an object")
+        if set(data) - {"kind", "data", "children"}:
+            raise ValueError("predicate payload contains unknown fields")
+        kind = data.get("kind")
+        raw_data = data.get("data", {})
+        raw_children = data.get("children", [])
+        if not isinstance(kind, str) or not kind:
+            raise ValueError("predicate kind must be a non-empty string")
+        if not isinstance(raw_data, dict):
+            raise ValueError("predicate data must be an object")
+        if not isinstance(raw_children, list):
+            raise ValueError("predicate children must be an array")
+
+        schemas = {
+            "tag": ({"pattern"}, {"scope"}),
+            "operation_event": ({"op"}, {"event"}),
+            "origin_role": ({"role"}, set()),
+            "output_role": ({"role"}, set()),
+            "source_binding": ({"source_binding_id"}, set()),
+            "source_topology": ({"source_topo_id"}, set()),
+            "meta": ({"path", "op", "value"}, set()),
+            "property_compare": ({"path", "op", "value"}, set()),
+            "curve_type": ({"value"}, set()),
+            "surface_type": ({"value"}, set()),
+            "and": (set(), set()),
+            "or": (set(), set()),
+            "not": (set(), set()),
+        }
+        if kind not in schemas:
+            raise ValueError(f"unsupported predicate kind: {kind}")
+        required, optional = schemas[kind]
+        missing = required - set(raw_data)
+        unknown = set(raw_data) - required - optional
+        if missing:
+            raise ValueError(
+                f"predicate '{kind}' is missing required data: {', '.join(sorted(missing))}"
+            )
+        if unknown:
+            raise ValueError(
+                f"predicate '{kind}' contains unknown data: {', '.join(sorted(unknown))}"
+            )
+        if kind in {"and", "or"} and not raw_children:
+            raise ValueError(f"predicate '{kind}' requires at least one child")
+        if kind == "not" and len(raw_children) != 1:
+            raise ValueError("predicate 'not' requires exactly one child")
+        if kind not in {"and", "or", "not"} and raw_children:
+            raise ValueError(f"predicate '{kind}' cannot contain children")
+
         return cls(
-            kind=str(data["kind"]),
-            data=dict(data.get("data", {})),
+            kind=kind,
+            data=dict(raw_data),
             children=tuple(
-                SerializablePredicate.from_dict(child)
-                for child in data.get("children", [])
+                SerializablePredicate.from_dict(child) for child in raw_children
             ),
         )
 
@@ -408,6 +537,11 @@ class ShapeSelector:
     cardinality: Dict[str, int] = field(default_factory=dict)
     source_node_id: Optional[str] = None
     source_output_slot: Optional[int] = None
+    set_operation: Optional[str] = None
+    operands: Tuple["ShapeSelector", ...] = ()
+    incident_face_selectors: Tuple["ShapeSelector", ...] = ()
+    incident_faces_distinct: bool = False
+    incident_face_cardinality: Dict[str, int] = field(default_factory=dict)
 
     def where(self, predicate: SerializablePredicate) -> "ShapeSelector":
         if not isinstance(predicate, SerializablePredicate):
@@ -432,6 +566,11 @@ class ShapeSelector:
             cardinality=dict(self.cardinality),
             source_node_id=self.source_node_id,
             source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def order_by(self, key: SerializableKey, desc: bool = False) -> "ShapeSelector":
@@ -450,6 +589,11 @@ class ShapeSelector:
             cardinality=dict(self.cardinality),
             source_node_id=self.source_node_id,
             source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def from_source(
@@ -471,6 +615,11 @@ class ShapeSelector:
             cardinality=dict(self.cardinality),
             source_node_id=node_id,
             source_output_slot=int(output_slot),
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def take(self, count: int) -> "ShapeSelector":
@@ -488,6 +637,11 @@ class ShapeSelector:
             cardinality=dict(self.cardinality),
             source_node_id=self.source_node_id,
             source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def exactly(self, count: int) -> "ShapeSelector":
@@ -507,6 +661,11 @@ class ShapeSelector:
             cardinality=card,
             source_node_id=self.source_node_id,
             source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def at_least(self, count: int) -> "ShapeSelector":
@@ -526,6 +685,11 @@ class ShapeSelector:
             cardinality=card,
             source_node_id=self.source_node_id,
             source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def at_most(self, count: int) -> "ShapeSelector":
@@ -545,6 +709,11 @@ class ShapeSelector:
             cardinality=card,
             source_node_id=self.source_node_id,
             source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality=dict(self.incident_face_cardinality),
         )
 
     def traverse(self, relation: str, to_kind: str) -> "ShapeSelector":
@@ -565,8 +734,98 @@ class ShapeSelector:
     def boundary(self, to_kind: str) -> "ShapeSelector":
         return self.traverse("boundary", to_kind)
 
+    def intersection(self, other: "ShapeSelector") -> "ShapeSelector":
+        """Return entities present in both selector result sets."""
+
+        if not isinstance(other, ShapeSelector):
+            raise TypeError("intersection requires another ShapeSelector")
+        if self.target_kind != other.target_kind:
+            raise ValueError("intersection operands must select the same topology kind")
+        return ShapeSelector(
+            target_kind=self.target_kind,
+            set_operation="intersection",
+            operands=(self, other),
+        )
+
+    def shared_boundary(
+        self, other: "ShapeSelector", to_kind: str = "edge"
+    ) -> "ShapeSelector":
+        """Select current-topology boundary entities shared by both operands."""
+
+        return self.boundary(to_kind).intersection(other.boundary(to_kind))
+
+    def incident_to(
+        self,
+        *face_selectors: "ShapeSelector",
+        distinct: bool = False,
+    ) -> "ShapeSelector":
+        """Restrict Edges by their distinct incident Face witnesses."""
+
+        if self.target_kind != "edge":
+            raise ValueError("incident_to is only valid on an Edge selector")
+        if not face_selectors or not all(
+            isinstance(selector, ShapeSelector) and selector.target_kind == "face"
+            for selector in face_selectors
+        ):
+            raise TypeError("incident_to requires one or more Face selectors")
+        return ShapeSelector(
+            target_kind="edge",
+            source_selector=self.source_selector,
+            traversal=self.traversal,
+            predicate=self.predicate,
+            order_key=self.order_key,
+            order_keys=tuple(self.order_keys),
+            order_desc=self.order_desc,
+            limit_count=self.limit_count,
+            cardinality=dict(self.cardinality),
+            source_node_id=self.source_node_id,
+            source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(face_selectors),
+            incident_faces_distinct=bool(distinct),
+            incident_face_cardinality=dict(self.incident_face_cardinality),
+        )
+
+    def incident_face_count(self, *, exactly: int) -> "ShapeSelector":
+        if self.target_kind != "edge":
+            raise ValueError("incident_face_count is only valid on an Edge selector")
+        if exactly < 0:
+            raise ValueError("incident face count must be >= 0")
+        return ShapeSelector(
+            target_kind="edge",
+            source_selector=self.source_selector,
+            traversal=self.traversal,
+            predicate=self.predicate,
+            order_key=self.order_key,
+            order_keys=tuple(self.order_keys),
+            order_desc=self.order_desc,
+            limit_count=self.limit_count,
+            cardinality=dict(self.cardinality),
+            source_node_id=self.source_node_id,
+            source_output_slot=self.source_output_slot,
+            set_operation=self.set_operation,
+            operands=tuple(self.operands),
+            incident_face_selectors=tuple(self.incident_face_selectors),
+            incident_faces_distinct=self.incident_faces_distinct,
+            incident_face_cardinality={"exactly": int(exactly)},
+        )
+
     def resolve(self, scope: Any) -> List[Any]:
-        if self.source_selector is None:
+        if self.set_operation is not None:
+            if self.set_operation != "intersection" or len(self.operands) < 2:
+                raise ValueError(f"unsupported selector set operation: {self.set_operation}")
+            operand_items = [operand.resolve(scope) for operand in self.operands]
+            shared = [
+                {_shape_identity(item) for item in items}
+                for items in operand_items[1:]
+            ]
+            items = [
+                item
+                for item in operand_items[0]
+                if all(_shape_identity(item) in markers for markers in shared)
+            ]
+        elif self.source_selector is None:
             items = _resolve_scope_items(scope, self.target_kind)
         else:
             if self.traversal is None:
@@ -578,6 +837,42 @@ class ShapeSelector:
             )
         if self.predicate is not None:
             items = [item for item in items if self.predicate(item)]
+
+        if self.incident_face_selectors:
+            face_sets = [
+                {
+                    _shape_identity(face)
+                    for face in selector.resolve(scope)
+                }
+                for selector in self.incident_face_selectors
+            ]
+
+            def has_incident_witnesses(edge: Any) -> bool:
+                incident = getattr(edge, "get_incident_faces", lambda: [])()
+                incident_ids = [_shape_identity(face) for face in incident]
+                if self.incident_faces_distinct:
+                    return _has_distinct_witnesses(incident_ids, face_sets)
+                return all(
+                    any(face_id in face_set for face_id in incident_ids)
+                    for face_set in face_sets
+                )
+
+            items = [item for item in items if has_incident_witnesses(item)]
+
+        if self.incident_face_cardinality:
+            exact_incident = self.incident_face_cardinality.get("exactly")
+            if exact_incident is not None:
+                items = [
+                    item
+                    for item in items
+                    if len(
+                        {
+                            _shape_identity(face)
+                            for face in getattr(item, "get_incident_faces", lambda: [])()
+                        }
+                    )
+                    == exact_incident
+                ]
 
         order_specs = self.order_keys
         if not order_specs and self.order_key is not None:
@@ -633,10 +928,69 @@ class ShapeSelector:
         if self.source_node_id is not None:
             payload["source_node_id"] = self.source_node_id
             payload["source_output_slot"] = int(self.source_output_slot or 0)
+        if self.set_operation is not None:
+            payload["set_operation"] = {
+                "op": self.set_operation,
+                "operands": [operand.to_dict() for operand in self.operands],
+            }
+        if self.incident_face_selectors:
+            payload["incident_faces"] = {
+                "selectors": [selector.to_dict() for selector in self.incident_face_selectors],
+                "distinct": self.incident_faces_distinct,
+            }
+        if self.incident_face_cardinality:
+            payload["incident_face_cardinality"] = dict(self.incident_face_cardinality)
         return payload
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ShapeSelector":
+        set_operation = None
+        operands: Tuple[ShapeSelector, ...] = ()
+        incident_face_selectors: Tuple[ShapeSelector, ...] = ()
+        incident_faces_distinct = False
+        incident_face_cardinality: Dict[str, int] = {}
+        raw_set_operation = data.get("set_operation")
+        if raw_set_operation is not None:
+            if not isinstance(raw_set_operation, dict):
+                raise ValueError("selector set_operation must be an object")
+            if set(raw_set_operation) != {"op", "operands"}:
+                raise ValueError("selector set_operation has invalid fields")
+            set_operation = str(raw_set_operation["op"]).strip().lower()
+            if set_operation != "intersection":
+                raise ValueError(f"unsupported selector set operation: {set_operation}")
+            raw_operands = raw_set_operation["operands"]
+            if not isinstance(raw_operands, list) or len(raw_operands) < 2:
+                raise ValueError("selector intersection requires at least two operands")
+            operands = tuple(ShapeSelector.from_dict(item) for item in raw_operands)
+            target_kind = str(data["target_kind"])
+            if any(operand.target_kind != target_kind for operand in operands):
+                raise ValueError("selector intersection operands must match target_kind")
+        raw_incident = data.get("incident_faces")
+        if raw_incident is not None:
+            if not isinstance(raw_incident, dict) or set(raw_incident) != {
+                "selectors", "distinct"
+            }:
+                raise ValueError("selector incident_faces has invalid fields")
+            if str(data.get("target_kind", "")).lower() != "edge":
+                raise ValueError("incident_faces is only valid for edge selectors")
+            raw_selectors = raw_incident["selectors"]
+            if not isinstance(raw_selectors, list) or not raw_selectors:
+                raise ValueError("incident_faces requires one or more selectors")
+            incident_face_selectors = tuple(
+                ShapeSelector.from_dict(item) for item in raw_selectors
+            )
+            if any(selector.target_kind != "face" for selector in incident_face_selectors):
+                raise ValueError("incident_faces selectors must select faces")
+            incident_faces_distinct = bool(raw_incident["distinct"])
+        raw_incident_cardinality = data.get("incident_face_cardinality")
+        if raw_incident_cardinality is not None:
+            if not isinstance(raw_incident_cardinality, dict) or set(
+                raw_incident_cardinality
+            ) != {"exactly"}:
+                raise ValueError("incident_face_cardinality only supports exactly")
+            incident_face_cardinality = {
+                "exactly": int(raw_incident_cardinality["exactly"])
+            }
         source_selector = None
         if isinstance(data.get("source"), dict):
             source_selector = ShapeSelector.from_dict(data["source"])
@@ -683,10 +1037,40 @@ class ShapeSelector:
                 if data.get("source_node_id") is not None
                 else None
             ),
+            set_operation=set_operation,
+            operands=operands,
+            incident_face_selectors=incident_face_selectors,
+            incident_faces_distinct=incident_faces_distinct,
+            incident_face_cardinality=incident_face_cardinality,
         )
 
 
+def _has_distinct_witnesses(
+    incident_ids: Sequence[Any], candidate_sets: Sequence[set[Any]]
+) -> bool:
+    """Return whether each relation has a distinct incident-face witness."""
+
+    used: set[Any] = set()
+
+    def visit(index: int) -> bool:
+        if index == len(candidate_sets):
+            return True
+        for face_id in incident_ids:
+            if face_id in used or face_id not in candidate_sets[index]:
+                continue
+            used.add(face_id)
+            if visit(index + 1):
+                return True
+            used.remove(face_id)
+        return False
+
+    return visit(0)
+
+
 def _shape_identity(obj: Any) -> Any:
+    entity = getattr(obj, "_entity", None)
+    if entity is not None:
+        return (obj.__class__.__name__, id(entity))
     topo_id = getattr(obj, "topo_id", None)
     if topo_id is not None:
         return (obj.__class__.__name__, topo_id)
@@ -801,6 +1185,8 @@ def _traverse_items(
 
 
 def _resolve_scope_items(scope: Any, target_kind: str) -> List[Any]:
+    if scope.__class__.__name__.lower() == target_kind:
+        return [scope]
     if target_kind == "edge":
         if hasattr(scope, "get_edges"):
             return list(scope.get_edges())
@@ -831,11 +1217,14 @@ def _resolve_scope_items(scope: Any, target_kind: str) -> List[Any]:
     raise TypeError(f"cannot resolve QL selector scope for target_kind={target_kind}")
 
 
-def tag(pattern: str) -> SerializablePredicate:
+def tag(
+    pattern: str, scope: str | TagScope = TagScope.EFFECTIVE
+) -> SerializablePredicate:
     """Build a tag predicate for QL filtering.
 
     Args:
         pattern: Exact tag string or a trailing `*` prefix match.
+        scope: One of ``local``, ``inherited``, ``effective``, or ``lineage``.
 
     Returns:
         Serializable predicate that can be used in `Query.where(...)`.
@@ -844,9 +1233,14 @@ def tag(pattern: str) -> SerializablePredicate:
     if not isinstance(pattern, str):
         raise TypeError("pattern must be a string")
     pattern = pattern.strip()
+    if not pattern:
+        raise ValueError("pattern must be non-empty")
     if "*" in pattern and not pattern.endswith("*"):
         raise ValueError("only trailing '*' wildcard is supported")
-    return SerializablePredicate("tag", {"pattern": pattern})
+    resolved_scope = normalize_tag_scope(scope)
+    return SerializablePredicate(
+        "tag", {"pattern": pattern, "scope": resolved_scope.value}
+    )
 
 
 def meta(path: str, op: str, value_: Any) -> SerializablePredicate:
@@ -957,14 +1351,66 @@ def not_(predicate: Predicate) -> Predicate:
     return _predicate
 
 
+def operation_event(op_name: str, event: str = "*") -> SerializablePredicate:
+    """Match typed operation and topology-event metadata under ``track``."""
+
+    if not isinstance(op_name, str) or not op_name.strip():
+        raise ValueError("op_name must be a non-empty string")
+    if not isinstance(event, str) or not event.strip():
+        raise ValueError("event must be a non-empty string")
+    return SerializablePredicate(
+        "operation_event",
+        {
+            "op": op_name.strip(),
+            "event": event.strip(),
+        },
+    )
+
+
+def origin_role(role_name: str) -> SerializablePredicate:
+    """Match a typed source role under ``track`` metadata."""
+
+    if not isinstance(role_name, str) or not role_name.strip():
+        raise ValueError("role_name must be a non-empty string")
+    return SerializablePredicate("origin_role", {"role": role_name.strip()})
+
+
+def output_role(role_name: str) -> SerializablePredicate:
+    """Match a kernel-proven operation output role under ``track`` metadata."""
+
+    if not isinstance(role_name, str) or not role_name.strip():
+        raise ValueError("role_name must be a non-empty string")
+    return SerializablePredicate(
+        "output_role", {"role": role_name.strip().lower()}
+    )
+
+
+def source_binding(binding_id: str) -> SerializablePredicate:
+    """Match a projected local binding by its exact source binding identity."""
+
+    if not isinstance(binding_id, str) or not binding_id.strip():
+        raise ValueError("binding_id must be a non-empty string")
+    return SerializablePredicate(
+        "source_binding", {"source_binding_id": binding_id.strip()}
+    )
+
+
+def source_topology(topo_id: str) -> SerializablePredicate:
+    """Match a projected local binding by its exact source topology identity."""
+
+    if not isinstance(topo_id, str) or not topo_id.strip():
+        raise ValueError("topo_id must be a non-empty string")
+    return SerializablePredicate(
+        "source_topology", {"source_topo_id": topo_id.strip()}
+    )
+
+
 def op(op_name: str, event: str = "*") -> SerializablePredicate:
-    if event == "*":
-        return tag(f"op.{op_name}.*")
-    return tag(f"op.{op_name}.{event}")
+    return operation_event(op_name, event)
 
 
 def origin(role_name: str) -> SerializablePredicate:
-    return tag(f"origin.{role_name}")
+    return origin_role(role_name)
 
 
 def role(role_name: str) -> SerializablePredicate:
@@ -1017,6 +1463,10 @@ def wires() -> ShapeSelector:
 
 def vertices() -> ShapeSelector:
     return ShapeSelector(target_kind="vertex")
+
+
+def solids() -> ShapeSelector:
+    return ShapeSelector(target_kind="solid")
 
 
 def selector_from_dict(data: Dict[str, Any]) -> ShapeSelector:

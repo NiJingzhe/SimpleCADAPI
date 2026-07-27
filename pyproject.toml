@@ -26,6 +26,9 @@ dependencies = [
     "numpy>=1.21.0",
     "rich>=14.0.0",
     "cadquery-ocp>=7.9.3.1",
+    "jsonschema>=4.25.1,<5.0.0",
+    "rfc8785>=0.1.4,<0.2.0",
+    "typing-extensions>=4.12,<5",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +42,9 @@ dev = [
 editor = []
 collision = [
     "python-fcl>=0.7.0.11",
+]
+inverse-engineer = [
+    "matplotlib>=3.7.0",
 ]
 
 [project.urls]
@@ -83,6 +89,7 @@ dev = [
     "matplotlib>=3.10.8",
     "numpy-stl>=3.2.0",
     "trimesh>=4.11.3",
+    "datamodel-code-generator==0.32.0",
 ]
 
 [project.scripts]
@@ -90,3 +97,4 @@ evolve = "simplecadapi.auto_tools.evolution:main"
 make-export = "simplecadapi.auto_tools.make_export:main"
 auto-docs-gen = "simplecadapi.auto_tools.auto_docs_gen:main"
 skill-pack = "simplecadapi.auto_tools.skill_pack:main"
+simplecad-brep = "simplecadapi.inverse_engineer.brep.cli:main"

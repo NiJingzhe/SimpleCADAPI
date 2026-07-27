@@ -1,22 +1,22 @@
 # SimpleCADAPI Examples
 
 Run examples from the repository root with `uv run python <path>`.
-Generated STEP/STL/JSON files are written to `examples/out/`, which is ignored by git.
+Generated artifacts are written to `examples/out/`, which is ignored by git.
+
+Replayable examples use one top-level `@scad.model` entry. That entry owns the
+single `GraphSession` and returns a `ModelResult`; reusable graph-producing
+builders use `@scad.requires_session`. Final outputs are selected with
+`scad.capture_result(...)`; `@scad.model(export_dir=...)` can automatically
+write one self-contained Scene ZIP after execution. It embeds the replayable
+model, mapped Python source files, render GLBs, and entity sidecars. Examples
+that call explicit export or translator APIs may also write STEP, JSON, or
+FreeCAD files.
 
 ## Examples
 
-- `01_basic_modeling.py` — functional shape modeling, booleans, and STEP/STL export.
-- `02_graph_replay.py` — `GraphSession`, canonical model JSON export, and replay.
-- `03_expressions.py` — expression parameters captured in a replayable model graph.
-- `05_loft_sweep_revolve.py` — profile operations: revolve, loft, and sweep.
-- `06_parametric_gear_model.py` — lightweight involute spur gear model JSON example for replay/export tests.
-- `07_serialization_operation_tree.py` — compact serialization demo showing how source calls map to canonical operation-tree nodes, including expressions, primitive lowering, features, booleans, transforms, patterns, and detail operations.
-- `13_cycloidal_reducer.py` — compact 50 mm diameter, 10 mm tall, 10:1 cycloidal reducer assembly with twin segmented B-spline cycloidal discs, 180-degree opposed input eccentric cams, 18-degree half-lobe tooth-index phase, three-hole input/output disks, and assembly constraints.
-- `14_ball_bearing.py` — parameterized ball bearing standard assembly with grooved inner/outer race rings, direct sphere rolling elements, stable ring component IDs, ring axis connectors, an inner-to-outer revolute constraint, and a demo shaft/housing bound through those connectors.
-- `15_cached_mesh_obj_export.py` — developer-facing cached-mesh example that builds a normal Solid, bypasses the public STL exporter, reads the internal mesh cache, and writes a Wavefront OBJ file.
-- `16_compact_two_stage_planetary_reducer/` — modular 58.8 mm diameter, 30 mm tall, 20:1 two-stage herringbone planetary reducer with through-bolted actuator housing bosses, sealed input/output end caps, realistic output register pads, reusable stdlib ball bearing placements, graph/model JSON replay, STEP export, solved gear constraints, and a `collision_probe.py` static verifier run.
-- `17_static_collision_verifier.py` — static current-pose verifier example using internal cached meshes and python-fcl to report over-tolerance contact penetration.
-- `18_leg_wheel_robot_dog_leg/` — planar leg-wheel module using three reused reducer actuator modules, a fixed motor-can part, a compact coaxial thigh/knee-drive actuator stack, a thigh output-flange-bolted upper link, a coaxial knee-drive output crank with 6-hole output flange pattern, a true parallelogram pushrod linkage whose knee-side `BB'` ear is integrated into the shank plate, knee bearing retainer holes, wheel-hub housing/output bolt circles, graph/model JSON replay, STEP/FCStd export, and a leg-level `collision_probe.py` packaging check.
-- `19_four_planet_planetary_reducer/` — exposed single-stage 3.5:1 fixed-ring planetary gearset with one input sun gear, four equally spaced planet gears, an internal ring gear, a four-pin output carrier, solved revolute/external gear/internal belt-equivalent mesh constraints, graph/model JSON replay, STEP export, and FCStd export.
-- `20_five_axis_desktop_robot_arm/` — five-revolute-axis desktop robot arm inspired by the reference image, using five reused Example 16 reducer actuator modules with an improved rear-service motor package, explicit part/interface validation before assembly, base yaw, shoulder/elbow/wrist pitch, tool roll, bolted housing/output flange interfaces, sensor face detail, graph/model JSON replay, STEP export, and FCStd export.
-- `20_integrated_bldc_joint_actuator/` — compact 50 mm OD joint actuator with a real 12-slot/14-pole inner-rotor BLDC motor, integrated rotor-shaft/stage-1 sun, 20:1 two-stage herringbone planetary reducer, serviceable split housing, paired output bearings, circular ESC PCB, rear phase and power/CAN terminals, graph/model JSON replay, STEP export, and FCStd export.
+- `04_dimension_tolerance_chain.py` — expression-driven dimension tolerance analysis and validation.
+- `08_constrained_sketch.py` — fully constrained sketch profiles, feature promotion, replay, and FreeCAD export.
+- `09_naca0016_blade_freecad.py` — NACA 0016 B-spline blade model JSON, STEP, and FreeCAD translation.
+- `10_part_assembly.py` — hydraulic rod assembly with sleeve/piston parts, prismatic motion, and automatic self-contained Scene ZIP export.
+- `16_compact_two_stage_planetary_reducer/` — modular 58.8 mm diameter, 30 mm tall, 20:1 two-stage herringbone planetary reducer with graph/model JSON replay, STEP export, solved constraints, and a static collision probe.
+- `20_integrated_bldc_joint_actuator/` — compact 50 mm OD joint actuator with a 12-slot/14-pole inner-rotor BLDC motor, two-stage planetary reducer, split housing, output bearings, and controller electronics.

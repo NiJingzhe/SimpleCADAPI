@@ -4,37 +4,68 @@ from __future__ import annotations
 
 import simplecadapi as scad
 
-from bearings import (
-    make_coaxial_bearing_rplacement,
-    make_planet_bearing_rplacements,
-    make_radial_ball_bearing_rassembly,
-)
-from carriers import make_stage_carrier_rpart
-from dimensions import (
-    INPUT_BEARING_Z,
-    INTERMEDIATE_BEARING_Z,
-    OUTPUT_BEARING_Z,
-    PLANET_COUNT,
-    STAGE1_PLANET_BEARING,
-    STAGE2_PLANET_BEARING,
-    STAGE_1,
-    STAGE_2,
-    TOTAL_REDUCTION,
-    StageSpec,
-    UNIVERSAL_RADIAL_BEARING,
-)
-from flanges import make_input_flange_rpart, make_output_flange_rpart
-from gears import (
-    make_planet_component_rplacement,
-    make_stage_planet_gear_rpart,
-    make_stage_ring_gear_rpart,
-    make_stage_sun_gear_rpart,
-)
-from housing import make_reducer_housing_rpart
-from materials import make_reducer_materials_rdict
-from shafts import make_input_shaft_rpart
+if __package__:
+    from .bearings import (
+        make_coaxial_bearing_rplacement,
+        make_planet_bearing_rplacements,
+        make_radial_ball_bearing_rassembly,
+    )
+    from .carriers import make_stage_carrier_rpart
+    from .dimensions import (
+        INPUT_BEARING_Z,
+        INTERMEDIATE_BEARING_Z,
+        OUTPUT_BEARING_Z,
+        PLANET_COUNT,
+        STAGE1_PLANET_BEARING,
+        STAGE2_PLANET_BEARING,
+        STAGE_1,
+        STAGE_2,
+        TOTAL_REDUCTION,
+        StageSpec,
+        UNIVERSAL_RADIAL_BEARING,
+    )
+    from .flanges import make_input_flange_rpart, make_output_flange_rpart
+    from .gears import (
+        make_planet_component_rplacement,
+        make_stage_planet_gear_rpart,
+        make_stage_ring_gear_rpart,
+        make_stage_sun_gear_rpart,
+    )
+    from .housing import make_reducer_housing_rpart
+    from .materials import make_reducer_materials_rdict
+    from .shafts import make_input_shaft_rpart
+else:
+    from bearings import (
+        make_coaxial_bearing_rplacement,
+        make_planet_bearing_rplacements,
+        make_radial_ball_bearing_rassembly,
+    )
+    from carriers import make_stage_carrier_rpart
+    from dimensions import (
+        INPUT_BEARING_Z,
+        INTERMEDIATE_BEARING_Z,
+        OUTPUT_BEARING_Z,
+        PLANET_COUNT,
+        STAGE1_PLANET_BEARING,
+        STAGE2_PLANET_BEARING,
+        STAGE_1,
+        STAGE_2,
+        TOTAL_REDUCTION,
+        StageSpec,
+        UNIVERSAL_RADIAL_BEARING,
+    )
+    from flanges import make_input_flange_rpart, make_output_flange_rpart
+    from gears import (
+        make_planet_component_rplacement,
+        make_stage_planet_gear_rpart,
+        make_stage_ring_gear_rpart,
+        make_stage_sun_gear_rpart,
+    )
+    from housing import make_reducer_housing_rpart
+    from materials import make_reducer_materials_rdict
+    from shafts import make_input_shaft_rpart
 
-
+@scad.requires_session
 def make_two_stage_planetary_reducer_rassembly() -> scad.Assembly:
     """Build the full 20:1 compact reducer assembly and solve constraints."""
 
@@ -84,6 +115,7 @@ def make_two_stage_planetary_reducer_rassembly() -> scad.Assembly:
     bearing = make_radial_ball_bearing_rassembly(
         bearing_id="micro_radial_ball_bearing",
         spec=UNIVERSAL_RADIAL_BEARING,
+        tag_prefix="reducer.bearing.micro.radial",
     )
 
     reducer = scad.make_assembly_rassembly(
@@ -133,6 +165,7 @@ def make_two_stage_planetary_reducer_rassembly() -> scad.Assembly:
     return reducer
 
 
+@scad.requires_session
 def _add_fixed_components_rassembly(
     *,
     assembly: scad.Assembly,
@@ -150,6 +183,7 @@ def _add_fixed_components_rassembly(
     return assembly
 
 
+@scad.requires_session
 def _add_bearing_components_rassembly(
     *,
     assembly: scad.Assembly,
@@ -211,6 +245,7 @@ def _add_bearing_components_rassembly(
     return assembly
 
 
+@scad.requires_session
 def _add_public_interface_connectors_rassembly(*, assembly: scad.Assembly) -> scad.Assembly:
     """Expose stable actuator module datums without leaking private component ids."""
 
@@ -231,6 +266,7 @@ def _add_public_interface_connectors_rassembly(*, assembly: scad.Assembly) -> sc
     return assembly
 
 
+@scad.requires_session
 def _add_reducer_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assembly:
     assembly = scad.ground_component_rassembly(assembly=assembly, component_id="housing")
     assembly = scad.ground_component_rassembly(assembly=assembly, component_id="stage1_ring")
@@ -290,6 +326,7 @@ def _add_reducer_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assem
     return assembly
 
 
+@scad.requires_session
 def _add_bearing_interface_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assembly:
     coaxial_interfaces = (
         ("input_bearing_outer_to_housing", "housing", "input_bearing_axis", "input_bearing", "outer_axis"),
@@ -338,6 +375,7 @@ def _add_bearing_interface_constraints_rassembly(*, assembly: scad.Assembly) -> 
     return assembly
 
 
+@scad.requires_session
 def _add_stage_mesh_constraints_rassembly(
     *,
     assembly: scad.Assembly,
@@ -388,6 +426,7 @@ def _add_stage_mesh_constraints_rassembly(
     return assembly
 
 
+@scad.requires_session
 def _gear_stage_rplacement(*, stage: StageSpec) -> scad.Placement:
     return scad.make_placement_rplacement(
         origin=(0.0, 0.0, stage.bottom_z),
@@ -396,6 +435,7 @@ def _gear_stage_rplacement(*, stage: StageSpec) -> scad.Placement:
     )
 
 
+@scad.requires_session
 def _ref(*, component_id: str, connector_id: str) -> scad.ConnectorRef:
     return scad.make_connector_ref_rconnectorref(
         component_id=component_id,

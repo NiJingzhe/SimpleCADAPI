@@ -76,6 +76,7 @@ except ImportError:  # Support direct execution from this example directory.
     )
 
 
+@scad.requires_session
 def make_bldc_stator_rassembly(
     *,
     steel_material: scad.Material,
@@ -130,6 +131,7 @@ def make_bldc_stator_rassembly(
     return stator
 
 
+@scad.requires_session
 def make_bldc_rotor_rassembly(
     *,
     steel_material: scad.Material,
@@ -190,23 +192,27 @@ def make_bldc_rotor_rassembly(
     return rotor
 
 
+@scad.requires_session
 def _make_stator_core_rpart(*, material: scad.Material) -> scad.Part:
     yoke = make_annulus_rsolid(
         outer_radius=MOTOR_STATOR_OUTER_RADIUS,
         inner_radius=MOTOR_STATOR_YOKE_INNER_RADIUS,
         bottom_z=MOTOR_STATOR_BOTTOM_Z,
         height=MOTOR_STATOR_TOP_Z - MOTOR_STATOR_BOTTOM_Z,
+        tag_prefix="motor.stator.back.iron",
         tags=("role.stator_back_iron",),
     )
     tooth_length = MOTOR_STATOR_YOKE_INNER_RADIUS - MOTOR_STATOR_TOOTH_INNER_RADIUS + 0.40
     tooth_center_radius = MOTOR_STATOR_TOOTH_INNER_RADIUS + tooth_length / 2.0
     teeth = []
-    for _index, angle, _center in radial_centers(count=MOTOR_SLOT_COUNT, radius=0.0):
+    for index, angle, _center in radial_centers(count=MOTOR_SLOT_COUNT, radius=0.0):
         tooth = scad.make_box_rsolid(
             width=tooth_length,
             height=MOTOR_STATOR_TOOTH_WIDTH,
             depth=MOTOR_STATOR_TOP_Z - MOTOR_STATOR_BOTTOM_Z,
             bottom_face_center=(tooth_center_radius, 0.0, MOTOR_STATOR_BOTTOM_Z),
+            tag_prefix=f"motor.stator.tooth{index + 1}",
+            result_tag=f"feature.motor.stator.tooth{index + 1}",
         )
         teeth.append(
             scad.rotate_shape(
@@ -255,6 +261,7 @@ def _make_stator_core_rpart(*, material: scad.Material) -> scad.Part:
     return part
 
 
+@scad.requires_session
 def _make_winding_pack_rpart(*, material: scad.Material) -> scad.Part:
     side_depth = MOTOR_STATOR_TOP_Z - MOTOR_STATOR_BOTTOM_Z + 0.4
     side_bottom_z = MOTOR_STATOR_BOTTOM_Z - 0.2
@@ -263,24 +270,32 @@ def _make_winding_pack_rpart(*, material: scad.Material) -> scad.Part:
         height=1.2,
         depth=side_depth,
         bottom_face_center=(17.55, 2.1, side_bottom_z),
+        tag_prefix="motor.winding.side.positive",
+        result_tag="feature.motor.winding.side.positive",
     )
     side_negative = scad.make_box_rsolid(
         width=4.2,
         height=1.2,
         depth=side_depth,
         bottom_face_center=(17.55, -2.1, side_bottom_z),
+        tag_prefix="motor.winding.side.negative",
+        result_tag="feature.motor.winding.side.negative",
     )
     rear_end_turn = scad.make_box_rsolid(
         width=4.2,
         height=5.4,
         depth=0.9,
         bottom_face_center=(17.55, 0.0, MOTOR_STATOR_BOTTOM_Z - 1.0),
+        tag_prefix="motor.winding.rear.end.turn",
+        result_tag="feature.motor.winding.rear.end.turn",
     )
     front_end_turn = scad.make_box_rsolid(
         width=4.2,
         height=5.4,
         depth=0.9,
         bottom_face_center=(17.55, 0.0, MOTOR_STATOR_TOP_Z + 0.1),
+        tag_prefix="motor.winding.front.end.turn",
+        result_tag="feature.motor.winding.front.end.turn",
     )
     winding = scad.union_rsolid(
         side_positive,
@@ -302,6 +317,7 @@ def _make_winding_pack_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
+@scad.requires_session
 def _make_rotor_shaft_sun_rpart(*, material: scad.Material) -> scad.Part:
     shaft_bottom_z = REAR_BEARING_CENTER_Z - 3.0
     shaft = scad.make_cylinder_rsolid(
@@ -309,12 +325,16 @@ def _make_rotor_shaft_sun_rpart(*, material: scad.Material) -> scad.Part:
         height=STAGE_1.top_z - shaft_bottom_z,
         bottom_face_center=(0.0, 0.0, shaft_bottom_z),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix="motor.rotor.drive.shaft",
+        result_tag="feature.motor.rotor.drive.shaft",
     )
     back_iron = scad.make_cylinder_rsolid(
         radius=MOTOR_ROTOR_BACKIRON_RADIUS,
         height=MOTOR_ROTOR_TOP_Z - MOTOR_ROTOR_BOTTOM_Z,
         bottom_face_center=(0.0, 0.0, MOTOR_ROTOR_BOTTOM_Z),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix="motor.rotor.back.iron",
+        result_tag="feature.motor.rotor.back.iron",
     )
     sun = scad.std.gear.make_herringbone_gear_rsolid(
         n_teeth=STAGE_1.sun_teeth,
@@ -325,6 +345,10 @@ def _make_rotor_shaft_sun_rpart(*, material: scad.Material) -> scad.Part:
         addendum_factor=ADDENDUM_FACTOR,
         clearance_factor=CLEARANCE_FACTOR,
         backlash=BACKLASH,
+    )
+    sun = scad.apply_tag(
+        shape=sun,
+        tag="solid.stdlib.stage1.integral.herringbone.sun.gear",
     )
     sun = scad.translate_shape(shape=sun, vector=(0.0, 0.0, STAGE_1.bottom_z))
     rotor = scad.union_rsolid(shaft, back_iron, sun, glue=False)
@@ -354,6 +378,7 @@ def _make_rotor_shaft_sun_rpart(*, material: scad.Material) -> scad.Part:
     return part
 
 
+@scad.requires_session
 def _make_rotor_magnet_rpart(*, material: scad.Material) -> scad.Part:
     half_width = MOTOR_MAGNET_TANGENTIAL_WIDTH / 2.0
     outer_x = (MOTOR_MAGNET_OUTER_RADIUS**2 - half_width**2) ** 0.5
@@ -363,6 +388,8 @@ def _make_rotor_magnet_rpart(*, material: scad.Material) -> scad.Part:
         height=MOTOR_MAGNET_TANGENTIAL_WIDTH,
         depth=MOTOR_ROTOR_TOP_Z - MOTOR_ROTOR_BOTTOM_Z,
         bottom_face_center=(outer_x - radial_depth / 2.0, 0.0, MOTOR_ROTOR_BOTTOM_Z),
+        tag_prefix="motor.rotor.reusable.magnet",
+        result_tag="feature.motor.rotor.reusable.magnet",
     )
     magnet = apply_tags(shape=magnet, tags=("role.rotor_magnet", "group.rotor_magnets"))
     print(

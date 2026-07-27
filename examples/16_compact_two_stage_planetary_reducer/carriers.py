@@ -35,6 +35,7 @@ from dimensions import (
 )
 
 
+@scad.requires_session
 def make_stage_carrier_rpart(
     *,
     stage: StageSpec,
@@ -55,6 +56,7 @@ def make_stage_carrier_rpart(
             pad_radius=STAGE1_PAD_RADIUS,
             central_shaft_radius=STAGE1_CARRIER_SHAFT_RADIUS,
             central_shaft_top_z=STAGE_2.top_z,
+            tag_prefix="reducer.stage1.carrier",
         )
         connector_specs = [
             {
@@ -83,6 +85,7 @@ def make_stage_carrier_rpart(
             pad_radius=STAGE2_PAD_RADIUS,
             central_shaft_radius=OUTPUT_SHAFT_RADIUS,
             central_shaft_top_z=OUTPUT_FLANGE_TOP_Z,
+            tag_prefix="reducer.stage2.carrier",
         )
         connector_specs = [
             {
@@ -142,6 +145,7 @@ def make_stage_carrier_rpart(
     return part
 
 
+@scad.requires_session
 def _make_carrier_solid_rsolid(
     *,
     stage: StageSpec,
@@ -155,12 +159,15 @@ def _make_carrier_solid_rsolid(
     pad_radius: float,
     central_shaft_radius: float,
     central_shaft_top_z: float,
+    tag_prefix: str,
 ) -> scad.Solid:
     hub = scad.make_cylinder_rsolid(
         radius=hub_radius,
         height=plate_thickness,
         bottom_face_center=(0.0, 0.0, plate_bottom_z),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.hub",
+        result_tag=f"solid.{tag_prefix}.hub",
     )
     solids = [hub]
 
@@ -171,6 +178,8 @@ def _make_carrier_solid_rsolid(
             height=central_shaft_top_z - shaft_bottom_z,
             bottom_face_center=(0.0, 0.0, shaft_bottom_z),
             axis=(0.0, 0.0, 1.0),
+            tag_prefix=f"{tag_prefix}.shaft",
+            result_tag=f"solid.{tag_prefix}.shaft",
         )
     )
 
@@ -195,6 +204,8 @@ def _make_carrier_solid_rsolid(
             height=arm_width,
             depth=plate_thickness,
             bottom_face_center=(arm_center_radius, 0.0, plate_bottom_z),
+            tag_prefix=f"{tag_prefix}.arm.i{index + 1}",
+            result_tag=f"solid.{tag_prefix}.arm.i{index + 1}",
         )
         if abs(carrier_angle) > 1.0e-9:
             arm = scad.rotate_shape(
@@ -210,6 +221,8 @@ def _make_carrier_solid_rsolid(
                 height=plate_thickness,
                 bottom_face_center=(center_xy[0], center_xy[1], plate_bottom_z),
                 axis=(0.0, 0.0, 1.0),
+                tag_prefix=f"{tag_prefix}.pad.i{index + 1}",
+                result_tag=f"solid.{tag_prefix}.pad.i{index + 1}",
             )
         )
         solids.append(
@@ -218,6 +231,8 @@ def _make_carrier_solid_rsolid(
                 height=pin_height,
                 bottom_face_center=(center_xy[0], center_xy[1], pin_bottom_z),
                 axis=(0.0, 0.0, 1.0),
+                tag_prefix=f"{tag_prefix}.pin.i{index + 1}",
+                result_tag=f"solid.{tag_prefix}.pin.i{index + 1}",
             )
         )
         solids.append(
@@ -226,6 +241,8 @@ def _make_carrier_solid_rsolid(
                 height=pin_land_height,
                 bottom_face_center=(center_xy[0], center_xy[1], pin_bottom_z),
                 axis=(0.0, 0.0, 1.0),
+                tag_prefix=f"{tag_prefix}.pin.land.i{index + 1}",
+                result_tag=f"solid.{tag_prefix}.pin.land.i{index + 1}",
             )
         )
 

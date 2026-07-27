@@ -151,6 +151,12 @@ class TestBallBearingAssembly(unittest.TestCase):
         self.assertIn("make_revolute_constraint_rassembly", ops)
         self.assertEqual(ops.count("make_forward_connector_rassembly"), 2)
         self.assertIn("make_compound_from_assembly_rcompound", ops)
+        stdlib_nodes = [
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] != "make_compound_from_assembly_rcompound"
+        ]
+        self.assertTrue(all("topo_delta" not in node for node in stdlib_nodes))
 
     def test_inferred_ball_count_is_recorded(self):
         bearing = scad.std.bearing.make_ball_bearing_rassembly(

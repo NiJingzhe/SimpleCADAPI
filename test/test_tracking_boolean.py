@@ -43,13 +43,16 @@ class TestTrackedCut(unittest.TestCase):
         # either modified or preserved; some should survive
         self.assertGreater(len(preserved_face_refs), 0)
 
-    def test_tracked_cut_has_generated_faces(self):
+    def test_tracked_cut_has_proven_changed_faces(self):
         result = tracked_cut(self.body, self.tool)
-        generated_face_refs = [
-            r for r in result.delta.generated if r.kind == TopoKind.FACE
+        changed_faces = [
+            entry
+            for entry in result.delta.entries
+            if entry.ref.kind == TopoKind.FACE
+            and entry.event in {TopoEvent.MODIFIED, TopoEvent.GENERATED}
+            and entry.metadata["status"] == "proven"
         ]
-        # The cylindrical hole creates new faces
-        self.assertGreater(len(generated_face_refs), 0)
+        self.assertGreater(len(changed_faces), 0)
 
     def test_tracked_cut_volume_decreased(self):
         result = tracked_cut(self.body, self.tool)
@@ -68,14 +71,15 @@ class TestTrackedCut(unittest.TestCase):
     def test_tracked_cut_tool_with_tool_face_labels(self):
         """Faces from the tool should be labeled with origin_role='tool'."""
         result = tracked_cut(self.body, self.tool)
-        tool_generated = [
-            r
-            for r in result.delta.generated
-            if r.kind == TopoKind.FACE
-            and result.delta_entries.get(r.topo_id, {}).get("origin_role") == "tool"
+        tool_outputs = [
+            entry
+            for entry in result.delta.entries
+            if entry.ref.kind == TopoKind.FACE
+            and entry.origin_role == "tool"
+            and entry.event in {TopoEvent.MODIFIED, TopoEvent.GENERATED}
         ]
-        # At least the cylindrical face of the hole should be tool-origin
-        self.assertGreater(len(tool_generated), 0)
+        self.assertGreater(len(tool_outputs), 0)
+        self.assertTrue(all(entry.parent_refs for entry in tool_outputs))
 
     def test_tracked_cut_preserves_volume_accuracy(self):
         result = tracked_cut(self.body, self.tool)
@@ -107,6 +111,180 @@ class TestTrackedUnion(unittest.TestCase):
         result = tracked_union(self.body, self.tool, glue=False)
         section_edges = result.delta.section_edges
         self.assertGreater(len(section_edges), 0)
+
+        for section_ref in section_edges:
+            entries = [
+                entry
+                for entry in result.delta.entries
+                if entry.ref == section_ref
+            ]
+            self.assertGreaterEqual(len(entries), 2)
+            self.assertEqual(
+                {entry.origin_role for entry in entries}, {"body", "tool"}
+            )
+            self.assertTrue(all(entry.parent_refs for entry in entries))
+
+    def test_nary_union_tracks_every_input_through_clean_history(self):
+        solids = [
+            scad.make_box_rsolid(
+                1.0,
+                1.0,
+                1.0,
+                bottom_face_center=(float(index), 0.0, 0.0),
+            )
+            for index in range(3)
+        ]
+
+        result = scad.union_rsolid(*solids, glue=False)
+        tracks = [face.get_metadata("track") for face in result.get_faces()]
+
+        self.assertEqual(len(result.get_faces()), 6)
+        self.assertTrue(all(track["status"] == "proven" for track in tracks))
+        self.assertEqual(
+            {role for track in tracks for role in track["origin_roles"]},
+            {"body", "tool", "tool_2"},
+        )
+        self.assertTrue(result.get_metadata("track")["has_delta"])
+
+    def test_nary_union_keeps_modified_face_lineage_after_clean(self):
+        barrel = scad.make_cylinder_rsolid(
+            16.0,
+            120.0,
+            bottom_face_center=(-60.0, 0.0, 0.0),
+            axis=(1.0, 0.0, 0.0),
+        )
+        flange = scad.make_cylinder_rsolid(
+            22.0,
+            12.0,
+            bottom_face_center=(50.0, 0.0, 0.0),
+            axis=(1.0, 0.0, 0.0),
+        )
+        nose = scad.make_cylinder_rsolid(
+            13.0,
+            10.0,
+            bottom_face_center=(58.0, 0.0, 0.0),
+            axis=(1.0, 0.0, 0.0),
+        )
+        source_face = max(flange.get_faces(), key=lambda face: face.get_center().x)
+        scad.apply_tag(source_face, "cap.face.end")
+
+        result = scad.union_rsolid(barrel, flange, nose, glue=False)
+        descendants = [
+            face
+            for face in result.get_faces()
+            if "cap.face.end" in scad.list_tags(face, scope="lineage")
+        ]
+
+        self.assertEqual(len(descendants), 1)
+        self.assertAlmostEqual(descendants[0].get_center().x, 62.0, places=6)
+        self.assertAlmostEqual(descendants[0].get_area(), 989.6016859, places=5)
+        self.assertEqual(descendants[0].get_metadata("track")["event"], "modified")
+        self.assertNotIn("cap.face.end", scad.list_tags(descendants[0]))
+
+    def test_nary_union_respects_face_binding_lineage_policy(self):
+        barrel = scad.make_cylinder_rsolid(
+            16.0,
+            120.0,
+            bottom_face_center=(-60.0, 0.0, 0.0),
+            axis=(1.0, 0.0, 0.0),
+        )
+        flange = scad.make_cylinder_rsolid(
+            22.0,
+            12.0,
+            bottom_face_center=(50.0, 0.0, 0.0),
+            axis=(1.0, 0.0, 0.0),
+        )
+        nose = scad.make_cylinder_rsolid(
+            13.0,
+            10.0,
+            bottom_face_center=(58.0, 0.0, 0.0),
+            axis=(1.0, 0.0, 0.0),
+        )
+        source_face = max(flange.get_faces(), key=lambda face: face.get_center().x)
+        flange = scad.apply_tag_rselection(
+            flange,
+            [source_face],
+            "cap.face.end",
+            lineage_policy=scad.LineagePolicy.NONE,
+        )
+
+        result = scad.union_rsolid(barrel, flange, nose, glue=False)
+
+        self.assertFalse(
+            any("cap.face.end" in scad.list_tags(face) for face in result.get_faces())
+        )
+
+    def test_nary_union_face_binding_stays_directly_queryable_after_cut(self):
+        flange = scad.extrude_rsolid(
+            scad.make_circle_rface(
+                center=(0.0, 0.0, 0.0),
+                radius=2.0,
+                normal=(1.0, 0.0, 0.0),
+            ),
+            direction=(1.0, 0.0, 0.0),
+            distance=2.0,
+            start_face_tag="cap.face.start",
+            end_face_tag="cap.face.end",
+            side_faces_tag="cap.face.side",
+        )
+        source_end = scad.select_faces_by_tag(flange, "cap.face.end")[0]
+        source_explanation = scad.explain_tag(
+            source_end, "cap.face.end", scope="local"
+        )[0]
+        body = scad.make_cylinder_rsolid(
+            1.5,
+            4.0,
+            bottom_face_center=(-1.0, 0.0, 0.0),
+            axis=(1.0, 0.0, 0.0),
+        )
+        bridge = scad.make_box_rsolid(
+            1.0,
+            1.0,
+            1.0,
+            bottom_face_center=(-0.5, -0.5, -0.5),
+        )
+        fused = scad.union_rsolid(body, flange, bridge, glue=False)
+        result = scad.cut_rsolid(
+            fused,
+            scad.make_cylinder_rsolid(
+                0.25,
+                4.0,
+                bottom_face_center=(-1.0, 1.0, 0.0),
+                axis=(1.0, 0.0, 0.0),
+            ),
+        )
+
+        end_faces = scad.select_faces_by_tag(result, "cap.face.end")
+
+        self.assertEqual(len(end_faces), 1)
+        projected = scad.explain_tag(
+            end_faces[0], "cap.face.end", scope="local"
+        )[0]["binding"]["evidence"]
+        self.assertEqual(
+            projected["source_binding_id"], source_explanation["binding_id"]
+        )
+        self.assertEqual(projected["source_topo_id"], source_end.topo_id)
+
+    def test_nary_union_tracks_faces_without_cleaning(self):
+        solids = [
+            scad.make_box_rsolid(
+                1.0,
+                1.0,
+                1.0,
+                bottom_face_center=(float(index), 0.0, 0.0),
+            )
+            for index in range(3)
+        ]
+
+        result = scad.union_rsolid(*solids, clean=False, glue=False)
+
+        self.assertEqual(len(result.get_faces()), 14)
+        self.assertTrue(
+            all(
+                face.get_metadata("track")["status"] == "proven"
+                for face in result.get_faces()
+            )
+        )
 
 
 class TestTrackedIntersect(unittest.TestCase):

@@ -47,6 +47,7 @@ from dimensions import (
 )
 
 
+@scad.requires_session
 def make_input_flange_rpart(*, material: scad.Material) -> scad.Part:
     """Create the reducer input flange part with six bolt holes."""
 
@@ -61,6 +62,7 @@ def make_input_flange_rpart(*, material: scad.Material) -> scad.Part:
         hole_count=INPUT_FLANGE_HOLE_COUNT,
         counterbore_diameter=INPUT_FLANGE_HOLE_COUNTERBORE_DIAMETER,
         counterbore_depth=INPUT_FLANGE_HOLE_COUNTERBORE_DEPTH,
+        tag_prefix="reducer.input.flange",
     )
     flange = scad.translate_shape(
         shape=flange,
@@ -90,10 +92,11 @@ def make_input_flange_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
+@scad.requires_session
 def make_output_flange_rpart(*, material: scad.Material) -> scad.Part:
     """Create the reducer output flange part with realistic mounting detail."""
 
-    flange = _make_output_flange_solid_rsolid()
+    flange = _make_output_flange_solid_rsolid(tag_prefix="reducer.output.flange")
     flange = scad.translate_shape(
         shape=flange,
         vector=(0.0, 0.0, OUTPUT_FLANGE_BOTTOM_Z),
@@ -123,7 +126,8 @@ def make_output_flange_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-def _make_output_flange_solid_rsolid() -> scad.Solid:
+@scad.requires_session
+def _make_output_flange_solid_rsolid(*, tag_prefix: str) -> scad.Solid:
     """Build the sealed actuator-style output flange.
 
     The earlier example used a small six-hole disk.  That was enough to prove
@@ -139,12 +143,16 @@ def _make_output_flange_solid_rsolid() -> scad.Solid:
         height=OUTPUT_FLANGE_THICKNESS,
         bottom_face_center=(0.0, 0.0, 0.0),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.base",
+        result_tag=f"solid.{tag_prefix}.base",
     )
     boss = scad.make_cylinder_rsolid(
         radius=OUTPUT_FLANGE_BOSS_OUTER_DIAMETER / 2.0,
         height=OUTPUT_FLANGE_BOSS_HEIGHT + 0.05,
         bottom_face_center=(0.0, 0.0, OUTPUT_FLANGE_THICKNESS - 0.05),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.boss",
+        result_tag=f"solid.{tag_prefix}.boss",
     )
 
     register_outer = scad.make_cylinder_rsolid(
@@ -152,12 +160,16 @@ def _make_output_flange_solid_rsolid() -> scad.Solid:
         height=OUTPUT_FLANGE_REGISTER_HEIGHT + 0.05,
         bottom_face_center=(0.0, 0.0, OUTPUT_FLANGE_THICKNESS - 0.05),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.register.outer",
+        result_tag=f"solid.{tag_prefix}.register.outer",
     )
     register_inner = scad.make_cylinder_rsolid(
         radius=OUTPUT_FLANGE_REGISTER_INNER_DIAMETER / 2.0,
         height=OUTPUT_FLANGE_REGISTER_HEIGHT + 0.55,
         bottom_face_center=(0.0, 0.0, OUTPUT_FLANGE_THICKNESS - 0.30),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.register.inner",
+        result_tag=f"solid.{tag_prefix}.register.inner.cutter",
     )
     register = scad.cut_rsolid(register_outer, register_inner, skip_non_intersecting=False)
 
@@ -173,6 +185,8 @@ def _make_output_flange_solid_rsolid() -> scad.Solid:
             height=OUTPUT_FLANGE_THICKNESS + OUTPUT_FLANGE_BOSS_HEIGHT + 2.0,
             bottom_face_center=(0.0, 0.0, -1.0),
             axis=(0.0, 0.0, 1.0),
+            tag_prefix=f"{tag_prefix}.center.bore",
+            result_tag=f"solid.{tag_prefix}.center.bore.cutter",
         )
     ]
 
@@ -193,6 +207,8 @@ def _make_output_flange_solid_rsolid() -> scad.Solid:
                 0.0,
                 OUTPUT_FLANGE_THICKNESS - 0.25,
             ),
+            tag_prefix=f"{tag_prefix}.register.gap.i{index + 1}",
+            result_tag=f"solid.{tag_prefix}.register.gap.i{index + 1}.cutter",
         )
         cutters.append(
             scad.rotate_shape(
@@ -211,7 +227,7 @@ def _make_output_flange_solid_rsolid() -> scad.Solid:
             side = -1.0 if hole_index == 0 else 1.0
             output_hole_angles.append(pad_center_angle + side * OUTPUT_FLANGE_HOLE_OFFSET_DEGREES)
 
-    for angle_degrees in output_hole_angles:
+    for index, angle_degrees in enumerate(output_hole_angles):
         angle = math.radians(angle_degrees)
         x = output_bolt_radius * math.cos(angle)
         y = output_bolt_radius * math.sin(angle)
@@ -225,6 +241,8 @@ def _make_output_flange_solid_rsolid() -> scad.Solid:
                 height=OUTPUT_FLANGE_THICKNESS + OUTPUT_FLANGE_REGISTER_HEIGHT + 1.0,
                 bottom_face_center=(x, y, -0.5),
                 axis=(0.0, 0.0, 1.0),
+                tag_prefix=f"{tag_prefix}.link.hole.i{index + 1}",
+                result_tag=f"solid.{tag_prefix}.link.hole.i{index + 1}.cutter",
             )
         )
         cutters.append(
@@ -239,6 +257,8 @@ def _make_output_flange_solid_rsolid() -> scad.Solid:
                     - OUTPUT_FLANGE_HOLE_COUNTERBORE_DEPTH,
                 ),
                 axis=(0.0, 0.0, 1.0),
+                tag_prefix=f"{tag_prefix}.link.counterbore.i{index + 1}",
+                result_tag=f"solid.{tag_prefix}.link.counterbore.i{index + 1}.cutter",
             )
         )
 
@@ -257,6 +277,8 @@ def _make_output_flange_solid_rsolid() -> scad.Solid:
                 height=OUTPUT_FLANGE_THICKNESS + OUTPUT_FLANGE_BOSS_HEIGHT + 1.0,
                 bottom_face_center=(x, y, -0.5),
                 axis=(0.0, 0.0, 1.0),
+                tag_prefix=f"{tag_prefix}.cap.hole.i{index + 1}",
+                result_tag=f"solid.{tag_prefix}.cap.hole.i{index + 1}.cutter",
             )
         )
         cutters.append(
@@ -271,6 +293,8 @@ def _make_output_flange_solid_rsolid() -> scad.Solid:
                     - OUTPUT_FLANGE_CENTER_COUNTERBORE_DEPTH,
                 ),
                 axis=(0.0, 0.0, 1.0),
+                tag_prefix=f"{tag_prefix}.cap.counterbore.i{index + 1}",
+                result_tag=f"solid.{tag_prefix}.cap.counterbore.i{index + 1}.cutter",
             )
         )
 
@@ -288,6 +312,7 @@ def _make_output_flange_solid_rsolid() -> scad.Solid:
     return flange
 
 
+@scad.requires_session
 def _make_n_hole_flange_solid_rsolid(
     *,
     flange_outer_diameter: float,
@@ -300,6 +325,7 @@ def _make_n_hole_flange_solid_rsolid(
     hole_count: int,
     counterbore_diameter: float | None = None,
     counterbore_depth: float = 0.0,
+    tag_prefix: str,
 ) -> scad.Solid:
     """Build a flange without edge-pick features so FreeCAD export is stable."""
 
@@ -308,12 +334,16 @@ def _make_n_hole_flange_solid_rsolid(
         height=flange_thickness,
         bottom_face_center=(0.0, 0.0, 0.0),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.base",
+        result_tag=f"solid.{tag_prefix}.base",
     )
     boss = scad.make_cylinder_rsolid(
         radius=boss_outer_diameter / 2.0,
         height=boss_height + 0.05,
         bottom_face_center=(0.0, 0.0, flange_thickness - 0.05),
         axis=(0.0, 0.0, 1.0),
+        tag_prefix=f"{tag_prefix}.boss",
+        result_tag=f"solid.{tag_prefix}.boss",
     )
     flange = scad.union_rsolid([outer, boss], glue=False)
 
@@ -323,6 +353,8 @@ def _make_n_hole_flange_solid_rsolid(
             height=flange_thickness + boss_height + 2.0,
             bottom_face_center=(0.0, 0.0, -1.0),
             axis=(0.0, 0.0, 1.0),
+            tag_prefix=f"{tag_prefix}.center.bore",
+            result_tag=f"solid.{tag_prefix}.center.bore.cutter",
         )
     ]
     bolt_circle_radius = hole_circle_diameter / 2.0
@@ -338,6 +370,8 @@ def _make_n_hole_flange_solid_rsolid(
                     -1.0,
                 ),
                 axis=(0.0, 0.0, 1.0),
+                tag_prefix=f"{tag_prefix}.mount.hole.i{index + 1}",
+                result_tag=f"solid.{tag_prefix}.mount.hole.i{index + 1}.cutter",
             )
         )
         if counterbore_diameter is not None and counterbore_depth > 0.0:
@@ -354,6 +388,8 @@ def _make_n_hole_flange_solid_rsolid(
                         flange_thickness - counterbore_depth,
                     ),
                     axis=(0.0, 0.0, 1.0),
+                    tag_prefix=f"{tag_prefix}.mount.counterbore.i{index + 1}",
+                    result_tag=f"solid.{tag_prefix}.mount.counterbore.i{index + 1}.cutter",
                 )
             )
     flange = scad.cut_rsolid(flange, cutters, skip_non_intersecting=False)

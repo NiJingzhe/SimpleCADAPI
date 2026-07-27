@@ -16,10 +16,8 @@ def make_herringbone_gear_rsolid(n_teeth: int, module: float, pressure_angle: fl
 
 Create an involute herringbone (double-helical) gear.
 
-Each half is modeled as a small-step ruled loft through rotated copies of
-one profile, with a shared center section forming the herringbone ridge.
-This keeps closed-wire section correspondence stable while avoiding smooth
-loft bulging in STEP exports.
+Each half uses a continuous twisted sweep with opposite handedness. The two
+halves share the rotated center profile and are fused into one solid.
 
 ## Parameters
 

@@ -32,13 +32,15 @@ Current beta: `simplecadapi==2.0.1b1`.
 - OCP-native shape types: `Vertex`, `Edge`, `Wire`, `Face`, and `Solid`.
 - Functional modeling operations for primitives, profiles, extrude, revolve,
   loft, sweep, booleans, transforms, patterns, fillets, chamfers, and shells.
-- Replayable modeling with `GraphSession`, `export_model_json(...)`,
+- Replayable modeling with `@model`, `ModelResult`, `capture_result(...)`,
   `import_model_json(...)`, and `replay_model_json(...)`.
 - Expression parameters with `var(...)`, arithmetic expressions, and serialized
   expression graphs.
+- Physical units with automatic dimension inference, canonical CAD conversion,
+  and manufacturing tolerance-chain validation.
 - QL selectors for geometry grounding, topology queries, and stable feature
   selections.
-- Semantic tags through `apply_tag(shape, tag)` and `list_tags(shape)`.
+- Semantic tags through `apply_tag(shape=..., tag=...)` and `list_tags(shape=...)`.
 - STEP/STL export and FreeCAD translation helpers for script or `.FCStd` output.
 
 ## Install
@@ -69,52 +71,112 @@ import simplecadapi as scad
 out = Path("out")
 out.mkdir(exist_ok=True)
 
-base = scad.make_box_rsolid(60.0, 36.0, 8.0, bottom_face_center=(0.0, 0.0, 0.0))
-hole = scad.make_cylinder_rsolid(5.0, 14.0, bottom_face_center=(0.0, 0.0, -3.0))
-slot = scad.make_box_rsolid(18.0, 8.0, 14.0, bottom_face_center=(14.0, 0.0, -3.0))
+base = scad.make_box_rsolid(
+    width=60.0, height=36.0, depth=8.0, bottom_face_center=(0.0, 0.0, 0.0)
+)
+hole = scad.make_cylinder_rsolid(
+    radius=5.0, height=14.0, bottom_face_center=(0.0, 0.0, -3.0)
+)
+slot = scad.make_box_rsolid(
+    width=18.0, height=8.0, depth=14.0, bottom_face_center=(14.0, 0.0, -3.0)
+)
 
 part = scad.cut_rsolid(base, hole, slot)
-boss = scad.make_cylinder_rsolid(8.0, 7.0, bottom_face_center=(-18.0, 0.0, 8.0))
+boss = scad.make_cylinder_rsolid(
+    radius=8.0, height=7.0, bottom_face_center=(-18.0, 0.0, 8.0)
+)
 part = scad.union_rsolid(part, boss)
-part = scad.apply_tag(part, "role.demo.bracket")
+part = scad.apply_tag(shape=part, tag="role.demo.bracket")
 
 print("volume", round(part.get_volume(), 3))
 print("faces", len(part.get_faces()))
-print("tags", scad.list_tags(part))
+print("tags", scad.list_tags(shape=part))
 
-scad.export_step(part, str(out / "bracket.step"))
-scad.export_stl(part, str(out / "bracket.stl"))
+scad.export_step(shapes=part, filename=str(out / "bracket.step"))
+scad.export_stl(shapes=part, filename=str(out / "bracket.stl"))
 ```
 
 ## Replayable Modeling
 
-Use `GraphSession` when a model should be inspectable, serializable, replayable,
-or translated into another CAD environment.
+Use one `@scad.model` entry point when a model should be inspectable,
+serializable, replayable, or translated into another CAD environment. The
+decorated function owns its `GraphSession` and returns a `ModelResult`.
 
 ```python
 import simplecadapi as scad
 from simplecadapi import ql as Q
 
-with scad.GraphSession() as session:
-    body = scad.make_box_rsolid(40.0, 24.0, 10.0, bottom_face_center=(0.0, 0.0, 0.0))
-    cutter = scad.make_cylinder_rsolid(4.0, 16.0, bottom_face_center=(0.0, 0.0, -3.0))
+@scad.model(graph_id="chamfered_block")
+def build_model():
+    body = scad.make_box_rsolid(
+        width=40.0, height=24.0, depth=10.0,
+        bottom_face_center=(0.0, 0.0, 0.0),
+    )
+    cutter = scad.make_cylinder_rsolid(
+        radius=4.0, height=16.0, bottom_face_center=(0.0, 0.0, -3.0)
+    )
     drilled = scad.cut_rsolid(body, cutter)
 
     bottom_circle = (
         Q.edges()
-        .where(Q.curve_type("circle"))
-        .order_by(Q.center_axis("z"))
+        .where(Q.curve_type(kind="circle"))
+        .order_by(Q.center_axis(axis="z"))
         .take(1)
         .exactly(1)
     )
-    final = scad.chamfer_rsolid(drilled, bottom_circle, 0.6)
+    final = scad.chamfer_rsolid(solid=drilled, edges=bottom_circle, distance=0.6)
+    scad.capture_result(value=final)
+    return final
 
-model_json = scad.export_model_json(session)
-rebuilt = scad.replay_model_json(model_json)
+result = build_model()
+model_json = result.model_json
+rebuilt = result.replay()
 
-print("recorded_nodes", session.graph.node_count)
+print("recorded_nodes", result.session.graph.node_count)
 print("replayed_outputs", len(rebuilt))
 ```
+
+Pass `export_dir=...` to `@scad.model` when the invocation should also write
+one self-contained `<graph_id>.scene.zip`. The package contains `scene.json`,
+`model/model.json`, the complete project-relative Python files referenced by
+operation source mappings under `sources/`, and the GLB/entity assets required
+by the Viewer. Automatic export does not write adjacent model/session JSON,
+STEP, STL, or FCStd files; those explicit export APIs remain available. The
+package path is `result.artifact_paths["scene"]`. Without `export_dir`, model
+execution remains in memory.
+
+## Physical Units And Tolerances
+
+Declare nominal and manufacturing-tolerance units at the variable boundary.
+SimpleCAD evaluates lengths in millimeters and angles in degrees while preserving
+the declaration units in model JSON:
+
+```python
+import simplecadapi as scad
+
+width = scad.var(
+    "width",
+    1.0,
+    unit="in",
+    tolerance=0.1,
+    tolerance_unit="mm",
+)
+height = scad.var("height", 40.0, unit="mm", tolerance=0.2)
+diagonal = scad.sqrt(width**2 + height**2)
+
+analysis = scad.analyze_tolerance(diagonal)
+check = scad.check_tolerance(diagonal, 0.3, tolerance_unit="mm")
+
+print(analysis.dimension.name, analysis.unit.symbol)
+print(analysis.nominal, analysis.lower_bound, analysis.upper_bound)
+print("passes", check.passed)
+```
+
+Addition and subtraction require matching dimensions. Multiplication, division,
+integer powers, and square root derive dimensions. Trigonometric functions require
+angle or dimensionless inputs as appropriate. Legacy variables without `unit`
+remain supported, but cannot be mixed with unit-declared variables in one
+expression.
 
 ## Modeling Mental Model
 
@@ -162,15 +224,12 @@ Explicit compound projections remain available for geometry-only STEP export.
 Run examples from the source checkout:
 
 ```bash
-uv run python examples/01_basic_modeling.py
-uv run python examples/02_graph_replay.py
-uv run python examples/03_expressions.py
-uv run python examples/05_loft_sweep_revolve.py
-uv run python examples/06_parametric_gear_model.py
-uv run python examples/07_serialization_operation_tree.py
+uv run python examples/04_dimension_tolerance_chain.py
 uv run python examples/08_constrained_sketch.py
 uv run python examples/09_naca0016_blade_freecad.py
 uv run python examples/10_part_assembly.py
+uv run python examples/16_compact_two_stage_planetary_reducer/main.py
+uv run python examples/20_integrated_bldc_joint_actuator/main.py
 ```
 
 ## Documentation
@@ -179,6 +238,10 @@ uv run python examples/10_part_assembly.py
 - Core type and modeling notes: [`docs/core/`](docs/core/)
 - Serialization and replay details:
   [`docs/core/serialization/README.md`](docs/core/serialization/README.md)
+- Dimension tolerance chains:
+  [`docs/core/dimension-tolerance-chains.md`](docs/core/dimension-tolerance-chains.md)
+- Physical units and dimension inference:
+  [`docs/core/physical-units.md`](docs/core/physical-units.md)
 - Operation graph JSON spec:
   [`docs/core/operation_graph_json_spec.md`](docs/core/operation_graph_json_spec.md)
 
