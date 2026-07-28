@@ -25,7 +25,7 @@ in a compact public API for creating solids, applying features, tagging semantic
 intent, querying topology, exporting manufacturing files, and translating recorded
 models into FreeCAD workflows.
 
-Current beta: `simplecadapi==2.0.1b1`.
+Current release: `simplecadapi==2.0.1`.
 
 ## What It Provides
 
