@@ -21,7 +21,7 @@
 
 SimpleCADAPI 是一个基于 OCP 的 Python CAD SDK，提供清晰的函数式建模操作和可重放的模型图。它在 OpenCascade 几何内核之上提供精简的公共 API，可用于创建实体、应用特征、添加语义标签、查询拓扑、导出制造文件，以及将记录的模型转换为 FreeCAD 工作流。
 
-当前测试版本：`simplecadapi==2.0.1b1`。
+当前正式版本：`simplecadapi==2.0.1`。
 
 ## 核心能力
 
