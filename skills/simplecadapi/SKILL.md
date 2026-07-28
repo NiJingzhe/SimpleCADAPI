@@ -5,9 +5,9 @@ license: AGPL-3.0
 compatibility: Documentation/reference bundle for current SimpleCADAPI surfaces.
 metadata:
   project: simplecadapi
-  version: 2.0.1
+  version: 2.0.2
   package-name: simplecadapi
-  package-version: 2.0.1
+  package-version: 2.0.2
 ---
 
 # SimpleCAD SDK Skill
