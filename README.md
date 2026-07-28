@@ -6,6 +6,18 @@
 
 [中文说明](README.zh-CN.md)
 
+## Update Notes (2.0.2)
+
+> **Experimental release:** The capabilities in this release may introduce
+> breaking changes in later versions and are not recommended for immediate
+> production use.
+
+SimpleCADAPI 2.0.2 expands the workflow with cross-CAD translation, a browser
+scene viewer, replayable model artifacts with source mapping, units and
+tolerance analysis, standard mechanical parts, assembly verification, and STEP
+reverse-engineering tools. See the [full English update notes](docs/updates/2.0.2.md)
+for implementation details and usage boundaries.
+
 ---
 
 <div align="center">
