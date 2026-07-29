@@ -32,7 +32,10 @@ from .operations import (
     make_face_from_wires_rface,
     make_helix_redge,
     make_helix_rwire,
+    make_interpolated_spline_redge,
+    make_interpolated_spline_rwire,
     make_line_redge,
+    make_periodic_spline_rwire,
     make_point_rvertex,
     make_polyline_rwire,
     make_rectangle_rface,
@@ -245,7 +248,13 @@ from .product import (
     Placement,
     ScalarLimit,
 )
-from .sketch import Sketch, SketchConstraint, SketchConstraintDiagnostic, SketchRef, SketchSolveResult
+from .sketch import (
+    Sketch,
+    SketchConstraint,
+    SketchConstraintDiagnostic,
+    SketchRef,
+    SketchSolveResult,
+)
 from .sketch_solver import (
     SketchSolverBackend,
     SketchSolverOptions,
@@ -329,7 +338,10 @@ create_face_from_wire = make_face_from_wire_rface
 create_face_from_wires = make_face_from_wires_rface
 create_helix = make_helix_redge
 create_helix_wire = make_helix_rwire
+create_interpolated_spline = make_interpolated_spline_redge
+create_interpolated_spline_wire = make_interpolated_spline_rwire
 create_line = make_line_redge
+create_periodic_spline_wire = make_periodic_spline_rwire
 create_point = make_point_rvertex
 create_polyline_wire = make_polyline_rwire
 create_rectangle_face = make_rectangle_rface
@@ -388,7 +400,10 @@ __all__ = [
     "make_face_from_wires_rface",
     "make_helix_redge",
     "make_helix_rwire",
+    "make_interpolated_spline_redge",
+    "make_interpolated_spline_rwire",
     "make_line_redge",
+    "make_periodic_spline_rwire",
     "make_point_rvertex",
     "make_polyline_rwire",
     "make_rectangle_rface",
@@ -662,7 +677,10 @@ __all__ = [
     "create_face_from_wires",
     "create_helix",
     "create_helix_wire",
+    "create_interpolated_spline",
+    "create_interpolated_spline_wire",
     "create_line",
+    "create_periodic_spline_wire",
     "create_point",
     "create_polyline_wire",
     "create_rectangle_face",
