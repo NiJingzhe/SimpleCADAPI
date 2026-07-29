@@ -32,7 +32,7 @@ def load_step(
         raise ValueError(
             f"Expected one STEP root in {source}, got transferred={transferred}, shapes={reader.NbShapes()}"
         )
-    shape = reader.Shape(1)
+    shape = reader.Shape(1) if require_single_root else reader.OneShape()
     if require_valid and not BRepCheck_Analyzer(shape).IsValid():
         raise ValueError(f"STEP BREP is invalid: {source}")
     return shape

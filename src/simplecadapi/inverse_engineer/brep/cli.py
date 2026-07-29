@@ -5,21 +5,38 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
+from .agent_tools import (
+    AGENT_TOOL_NAMES,
+    BRepToolError,
+    agent_tool_schemas,
+    call_agent_tool,
+)
 from .compare import compare_steps
 from .inspect import inspect_step
 from .render import render_step_views
 from .slices import SliceSpec, compare_step_slices
 
 
-def _write_or_print(payload: dict, output: str | None) -> None:
+def _write_or_print(payload: Any, output: str | None) -> None:
     text = json.dumps(payload, indent=2)
     if output:
         path = Path(output)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
     print(text)
+
+
+def _tool_arguments(value: str | None, path: str | None) -> Mapping[str, Any]:
+    if path is not None:
+        text = Path(path).read_text(encoding="utf-8")
+    else:
+        text = value or "{}"
+    payload = json.loads(text)
+    if not isinstance(payload, dict):
+        raise BRepToolError("Tool arguments must encode one JSON object")
+    return payload
 
 
 def _slice_spec(value: str) -> SliceSpec:
@@ -79,6 +96,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     slices_parser.add_argument("--horizontal-samples", type=int, default=91)
     slices_parser.add_argument("--vertical-samples", type=int, default=121)
+
+    commands.add_parser(
+        "tools",
+        help="Print framework-neutral Agent tool schemas",
+    )
+
+    tool_parser = commands.add_parser(
+        "tool",
+        help="Invoke one framework-neutral Agent tool with JSON arguments",
+    )
+    tool_parser.add_argument("name", choices=AGENT_TOOL_NAMES)
+    arguments = tool_parser.add_mutually_exclusive_group()
+    arguments.add_argument(
+        "--arguments",
+        help='Inline JSON object, for example \'{"model_path":"part.step"}\'',
+    )
+    arguments.add_argument(
+        "--arguments-file",
+        help="Path to a UTF-8 JSON object containing tool arguments",
+    )
+    tool_parser.add_argument("--output", "-o")
     return parser
 
 
@@ -111,6 +149,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _write_or_print(comparison.to_dict(), args.report)
         return 0 if comparison.sampled_slices_identical else 1
+    if args.command == "tools":
+        _write_or_print(agent_tool_schemas(), None)
+        return 0
+    if args.command == "tool":
+        result = call_agent_tool(
+            args.name,
+            _tool_arguments(args.arguments, args.arguments_file),
+        )
+        _write_or_print(result, args.output)
+        return 0
     raise AssertionError(f"Unhandled command: {args.command}")
 
 
