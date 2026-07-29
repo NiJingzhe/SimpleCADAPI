@@ -152,6 +152,7 @@ edge_occurrences   遍历所有面时边被引用的总次数
 
 ```text
 src/simplecadapi/inverse_engineer/brep/inspect.py
+src/simplecadapi/inverse_engineer/brep/model.py
 ```
 
 Python API：
@@ -161,12 +162,80 @@ from simplecadapi.inverse_engineer import brep
 
 report = brep.inspect_step(path="model.step")
 report.write_json("model-report.json")
+
+summary = brep.get_model_summary(path="model.step")
+face = brep.inspect_entity(path="model.step", entity_id="face:0")
 ```
+
+需要连续调查多个实体时，应复用已索引模型：
+
+```python
+model = brep.load_step_model("model.step")
+summary = model.summary()
+face = model.describe_entity("face:0")
+edge = model.describe_entity(face["adjacency"]["edges"][0])
+```
+
+稳定实体 ID 使用零基格式：
+
+```text
+body:0
+face:12
+edge:4
+vertex:8
+```
+
+同一未修改 BREP 的重复加载会得到相同 ID。ID 表示确定的拓扑遍历位置，
+不表示两个不同模型之间已经建立了语义对应；跨模型匹配必须另做实体对应分析。
+退化边的 `geometry.type` 固定为 `DEGENERATE`，同时通过
+`geometry.underlying_curve_type` 暴露其底层曲线载体，避免把零长度拓扑边误当普通曲线。
+
+连续多轮调查和比较可直接使用框架无关的 Agent 工具注册表：
+
+```python
+schemas = brep.agent_tool_schemas()
+summary = brep.call_agent_tool(
+    "get_model_summary",
+    {
+        "model_path": "model.step",
+        "include_parameter_groups": True,
+    },
+)
+```
+
+`parameter_groups` 只给出同类解析半径、B-spline 阶次等客观多重度和少量
+示例 ID，固定标记 `pattern_inference=not_performed`。相同半径或相同数量不能
+单独证明重复特征；只有空间中心/轴线、方向、间距与邻接签名同时规律时，才把
+它作为阵列假设。无此证据时应继续考虑旋转、拉伸、扫掠、Loft、混合特征或
+自由曲面。
+
+调查长边界时优先使用 `extract_face_boundaries(compact=True)`；它保留有序
+coedge 的类型、长度、端点、方向和关键参数，避免完整采样数组占满上下文。
+
+工具分为两组：
+
+- 局部调查：`get_model_summary`、`inspect_entity`、
+  `get_topology_neighborhood`、`measure_relation`、`make_section`、
+  `extract_face_boundaries`、`probe_point`、`render_region`。
+- 比较验收：`compare_global_properties`、`compare_boundary_distance`、
+  `compute_material_difference`、`compare_sections`、
+  `build_difference_regions`、`find_nearby_entities`、`compare_entities`、
+  `evaluate_result`、`compare_brep_strict`。中心切片保留为 Python/CLI
+  可视化辅助能力，不作为默认 Agent 工具。
+
+自由曲面模型不能只看稳定实体摘要。`inspect_step()` 的完整报告会保留
+B-spline/NURBS 的 degree、knot values、multiplicities、control points 和
+rational weights；`inspect_entity()` 默认只返回 degree、pole/knot 数量等局部摘要，
+但曲线实体可通过 `include_curve_definition=True` 返回完整定义。需要精确转录曲面、
+曲面拟合或分析连续性时，仍应读取完整报告。
 
 CLI：
 
 ```bash
 uv run simplecad-brep inspect model.step -o model-report.json
+uv run simplecad-brep tools
+uv run simplecad-brep tool inspect_entity \
+  --arguments '{"model_path":"model.step","entity_id":"face:0"}'
 ```
 
 ### 基础属性代码片段
@@ -724,18 +793,23 @@ candidate_slice_overlay.png
 candidate_brep_compare.json
 ```
 
-最终验收至少包括：
+几何等价验收至少包括 BREP 有效、模型图可重放、回放结果有效，以及有效布尔结果
+证明双向材料差在指定容差内。只有要求 Exact BREP 时，才额外检查：
 
 ```text
-BREP valid
-双向差集为零
 唯一 Face/Edge/Vertex 数量一致
 解析面和边类型统计一致
 几何标记邻接图同构
 关键解析参数一致
-模型图可重放
-回放结果再次通过全部检查
 ```
+
+对于闭合实体，默认验收不要先做高密度全局边界采样。先检查有效性和全局
+属性，再计算双向材料差；材料点集一致即可判定几何等价。只有明确要求
+exact BREP 时才继续检查严格拓扑。若材料不同，
+再由 Agent 按需调用 `compare_boundary_distance`、`compare_sections`、
+`build_difference_regions`、`find_nearby_entities`、`compare_entities` 和
+`render_region` 定位下一处修改。边界距离、截面和渲染是诊断工具，不是每轮
+候选的默认开销。
 
 ## 9. 核心方法总结
 
