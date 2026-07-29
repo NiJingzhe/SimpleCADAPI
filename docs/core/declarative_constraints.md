@@ -26,6 +26,20 @@ sketch = constrain_distance_rsketch(sketch, "p0", "p1", 72.0)
 
 `solve` is not a first-class modeling graph leaf. `make_wire_from_sketch_rwire(...)` and `make_face_from_sketch_rface(...)` run the sketch solver internally during `Sketch -> Wire/Face` promotion. Promotion graph nodes record `solve_snapshot` and `promotion_map` evidence, and promoted geometry receives `source_sketch`, `sketch_solve`, and sketch entity metadata/tags. `inspect_sketch_rsketchresult(...)` is diagnostic-only and does not record graph nodes.
 
+The default sketch solver backend is `py-slvs` (`py-slvs==1.0.6`). The public sketch document and solve result do not expose native solver handles. Alternative backends implement `SketchSolverBackend.solve(sketch, *, options)`, register with `register_sketch_solver_backend(...)`, and can be selected by name with `Sketch.solve(backend="name")` or process-wide with `set_default_sketch_solver_backend(...)`. `SketchSolveResult` snapshots record `backend`, `backend_version`, and `backend_status_code` so replay evidence identifies the solver that produced it.
+
+```python
+class MyBackend:
+    name = "my-solver"
+    version = "1"
+
+    def solve(self, sketch, *, options):
+        return SketchSolveResult(...)
+
+register_sketch_solver_backend(MyBackend())
+set_default_sketch_solver_backend("my-solver")
+```
+
 In `.FCStd` translation, sketch promotion is represented by a visible `Sketcher::SketchObject`. `make_face_from_sketch_rface(...)` does not create a separate face bridge object in the graph path; downstream FreeCAD operations such as `Part::Extrusion` use the promoted Sketcher object as their base. FreeCAD Sketcher constraints are validated as they are added: constraints that are unsupported, crash-risky, or rejected as redundant by FreeCAD are recorded in `SimpleCADSketchConstraints.skipped` instead of being emitted in a way that would make the sketch unsolvable or force a synthetic base object.
 
 # Assembly Constraint Status

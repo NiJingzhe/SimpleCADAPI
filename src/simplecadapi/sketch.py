@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
 
@@ -140,7 +140,7 @@ class SketchRef(TaggedMixin):
 
 @dataclass
 class SketchSolveResult(TaggedMixin):
-    """Result of solving a declarative sketch."""
+    """Backend-neutral result of solving a declarative sketch."""
 
     sketch_id: str
     status: str
@@ -149,7 +149,11 @@ class SketchSolveResult(TaggedMixin):
     iterations: int
     solved_points: Dict[str, Tuple[float, float]]
     solved_scalars: Dict[str, float]
+    solved_entities: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     diagnostics: Tuple[SketchConstraintDiagnostic, ...] = ()
+    backend: str = "unknown"
+    backend_version: str = "unknown"
+    backend_status_code: Optional[int] = None
 
     def __post_init__(self) -> None:
         TaggedMixin.__init__(self)
@@ -166,8 +170,23 @@ class SketchSolveResult(TaggedMixin):
                 for key, value in self.solved_points.items()
             },
             "solved_scalars": dict(self.solved_scalars),
+            "solved_entities": self._serialize_solved_entities(),
             "diagnostics": [diag.__dict__.copy() for diag in self.diagnostics],
+            "backend": self.backend,
+            "backend_version": self.backend_version,
+            "backend_status_code": self.backend_status_code,
         }
+    def _serialize_solved_entities(self) -> Dict[str, Any]:
+        def serialize(value: Any) -> Any:
+            if isinstance(value, Mapping):
+                return {str(key): serialize(item) for key, item in value.items()}
+            if isinstance(value, (tuple, list)):
+                return [serialize(item) for item in value]
+            if isinstance(value, float):
+                return float(value)
+            return value
+
+        return cast(Dict[str, Any], serialize(self.solved_entities))
 
 
 class Sketch(TaggedMixin, TopoMixein):
@@ -432,19 +451,38 @@ class Sketch(TaggedMixin, TopoMixein):
         *,
         construction: bool = False,
     ) -> "Sketch":
-        """Add a B-spline curve edge defined by control points.
+        """Add a B-spline whose poles participate in sketch solving."""
+        from .operations import (
+            _normalize_bspline_knots,
+            _normalize_bspline_weights,
+        )
 
-        The start/end point refs link the B-spline into the profile loop.
-        Control points are stored as literal 2-D coordinates (not point
-        entity ids) so the solver does not modify them.
-        """
         start_id = self.resolve_point_id(start)
         end_id = self.resolve_point_id(end)
         if start_id == end_id:
             raise ValueError("A sketch bspline requires two distinct endpoint refs")
-        if len(control_points) < degree + 1:
-            raise ValueError(f"bspline requires at least degree+1 control points, got {len(control_points)}")
+        if isinstance(degree, bool) or int(degree) != degree:
+            raise ValueError("degree must be an integer")
+        degree_value = int(degree)
+        if degree_value < 1 or degree_value > 25:
+            raise ValueError("degree must be between 1 and 25")
+        if len(control_points) < degree_value + 1:
+            raise ValueError(
+                f"bspline requires at least degree+1 control points, got {len(control_points)}"
+            )
         literal_cps = [[float(p[0]), float(p[1])] for p in control_points]
+        resolved_knots, resolved_multiplicities = _normalize_bspline_knots(
+            control_count=len(literal_cps),
+            degree=degree_value,
+            periodic=bool(periodic),
+            knots=knots,
+            multiplicities=multiplicities,
+        )
+        resolved_weights = _normalize_bspline_weights(weights, len(literal_cps))
+        start_entity = self.entities[start_id]
+        end_entity = self.entities[end_id]
+        literal_cps[0] = [_as_float(start_entity.data["x"]), _as_float(start_entity.data["y"])]
+        literal_cps[-1] = [_as_float(end_entity.data["x"]), _as_float(end_entity.data["y"])]
         self._add_entity(
             SketchEntity(
                 entity_id,
@@ -453,10 +491,10 @@ class Sketch(TaggedMixin, TopoMixein):
                     "start": start_id,
                     "end": end_id,
                     "control_points": literal_cps,
-                    "degree": int(degree),
-                    "knots": list(knots) if knots is not None else None,
-                    "multiplicities": list(multiplicities) if multiplicities is not None else None,
-                    "weights": list(weights) if weights is not None else None,
+                    "degree": degree_value,
+                    "knots": list(resolved_knots),
+                    "multiplicities": list(resolved_multiplicities),
+                    "weights": list(resolved_weights) if resolved_weights is not None else None,
                     "periodic": bool(periodic),
                 },
                 construction=construction,
@@ -499,12 +537,32 @@ class Sketch(TaggedMixin, TopoMixein):
         strict: bool = True,
         tolerance: float = 1e-7,
         max_iterations: int = 80,
+        backend: Any = None,
     ) -> SketchSolveResult:
-        result = _SketchSolver(self, tolerance=tolerance, max_iterations=max_iterations).solve()
+        from .sketch_solver import (
+            SketchSolverOptions,
+            get_default_sketch_solver_backend,
+            get_sketch_solver_backend,
+        )
+
+        selected_backend = (
+            get_default_sketch_solver_backend()
+            if backend is None
+            else get_sketch_solver_backend(backend)
+            if isinstance(backend, str)
+            else backend
+        )
+        result = selected_backend.solve(
+            self,
+            options=SketchSolverOptions(
+                tolerance=float(tolerance),
+                max_iterations=int(max_iterations),
+            ),
+        )
         self._last_solve_result = result
         if strict and result.status in {"conflicting", "failed"}:
             raise ValueError(
-                f"Sketch solve failed with status={result.status}, residual={result.residual_norm:.6g}"
+                f"Sketch solve failed with status={result.status}, backend={result.backend}"
             )
         if require_fully_constrained and result.dof > 0:
             raise ValueError(f"Sketch is underconstrained with {result.dof} remaining DOF")
@@ -580,27 +638,27 @@ class Sketch(TaggedMixin, TopoMixein):
                     end_angle += 2.0 * _math.pi
                 edges.append(
                     make_angle_arc_redge(
-                        center=cp, radius=radius,
-                        start_angle=start_angle, end_angle=end_angle,
+                        center=cp,
+                        radius=radius,
+                        start_angle=start_angle,
+                        end_angle=end_angle,
                         normal=(0.0, 0.0, 1.0),
                     )
                 )
             elif entity.kind == "bspline":
-                cps_2d = entity.data["control_points"]
-                degree = int(entity.data.get("degree", 3))
-                knots = entity.data.get("knots")
-                multiplicities = entity.data.get("multiplicities")
-                weights = entity.data.get("weights")
-                periodic = bool(entity.data.get("periodic", False))
-                cps_3d = [(p[0], p[1], 0.0) for p in cps_2d]
+                solved_poles = [
+                    tuple(point)
+                    for point in result.solved_entities[eid]["control_points"]
+                ]
+                cps_3d = [self._point3(point) for point in solved_poles]
                 edges.append(
                     make_spline_redge(
                         control_points=cps_3d,
-                        degree=degree,
-                        knots=knots,
-                        multiplicities=multiplicities,
-                        weights=weights,
-                        periodic=periodic,
+                        degree=int(entity.data["degree"]),
+                        knots=entity.data["knots"],
+                        multiplicities=entity.data["multiplicities"],
+                        weights=entity.data.get("weights"),
+                        periodic=bool(entity.data.get("periodic", False)),
                     )
                 )
             else:
@@ -840,363 +898,6 @@ class Sketch(TaggedMixin, TopoMixein):
         return ordered_points, ordered_edge_ids
 
 
-class _SketchSolver:
-    def __init__(self, sketch: Sketch, *, tolerance: float, max_iterations: int) -> None:
-        self.sketch = sketch
-        self.tolerance = float(tolerance)
-        self.max_iterations = int(max_iterations)
-        self.point_ids = [
-            entity_id
-            for entity_id in sketch.entity_order
-            if sketch.entities[entity_id].kind == "point"
-        ]
-        self.scalar_ids = [
-            f"circle:{entity_id}:radius"
-            for entity_id in sketch.entity_order
-            if sketch.entities[entity_id].kind == "circle"
-        ]
-        self.var_names = [f"point:{pid}:x" for pid in self.point_ids]
-        self.var_names.extend(f"point:{pid}:y" for pid in self.point_ids)
-        self.var_names.extend(self.scalar_ids)
-
-    def solve(self) -> SketchSolveResult:
-        if not self.var_names:
-            return SketchSolveResult(
-                sketch_id=self.sketch.sketch_id,
-                status="solved",
-                dof=0,
-                residual_norm=0.0,
-                iterations=0,
-                solved_points={},
-                solved_scalars={},
-            )
-        x = self._initial_vector()
-        diagnostics: List[SketchConstraintDiagnostic] = []
-        iterations = 0
-        residual = self._residual_vector(x)
-        best_norm = float(np.linalg.norm(residual))
-        damping = 1e-6
-        for iterations in range(self.max_iterations):
-            if best_norm <= self.tolerance:
-                break
-            jacobian = self._finite_difference_jacobian(x, residual)
-            lhs = jacobian.T @ jacobian + damping * np.eye(len(x))
-            rhs = -(jacobian.T @ residual)
-            try:
-                step = np.linalg.solve(lhs, rhs)
-            except np.linalg.LinAlgError:
-                step = np.linalg.lstsq(lhs, rhs, rcond=None)[0]
-            if not np.all(np.isfinite(step)):
-                diagnostics.append(
-                    SketchConstraintDiagnostic(None, "error", "nonfinite_step", "Sketch solver produced a non-finite step.")
-                )
-                break
-            accepted = False
-            scale = 1.0
-            while scale >= 1e-4:
-                candidate = x + scale * step
-                candidate_residual = self._residual_vector(candidate)
-                candidate_norm = float(np.linalg.norm(candidate_residual))
-                if candidate_norm <= best_norm:
-                    x = candidate
-                    residual = candidate_residual
-                    best_norm = candidate_norm
-                    accepted = True
-                    damping = max(damping * 0.5, 1e-12)
-                    break
-                scale *= 0.5
-            if not accepted:
-                damping = min(damping * 10.0, 1e6)
-        final_jacobian = self._finite_difference_jacobian(x, residual)
-        rank = int(np.linalg.matrix_rank(final_jacobian, tol=1e-7)) if final_jacobian.size else 0
-        dof = max(0, len(x) - rank)
-        if len(residual) > rank and best_norm <= self.tolerance:
-            diagnostics.append(
-                SketchConstraintDiagnostic(None, "warning", "redundant_constraints", "Sketch has redundant but consistent constraints.")
-            )
-        if best_norm > self.tolerance:
-            status = "conflicting"
-            diagnostics.append(
-                SketchConstraintDiagnostic(None, "error", "residual_too_large", "Sketch constraints could not be satisfied.", best_norm)
-            )
-        elif dof > 0:
-            status = "underconstrained"
-            diagnostics.append(
-                SketchConstraintDiagnostic(None, "warning", "underconstrained", f"Sketch has {dof} remaining DOF.")
-            )
-        else:
-            status = "solved"
-        points, scalars = self._state_from_vector(x)
-        return SketchSolveResult(
-            sketch_id=self.sketch.sketch_id,
-            status=status,
-            dof=dof,
-            residual_norm=best_norm,
-            iterations=iterations,
-            solved_points=points,
-            solved_scalars=scalars,
-            diagnostics=tuple(diagnostics),
-        )
-
-    def _initial_vector(self) -> np.ndarray:
-        values: List[float] = []
-        for point_id in self.point_ids:
-            entity = self.sketch.entities[point_id]
-            values.append(_as_float(entity.data["x"]))
-        for point_id in self.point_ids:
-            entity = self.sketch.entities[point_id]
-            values.append(_as_float(entity.data["y"]))
-        for scalar_id in self.scalar_ids:
-            _prefix, entity_id, _name = scalar_id.split(":", 2)
-            entity = self.sketch.entities[entity_id]
-            values.append(_as_float(entity.data["radius"]))
-        return np.array(values, dtype=float)
-
-    def _state_from_vector(self, x: np.ndarray) -> Tuple[Dict[str, Tuple[float, float]], Dict[str, float]]:
-        points: Dict[str, Tuple[float, float]] = {}
-        offset_y = len(self.point_ids)
-        for idx, point_id in enumerate(self.point_ids):
-            points[point_id] = (float(x[idx]), float(x[offset_y + idx]))
-        scalars: Dict[str, float] = {}
-        scalar_offset = 2 * len(self.point_ids)
-        for idx, scalar_id in enumerate(self.scalar_ids):
-            scalars[scalar_id] = float(x[scalar_offset + idx])
-        return points, scalars
-
-    def _finite_difference_jacobian(self, x: np.ndarray, residual: np.ndarray) -> np.ndarray:
-        if len(residual) == 0:
-            return np.zeros((0, len(x)))
-        jacobian = np.zeros((len(residual), len(x)), dtype=float)
-        for idx in range(len(x)):
-            step = 1e-6 * max(1.0, abs(float(x[idx])))
-            shifted = x.copy()
-            shifted[idx] += step
-            jacobian[:, idx] = (self._residual_vector(shifted) - residual) / step
-        return jacobian
-
-    def _residual_vector(self, x: np.ndarray) -> np.ndarray:
-        points, scalars = self._state_from_vector(x)
-        residuals: List[float] = []
-        for constraint in self.sketch.constraints:
-            residuals.extend(self._constraint_residuals(constraint, points, scalars))
-        return np.array(residuals, dtype=float)
-
-    def _constraint_residuals(
-        self,
-        constraint: SketchConstraint,
-        points: Mapping[str, Tuple[float, float]],
-        scalars: Mapping[str, float],
-    ) -> List[float]:
-        refs = self.sketch._constraint_refs(constraint)
-        kind = constraint.kind
-        if kind == "fix":
-            return self._fix_residuals(refs[0], points, scalars)
-        if kind == "coincident":
-            a = self._point(refs[0], points)
-            b = self._point(refs[1], points)
-            return [a[0] - b[0], a[1] - b[1]]
-        if kind == "horizontal":
-            a, b = self._line_points(refs[0], points)
-            return [b[1] - a[1]]
-        if kind == "vertical":
-            a, b = self._line_points(refs[0], points)
-            return [b[0] - a[0]]
-        if kind == "parallel":
-            return [self._cross_normalized(refs[0], refs[1], points)]
-        if kind == "perpendicular":
-            return [self._dot_normalized(refs[0], refs[1], points)]
-        if kind == "collinear":
-            a, _b = self._line_points(refs[0], points)
-            return [self._cross_normalized(refs[0], refs[1], points), self._point_line_distance(a, refs[1], points)]
-        if kind == "equal_length":
-            return [self._line_length(refs[0], points) - self._line_length(refs[1], points)]
-        if kind == "equal_radius":
-            return [self._circle_radius(refs[0], scalars) - self._circle_radius(refs[1], scalars)]
-        if kind == "distance":
-            return [self._point_distance(refs[0], refs[1], points) - _as_float(constraint.value)]
-        if kind == "distance_x":
-            a = self._point(refs[0], points)
-            b = self._point(refs[1], points)
-            return [(b[0] - a[0]) - _as_float(constraint.value)]
-        if kind == "distance_y":
-            a = self._point(refs[0], points)
-            b = self._point(refs[1], points)
-            return [(b[1] - a[1]) - _as_float(constraint.value)]
-        if kind == "length":
-            return [self._line_length(refs[0], points) - _as_float(constraint.value)]
-        if kind == "angle":
-            return [self._line_angle_delta(refs[0], refs[1], points, _as_float(constraint.value))]
-        if kind == "radius":
-            return [self._circle_radius(refs[0], scalars) - _as_float(constraint.value)]
-        if kind == "diameter":
-            return [2.0 * self._circle_radius(refs[0], scalars) - _as_float(constraint.value)]
-        if kind == "point_on":
-            return self._point_on_residuals(refs[0], refs[1], points, scalars)
-        if kind == "concentric":
-            a = self._circle_center(refs[0], points)
-            b = self._circle_center(refs[1], points)
-            return [a[0] - b[0], a[1] - b[1]]
-        if kind == "midpoint":
-            point = self._point(refs[0], points)
-            a, b = self._line_points(refs[1], points)
-            return [point[0] - 0.5 * (a[0] + b[0]), point[1] - 0.5 * (a[1] + b[1])]
-        if kind == "tangent":
-            return [self._tangent_residual(refs[0], refs[1], points, scalars)]
-        if kind == "symmetric":
-            a = self._point(refs[0], points)
-            b = self._point(refs[1], points)
-            axis_a, axis_b = self._line_points(refs[2], points)
-            axis = self._sub(axis_b, axis_a)
-            mid = ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5)
-            return [self._point_line_distance(mid, refs[2], points), self._dot(self._sub(a, b), axis) / max(self._norm(axis), _POINT_EPS)]
-        raise ValueError(f"Unsupported sketch constraint kind '{kind}'")
-
-    def _fix_residuals(
-        self,
-        ref: SketchRef,
-        points: Mapping[str, Tuple[float, float]],
-        scalars: Mapping[str, float],
-    ) -> List[float]:
-        entity = self.sketch.entities[ref.entity_id]
-        if ref.kind == "point" or entity.kind == "point":
-            pid = self.sketch.resolve_point_id(ref)
-            target = self.sketch.entities[pid]
-            point = points[pid]
-            return [point[0] - _as_float(target.data["x"]), point[1] - _as_float(target.data["y"])]
-        if entity.kind == "line":
-            start = self._fix_residuals(self.sketch.point_ref(f"{ref.entity_id}.start"), points, scalars)
-            end = self._fix_residuals(self.sketch.point_ref(f"{ref.entity_id}.end"), points, scalars)
-            return start + end
-        if entity.kind == "circle":
-            center = self._fix_residuals(self.sketch.point_ref(f"{ref.entity_id}.center"), points, scalars)
-            radius_key = f"circle:{ref.entity_id}:radius"
-            return center + [scalars[radius_key] - _as_float(entity.data["radius"])]
-        raise ValueError(f"Cannot fix sketch entity kind '{entity.kind}'")
-
-    def _point(self, ref: SketchRef, points: Mapping[str, Tuple[float, float]]) -> Tuple[float, float]:
-        return points[self.sketch.resolve_point_id(ref)]
-
-    def _line_points(
-        self, ref: SketchRef, points: Mapping[str, Tuple[float, float]]
-    ) -> Tuple[Tuple[float, float], Tuple[float, float]]:
-        entity = self.sketch.entities[ref.entity_id]
-        if entity.kind != "line":
-            raise ValueError(f"Expected line ref, got '{entity.kind}'")
-        return points[str(entity.data["start"])], points[str(entity.data["end"])]
-
-    def _circle_center(self, ref: SketchRef, points: Mapping[str, Tuple[float, float]]) -> Tuple[float, float]:
-        entity = self.sketch.entities[ref.entity_id]
-        if entity.kind != "circle":
-            raise ValueError(f"Expected circle ref, got '{entity.kind}'")
-        return points[str(entity.data["center"])]
-
-    def _circle_radius(self, ref: SketchRef, scalars: Mapping[str, float]) -> float:
-        entity = self.sketch.entities[ref.entity_id]
-        if entity.kind != "circle":
-            raise ValueError(f"Expected circle ref, got '{entity.kind}'")
-        return scalars[f"circle:{ref.entity_id}:radius"]
-
-    def _point_distance(
-        self, a: SketchRef, b: SketchRef, points: Mapping[str, Tuple[float, float]]
-    ) -> float:
-        return self._norm(self._sub(self._point(b, points), self._point(a, points)))
-
-    def _line_length(self, ref: SketchRef, points: Mapping[str, Tuple[float, float]]) -> float:
-        a, b = self._line_points(ref, points)
-        return self._norm(self._sub(b, a))
-
-    def _cross_normalized(self, a_ref: SketchRef, b_ref: SketchRef, points: Mapping[str, Tuple[float, float]]) -> float:
-        a0, a1 = self._line_points(a_ref, points)
-        b0, b1 = self._line_points(b_ref, points)
-        a = self._sub(a1, a0)
-        b = self._sub(b1, b0)
-        return self._cross(a, b) / max(self._norm(a) * self._norm(b), _POINT_EPS)
-
-    def _dot_normalized(self, a_ref: SketchRef, b_ref: SketchRef, points: Mapping[str, Tuple[float, float]]) -> float:
-        a0, a1 = self._line_points(a_ref, points)
-        b0, b1 = self._line_points(b_ref, points)
-        a = self._sub(a1, a0)
-        b = self._sub(b1, b0)
-        return self._dot(a, b) / max(self._norm(a) * self._norm(b), _POINT_EPS)
-
-    def _line_angle_delta(
-        self,
-        a_ref: SketchRef,
-        b_ref: SketchRef,
-        points: Mapping[str, Tuple[float, float]],
-        target: float,
-    ) -> float:
-        a0, a1 = self._line_points(a_ref, points)
-        b0, b1 = self._line_points(b_ref, points)
-        a = self._sub(a1, a0)
-        b = self._sub(b1, b0)
-        angle = math.atan2(self._cross(a, b), self._dot(a, b))
-        return _angle_delta(angle - target)
-
-    def _point_on_residuals(
-        self,
-        point_ref: SketchRef,
-        entity_ref: SketchRef,
-        points: Mapping[str, Tuple[float, float]],
-        scalars: Mapping[str, float],
-    ) -> List[float]:
-        point = self._point(point_ref, points)
-        entity = self.sketch.entities[entity_ref.entity_id]
-        if entity.kind == "line":
-            return [self._point_line_distance(point, entity_ref, points)]
-        if entity.kind == "circle":
-            center = self._circle_center(entity_ref, points)
-            radius = self._circle_radius(entity_ref, scalars)
-            return [self._norm(self._sub(point, center)) - radius]
-        raise ValueError(f"Unsupported point_on target kind '{entity.kind}'")
-
-    def _point_line_distance(
-        self,
-        point: Tuple[float, float],
-        line_ref: SketchRef,
-        points: Mapping[str, Tuple[float, float]],
-    ) -> float:
-        a, b = self._line_points(line_ref, points)
-        ab = self._sub(b, a)
-        return self._cross(self._sub(point, a), ab) / max(self._norm(ab), _POINT_EPS)
-
-    def _tangent_residual(
-        self,
-        a_ref: SketchRef,
-        b_ref: SketchRef,
-        points: Mapping[str, Tuple[float, float]],
-        scalars: Mapping[str, float],
-    ) -> float:
-        a_kind = self.sketch.entities[a_ref.entity_id].kind
-        b_kind = self.sketch.entities[b_ref.entity_id].kind
-        if {a_kind, b_kind} == {"line", "circle"}:
-            line_ref = a_ref if a_kind == "line" else b_ref
-            circle_ref = b_ref if a_kind == "line" else a_ref
-            center = self._circle_center(circle_ref, points)
-            return abs(self._point_line_distance(center, line_ref, points)) - self._circle_radius(circle_ref, scalars)
-        if a_kind == "circle" and b_kind == "circle":
-            a_center = self._circle_center(a_ref, points)
-            b_center = self._circle_center(b_ref, points)
-            return self._norm(self._sub(a_center, b_center)) - (
-                self._circle_radius(a_ref, scalars) + self._circle_radius(b_ref, scalars)
-            )
-        raise ValueError(f"Unsupported tangent target kinds '{a_kind}' and '{b_kind}'")
-
-    @staticmethod
-    def _sub(a: Tuple[float, float], b: Tuple[float, float]) -> Tuple[float, float]:
-        return (float(a[0] - b[0]), float(a[1] - b[1]))
-
-    @staticmethod
-    def _dot(a: Tuple[float, float], b: Tuple[float, float]) -> float:
-        return float(a[0] * b[0] + a[1] * b[1])
-
-    @staticmethod
-    def _cross(a: Tuple[float, float], b: Tuple[float, float]) -> float:
-        return float(a[0] * b[1] - a[1] * b[0])
-
-    @staticmethod
-    def _norm(a: Tuple[float, float]) -> float:
-        return float(math.hypot(a[0], a[1]))
 
 
 __all__ = [

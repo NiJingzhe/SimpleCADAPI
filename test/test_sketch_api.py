@@ -306,6 +306,226 @@ class TestSketchApi(unittest.TestCase):
         self.assertEqual(len(replayed), 1)
         self.assertIsInstance(replayed[0], scad.Face)
 
+    def test_strict_snapshot_comparison_rejects_changed_solved_entity(self):
+        from simplecadapi.operations import _assert_sketch_solve_snapshot_dict_matches
+
+        recorded = {
+            "status": "solved",
+            "dof": 0,
+            "residual_norm": 0.0,
+            "solved_points": {},
+            "solved_scalars": {},
+            "solved_entities": {
+                "circle": {"kind": "circle", "center": [0.0, 0.0], "radius": 1.0}
+            },
+        }
+        changed = json.loads(json.dumps(recorded))
+        changed["solved_entities"]["circle"]["radius"] = 1.5
+
+        with self.assertRaisesRegex(ValueError, "circle.*radius"):
+            _assert_sketch_solve_snapshot_dict_matches(changed, recorded)
+
+    def test_default_solver_backend_is_py_slvs_and_persisted_in_snapshot(self):
+        result = scad.inspect_sketch_rsketchresult(
+            self._make_constrained_rectangle(),
+            require_fully_constrained=True,
+        )
+
+        self.assertEqual(scad.get_default_sketch_solver_backend().name, "py-slvs")
+        self.assertEqual(result.backend, "py-slvs")
+        self.assertEqual(result.backend_version, "1.0.6")
+        self.assertEqual(result.backend_status_code, 5)
+        self.assertEqual(result.to_dict()["backend"], "py-slvs")
+
+    def test_custom_solver_backend_can_be_selected_without_changing_sketch(self):
+        class OffsetBackend:
+            name = "test-offset"
+            version = "1"
+
+            def solve(self, sketch, *, options):
+                self.options = options
+                return scad.SketchSolveResult(
+                    sketch_id=sketch.sketch_id,
+                    status="underconstrained",
+                    dof=2,
+                    residual_norm=0.0,
+                    iterations=0,
+                    solved_points={"p": (3.0, 4.0)},
+                    solved_scalars={},
+                    backend=self.name,
+                    backend_version=self.version,
+                )
+
+        sketch = scad.make_sketch_rsketch("custom")
+        sketch = scad.add_point_rsketch(sketch, "p", 0.0, 0.0)
+        backend = OffsetBackend()
+        scad.register_sketch_solver_backend(backend)
+
+        result = sketch.solve(backend="test-offset", strict=False)
+
+        self.assertEqual(result.solved_points["p"], (3.0, 4.0))
+        self.assertEqual(result.backend, "test-offset")
+        self.assertEqual(backend.options.tolerance, 1e-7)
+        self.assertEqual(sketch.entities["p"].data, {"x": 0.0, "y": 0.0})
+
+    def test_reference_dimension_is_measured_without_driving_geometry(self):
+        sketch = scad.make_sketch_rsketch("reference")
+        sketch = scad.add_point_rsketch(sketch, "a", 0.0, 0.0)
+        sketch = scad.add_point_rsketch(sketch, "b", 3.0, 4.0)
+        sketch = scad.constrain_fix_rsketch(sketch, "a")
+        sketch = scad.constrain_fix_rsketch(sketch, "b")
+        sketch = scad.constrain_distance_rsketch(
+            sketch,
+            "a",
+            "b",
+            99.0,
+            constraint_id="measured",
+            driving=False,
+        )
+
+        result = scad.inspect_sketch_rsketchresult(
+            sketch,
+            require_fully_constrained=True,
+        )
+
+        self.assertEqual(result.status, "solved")
+        self.assertEqual(result.solved_scalars["constraint:measured:value"], 5.0)
+
+
+    def test_arc_and_bspline_solve_results_cover_non_point_entities(self):
+        sketch = scad.make_sketch_rsketch("curves")
+        for point_id, point in {
+            "center": (0.0, 0.0),
+            "arc_start": (1.0, 0.0),
+            "arc_end": (0.0, 1.0),
+            "spline_start": (1.0, 0.0),
+            "spline_end": (3.0, 0.0),
+        }.items():
+            sketch = scad.add_point_rsketch(sketch, point_id, *point)
+        sketch = scad.add_arc_rsketch(sketch, "arc", "arc_start", "arc_end", "center")
+        sketch = scad.add_bspline_rsketch(
+            sketch,
+            "spline",
+            "spline_start",
+            "spline_end",
+            [(1.0, 0.0), (1.5, 1.0), (2.5, 1.0), (3.0, 0.0)],
+            knots=[0.0, 1.0],
+            multiplicities=[4, 4],
+        )
+        result = scad.inspect_sketch_rsketchresult(sketch, strict=False)
+
+        self.assertEqual(result.solved_entities["arc"]["kind"], "arc")
+        self.assertAlmostEqual(result.solved_entities["arc"]["radius"], 1.0)
+        self.assertEqual(result.solved_entities["spline"]["kind"], "bspline")
+        self.assertEqual(result.solved_entities["spline"]["solver_representation"], "cubic_bezier")
+        self.assertEqual(len(result.solved_entities["spline"]["control_points"]), 4)
+
+    def test_tangent_modes_and_curve_endpoint_selectors_are_serializable(self):
+        sketch = scad.make_sketch_rsketch("tangent_modes")
+        sketch = scad.add_point_rsketch(sketch, "a", 0.0, 0.0)
+        sketch = scad.add_point_rsketch(sketch, "b", 5.0, 0.0)
+        sketch = scad.add_circle_rsketch(sketch, "left", "a", 2.0)
+        sketch = scad.add_circle_rsketch(sketch, "right", "b", 1.0)
+        sketch = scad.constrain_tangent_rsketch(
+            sketch, "left", "right", mode="internal", constraint_id="internal"
+        )
+        tangent = sketch.constraints[-1]
+
+        self.assertEqual(tangent.metadata["mode"], "internal")
+        payload = sketch.to_dict()
+        self.assertEqual(payload["constraints"][-1]["metadata"]["mode"], "internal")
+
+        for mode, distance in (("external", 3.0), ("internal", 1.0)):
+            solved = scad.make_sketch_rsketch(f"{mode}_tangent")
+            solved = scad.add_point_rsketch(solved, "a", 0.0, 0.0)
+            solved = scad.add_point_rsketch(solved, "b", distance, 0.0)
+            solved = scad.add_circle_rsketch(solved, "left", "a", 2.0)
+            solved = scad.add_circle_rsketch(solved, "right", "b", 1.0)
+            solved = scad.constrain_fix_rsketch(solved, "left")
+            solved = scad.constrain_fix_rsketch(solved, "right")
+            solved = scad.constrain_tangent_rsketch(
+                solved, "left", "right", mode=mode, constraint_id="tangent"
+            )
+            result = scad.inspect_sketch_rsketchresult(
+                solved, require_fully_constrained=True
+            )
+            self.assertEqual(result.status, "solved")
+
+    def test_reference_length_measurement_supports_bspline(self):
+        sketch = scad.make_sketch_rsketch("spline_measure")
+        sketch = scad.add_point_rsketch(sketch, "a", 0.0, 0.0)
+        sketch = scad.add_point_rsketch(sketch, "b", 3.0, 0.0)
+        sketch = scad.add_bspline_rsketch(
+            sketch,
+            "curve",
+            "a",
+            "b",
+            [(0.0, 0.0), (1.0, 1.0), (2.0, 1.0), (3.0, 0.0)],
+            knots=[0.0, 1.0],
+            multiplicities=[4, 4],
+        )
+        sketch = scad.constrain_fix_rsketch(sketch, "curve")
+        sketch = scad.constrain_length_rsketch(
+            sketch, "curve", 0.0, driving=False, constraint_id="curve_length"
+        )
+        result = scad.inspect_sketch_rsketchresult(sketch, require_fully_constrained=True)
+
+        self.assertGreater(result.solved_scalars["constraint:curve_length:value"], 3.0)
+
+    def test_reference_arc_length_uses_radius_and_sweep(self):
+        sketch = scad.make_sketch_rsketch("arc_measure")
+        sketch = scad.add_point_rsketch(sketch, "center", 0.0, 0.0)
+        sketch = scad.add_point_rsketch(sketch, "start", 1.0, 0.0)
+        sketch = scad.add_point_rsketch(sketch, "end", 0.0, 1.0)
+        sketch = scad.add_arc_rsketch(sketch, "arc", "start", "end", "center")
+        sketch = scad.constrain_fix_rsketch(sketch, "arc")
+        sketch = scad.constrain_length_rsketch(
+            sketch, "arc", 0.0, driving=False, constraint_id="arc_length"
+        )
+        result = scad.inspect_sketch_rsketchresult(sketch, require_fully_constrained=True)
+
+        self.assertAlmostEqual(
+            result.solved_scalars["constraint:arc_length:value"],
+            result.solved_entities["arc"]["length"],
+        )
+
+    def test_driving_curve_length_is_rejected_instead_of_using_chord_length(self):
+        sketch = scad.make_sketch_rsketch("arc_driving_length")
+        sketch = scad.add_point_rsketch(sketch, "center", 0.0, 0.0)
+        sketch = scad.add_point_rsketch(sketch, "start", 1.0, 0.0)
+        sketch = scad.add_point_rsketch(sketch, "end", 0.0, 1.0)
+        sketch = scad.add_arc_rsketch(sketch, "arc", "start", "end", "center")
+        sketch = scad.constrain_length_rsketch(sketch, "arc", 2.0)
+
+        with self.assertRaisesRegex(ValueError, "Driving length constraints.*only for lines"):
+            scad.inspect_sketch_rsketchresult(sketch)
+
+    def test_reference_rational_bspline_length_uses_weights(self):
+        sketch = scad.make_sketch_rsketch("rational_spline_measure")
+        sketch = scad.add_point_rsketch(sketch, "a", 1.0, 0.0)
+        sketch = scad.add_point_rsketch(sketch, "b", 0.0, 1.0)
+        sketch = scad.add_bspline_rsketch(
+            sketch,
+            "curve",
+            "a",
+            "b",
+            [(1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+            degree=2,
+            knots=[0.0, 1.0],
+            multiplicities=[3, 3],
+            weights=[1.0, 2.0**-0.5, 1.0],
+        )
+        sketch = scad.constrain_fix_rsketch(sketch, "curve")
+        sketch = scad.constrain_length_rsketch(
+            sketch, "curve", 0.0, driving=False, constraint_id="curve_length"
+        )
+        result = scad.inspect_sketch_rsketchresult(sketch, require_fully_constrained=True)
+
+        self.assertAlmostEqual(
+            result.solved_scalars["constraint:curve_length:value"],
+            0.5 * 3.141592653589793,
+            places=3,
+        )
 
 if __name__ == "__main__":
     unittest.main()

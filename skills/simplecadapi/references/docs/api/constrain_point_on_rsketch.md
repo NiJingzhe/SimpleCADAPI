@@ -14,4 +14,4 @@ def constrain_point_on_rsketch(sketch: Sketch, point: Union[SketchRef, str], ent
 
 ## Description
 
-Constrain a sketch point to lie on a line or circle.
+Constrain a sketch point to lie on a line, circle, or circular arc. For arcs, the solver enforces the supporting-circle radius; endpoint/sweep membership remains part of the sketch profile validation.
