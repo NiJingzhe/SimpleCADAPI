@@ -14,4 +14,4 @@ def constrain_equal_radius_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: 
 
 ## Description
 
-Constrain two sketch circles to have equal radius.
+Constrain any pair of sketch circles or circular arcs to have equal radius.

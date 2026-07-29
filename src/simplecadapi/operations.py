@@ -2386,13 +2386,13 @@ def constrain_point_on_rsketch(
     *,
     constraint_id: Optional[str] = None,
 ) -> Sketch:
-    """Constrain a sketch point to lie on a line or circle."""
+    """Constrain a sketch point to lie on a line, circle, or circular arc."""
     return _constrain_rsketch(
         sketch,
         "point_on",
         [point, entity],
         constraint_id=constraint_id,
-        expected=["point", ("line", "circle")],
+        expected=["point", ("line", "circle", "arc")],
     )
 
 
@@ -2470,15 +2470,28 @@ def constrain_tangent_rsketch(
     a: Union[SketchRef, str],
     b: Union[SketchRef, str],
     *,
+    at_a: Optional[str] = None,
+    at_b: Optional[str] = None,
+    mode: str = "external",
     constraint_id: Optional[str] = None,
 ) -> Sketch:
-    """Constrain supported sketch curves to be tangent."""
+    """Constrain supported curves to be tangent on an explicit branch.
+
+    ``at_a``/``at_b`` select ``"start"`` or ``"end"`` for arc and
+    B-spline endpoint tangency. Circle-circle tangency accepts
+    ``mode="external"`` or ``mode="internal"``.
+    """
+    if at_a not in {None, "start", "end"} or at_b not in {None, "start", "end"}:
+        raise ValueError("Tangent endpoint selectors must be 'start' or 'end'")
+    if mode not in {"external", "internal"}:
+        raise ValueError("Tangent mode must be 'external' or 'internal'")
     return _constrain_rsketch(
         sketch,
         "tangent",
         [a, b],
         constraint_id=constraint_id,
-        expected=[("line", "circle"), ("line", "circle")],
+        metadata={"at_a": at_a, "at_b": at_b, "mode": mode},
+        expected=[("line", "circle", "arc", "bspline"), ("line", "circle", "arc", "bspline")],
     )
 
 
@@ -2558,13 +2571,13 @@ def constrain_equal_radius_rsketch(
     *,
     constraint_id: Optional[str] = None,
 ) -> Sketch:
-    """Constrain two sketch circles to have equal radius."""
+    """Constrain two circles/arcs to have equal radius."""
     return _constrain_rsketch(
         sketch,
         "equal_radius",
         [a, b],
         constraint_id=constraint_id,
-        expected=["circle", "circle"],
+        expected=[("circle", "arc"), ("circle", "arc")],
     )
 
 
@@ -2639,7 +2652,7 @@ def constrain_length_rsketch(
     constraint_id: Optional[str] = None,
     driving: bool = True,
 ) -> Sketch:
-    """Add a driving line length constraint."""
+    """Add a driving length constraint to a line, arc, or B-spline."""
     return _constrain_rsketch(
         sketch,
         "length",
@@ -2647,7 +2660,7 @@ def constrain_length_rsketch(
         value=value,
         constraint_id=constraint_id,
         driving=driving,
-        expected=["line"],
+        expected=[("line", "arc", "bspline")],
     )
 
 
@@ -2680,7 +2693,7 @@ def constrain_radius_rsketch(
     constraint_id: Optional[str] = None,
     driving: bool = True,
 ) -> Sketch:
-    """Add a driving circle radius constraint."""
+    """Add a driving circle or arc radius constraint."""
     return _constrain_rsketch(
         sketch,
         "radius",
@@ -2688,7 +2701,7 @@ def constrain_radius_rsketch(
         value=value,
         constraint_id=constraint_id,
         driving=driving,
-        expected=["circle"],
+        expected=[("circle", "arc")],
     )
 
 
@@ -2700,7 +2713,7 @@ def constrain_diameter_rsketch(
     constraint_id: Optional[str] = None,
     driving: bool = True,
 ) -> Sketch:
-    """Add a driving circle diameter constraint."""
+    """Add a driving circle or arc diameter constraint."""
     return _constrain_rsketch(
         sketch,
         "diameter",
@@ -2708,7 +2721,7 @@ def constrain_diameter_rsketch(
         value=value,
         constraint_id=constraint_id,
         driving=driving,
-        expected=["circle"],
+        expected=[("circle", "arc")],
     )
 
 
@@ -3120,6 +3133,73 @@ def _assert_sketch_solve_snapshot_dict_matches(
             raise ValueError(
                 f"Sketch solve scalar '{scalar_id}' changed beyond recorded tolerance"
             )
+
+    actual_entities = cast(Dict[str, Any], actual.get("solved_entities", {}))
+    expected_entities = cast(Dict[str, Any], snapshot.get("solved_entities", {}))
+    _assert_sketch_solved_entities_match(
+        actual_entities,
+        expected_entities,
+        tolerance=tolerance,
+    )
+
+
+def _assert_sketch_solved_entities_match(
+    actual: Dict[str, Any],
+    expected: Dict[str, Any],
+    *,
+    tolerance: float,
+) -> None:
+    if set(actual) != set(expected):
+        raise ValueError("Sketch solve entity set changed")
+    for entity_id, entity in actual.items():
+        _assert_sketch_solved_value_matches(
+            entity,
+            expected[entity_id],
+            tolerance=tolerance,
+            path=f"Sketch solve entity '{entity_id}'",
+        )
+
+
+def _assert_sketch_solved_value_matches(
+    actual: Any,
+    expected: Any,
+    *,
+    tolerance: float,
+    path: str,
+) -> None:
+    if isinstance(actual, Mapping) and isinstance(expected, Mapping):
+        if set(actual) != set(expected):
+            raise ValueError(f"{path} field set changed")
+        for key, value in actual.items():
+            _assert_sketch_solved_value_matches(
+                value,
+                expected[key],
+                tolerance=tolerance,
+                path=f"{path}.{key}",
+            )
+        return
+    if isinstance(actual, (list, tuple)) and isinstance(expected, (list, tuple)):
+        if len(actual) != len(expected):
+            raise ValueError(f"{path} sequence length changed")
+        for index, value in enumerate(actual):
+            _assert_sketch_solved_value_matches(
+                value,
+                expected[index],
+                tolerance=tolerance,
+                path=f"{path}[{index}]",
+            )
+        return
+    if (
+        isinstance(actual, (int, float))
+        and not isinstance(actual, bool)
+        and isinstance(expected, (int, float))
+        and not isinstance(expected, bool)
+    ):
+        if abs(float(actual) - float(expected)) > tolerance:
+            raise ValueError(f"{path} changed beyond recorded tolerance")
+        return
+    if actual != expected:
+        raise ValueError(f"{path} changed")
 
 
 def make_line_redge(

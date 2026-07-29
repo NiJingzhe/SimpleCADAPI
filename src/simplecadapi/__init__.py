@@ -246,6 +246,15 @@ from .product import (
     ScalarLimit,
 )
 from .sketch import Sketch, SketchConstraint, SketchConstraintDiagnostic, SketchRef, SketchSolveResult
+from .sketch_solver import (
+    SketchSolverBackend,
+    SketchSolverOptions,
+    get_default_sketch_solver_backend,
+    get_sketch_solver_backend,
+    register_sketch_solver_backend,
+    set_default_sketch_solver_backend,
+    sketch_solver_backend,
+)
 from .tagging import (
     LineageDerivation,
     LineagePolicy,
@@ -580,6 +589,13 @@ __all__ = [
     "SketchConstraintDiagnostic",
     "SketchRef",
     "SketchSolveResult",
+    "SketchSolverBackend",
+    "SketchSolverOptions",
+    "get_default_sketch_solver_backend",
+    "get_sketch_solver_backend",
+    "register_sketch_solver_backend",
+    "set_default_sketch_solver_backend",
+    "sketch_solver_backend",
     "LineageDerivation",
     "LineagePolicy",
     "TagAttachment",

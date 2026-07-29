@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def constrain_tangent_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch
+def constrain_tangent_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, at_a: Optional[str] = None, at_b: Optional[str] = None, mode: str = "external", constraint_id: Optional[str] = None) -> Sketch
 ```
 
 *Source: operations.py*
@@ -14,4 +14,4 @@ def constrain_tangent_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union
 
 ## Description
 
-Constrain supported sketch curves to be tangent.
+Constrain lines, circles, circular arcs, and cubic B-spline endpoints to be tangent. Arc/B-spline endpoint tangency requires `at_a` or `at_b` set to `"start"` or `"end"`. Circle-circle tangency supports `mode="external"` and `mode="internal"`.
