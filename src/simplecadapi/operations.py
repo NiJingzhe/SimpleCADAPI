@@ -121,6 +121,7 @@ from .kernel.ocp_curves import (
     make_bspline_edge,
     make_circle_edge,
     make_helix_wire,
+    make_interpolated_bspline_edge,
     make_line_edge,
     make_polyline_wire,
     make_wire_from_edges as make_wire_from_edges_ocp,
@@ -168,6 +169,7 @@ _OP_MAKE_CIRCLE_REDGE = "make_circle_redge"
 _OP_MAKE_THREE_POINT_ARC_REDGE = "make_three_point_arc_redge"
 _OP_MAKE_ANGLE_ARC_REDGE = "make_angle_arc_redge"
 _OP_MAKE_SPLINE_REDGE = "make_spline_redge"
+_OP_MAKE_INTERPOLATED_SPLINE_REDGE = "make_interpolated_spline_redge"
 _OP_MAKE_HELIX_REDGE = "make_helix_redge"
 _OP_MAKE_WIRE_FROM_EDGES_RWIRE = "make_wire_from_edges_rwire"
 _OP_MAKE_FACE_FROM_WIRE_RFACE = "make_face_from_wire_rface"
@@ -645,7 +647,9 @@ def _copy_runtime_state(source: AnyShape, target: AnyShape) -> AnyShape:
         target._runtime = {
             key: value
             for key, value in runtime.items()
-            if not key == "mesh.error" and not key == "mesh.default" and not key.startswith("mesh:")
+            if not key == "mesh.error"
+            and not key == "mesh.default"
+            and not key.startswith("mesh:")
         }
     return target
 
@@ -1416,16 +1420,10 @@ def _copy_exact_topology_identity_tags(
     source_members = [
         member
         for source in sources
-        for member in (
-            source.get_edges()
-            if hasattr(source, "get_edges")
-            else [source]
-        )
+        for member in (source.get_edges() if hasattr(source, "get_edges") else [source])
         if isinstance(member, Edge)
     ]
-    target_members = (
-        target.get_edges() if hasattr(target, "get_edges") else [target]
-    )
+    target_members = target.get_edges() if hasattr(target, "get_edges") else [target]
     result = target
     for target_member in target_members:
         if not isinstance(target_member, Edge):
@@ -1470,11 +1468,7 @@ def _apply_topology_identity_tag(
         scope,
         targets,
         normalized,
-        (
-            TopologyPropagation.DOWNWARD
-            if kind == "face"
-            else TopologyPropagation.LOCAL
-        ),
+        (TopologyPropagation.DOWNWARD if kind == "face" else TopologyPropagation.LOCAL),
         LineagePolicy.CONTINUATION_FRAGMENT,
         authoring_source=authoring_source,
         extra_evidence={
@@ -1759,7 +1753,10 @@ def _apply_operation_role_tags(
 def _topology_identity_local_name(shape: AnyShape) -> Optional[str]:
     for binding in shape._local_tag_bindings():
         payload = _topology_identity_payload(binding)
-        if payload is not None and payload.get("kind") == shape.__class__.__name__.lower():
+        if (
+            payload is not None
+            and payload.get("kind") == shape.__class__.__name__.lower()
+        ):
             local_name = payload.get("local_name")
             if isinstance(local_name, str) and local_name:
                 return local_name
@@ -3099,7 +3096,9 @@ def _apply_sketch_promotion_identity_tags(
     """Attach topology-identity tags from an exact sketch promotion map."""
 
     sketch_prefix = _safe_semantic_tag("sketch", sketch.name or sketch.sketch_id)
-    profile_local_name = _sketch_topology_tag_local_name(profile_payload.get("id", "profile"))
+    profile_local_name = _sketch_topology_tag_local_name(
+        profile_payload.get("id", "profile")
+    )
     profile_kind = "wire" if isinstance(shape, Wire) else "face"
     profile_tag = f"{sketch_prefix}.profile.{profile_local_name}"
     shape._add_tag_binding(
@@ -3589,9 +3588,11 @@ def make_circle_rwire(
                 _apply_profile_tag_prefix(
                     wire,
                     tag_prefix,
-                    [local_edge_tag]
-                    if tag_prefix is not None or edge_tag is not None
-                    else None,
+                    (
+                        [local_edge_tag]
+                        if tag_prefix is not None or edge_tag is not None
+                        else None
+                    ),
                     authoring_source="simplecadapi.make_circle_rwire.tag_prefix",
                 ),
             )
@@ -3614,9 +3615,11 @@ def make_circle_rwire(
             _apply_profile_tag_prefix(
                 wire,
                 tag_prefix,
-                [local_edge_tag]
-                if tag_prefix is not None or edge_tag is not None
-                else None,
+                (
+                    [local_edge_tag]
+                    if tag_prefix is not None or edge_tag is not None
+                    else None
+                ),
                 authoring_source="simplecadapi.make_circle_rwire.tag_prefix",
             ),
         )
@@ -3654,9 +3657,7 @@ def make_circle_rface(
                 tag_prefix=tag_prefix,
                 edge_tag=edge_tag,
             )
-            return make_face_from_wire_rface(
-                wire, normal=normal, tag_prefix=tag_prefix
-            )
+            return make_face_from_wire_rface(wire, normal=normal, tag_prefix=tag_prefix)
 
         with suspend_graph_recording():
             wire = make_circle_rwire(
@@ -5177,6 +5178,168 @@ def make_spline_redge(
             ],
             error=e,
         )
+
+
+def _normalize_interpolation_points(
+    points: Sequence[Sequence[ScalarLike]],
+    *,
+    periodic: bool,
+    tolerance: float,
+) -> Tuple[Tuple[float, float, float], ...]:
+    normalized = list(_normalize_bspline_control_points(points))
+    if periodic and len(normalized) >= 2:
+        if (
+            np.linalg.norm(np.asarray(normalized[0]) - np.asarray(normalized[-1]))
+            <= tolerance
+        ):
+            normalized.pop()
+    minimum = 3 if periodic else 2
+    if len(normalized) < minimum:
+        qualifier = "distinct" if periodic else ""
+        raise ValueError(
+            f"interpolation requires at least {minimum} {qualifier} points".replace(
+                "  ", " "
+            )
+        )
+    adjacent_pairs = list(zip(normalized, normalized[1:]))
+    if periodic:
+        adjacent_pairs.append((normalized[-1], normalized[0]))
+    for index, (first, second) in enumerate(adjacent_pairs):
+        if np.linalg.norm(np.asarray(first) - np.asarray(second)) <= tolerance:
+            second_index = (index + 1) % len(normalized)
+            raise ValueError(
+                f"interpolation points {index} and {second_index} are within "
+                f"the interpolation tolerance"
+            )
+    return tuple(normalized)
+
+
+def make_interpolated_spline_redge(
+    *,
+    points: Sequence[Sequence[ScalarLike]],
+    periodic: bool = False,
+    tolerance: ScalarLike = 1.0e-6,
+) -> Edge:
+    """Interpolate an exact B-spline edge through the supplied points."""
+    try:
+        periodic_value = bool(periodic)
+        tolerance_value = float(evaluate_scalar(tolerance))
+        if not math.isfinite(tolerance_value) or tolerance_value <= 0.0:
+            raise ValueError("tolerance must be a finite positive value")
+        local_points = _normalize_interpolation_points(
+            points,
+            periodic=periodic_value,
+            tolerance=tolerance_value,
+        )
+        cs = get_current_cs()
+        global_points = tuple(
+            tuple(float(component) for component in cs.transform_point(np.array(point)))
+            for point in local_points
+        )
+        edge = Edge(
+            make_interpolated_bspline_edge(
+                global_points,
+                periodic=periodic_value,
+                tolerance=tolerance_value,
+            )
+        )
+        edge.set_metadata(
+            "geo",
+            {
+                "type": "bspline",
+                "construction": "interpolated",
+                "interpolation_points": [list(point) for point in global_points],
+                "periodic": periodic_value,
+                "tolerance": tolerance_value,
+            },
+        )
+        return cast(
+            Edge,
+            _finalize_primitive_shape(
+                edge,
+                op=_OP_MAKE_INTERPOLATED_SPLINE_REDGE,
+                params={
+                    "points": points,
+                    "periodic": periodic_value,
+                    "tolerance": tolerance,
+                },
+                tags={"primitive", "edge"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_interpolated_spline_redge",
+            what_happened="Failed to interpolate a B-spline edge through the input points.",
+            possible_causes=[
+                "Too few distinct interpolation points were provided.",
+                "Consecutive points are duplicated or contain invalid coordinates.",
+                "The requested periodic interpolation is geometrically inconsistent.",
+            ],
+            how_to_fix=[
+                "Provide at least two open-curve points or three periodic-curve points.",
+                "Remove consecutive duplicate points; a repeated periodic endpoint is optional.",
+                "Use a smaller positive tolerance when nearby points must remain distinct.",
+            ],
+            error=e,
+        )
+
+
+def make_interpolated_spline_rwire(
+    *,
+    points: Sequence[Sequence[ScalarLike]],
+    periodic: bool = False,
+    tolerance: ScalarLike = 1.0e-6,
+) -> Wire:
+    """Create a one-edge wire that interpolates the supplied points."""
+    try:
+        edge_kwargs = {
+            "points": points,
+            "periodic": periodic,
+            "tolerance": tolerance,
+        }
+        if get_active_session() is not None:
+            edge = make_interpolated_spline_redge(**edge_kwargs)
+            return make_wire_from_edges_rwire([edge])
+
+        with suspend_graph_recording():
+            edge = make_interpolated_spline_redge(**edge_kwargs)
+        wire_shape = make_wire_from_edges_ocp([edge.wrapped])
+        return cast(
+            Wire,
+            _finalize_primitive_shape(
+                Wire(wire_shape),
+                op="make_interpolated_spline_wire",
+                params=edge_kwargs,
+                tags={"primitive", "wire"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_interpolated_spline_rwire",
+            what_happened="Failed to create an interpolated spline wire.",
+            possible_causes=[
+                "The interpolated spline edge could not be created.",
+                "The kernel rejected the resulting one-edge wire.",
+            ],
+            how_to_fix=[
+                "Validate the interpolation points and tolerance.",
+                "Use periodic=True for a closed profile and omit a duplicated final point.",
+            ],
+            error=e,
+        )
+
+
+def make_periodic_spline_rwire(
+    *,
+    points: Sequence[Sequence[ScalarLike]],
+    tolerance: ScalarLike = 1.0e-6,
+) -> Wire:
+    """Create a closed periodic spline wire interpolating the supplied points."""
+    return make_interpolated_spline_rwire(
+        points=points,
+        periodic=True,
+        tolerance=tolerance,
+    )
 
 
 def make_spline_rwire(
@@ -8894,7 +9057,9 @@ def loft_rsolid(
         result = (
             cast(Solid, tracked.shape)
             if tracked is not None
-            else Solid(make_loft_solid((profile.wrapped for profile in profiles), ruled=ruled))
+            else Solid(
+                make_loft_solid((profile.wrapped for profile in profiles), ruled=ruled)
+            )
         )
 
         all_metadata = {}

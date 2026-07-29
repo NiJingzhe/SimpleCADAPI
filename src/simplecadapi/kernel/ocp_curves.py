@@ -10,9 +10,10 @@ from OCP.BRepLib import BRepLib
 from OCP.GC import GC_MakeArcOfCircle, GC_MakeCircle
 from OCP.GCE2d import GCE2d_MakeSegment
 from OCP.Geom import Geom_BSplineCurve
+from OCP.GeomAPI import GeomAPI_Interpolate
 from OCP.Geom2d import Geom2d_Line
 from OCP.Geom import Geom_ConicalSurface, Geom_CylindricalSurface
-from OCP.TColgp import TColgp_Array1OfPnt
+from OCP.TColgp import TColgp_Array1OfPnt, TColgp_HArray1OfPnt
 from OCP.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
 from OCP.gp import (
     gp_Ax2,
@@ -103,6 +104,31 @@ def make_bspline_edge(
             bool(periodic),
         )
     return BRepBuilderAPI_MakeEdge(curve).Edge()
+
+
+def make_interpolated_bspline_edge(
+    points: Sequence[Sequence[float]],
+    *,
+    periodic: bool = False,
+    tolerance: float = 1.0e-6,
+):
+    interpolation_points = TColgp_HArray1OfPnt(1, len(points))
+    for idx, point in enumerate(points, start=1):
+        interpolation_points.SetValue(idx, _pnt(point))
+
+    interpolator = GeomAPI_Interpolate(
+        interpolation_points,
+        bool(periodic),
+        float(tolerance),
+    )
+    interpolator.Perform()
+    if not interpolator.IsDone():
+        raise ValueError("OCP B-spline interpolation failed")
+
+    builder = BRepBuilderAPI_MakeEdge(interpolator.Curve())
+    if not builder.IsDone():
+        raise ValueError("OCP interpolated B-spline edge builder failed")
+    return builder.Edge()
 
 
 def make_wire_from_edges(edges: Iterable[Any]):
