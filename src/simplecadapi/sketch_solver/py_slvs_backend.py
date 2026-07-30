@@ -218,19 +218,22 @@ class _PySlvsSystem:
         data: Mapping[str, object],
     ) -> None:
         raw_points = data["control_points"]
+        resolved_points = self._resolved_bspline_control_points(data)
         segments = self._bezier_segments_from_bspline(data)
         solver_mode = "cubic_bezier" if segments is not None else "fixed_shape"
         poles: List[int] = []
         for index, point in enumerate(raw_points):
-            endpoint_id = (
-                str(data["start"])
-                if index == 0
-                else str(data["end"])
-                if index == len(raw_points) - 1
+            point_id = (
+                str(point.get("point_id", point.get("point")))
+                if isinstance(point, Mapping)
                 else None
             )
-            if endpoint_id is not None:
-                endpoint = self.point_handles[endpoint_id]
+            if point_id is None and index == 0:
+                point_id = str(data["start"])
+            elif point_id is None and index == len(raw_points) - 1:
+                point_id = str(data["end"])
+            if point_id is not None:
+                endpoint = self.point_handles[str(point_id)]
                 poles.append(
                     self.system.addPoint2d(
                         self.workplane,
@@ -243,8 +246,8 @@ class _PySlvsSystem:
                 poles.append(
                     self.system.addPoint2dV(
                         self.workplane,
-                        float(point[0]),
-                        float(point[1]),
+                        float(resolved_points[index][0]),
+                        float(resolved_points[index][1]),
                         group=self._SOLVE_GROUP if segments is not None else self._FIXED_GROUP,
                     )
                 )
@@ -268,11 +271,31 @@ class _PySlvsSystem:
         if len(segment_handles) == 1:
             self.entity_handles[entity_id] = segment_handles[0]
 
+    def _resolved_bspline_control_points(
+        self,
+        data: Mapping[str, object],
+    ) -> List[Tuple[float, float]]:
+        from ..sketch import _as_float
+
+        points: List[Tuple[float, float]] = []
+        for control in data["control_points"]:
+            if isinstance(control, Mapping):
+                point_id = control.get("point_id", control.get("point"))
+                if point_id is None:
+                    raise ValueError("B-spline control-point mapping requires point_id")
+                point = self.sketch.entities[str(point_id)]
+                points.append(
+                    (_as_float(point.data["x"]), _as_float(point.data["y"]))
+                )
+            else:
+                points.append((float(control[0]), float(control[1])))
+        return points
+
     def _bezier_segments_from_bspline(
         self,
         data: Mapping[str, object],
     ) -> Optional[List[Tuple[int, int, int, int]]]:
-        control_points = data["control_points"]
+        control_points = self._resolved_bspline_control_points(data)
         weights = data.get("weights")
         degree = int(data["degree"])
         if bool(data.get("periodic", False)):

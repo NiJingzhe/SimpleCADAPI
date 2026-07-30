@@ -95,6 +95,16 @@ def _sketch_solved_radius(entity_id, entity, solve_snapshot):
 def _sketch_profile_entity_ids(params, sketch_payload):
     promotion_map = params.get('promotion_map') if isinstance(params, dict) else None
     if isinstance(promotion_map, dict):
+        loops = promotion_map.get('loops') or []
+        loop_ids = [
+            str(edge.get('entity_id'))
+            for loop in loops
+            if isinstance(loop, dict)
+            for edge in (loop.get('edges') or [])
+            if isinstance(edge, dict) and edge.get('entity_id') is not None
+        ]
+        if loop_ids:
+            return loop_ids
         edges = promotion_map.get('edges') or []
         ids = [str(edge.get('entity_id')) for edge in edges if isinstance(edge, dict) and edge.get('entity_id') is not None]
         if ids:
@@ -125,6 +135,15 @@ def _sketch_xy_to_world(x, y, origin, x_axis, y_axis):
     )
 
 
+def _sketch_control_point_xy(control, sketch_payload, solve_snapshot):
+    if isinstance(control, dict):
+        point_id = control.get('point_id', control.get('point'))
+        if point_id is None:
+            raise RuntimeError('Sketch B-spline control-point mapping requires point_id')
+        return _sketch_solved_point(str(point_id), sketch_payload, solve_snapshot)
+    return float(control[0]), float(control[1])
+
+
 def _sketch_local_point(point_id, sketch_payload, solve_snapshot):
     x, y = _sketch_solved_point(point_id, sketch_payload, solve_snapshot)
     return App.Vector(x, y, 0.0)
@@ -151,10 +170,23 @@ def _sketch_wire_shape_from_promotion(params):
         elif kind == 'arc':
             start = _sketch_world_point(str(entity.get('start')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
             end = _sketch_world_point(str(entity.get('end')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
-            center = _sketch_world_point(str(entity.get('center')), sketch_payload, solve_snapshot, origin, x_axis, y_axis)
             import math as _math
-            radius = _math.hypot(start.x - center.x, start.y - center.y)
-            edge_shapes.append(Part.ArcOfCircle(Part.Circle(center, z_axis, radius), _math.atan2(start.y - center.y, start.x - center.x), _math.atan2(end.y - center.y, end.x - center.x)).toShape())
+            start_xy = _sketch_solved_point(str(entity.get('start')), sketch_payload, solve_snapshot)
+            end_xy = _sketch_solved_point(str(entity.get('end')), sketch_payload, solve_snapshot)
+            center_xy = _sketch_solved_point(str(entity.get('center')), sketch_payload, solve_snapshot)
+            radius = _math.hypot(start_xy[0] - center_xy[0], start_xy[1] - center_xy[1])
+            start_angle = _math.atan2(start_xy[1] - center_xy[1], start_xy[0] - center_xy[0])
+            end_angle = _math.atan2(end_xy[1] - center_xy[1], end_xy[0] - center_xy[0])
+            sweep = (end_angle - start_angle) % (2.0 * _math.pi)
+            middle_angle = start_angle + 0.5 * sweep
+            middle = _sketch_xy_to_world(
+                center_xy[0] + radius * _math.cos(middle_angle),
+                center_xy[1] + radius * _math.sin(middle_angle),
+                origin,
+                x_axis,
+                y_axis,
+            )
+            edge_shapes.append(Part.Arc(start, middle, end).toShape())
         elif kind == 'bspline':
             cps_data = entity.get('control_points', [])
             degree = int(entity.get('degree', 3))
@@ -162,7 +194,10 @@ def _sketch_wire_shape_from_promotion(params):
             mults = entity.get('multiplicities')
             weights = entity.get('weights')
             periodic = bool(entity.get('periodic', False))
-            cps = [_sketch_xy_to_world(float(p[0]), float(p[1]), origin, x_axis, y_axis) for p in cps_data]
+            cps = [
+                _sketch_xy_to_world(*_sketch_control_point_xy(p, sketch_payload, solve_snapshot), origin, x_axis, y_axis)
+                for p in cps_data
+            ]
             curve = Part.BSplineCurve()
             if weights:
                 curve.buildFromPolesMultsKnots(cps, mults, knots, periodic, degree, weights)
@@ -281,8 +316,10 @@ def _target_point_id(target, by_id):
         return entity_id
     if kind == 'line' and subentity in {'start', 'end'}:
         return str(entity.get(subentity))
-    if kind == 'circle' and subentity == 'center':
+    if kind in {'circle', 'arc'} and subentity == 'center':
         return str(entity.get('center'))
+    if kind in {'arc', 'bspline'} and subentity in {'start', 'end'}:
+        return str(entity.get(subentity))
     return None
 
 
@@ -409,8 +446,8 @@ def _materialize_sketch_constraints(sketch_obj, sketch_payload, params, param_ex
         if kind in {'equal_radius', 'concentric'} and len(targets) == 2:
             a = _target_entity_ref(targets[0], by_id, geom_by_entity)
             b = _target_entity_ref(targets[1], by_id, geom_by_entity)
-            if a is None or b is None or a[1] != 'circle' or b[1] != 'circle':
-                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} requires two materialized circles')
+            if a is None or b is None or a[1] not in {'circle', 'arc'} or b[1] not in {'circle', 'arc'}:
+                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} requires two materialized circles or arcs')
                 continue
             if kind == 'equal_radius':
                 _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Equal', int(a[0]), int(b[0]))
@@ -421,8 +458,8 @@ def _materialize_sketch_constraints(sketch_obj, sketch_payload, params, param_ex
         if kind == 'tangent' and len(targets) == 2:
             a = _target_entity_ref(targets[0], by_id, geom_by_entity)
             b = _target_entity_ref(targets[1], by_id, geom_by_entity)
-            if a is None or b is None or a[1] not in {'line', 'circle'} or b[1] not in {'line', 'circle'}:
-                _sketch_constraint_status_append(status, constraint, False, reason='tangent requires two materialized line/circle entities')
+            if a is None or b is None or a[1] not in {'line', 'circle', 'arc'} or b[1] not in {'line', 'circle', 'arc'}:
+                _sketch_constraint_status_append(status, constraint, False, reason='tangent requires two materialized line/circle/arc entities')
                 continue
             _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Tangent', int(a[0]), int(b[0]))
             continue
@@ -447,8 +484,8 @@ def _materialize_sketch_constraints(sketch_obj, sketch_payload, params, param_ex
 
         if kind in {'radius', 'diameter'} and len(targets) == 1:
             entity_ref = _target_entity_ref(targets[0], by_id, geom_by_entity)
-            if entity_ref is None or entity_ref[1] != 'circle':
-                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} requires a materialized circle')
+            if entity_ref is None or entity_ref[1] not in {'circle', 'arc'}:
+                _sketch_constraint_status_append(status, constraint, False, reason=f'{kind} requires a materialized circle or arc')
                 continue
             _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Radius' if kind == 'radius' else 'Diameter', int(entity_ref[0]), float(value), expr_ref=value_expr)
             continue
@@ -486,6 +523,14 @@ def _materialize_sketch_constraints(sketch_obj, sketch_payload, params, param_ex
                     circle_index = entity_index_by_id.get(entity_id)
                     radius_expr = _nested_expr_ref(_sketch_entity_expr(param_exprs, circle_index) if circle_index is not None else None, 'radius')
                     _safe_add_sketch_constraint(sketch_obj, status, constraint, 'Radius', int(entity_ref[0]), _sketch_solved_radius(entity_id, entity, solve_snapshot), expr_ref=radius_expr)
+            elif entity_kind == 'arc':
+                for point_key in ('start', 'end', 'center'):
+                    point_id = str(entity.get(point_key))
+                    x_value, y_value = _sketch_solved_point(point_id, sketch_payload, solve_snapshot)
+                    point_entity_index = entity_index_by_id.get(point_id)
+                    expr_meta = _sketch_entity_expr(param_exprs, point_entity_index) if point_entity_index is not None else None
+                    refs = point_refs.get(point_id) or []
+                    _fix_point_constraint(sketch_obj, status, constraint, refs[0] if refs else None, x_value, y_value, _nested_expr_ref(expr_meta, 'x'), _nested_expr_ref(expr_meta, 'y'))
             else:
                 _sketch_constraint_status_append(status, constraint, False, reason=f'Cannot fix unsupported sketch entity kind {entity_kind!r}')
             continue
@@ -573,6 +618,7 @@ def _make_sketch_promotion_object(name, *, node_id, op, params, inputs, tags, co
             geom_by_entity[entity_id] = geom_index
             point_refs.setdefault(start_id, []).append((geom_index, 1))
             point_refs.setdefault(end_id, []).append((geom_index, 2))
+            point_refs.setdefault(center_id, []).append((geom_index, 3))
         elif kind == 'bspline':
             cps_data = entity.get('control_points', [])
             degree = int(entity.get('degree', 3))
@@ -580,7 +626,10 @@ def _make_sketch_promotion_object(name, *, node_id, op, params, inputs, tags, co
             mults = entity.get('multiplicities')
             weights = entity.get('weights')
             periodic = bool(entity.get('periodic', False))
-            cps = [App.Vector(float(p[0]), float(p[1]), 0.0) for p in cps_data]
+            cps = [
+                App.Vector(*_sketch_control_point_xy(p, sketch_payload, solve_snapshot), 0.0)
+                for p in cps_data
+            ]
             curve = Part.BSplineCurve()
             if weights:
                 curve.buildFromPolesMultsKnots(cps, mults, knots, periodic, degree, weights)
