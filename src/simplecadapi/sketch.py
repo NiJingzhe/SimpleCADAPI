@@ -213,6 +213,7 @@ class Sketch(TaggedMixin, TopoMixein):
         self.sketch_id = str(sketch_id or f"sketch_{uuid.uuid4().hex[:8]}")
         self.name = name
         self.plane = plane
+        self._plane_frame()
         self.entities: Dict[str, SketchEntity] = {}
         self.entity_order: List[str] = []
         self.constraints: List[SketchConstraint] = []
@@ -244,10 +245,19 @@ class Sketch(TaggedMixin, TopoMixein):
 
         return [make_face_from_wire_rface(wire) for wire in self.closed_wires()]
 
-    def to_face(self, profile: int | str = 0) -> Face:
+    def to_face(
+        self,
+        profile: int | str = 0,
+        *,
+        inner_profiles: Sequence[int | str] = (),
+    ) -> Face:
         from .operations import make_face_from_sketch_rface
 
-        return make_face_from_sketch_rface(self, profile=profile)
+        return make_face_from_sketch_rface(
+            self,
+            profile=profile,
+            inner_profiles=inner_profiles,
+        )
 
     def clone(self, *, include_solve: bool = True) -> "Sketch":
         cloned = Sketch(name=self.name, plane=self.plane, sketch_id=self.sketch_id)
@@ -316,7 +326,7 @@ class Sketch(TaggedMixin, TopoMixein):
             valid_subentities = {
                 "line": {"start", "end"},
                 "circle": {"center"},
-                "arc": {"start", "end"},
+                "arc": {"start", "end", "center"},
                 "bspline": {"start", "end"},
             }.get(entity.kind, set())
             if subentity not in valid_subentities:
@@ -442,7 +452,7 @@ class Sketch(TaggedMixin, TopoMixein):
         entity_id: str,
         start: SketchRef,
         end: SketchRef,
-        control_points: Sequence[Sequence[float]],
+        control_points: Sequence[Any],
         degree: int = 3,
         knots: Optional[Sequence[float]] = None,
         multiplicities: Optional[Sequence[int]] = None,
@@ -451,7 +461,12 @@ class Sketch(TaggedMixin, TopoMixein):
         *,
         construction: bool = False,
     ) -> "Sketch":
-        """Add a B-spline whose poles participate in sketch solving."""
+        """Add a B-spline whose poles participate in sketch solving.
+
+        Control points may be literal 2-D coordinates or refs to points in
+        this sketch. The first and last poles always share the declared
+        start/end point entities.
+        """
         from .operations import (
             _normalize_bspline_knots,
             _normalize_bspline_weights,
@@ -470,19 +485,69 @@ class Sketch(TaggedMixin, TopoMixein):
             raise ValueError(
                 f"bspline requires at least degree+1 control points, got {len(control_points)}"
             )
-        literal_cps = [[float(p[0]), float(p[1])] for p in control_points]
+        normalized_cps: List[Any] = []
+        for index, point in enumerate(control_points):
+            if isinstance(point, (SketchRef, str)):
+                point_ref = self.resolve_target(point, expected="point")
+                normalized_cps.append(
+                    {"point_id": self.resolve_point_id(point_ref)}
+                )
+                continue
+            if isinstance(point, Mapping):
+                point_id = point.get("point_id", point.get("point"))
+                if point_id is None:
+                    raise ValueError(
+                        f"bspline control point {index} mapping requires point_id"
+                    )
+                point_ref = self.resolve_target(str(point_id), expected="point")
+                normalized_cps.append(
+                    {"point_id": self.resolve_point_id(point_ref)}
+                )
+                continue
+            if not isinstance(point, Sequence) or isinstance(point, (str, bytes)):
+                raise ValueError(
+                    f"bspline control point {index} must be a 2-D coordinate or sketch point ref"
+                )
+            if len(point) != 2:
+                raise ValueError(
+                    f"bspline control point {index} must contain exactly two coordinates"
+                )
+            normalized_cps.append([float(point[0]), float(point[1])])
+
+        def resolved_control_point(point: Any) -> List[float]:
+            if isinstance(point, Mapping):
+                point_entity = self.entities[str(point["point_id"])]
+                return [
+                    _as_float(point_entity.data["x"]),
+                    _as_float(point_entity.data["y"]),
+                ]
+            return [float(point[0]), float(point[1])]
+
+        resolved_cps = [resolved_control_point(point) for point in normalized_cps]
         resolved_knots, resolved_multiplicities = _normalize_bspline_knots(
-            control_count=len(literal_cps),
+            control_count=len(normalized_cps),
             degree=degree_value,
             periodic=bool(periodic),
             knots=knots,
             multiplicities=multiplicities,
         )
-        resolved_weights = _normalize_bspline_weights(weights, len(literal_cps))
+        resolved_weights = _normalize_bspline_weights(weights, len(normalized_cps))
         start_entity = self.entities[start_id]
         end_entity = self.entities[end_id]
-        literal_cps[0] = [_as_float(start_entity.data["x"]), _as_float(start_entity.data["y"])]
-        literal_cps[-1] = [_as_float(end_entity.data["x"]), _as_float(end_entity.data["y"])]
+        start_point = [_as_float(start_entity.data["x"]), _as_float(start_entity.data["y"])]
+        end_point = [_as_float(end_entity.data["x"]), _as_float(end_entity.data["y"])]
+        if isinstance(normalized_cps[0], Mapping):
+            if normalized_cps[0]["point_id"] != start_id:
+                raise ValueError("The first B-spline control-point ref must match start")
+        else:
+            normalized_cps[0] = start_point
+        if isinstance(normalized_cps[-1], Mapping):
+            if normalized_cps[-1]["point_id"] != end_id:
+                raise ValueError("The last B-spline control-point ref must match end")
+        else:
+            normalized_cps[-1] = end_point
+        resolved_cps[0] = start_point
+        resolved_cps[-1] = end_point
         self._add_entity(
             SketchEntity(
                 entity_id,
@@ -490,7 +555,7 @@ class Sketch(TaggedMixin, TopoMixein):
                 {
                     "start": start_id,
                     "end": end_id,
-                    "control_points": literal_cps,
+                    "control_points": normalized_cps,
                     "degree": degree_value,
                     "knots": list(resolved_knots),
                     "multiplicities": list(resolved_multiplicities),
@@ -588,62 +653,91 @@ class Sketch(TaggedMixin, TopoMixein):
         if profile_payload["kind"] == "circle":
             center = profile_payload["center"]
             edge = make_circle_redge(center, profile_payload["radius"], profile_payload["normal"])
-            return make_wire_from_edges_rwire([edge])
+            wire = make_wire_from_edges_rwire([edge])
+            wire._set_runtime(
+                "sketch.entity_edges",
+                [(str(profile_payload["entity_ids"][0]), wire.get_edges(0).wrapped)],
+            )
+            return wire
         if profile_payload["kind"] == "line_loop":
             points = profile_payload["points"]
             edges = [
                 make_line_redge(points[index], points[(index + 1) % len(points)])
                 for index in range(len(points))
             ]
-            return make_wire_from_edges_rwire(edges)
+            wire = make_wire_from_edges_rwire(edges)
+            wire._set_runtime(
+                "sketch.entity_edges",
+                list(
+                    zip(
+                        profile_payload["entity_ids"],
+                        [edge.wrapped for edge in wire.get_edges()],
+                    )
+                ),
+            )
+            return wire
         if profile_payload["kind"] == "edge_loop":
             return self._wire_from_edge_loop(profile_payload)
         raise ValueError(f"Unsupported sketch profile kind '{profile_payload['kind']}'")
 
     def _wire_from_edge_loop(self, profile_payload: Mapping[str, Any]) -> Wire:
         """Build a wire from a mixed-edge profile (line + arc + bspline)."""
+        from OCP.TopoDS import TopoDS
+
         from .operations import (
-            make_angle_arc_redge,
             make_line_redge,
             make_spline_redge,
+            make_three_point_arc_redge,
             make_wire_from_edges_rwire,
         )
 
         entity_ids = profile_payload["entity_ids"]
+        reversed_edges = profile_payload.get("reversed", [False] * len(entity_ids))
         result: SketchSolveResult = profile_payload["solve_result"]
-        # Build a point_id → 3-D coordinate map from the solve result
-        # (includes ALL points, not just loop vertices — needed for arc centers)
+        point_map_2d = result.solved_points
         point_map: Dict[str, Tuple[float, float, float]] = {}
         for pid, pt in result.solved_points.items():
             point_map[pid] = self._point3(pt)
 
-        edges = []
-        for eid in entity_ids:
+        edges: List[Edge] = []
+        entity_edges: List[Tuple[str, Any]] = []
+        for eid, reverse_edge in zip(entity_ids, reversed_edges):
             entity = self.entities[eid]
             if entity.kind == "line":
                 start_id, end_id = str(entity.data["start"]), str(entity.data["end"])
-                edges.append(make_line_redge(point_map[start_id], point_map[end_id]))
+                edge = make_line_redge(point_map[start_id], point_map[end_id])
             elif entity.kind == "arc":
                 start_id = str(entity.data["start"])
                 end_id = str(entity.data["end"])
                 center_id = str(entity.data["center"])
-                sp = point_map[start_id]
-                ep = point_map[end_id]
-                cp = point_map[center_id]
-                import math as _math
-                start_angle = _math.atan2(sp[1] - cp[1], sp[0] - cp[0])
-                end_angle = _math.atan2(ep[1] - cp[1], ep[0] - cp[0])
-                radius = _math.hypot(sp[0] - cp[0], sp[1] - cp[1])
-                if abs(end_angle - start_angle) < 1e-12:
-                    end_angle += 2.0 * _math.pi
-                edges.append(
-                    make_angle_arc_redge(
-                        center=cp,
-                        radius=radius,
-                        start_angle=start_angle,
-                        end_angle=end_angle,
-                        normal=(0.0, 0.0, 1.0),
+                sp = point_map_2d[start_id]
+                ep = point_map_2d[end_id]
+                cp = point_map_2d[center_id]
+                start_radius = math.hypot(sp[0] - cp[0], sp[1] - cp[1])
+                end_radius = math.hypot(ep[0] - cp[0], ep[1] - cp[1])
+                radius_tolerance = max(_POINT_EPS, start_radius * 1.0e-7)
+                if start_radius <= _POINT_EPS:
+                    raise ValueError(f"Sketch arc '{eid}' has zero radius")
+                if abs(start_radius - end_radius) > radius_tolerance:
+                    raise ValueError(
+                        f"Sketch arc '{eid}' endpoints are not equidistant from its center"
                     )
+                start_angle = math.atan2(sp[1] - cp[1], sp[0] - cp[0])
+                end_angle = math.atan2(ep[1] - cp[1], ep[0] - cp[0])
+                sweep = (end_angle - start_angle) % (2.0 * math.pi)
+                if sweep <= 1.0e-12:
+                    raise ValueError(f"Sketch arc '{eid}' has a zero sweep")
+                middle_angle = start_angle + 0.5 * sweep
+                middle = self._point3(
+                    (
+                        cp[0] + start_radius * math.cos(middle_angle),
+                        cp[1] + start_radius * math.sin(middle_angle),
+                    )
+                )
+                edge = make_three_point_arc_redge(
+                    point_map[start_id],
+                    middle,
+                    point_map[end_id],
                 )
             elif entity.kind == "bspline":
                 solved_poles = [
@@ -651,30 +745,55 @@ class Sketch(TaggedMixin, TopoMixein):
                     for point in result.solved_entities[eid]["control_points"]
                 ]
                 cps_3d = [self._point3(point) for point in solved_poles]
-                edges.append(
-                    make_spline_redge(
-                        control_points=cps_3d,
-                        degree=int(entity.data["degree"]),
-                        knots=entity.data["knots"],
-                        multiplicities=entity.data["multiplicities"],
-                        weights=entity.data.get("weights"),
-                        periodic=bool(entity.data.get("periodic", False)),
-                    )
+                edge = make_spline_redge(
+                    control_points=cps_3d,
+                    degree=int(entity.data["degree"]),
+                    knots=entity.data["knots"],
+                    multiplicities=entity.data["multiplicities"],
+                    weights=entity.data.get("weights"),
+                    periodic=bool(entity.data.get("periodic", False)),
                 )
             else:
                 raise ValueError(f"Unsupported edge kind '{entity.kind}' in edge_loop profile")
-        return make_wire_from_edges_rwire(edges)
+            if reverse_edge:
+                edge = Edge(TopoDS.Edge_s(edge.wrapped.Reversed()))
+            edges.append(edge)
+            entity_edges.append((str(eid), edge.wrapped))
+        wire = make_wire_from_edges_rwire(edges)
+        wire_edges = list(wire.get_edges())
+        if len(wire_edges) != len(entity_edges):
+            raise ValueError(
+                "Sketch profile wire edge count changed during kernel construction"
+            )
+        wire._set_runtime(
+            "sketch.entity_edges",
+            [
+                (entity_id, wire_edge.wrapped)
+                for (entity_id, _source_edge), wire_edge in zip(
+                    entity_edges, wire_edges
+                )
+            ],
+        )
+        return wire
 
     def make_face(
         self,
         profile: int | str = 0,
         *,
+        inner_profiles: Sequence[int | str] = (),
         solve_result: Optional[SketchSolveResult] = None,
     ) -> Face:
-        from .operations import make_face_from_wire_rface
+        from .operations import make_face_from_sketch_rface
 
-        wire = self.make_wire(profile=profile, solve_result=solve_result)
-        return make_face_from_wire_rface(wire, normal=self._plane_normal_tuple())
+        if solve_result is not None:
+            raise ValueError(
+                "Pass solve settings through make_face_from_sketch_rface; an external solve_result is not supported for multi-loop faces"
+            )
+        return make_face_from_sketch_rface(
+            self,
+            profile=profile,
+            inner_profiles=inner_profiles,
+        )
 
     def _add_entity(self, entity: SketchEntity) -> None:
         if entity.entity_id in self.entities:
@@ -710,7 +829,9 @@ class Sketch(TaggedMixin, TopoMixein):
             return str(entity.data[ref.subentity])
         if entity.kind == "circle" and ref.subentity == "center":
             return str(entity.data["center"])
-        if entity.kind in {"arc", "bspline"} and ref.subentity in {"start", "end"}:
+        if entity.kind == "arc" and ref.subentity in {"start", "end", "center"}:
+            return str(entity.data[ref.subentity])
+        if entity.kind == "bspline" and ref.subentity in {"start", "end"}:
             return str(entity.data[ref.subentity])
         raise ValueError(f"Cannot resolve {ref!r} to a sketch point")
 
@@ -746,8 +867,19 @@ class Sketch(TaggedMixin, TopoMixein):
             origin = np.array(plane.get("origin", (0.0, 0.0, 0.0)), dtype=float)
             x_axis = np.array(plane.get("x_axis", (1.0, 0.0, 0.0)), dtype=float)
             y_axis = np.array(plane.get("y_axis", (0.0, 1.0, 0.0)), dtype=float)
-            x_axis = x_axis / np.linalg.norm(x_axis)
-            y_axis = y_axis / np.linalg.norm(y_axis)
+            if origin.shape != (3,) or x_axis.shape != (3,) or y_axis.shape != (3,):
+                raise ValueError("Sketch plane origin and axes must be 3-D vectors")
+            if not all(np.all(np.isfinite(vector)) for vector in (origin, x_axis, y_axis)):
+                raise ValueError("Sketch plane origin and axes must contain finite values")
+            x_length = float(np.linalg.norm(x_axis))
+            if x_length <= 1.0e-15:
+                raise ValueError("Sketch plane x_axis must be non-zero")
+            x_axis = x_axis / x_length
+            y_axis = y_axis - float(np.dot(y_axis, x_axis)) * x_axis
+            y_length = float(np.linalg.norm(y_axis))
+            if y_length <= 1.0e-15:
+                raise ValueError("Sketch plane x_axis and y_axis must not be parallel")
+            y_axis = y_axis / y_length
             normal = np.cross(x_axis, y_axis)
             normal = normal / np.linalg.norm(normal)
             return origin, x_axis, y_axis, normal
@@ -829,12 +961,13 @@ class Sketch(TaggedMixin, TopoMixein):
             ordered = self._ordered_edge_loop(component)
             if ordered is None:
                 continue
-            point_ids, ordered_edge_ids = ordered
+            point_ids, oriented_edges = ordered
             profiles.append(
                 {
                     "id": component[0],
                     "kind": "edge_loop",
-                    "entity_ids": list(ordered_edge_ids),
+                    "entity_ids": [edge_id for edge_id, _reversed in oriented_edges],
+                    "reversed": [reversed_edge for _edge_id, reversed_edge in oriented_edges],
                     "point_ids": list(point_ids),
                     "points": [self._point3(result.solved_points[pid]) for pid in point_ids],
                     "solve_result": result,
@@ -862,7 +995,10 @@ class Sketch(TaggedMixin, TopoMixein):
                         queue.append(other_id)
         return sorted(seen_edges, key=self.entity_order.index)
 
-    def _ordered_edge_loop(self, edge_ids: Sequence[str]) -> Optional[Tuple[List[str], List[str]]]:
+    def _ordered_edge_loop(
+        self,
+        edge_ids: Sequence[str],
+    ) -> Optional[Tuple[List[str], List[Tuple[str, bool]]]]:
         adjacency: Dict[str, List[str]] = {}
         for edge_id in edge_ids:
             entity = self.entities[edge_id]
@@ -877,7 +1013,7 @@ class Sketch(TaggedMixin, TopoMixein):
         start_point, current_point = self._edge_endpoints(entity)
         used_edges = {start_edge}
         ordered_points = [start_point, current_point]
-        ordered_edge_ids = [start_edge]
+        oriented_edges = [(start_edge, False)]
 
         while current_point != start_point:
             options = [eid for eid in adjacency[current_point] if eid not in used_edges]
@@ -885,17 +1021,18 @@ class Sketch(TaggedMixin, TopoMixein):
                 return None
             next_edge = options[0]
             used_edges.add(next_edge)
-            ordered_edge_ids.append(next_edge)
             next_entity = self.entities[next_edge]
             next_start, next_end = self._edge_endpoints(next_entity)
-            current_point = next_end if next_start == current_point else next_start
+            reversed_edge = next_start != current_point
+            oriented_edges.append((next_edge, reversed_edge))
+            current_point = next_start if reversed_edge else next_end
             if current_point != start_point:
                 ordered_points.append(current_point)
             if len(used_edges) > len(edge_ids):
                 return None
         if len(used_edges) != len(edge_ids):
             return None
-        return ordered_points, ordered_edge_ids
+        return ordered_points, oriented_edges
 
 
 

@@ -288,6 +288,185 @@ class TestSketchApi(unittest.TestCase):
             sketch.entities["curve"].data["control_points"],
         )
 
+    def test_mixed_arc_bspline_profile_uses_arbitrary_sketch_plane(self):
+        plane = {
+            "origin": (10.0, 20.0, 30.0),
+            "x_axis": (0.0, 1.0, 0.0),
+            "y_axis": (0.0, 0.0, 1.0),
+        }
+        sketch = scad.make_sketch_rsketch("mixed_yz", plane=plane)
+        for point_id, x, y in (
+            ("left", -2.0, 0.0),
+            ("right", 2.0, 0.0),
+            ("center", 0.0, 0.0),
+        ):
+            sketch = scad.add_point_rsketch(sketch, point_id, x, y)
+        sketch = scad.add_arc_rsketch(
+            sketch, "upper", "right", "left", "center"
+        )
+        sketch = scad.add_bspline_rsketch(
+            sketch,
+            "lower",
+            "left",
+            "right",
+            control_points=["left", (-1.0, -1.5), (1.0, -1.5), "right"],
+            knots=(0.0, 1.0),
+            multiplicities=(4, 4),
+        )
+
+        face = scad.make_face_from_sketch_rface(sketch)
+        normal = face.get_normal_at()
+        self.assertAlmostEqual(normal.x, 1.0, places=6)
+        self.assertAlmostEqual(normal.y, 0.0, places=6)
+        self.assertAlmostEqual(normal.z, 0.0, places=6)
+        for vertex in face.get_edges()[0].get_vertices():
+            self.assertAlmostEqual(vertex.get_coordinates()[0], 10.0, places=6)
+        self.assertEqual(
+            sketch.entities["lower"].data["control_points"][0],
+            {"point_id": "left"},
+        )
+
+    def test_arc_radius_constraint_is_supported(self):
+        sketch = scad.make_sketch_rsketch("arc_radius")
+        sketch = scad.add_point_rsketch(sketch, "start", 2.0, 0.0)
+        sketch = scad.add_point_rsketch(sketch, "end", 0.0, 2.0)
+        sketch = scad.add_point_rsketch(sketch, "center", 0.0, 0.0)
+        sketch = scad.add_arc_rsketch(
+            sketch, "arc", "start", "end", "center"
+        )
+        sketch = scad.constrain_fix_rsketch(sketch, "center")
+        sketch = scad.constrain_radius_rsketch(sketch, "arc", 2.0)
+        sketch = scad.constrain_point_on_rsketch(sketch, "end", "arc")
+
+        result = scad.inspect_sketch_rsketchresult(sketch, strict=False)
+        self.assertNotEqual(result.status, "conflicting")
+        self.assertAlmostEqual(
+            ((result.solved_points["start"][0]) ** 2 + (result.solved_points["start"][1]) ** 2) ** 0.5,
+            2.0,
+            places=6,
+        )
+
+    def test_sketch_face_can_promote_explicit_hole_profiles(self):
+        sketch = scad.make_sketch_rsketch("plate")
+        sketch = scad.add_point_rsketch(sketch, "outer_center", 0.0, 0.0)
+        sketch = scad.add_circle_rsketch(
+            sketch, "outer", "outer_center", 5.0
+        )
+        sketch = scad.add_point_rsketch(sketch, "left_center", -2.0, 0.0)
+        sketch = scad.add_circle_rsketch(sketch, "left_hole", "left_center", 1.0)
+        sketch = scad.add_point_rsketch(sketch, "right_center", 2.0, 0.0)
+        sketch = scad.add_circle_rsketch(
+            sketch, "right_hole", "right_center", 1.0
+        )
+
+        face = scad.make_face_from_sketch_rface(
+            sketch,
+            profile="outer",
+            inner_profiles=("left_hole", "right_hole"),
+        )
+
+        self.assertEqual(len(face.get_inner_wires()), 2)
+        self.assertAlmostEqual(face.get_area(), 23.0 * 3.141592653589793, places=5)
+        edge_tags = {
+            tag
+            for edge in face.get_edges()
+            for tag in scad.list_tags(edge, scope="local")
+        }
+        self.assertIn("sketch.plate.entity.outer", edge_tags)
+        self.assertIn("sketch.plate.entity.left_hole", edge_tags)
+        self.assertIn("sketch.plate.entity.right_hole", edge_tags)
+        promotion = face.get_metadata("sketch_promotion")
+        self.assertEqual(
+            [loop["role"] for loop in promotion["loops"]],
+            ["outer", "inner", "inner"],
+        )
+
+    def test_sketch_face_rejects_invalid_explicit_hole(self):
+        sketch = scad.make_sketch_rsketch("invalid_hole")
+        sketch = scad.add_point_rsketch(sketch, "outer_center", 0.0, 0.0)
+        sketch = scad.add_circle_rsketch(
+            sketch, "outer", "outer_center", 2.0
+        )
+        sketch = scad.add_point_rsketch(sketch, "hole_center", 5.0, 0.0)
+        sketch = scad.add_circle_rsketch(sketch, "hole", "hole_center", 1.0)
+
+        with self.assertRaises(Exception):
+            scad.make_face_from_sketch_rface(
+                sketch,
+                profile="outer",
+                inner_profiles=("hole",),
+            )
+
+    def test_sketch_face_accepts_reversed_outer_loop(self):
+        sketch = scad.make_sketch_rsketch("reversed_profile", plane="YZ")
+        for point_id, x, y in (
+            ("p0", 0.0, 0.0),
+            ("p1", 0.0, 4.0),
+            ("p2", 4.0, 4.0),
+            ("p3", 4.0, 0.0),
+            ("hole_center", 2.0, 2.0),
+        ):
+            sketch = scad.add_point_rsketch(sketch, point_id, x, y)
+        for entity_id, start, end in (
+            ("left", "p0", "p1"),
+            ("top", "p1", "p2"),
+            ("right", "p2", "p3"),
+            ("bottom", "p3", "p0"),
+        ):
+            sketch = scad.add_line_rsketch(sketch, entity_id, start, end)
+        sketch = scad.add_circle_rsketch(
+            sketch, "hole", "hole_center", 1.0
+        )
+
+        face = scad.make_face_from_sketch_rface(
+            sketch,
+            profile="left",
+            inner_profiles=("hole",),
+        )
+        normal = face.get_normal_at()
+        self.assertAlmostEqual(face.get_area(), 16.0 - 3.141592653589793, places=5)
+        self.assertAlmostEqual(normal.x, 1.0, places=6)
+
+    def test_custom_sketch_plane_rejects_parallel_axes(self):
+        with self.assertRaises(Exception):
+            scad.make_sketch_rsketch(
+                plane={
+                    "origin": (0.0, 0.0, 0.0),
+                    "x_axis": (1.0, 0.0, 0.0),
+                    "y_axis": (2.0, 0.0, 0.0),
+                }
+            )
+
+    def test_sketch_face_respects_active_workplane(self):
+        with scad.SimpleWorkplane(
+            origin=(3.0, 4.0, 5.0),
+            normal=(0.0, 1.0, 0.0),
+            x_dir=(1.0, 0.0, 0.0),
+        ):
+            sketch = scad.make_sketch_rsketch("workplane_ring")
+            sketch = scad.add_point_rsketch(sketch, "outer_center", 0.0, 0.0)
+            sketch = scad.add_circle_rsketch(
+                sketch, "outer", "outer_center", 2.0
+            )
+            sketch = scad.add_point_rsketch(sketch, "inner_center", 0.0, 0.0)
+            sketch = scad.add_circle_rsketch(
+                sketch, "inner", "inner_center", 1.0
+            )
+            face = scad.make_face_from_sketch_rface(
+                sketch,
+                profile="outer",
+                inner_profiles=("inner",),
+            )
+
+        normal = face.get_normal_at()
+        center = face.get_center()
+        self.assertAlmostEqual(normal.x, 0.0, places=6)
+        self.assertAlmostEqual(normal.y, 1.0, places=6)
+        self.assertAlmostEqual(normal.z, 0.0, places=6)
+        self.assertAlmostEqual(center.x, 3.0, places=6)
+        self.assertAlmostEqual(center.y, 4.0, places=6)
+        self.assertAlmostEqual(center.z, 5.0, places=6)
+
     def test_strict_replay_requires_sketch_solve_snapshot(self):
         with scad.GraphSession() as session:
             sketch = self._make_constrained_rectangle()

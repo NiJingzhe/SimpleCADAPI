@@ -25,7 +25,8 @@ reading already-built wire/edge containers.
 
 Entity IDs are creation-time local identifiers. Constrained profile promotion uses
 the ordered promotion map to bind each entity to exactly one generated Edge,
-creating `sketch.<sketch-name>.entity.<entity-id>` and
+and faces may select explicit hole loops with `inner_profiles=(...)`. Promotion creates
+`sketch.<sketch-name>.entity.<entity-id>` and
 `sketch.<sketch-name>.profile.<profile-id>` tags with `topology_name` evidence.
 Downstream features may project these tags only when their kernel history proves exact
 correspondence.

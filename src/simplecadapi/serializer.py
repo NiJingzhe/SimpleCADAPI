@@ -2122,6 +2122,10 @@ def _execute_graph(
                             result = ops.make_face_from_sketch_rface(
                                 cast(Sketch, sketch_outputs[0]),
                                 profile=params.get("profile", 0),
+                                inner_profiles=cast(
+                                    Sequence[int | str],
+                                    params.get("inner_profiles", ()),
+                                ),
                                 require_fully_constrained=bool(params.get("require_fully_constrained", False)),
                                 strict=bool(params.get("strict", True)),
                                 tolerance=float(params.get("tolerance", 1e-7)),

@@ -13,8 +13,10 @@ from .errors import SimpleCADError, raise_harness_error
 
 suppress_vendor_deprecation_warnings()
 
+from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
 from OCP.gp import gp_Pnt
+from OCP.TopoDS import TopoDS
 
 from .core import (
     Vertex,
@@ -2176,7 +2178,7 @@ def add_bspline_rsketch(
     entity_id: str,
     start: Union[SketchRef, str],
     end: Union[SketchRef, str],
-    control_points: Sequence[Sequence[float]],
+    control_points: Sequence[Any],
     degree: int = 3,
     knots: Optional[Sequence[float]] = None,
     multiplicities: Optional[Sequence[int]] = None,
@@ -2188,7 +2190,7 @@ def add_bspline_rsketch(
     """Add a B-spline curve entity to a sketch.
 
     The start/end point refs link the B-spline into a closed profile
-    loop.  Control points are stored as literal 2-D coordinates.
+    loop. Control points may be literal 2-D coordinates or point refs.
     """
     try:
         start_ref = _resolve_sketch_target(sketch, start, expected="point")
@@ -2508,7 +2510,7 @@ def constrain_concentric_rsketch(
         "concentric",
         [a, b],
         constraint_id=constraint_id,
-        expected=["circle", "circle"],
+        expected=[("circle", "arc"), ("circle", "arc")],
     )
 
 
@@ -2776,6 +2778,7 @@ def _sketch_source_metadata(
     sketch: Sketch,
     profile: int | str,
     profile_payload: Dict[str, Any],
+    inner_profile_payloads: Sequence[Tuple[int | str, Dict[str, Any]]] = (),
 ) -> Dict[str, Any]:
     return {
         "sketch_id": sketch.sketch_id,
@@ -2784,6 +2787,14 @@ def _sketch_source_metadata(
         "profile": profile,
         "profile_id": profile_payload.get("id"),
         "profile_kind": profile_payload.get("kind"),
+        "inner_profiles": [
+            {
+                "profile": inner_profile,
+                "profile_id": inner_payload.get("id"),
+                "profile_kind": inner_payload.get("kind"),
+            }
+            for inner_profile, inner_payload in inner_profile_payloads
+        ],
     }
 
 
@@ -2792,6 +2803,8 @@ def _sketch_edge_metadata(
     entity_id: str,
     profile: int | str,
     profile_payload: Dict[str, Any],
+    *,
+    loop_role: str = "outer",
 ) -> Dict[str, Any]:
     entity = sketch.entities[str(entity_id)]
     return {
@@ -2801,6 +2814,7 @@ def _sketch_edge_metadata(
         "kind": entity.kind,
         "profile": profile,
         "profile_id": profile_payload.get("id"),
+        "loop_role": loop_role,
     }
 
 
@@ -2820,6 +2834,7 @@ def _sketch_promotion_map(
     profile: int | str,
     profile_payload: Dict[str, Any],
     *,
+    inner_profile_payloads: Sequence[Tuple[int | str, Dict[str, Any]]] = (),
     target_kind: Optional[str] = None,
 ) -> Dict[str, Any]:
     sketch_tag, profile_tag = _sketch_promotion_tags(sketch, profile_payload)
@@ -2828,27 +2843,65 @@ def _sketch_promotion_map(
     )
     profile_identity_tag = f"{sketch_tag}.profile.{profile_local_name}"
     edges: List[Dict[str, Any]] = []
-    for entity_id in profile_payload.get("entity_ids", []):
-        entity_tag = _safe_semantic_tag("sketch_entity", entity_id)
-        entity_local_name = _sketch_topology_tag_local_name(entity_id)
-        edges.append(
-            {
+    loops: List[Dict[str, Any]] = []
+    loop_specs = [
+        (profile, profile_payload, "outer"),
+        *[
+            (inner_profile, inner_payload, "inner")
+            for inner_profile, inner_payload in inner_profile_payloads
+        ],
+    ]
+    for loop_profile, loop_payload, loop_role in loop_specs:
+        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(
+            sketch, loop_payload
+        )
+        loop_edges: List[Dict[str, Any]] = []
+        for entity_id in loop_payload.get("entity_ids", []):
+            entity_tag = _safe_semantic_tag("sketch_entity", entity_id)
+            entity_local_name = _sketch_topology_tag_local_name(entity_id)
+            edge_payload = {
                 "entity_id": str(entity_id),
+                "profile": loop_profile,
+                "profile_id": loop_payload.get("id"),
+                "loop_role": loop_role,
                 "target_kind": "edge",
-                "tags": [sketch_tag, profile_tag, entity_tag],
+                "tags": [loop_sketch_tag, loop_profile_tag, entity_tag],
                 "topology_name": {
                     "kind": "edge",
-                    "name": f"{sketch_tag}.entity.{entity_local_name}",
+                    "name": f"{loop_sketch_tag}.entity.{entity_local_name}",
                     "local_name": entity_local_name,
                 },
                 "metadata": {
                     "sketch_ref": _sketch_edge_metadata(
-                        sketch, str(entity_id), profile, profile_payload
+                        sketch,
+                        str(entity_id),
+                        loop_profile,
+                        loop_payload,
+                        loop_role=loop_role,
                     )
                 },
             }
+            loop_edges.append(edge_payload)
+            edges.append(edge_payload)
+        loop_local_name = _sketch_topology_tag_local_name(
+            loop_payload.get("id", "profile")
+        )
+        loops.append(
+            {
+                "role": loop_role,
+                "profile": loop_profile,
+                "profile_id": loop_payload.get("id"),
+                "profile_kind": loop_payload.get("kind"),
+                "topology_name": {
+                    "kind": "wire",
+                    "name": f"{loop_sketch_tag}.profile.{loop_local_name}",
+                    "local_name": loop_local_name,
+                },
+                "edges": loop_edges,
+            }
         )
     return {
+        "schema_version": "2.0",
         "profile": profile,
         "profile_id": profile_payload.get("id"),
         "profile_kind": profile_payload.get("kind"),
@@ -2858,6 +2911,7 @@ def _sketch_promotion_map(
             "name": profile_identity_tag,
             "local_name": profile_local_name,
         },
+        "loops": loops,
         "edges": edges,
     }
 
@@ -2868,13 +2922,21 @@ def _apply_sketch_promotion_metadata(
     sketch: Sketch,
     profile: int | str,
     profile_payload: Dict[str, Any],
+    inner_profile_payloads: Sequence[Tuple[int | str, Dict[str, Any]]],
+    source_wires: Sequence[Tuple[int | str, Dict[str, Any], str, Wire]],
     solve_snapshot: Dict[str, Any],
 ) -> None:
-    source_sketch = _sketch_source_metadata(sketch, profile, profile_payload)
+    source_sketch = _sketch_source_metadata(
+        sketch,
+        profile,
+        profile_payload,
+        inner_profile_payloads,
+    )
     promotion_map = _sketch_promotion_map(
         sketch,
         profile,
         profile_payload,
+        inner_profile_payloads=inner_profile_payloads,
         target_kind="wire" if isinstance(shape, Wire) else "face",
     )
     sketch_tag, profile_tag = _sketch_promotion_tags(sketch, profile_payload)
@@ -2892,26 +2954,64 @@ def _apply_sketch_promotion_metadata(
         wires = cast(List[Wire], shape.get_wires())
 
     for wire in wires:
+        matches = [
+            source
+            for source in source_wires
+            if source[3].wrapped.IsSame(wire.wrapped)
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "Sketch promotion cannot establish exact profile-to-wire correspondence"
+            )
+        loop_profile, loop_payload, _loop_role, _source_wire = matches[0]
+        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(
+            sketch, loop_payload
+        )
         wire.set_metadata("source_sketch", source_sketch)
         wire.set_metadata("sketch_solve", solve_snapshot)
         wire.set_metadata("sketch_promotion", promotion_map)
-        wire._apply_tag(sketch_tag, propagate=False)
-        wire._apply_tag(profile_tag, propagate=False)
+        wire.set_metadata(
+            "sketch_profile",
+            _sketch_source_metadata(sketch, loop_profile, loop_payload),
+        )
+        wire._apply_tag(loop_sketch_tag, propagate=False)
+        wire._apply_tag(loop_profile_tag, propagate=False)
 
-    if isinstance(shape, Face):
-        edges = cast(List[Edge], shape.get_edges())
-    else:
-        edges = cast(List[Edge], shape.get_edges())
-
-    for edge, entity_id in zip(edges, profile_payload.get("entity_ids", [])):
+    source_edges = [
+        (loop_profile, loop_payload, loop_role, str(entity_id), source_edge)
+        for loop_profile, loop_payload, loop_role, source_wire in source_wires
+        for entity_id, source_edge in source_wire._get_runtime(
+            "sketch.entity_edges", []
+        )
+    ]
+    for edge in cast(List[Edge], shape.get_edges()):
+        matches = [
+            source
+            for source in source_edges
+            if source[4].IsSame(edge.wrapped)
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "Sketch promotion cannot establish exact entity-to-edge correspondence"
+            )
+        loop_profile, loop_payload, loop_role, entity_id, _source_edge = matches[0]
+        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(
+            sketch, loop_payload
+        )
         entity_tag = _safe_semantic_tag("sketch_entity", entity_id)
         edge.set_metadata(
             "sketch_ref",
-            _sketch_edge_metadata(sketch, str(entity_id), profile, profile_payload),
+            _sketch_edge_metadata(
+                sketch,
+                entity_id,
+                loop_profile,
+                loop_payload,
+                loop_role=loop_role,
+            ),
         )
         edge.set_metadata("source_sketch", source_sketch)
-        edge._apply_tag(sketch_tag, propagate=False)
-        edge._apply_tag(profile_tag, propagate=False)
+        edge._apply_tag(loop_sketch_tag, propagate=False)
+        edge._apply_tag(loop_profile_tag, propagate=False)
         edge._apply_tag(entity_tag, propagate=False)
 
 
@@ -2989,17 +3089,10 @@ def _apply_sketch_promotion_identity_tags(
     *,
     sketch: Sketch,
     profile_payload: Dict[str, Any],
+    source_wires: Sequence[Tuple[int | str, Dict[str, Any], str, Wire]],
     operation: str,
 ) -> Union[Wire, Face]:
     """Attach topology-identity tags from an exact sketch promotion map."""
-
-    entity_ids = [str(value) for value in profile_payload.get("entity_ids", [])]
-    edges = list(shape.get_edges())
-    if len(edges) != len(entity_ids):
-        raise ValueError(
-            "Sketch promotion cannot establish exact entity-to-edge correspondence: "
-            f"expected {len(entity_ids)} edges, got {len(edges)}"
-        )
 
     sketch_prefix = _safe_semantic_tag("sketch", sketch.name or sketch.sketch_id)
     profile_local_name = _sketch_topology_tag_local_name(profile_payload.get("id", "profile"))
@@ -3017,7 +3110,49 @@ def _apply_sketch_promotion_identity_tags(
         )
     )
 
-    for edge, entity_id in zip(edges, entity_ids):
+    if isinstance(shape, Face):
+        for wire in cast(List[Wire], shape.get_wires()):
+            matches = [
+                source
+                for source in source_wires
+                if source[3].wrapped.IsSame(wire.wrapped)
+            ]
+            if len(matches) != 1:
+                raise ValueError(
+                    "Sketch promotion cannot establish exact profile-to-wire correspondence"
+                )
+            _loop_profile, loop_payload, _loop_role, _source_wire = matches[0]
+            loop_local_name = _sketch_topology_tag_local_name(
+                loop_payload.get("id", "profile")
+            )
+            wire._add_tag_binding(
+                _sketch_topology_identity_binding(
+                    f"{sketch_prefix}.profile.{loop_local_name}",
+                    kind="wire",
+                    local_name=loop_local_name,
+                    operation=operation,
+                    sketch=sketch,
+                    profile_id=str(loop_payload.get("id", "profile")),
+                    target_topo_id=wire.topo_id,
+                )
+            )
+
+    source_edges = [
+        (loop_payload, str(entity_id), source_edge)
+        for _loop_profile, loop_payload, _loop_role, source_wire in source_wires
+        for entity_id, source_edge in source_wire._get_runtime(
+            "sketch.entity_edges", []
+        )
+    ]
+    for edge in cast(List[Edge], shape.get_edges()):
+        matches = [
+            source for source in source_edges if source[2].IsSame(edge.wrapped)
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "Sketch promotion cannot establish exact entity-to-edge correspondence"
+            )
+        loop_payload, entity_id, _source_edge = matches[0]
         entity_local_name = _sketch_topology_tag_local_name(entity_id)
         edge._add_tag_binding(
             _sketch_topology_identity_binding(
@@ -3026,7 +3161,7 @@ def _apply_sketch_promotion_identity_tags(
                 local_name=entity_local_name,
                 operation=operation,
                 sketch=sketch,
-                profile_id=str(profile_payload.get("id", "profile")),
+                profile_id=str(loop_payload.get("id", "profile")),
                 entity_id=entity_id,
                 target_topo_id=edge.topo_id,
             )
@@ -3039,11 +3174,18 @@ def _promote_sketch_profile(
     profile: int | str,
     *,
     target_kind: str,
+    inner_profiles: Sequence[int | str] = (),
     require_fully_constrained: bool,
     strict: bool,
     tolerance: float,
     max_iterations: int,
-) -> Tuple[Union[Wire, Face], SketchSolveResult, Dict[str, Any]]:
+) -> Tuple[
+    Union[Wire, Face],
+    SketchSolveResult,
+    Dict[str, Any],
+    List[Tuple[int | str, Dict[str, Any]]],
+    List[Tuple[int | str, Dict[str, Any], str, Wire]],
+]:
     working = sketch.clone(include_solve=False)
     solve_result = working.solve(
         require_fully_constrained=require_fully_constrained,
@@ -3052,13 +3194,78 @@ def _promote_sketch_profile(
         max_iterations=max_iterations,
     )
     profile_payload = sketch._profile_payload(profile, solve_result=solve_result)
+    inner_profile_payloads: List[Tuple[int | str, Dict[str, Any]]] = []
+    seen_profile_ids = {str(profile_payload.get("id"))}
+    for inner_profile in inner_profiles:
+        inner_payload = sketch._profile_payload(
+            inner_profile,
+            solve_result=solve_result,
+        )
+        inner_profile_id = str(inner_payload.get("id"))
+        if inner_profile_id in seen_profile_ids:
+            raise ValueError(
+                f"Sketch profile '{inner_profile_id}' was selected more than once"
+            )
+        seen_profile_ids.add(inner_profile_id)
+        inner_profile_payloads.append((inner_profile, inner_payload))
     solve_snapshot = _sketch_solve_snapshot(solve_result)
     with suspend_graph_recording():
+        outer_wire = sketch._wire_from_profile_payload(profile_payload)
+        source_wires: List[Tuple[int | str, Dict[str, Any], str, Wire]] = [
+            (profile, profile_payload, "outer", outer_wire)
+        ]
         if target_kind == "wire":
-            shape = sketch._wire_from_profile_payload(profile_payload)
+            if inner_profile_payloads:
+                raise ValueError("A Wire promotion accepts exactly one sketch profile")
+            shape = outer_wire
         elif target_kind == "face":
-            wire = sketch._wire_from_profile_payload(profile_payload)
-            shape = make_face_from_wire_rface(wire, normal=sketch._plane_normal_tuple())
+            inner_wires: List[Wire] = []
+            for inner_profile, inner_payload in inner_profile_payloads:
+                inner_wire = sketch._wire_from_profile_payload(inner_payload)
+                inner_wires.append(inner_wire)
+                source_wires.append(
+                    (inner_profile, inner_payload, "inner", inner_wire)
+                )
+            local_normal = np.array(sketch._plane_normal_tuple(), dtype=float)
+            expected_normal = get_current_cs().transform_vector(local_normal)
+            expected_normal = expected_normal / np.linalg.norm(expected_normal)
+
+            def aligned_wire(wire: Wire):
+                loop_face = Face(make_face_from_wire_ocp(wire.wrapped))
+                loop_normal = loop_face.get_normal_at()
+                loop_normal_vec = np.array(
+                    [loop_normal.x, loop_normal.y, loop_normal.z],
+                    dtype=float,
+                )
+                return (
+                    wire.wrapped
+                    if np.dot(expected_normal, loop_normal_vec) >= 0.0
+                    else TopoDS.Wire_s(wire.wrapped.Reversed())
+                )
+
+            raw_face = (
+                make_face_from_wires_ocp(
+                    aligned_wire(outer_wire),
+                    [aligned_wire(wire) for wire in inner_wires],
+                )
+                if inner_wires
+                else make_face_from_wire_ocp(aligned_wire(outer_wire))
+            )
+            if inner_wires and not BRepCheck_Analyzer(raw_face).IsValid():
+                raise ValueError(
+                    "Sketch hole profiles must lie strictly inside the outer profile and must not touch or intersect another loop"
+                )
+            face = Face(raw_face)
+            actual_normal = face.get_normal_at()
+            if np.dot(
+                expected_normal,
+                np.array(
+                    [actual_normal.x, actual_normal.y, actual_normal.z],
+                    dtype=float,
+                ),
+            ) < 0.0:
+                face = Face(TopoDS.Face_s(raw_face.Reversed()))
+            shape = face
         else:
             raise ValueError(
                 f"Unsupported sketch promotion target kind '{target_kind}'"
@@ -3068,9 +3275,17 @@ def _promote_sketch_profile(
         sketch=sketch,
         profile=profile,
         profile_payload=profile_payload,
+        inner_profile_payloads=inner_profile_payloads,
+        source_wires=source_wires,
         solve_snapshot=solve_snapshot,
     )
-    return cast(Union[Wire, Face], shape), solve_result, profile_payload
+    return (
+        cast(Union[Wire, Face], shape),
+        solve_result,
+        profile_payload,
+        inner_profile_payloads,
+        source_wires,
+    )
 
 
 def _assert_sketch_solve_snapshot_matches(
@@ -3915,7 +4130,13 @@ def make_wire_from_sketch_rwire(
     try:
         if not isinstance(sketch, Sketch):
             raise ValueError("Input must be a Sketch")
-        wire, solve_result, profile_payload = _promote_sketch_profile(
+        (
+            wire,
+            solve_result,
+            profile_payload,
+            inner_profile_payloads,
+            source_wires,
+        ) = _promote_sketch_profile(
             sketch,
             profile,
             target_kind="wire",
@@ -3942,6 +4163,7 @@ def make_wire_from_sketch_rwire(
                         sketch,
                         profile,
                         profile_payload,
+                        inner_profile_payloads=inner_profile_payloads,
                         target_kind="wire",
                     ),
                 },
@@ -3955,6 +4177,7 @@ def make_wire_from_sketch_rwire(
                 finalized,
                 sketch=sketch,
                 profile_payload=profile_payload,
+                source_wires=source_wires,
                 operation=_OP_MAKE_WIRE_FROM_SKETCH_RWIRE,
             ),
         )
@@ -3979,19 +4202,28 @@ def make_face_from_sketch_rface(
     sketch: Sketch,
     profile: int | str = 0,
     *,
+    inner_profiles: Sequence[int | str] = (),
     require_fully_constrained: bool = False,
     strict: bool = True,
     tolerance: float = 1e-7,
     max_iterations: int = 80,
 ) -> Face:
-    """Promote a sketch profile to a concrete face, solving internally."""
+    """Promote one outer and optional inner sketch profiles to a face."""
     try:
         if not isinstance(sketch, Sketch):
             raise ValueError("Input must be a Sketch")
-        face, solve_result, profile_payload = _promote_sketch_profile(
+        normalized_inner_profiles = tuple(inner_profiles)
+        (
+            face,
+            solve_result,
+            profile_payload,
+            inner_profile_payloads,
+            source_wires,
+        ) = _promote_sketch_profile(
             sketch,
             profile,
             target_kind="face",
+            inner_profiles=normalized_inner_profiles,
             require_fully_constrained=require_fully_constrained,
             strict=strict,
             tolerance=tolerance,
@@ -4005,6 +4237,7 @@ def make_face_from_sketch_rface(
                 op=_OP_MAKE_FACE_FROM_SKETCH_RFACE,
                 params={
                     "profile": profile,
+                    "inner_profiles": normalized_inner_profiles,
                     "sketch": sketch.to_dict(),
                     "require_fully_constrained": require_fully_constrained,
                     "strict": strict,
@@ -4015,6 +4248,7 @@ def make_face_from_sketch_rface(
                         sketch,
                         profile,
                         profile_payload,
+                        inner_profile_payloads=inner_profile_payloads,
                         target_kind="face",
                     ),
                 },
@@ -4028,6 +4262,7 @@ def make_face_from_sketch_rface(
                 finalized,
                 sketch=sketch,
                 profile_payload=profile_payload,
+                source_wires=source_wires,
                 operation=_OP_MAKE_FACE_FROM_SKETCH_RFACE,
             ),
         )
@@ -4039,10 +4274,12 @@ def make_face_from_sketch_rface(
                 "The sketch has no closed non-construction profile.",
                 "The sketch constraints are conflicting or invalid.",
                 "The requested profile index or id does not exist.",
+                "An inner profile is outside, intersects, or duplicates the outer profile.",
             ],
             how_to_fix=[
                 "Build a closed profile with add_line_rsketch(...) or add_circle_rsketch(...).",
                 "Add constraints until the profile can solve cleanly.",
+                "Pass hole loops explicitly with inner_profiles=[...].",
             ],
             error=e,
         )

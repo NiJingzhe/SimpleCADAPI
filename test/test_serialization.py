@@ -730,6 +730,64 @@ class TestReplay(unittest.TestCase):
         self.assertIsInstance(results[0], scad.Solid)
         self.assertAlmostEqual(results[0].get_volume(), solid.get_volume(), places=5)
 
+    def test_replay_sketch_face_with_explicit_holes_roundtrip(self):
+        with scad.GraphSession() as session:
+            sketch = scad.make_sketch_rsketch("serialized_ring", plane="YZ")
+            sketch = scad.add_point_rsketch(sketch, "outer_center", 0.0, 0.0)
+            sketch = scad.add_circle_rsketch(
+                sketch, "outer", "outer_center", 5.0
+            )
+            sketch = scad.add_point_rsketch(sketch, "inner_center", 0.0, 0.0)
+            sketch = scad.add_circle_rsketch(
+                sketch, "inner", "inner_center", 2.0
+            )
+            face = scad.make_face_from_sketch_rface(
+                sketch,
+                profile="outer",
+                inner_profiles=("inner",),
+            )
+            solid = scad.extrude_rsolid(face, (1.0, 0.0, 0.0), 3.0)
+
+        payload = json.loads(scad.export_model_json(session))
+        promotion = next(
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_face_from_sketch_rface"
+        )
+        self.assertEqual(promotion["params"]["inner_profiles"], ["inner"])
+        self.assertEqual(
+            [loop["role"] for loop in promotion["params"]["promotion_map"]["loops"]],
+            ["outer", "inner"],
+        )
+
+        results = scad.replay_model_json(json.dumps(payload))
+        rebuilt = next(item for item in results if isinstance(item, scad.Solid))
+        self.assertAlmostEqual(rebuilt.get_volume(), solid.get_volume(), places=5)
+
+    def test_replay_sketch_bspline_point_refs_roundtrip(self):
+        with scad.GraphSession() as session:
+            sketch = scad.make_sketch_rsketch("referenced_spline", plane="YZ")
+            sketch = scad.add_point_rsketch(sketch, "start", 0.0, 0.0)
+            sketch = scad.add_point_rsketch(sketch, "end", 4.0, 0.0)
+            sketch = scad.add_bspline_rsketch(
+                sketch,
+                "curve",
+                "start",
+                "end",
+                control_points=("start", (1.0, 1.5), (3.0, 1.5), "end"),
+                knots=(0.0, 1.0),
+                multiplicities=(4, 4),
+            )
+            sketch = scad.add_line_rsketch(sketch, "close", "end", "start")
+            face = scad.make_face_from_sketch_rface(sketch)
+
+        payload = scad.export_model_json(session)
+        results = scad.replay_model_json(payload)
+        rebuilt = next(item for item in results if isinstance(item, scad.Face))
+        self.assertAlmostEqual(rebuilt.get_area(), face.get_area(), places=6)
+        normal = rebuilt.get_normal_at()
+        self.assertAlmostEqual(normal.x, 1.0, places=6)
+
     def test_replay_fillet_roundtrip_with_selected_edges(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
