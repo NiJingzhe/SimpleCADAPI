@@ -167,6 +167,51 @@ summary = brep.get_model_summary(path="model.step")
 face = brep.inspect_entity(path="model.step", entity_id="face:0")
 ```
 
+这些查询默认保持紧凑。需要精确自由曲线或曲面载体时，使用 targeted opt-in，而不是
+整份读取大报告：
+
+```python
+edge = brep.inspect_entity(
+    "model.step",
+    "edge:4",
+    include_curve_definition=True,
+)
+surface = brep.inspect_entity(
+    "model.step",
+    "face:12",
+    include_surface_definition=True,
+    max_surface_control_points=256,
+)
+boundary = brep.extract_face_boundaries(
+    "model.step",
+    "face:12",
+    compact=True,
+    include_curve_definitions=True,
+    curve_definition_edge_ids=["edge:4", "edge:7"],
+    max_total_control_points=256,
+)
+section = brep.make_section(
+    "model.step",
+    origin=(0, 0, 0),
+    normal=(1, 0, 0),
+    compact=True,
+)
+```
+
+单条 B-spline/Bezier edge 定义没有控制点上限，应先读 `pole_count`；surface 和 boundary
+batch 分别受 `max_surface_control_points` 和 `max_total_control_points` 约束。boundary
+definitions 按规范 stable edge ID 去重、排序，不保留请求或 coedge 顺序；后者应从 loop
+的 `edges` 数组读取。不支持完整参数化的 curve carrier 返回 `available=false`，不会把
+摘要冒充精确定义。曲面定义是未裁剪 carrier；UV 范围和 trim loop 必须单独保留。超过
+控制点上限时查询直接失败，不会返回不完整定义。
+`get_model_summary(include_parameter_groups=True)` 同时提供有界 carrier、规范化轴线和邻接
+签名分组；这些仍只是描述性多重度，不证明 pattern。
+
+Agent tool 的 `compute_material_difference` 默认返回 `method="common_volume"` 的快速体积估计；
+Python API 默认保留双向 cut components。严格材料验收应显式使用
+`include_components=True, boolean_tolerance=None`。带 fuzzy tolerance 的结果只适合诊断，
+不能证明相等，并会标记 `strict_equality_supported=false`。
+
 需要连续调查多个实体时，应复用已索引模型：
 
 ```python
@@ -225,9 +270,10 @@ coedge 的类型、长度、端点、方向和关键参数，避免完整采样�
 
 自由曲面模型不能只看稳定实体摘要。`inspect_step()` 的完整报告会保留
 B-spline/NURBS 的 degree、knot values、multiplicities、control points 和
-rational weights；`inspect_entity()` 默认只返回 degree、pole/knot 数量等局部摘要，
-但曲线实体可通过 `include_curve_definition=True` 返回完整定义。需要精确转录曲面、
-曲面拟合或分析连续性时，仍应读取完整报告。
+rational weights；`inspect_entity()` 默认只返回 degree、pole/knot 数量等局部摘要。
+单条曲线可通过 `include_curve_definition=True` 返回完整定义；单个 B-spline/Bezier
+carrier surface 可通过 `include_surface_definition=True` 按显式控制点预算返回。只有需要
+跨大量实体的完整自由曲面证据时，才读取完整报告。
 
 CLI：
 
