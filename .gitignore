@@ -31,3 +31,7 @@ examples.py
 viewer/node_modules/
 viewer/dist/
 viewer/pnpm-lock.yaml
+
+design-docs/
+
+**/.vite/
