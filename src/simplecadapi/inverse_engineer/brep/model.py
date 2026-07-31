@@ -320,6 +320,186 @@ def _bounded_parameter_groups(
     }
 
 
+def _canonical_direction(values: Sequence[float]) -> tuple[float, float, float]:
+    return tuple(
+        _rounded_parameter(value) for value in _canonical_direction_values(values)
+    )
+
+
+def _canonical_direction_values(values: Sequence[float]) -> list[float]:
+    magnitude = math.sqrt(sum(float(value) ** 2 for value in values))
+    if magnitude <= 1.0e-15:
+        raise ValueError("Axis direction must be non-zero")
+    direction = [float(value) / magnitude for value in values]
+    first_significant = next(
+        (
+            rounded
+            for value in direction
+            if (rounded := _rounded_parameter(value)) != 0.0
+        ),
+        1.0,
+    )
+    if first_significant < 0.0:
+        direction = [-value for value in direction]
+    return direction
+
+
+def _canonical_axis(
+    point: Sequence[float],
+    direction: Sequence[float],
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    direction_values = _canonical_direction_values(direction)
+    projection = sum(
+        float(point[index]) * direction_values[index] for index in range(3)
+    )
+    closest = tuple(
+        _rounded_parameter(float(point[index]) - projection * direction_values[index])
+        for index in range(3)
+    )
+    return closest, tuple(_rounded_parameter(value) for value in direction_values)
+
+
+def _entity_geometry_type(kind: EntityKind, shape: TopoDS_Shape) -> str:
+    if kind == "body":
+        return "SOLID"
+    if kind == "face":
+        return _surface_type(BRepAdaptor_Surface(TopoDS.Face_s(shape), True))
+    if kind == "edge":
+        return _curve_type(TopoDS.Edge_s(shape))
+    return "POINT"
+
+
+def _axis_group_descriptor(
+    kind: EntityKind,
+    shape: TopoDS_Shape,
+) -> tuple[str, tuple[float, float, float] | None, tuple[float, float, float]] | None:
+    if kind == "face":
+        adaptor = BRepAdaptor_Surface(TopoDS.Face_s(shape), True)
+        geometry_type = _surface_type(adaptor)
+        if geometry_type == "PLANE":
+            return (
+                "normal_direction",
+                None,
+                _canonical_direction(xyz(adaptor.Plane().Axis().Direction())),
+            )
+        if geometry_type == "CYLINDER":
+            axis = adaptor.Cylinder().Axis()
+        elif geometry_type == "CONE":
+            axis = adaptor.Cone().Axis()
+        elif geometry_type == "TORUS":
+            axis = adaptor.Torus().Axis()
+        elif geometry_type == "REVOLUTION":
+            axis = adaptor.AxeOfRevolution()
+        elif geometry_type == "EXTRUSION":
+            return (
+                "extrusion_direction",
+                None,
+                _canonical_direction(xyz(adaptor.Direction())),
+            )
+        else:
+            return None
+        point, direction = _canonical_axis(
+            xyz(axis.Location()),
+            xyz(axis.Direction()),
+        )
+        return "axis_line", point, direction
+
+    if kind == "edge":
+        edge = TopoDS.Edge_s(shape)
+        geometry_type = _curve_type(edge)
+        if geometry_type == "DEGENERATE":
+            return None
+        adaptor = BRepAdaptor_Curve(edge)
+        if geometry_type == "LINE":
+            carrier = adaptor.Line()
+            point, direction = _canonical_axis(
+                xyz(carrier.Location()),
+                xyz(carrier.Direction()),
+            )
+        elif geometry_type == "CIRCLE":
+            carrier = adaptor.Circle()
+            point, direction = _canonical_axis(
+                xyz(carrier.Location()),
+                xyz(carrier.Axis().Direction()),
+            )
+        elif geometry_type == "ELLIPSE":
+            carrier = adaptor.Ellipse()
+            point, direction = _canonical_axis(
+                xyz(carrier.Location()),
+                xyz(carrier.Axis().Direction()),
+            )
+        else:
+            return None
+        return "axis_line", point, direction
+    return None
+
+
+def _bounded_axis_groups(
+    groups: dict[
+        tuple[str, tuple[float, float, float] | None, tuple[float, float, float]],
+        list[tuple[str, str]],
+    ],
+    *,
+    max_groups: int,
+    examples_per_group: int,
+) -> dict[str, Any]:
+    ordered = sorted(
+        groups.items(),
+        key=lambda item: (-len(item[1]), item[0]),
+    )
+    result = []
+    for (role, point, direction), entries in ordered[:max_groups]:
+        result.append(
+            {
+                "axis": {
+                    "role": role,
+                    "point": list(point) if point is not None else None,
+                    "direction": list(direction),
+                },
+                "count": len(entries),
+                "geometry_type_counts": dict(
+                    sorted(Counter(geometry for _, geometry in entries).items())
+                ),
+                "example_entity_ids": [
+                    entity_id for entity_id, _ in entries[:examples_per_group]
+                ],
+            }
+        )
+    return {
+        "groups": result,
+        "group_count": len(ordered),
+        "omitted_group_count": max(len(ordered) - max_groups, 0),
+    }
+
+
+def _bounded_adjacency_groups(
+    groups: dict[tuple[Any, ...], list[str]],
+    *,
+    max_groups: int,
+    examples_per_group: int,
+) -> dict[str, Any]:
+    ordered = sorted(groups.items(), key=lambda item: (-len(item[1]), item[0]))
+    result = []
+    for key, entity_ids in ordered[:max_groups]:
+        geometry_type, neighbor_counts, neighbor_geometry = key
+        result.append(
+            {
+                "geometry_type": geometry_type,
+                "signature": {
+                    "direct_neighbor_counts": dict(neighbor_counts),
+                    "neighbor_geometry_types": dict(neighbor_geometry),
+                },
+                "count": len(entity_ids),
+                "example_entity_ids": entity_ids[:examples_per_group],
+            }
+        )
+    return {
+        "groups": result,
+        "group_count": len(ordered),
+        "omitted_group_count": max(len(ordered) - max_groups, 0),
+    }
+
+
 def _axis_parameters(axis: Any) -> dict[str, list[float]]:
     return {
         "point": xyz(axis.Location()),
@@ -327,7 +507,12 @@ def _axis_parameters(axis: Any) -> dict[str, list[float]]:
     }
 
 
-def _surface_parameters(face: TopoDS_Face) -> dict[str, Any]:
+def _surface_parameters(
+    face: TopoDS_Face,
+    *,
+    include_definition: bool = False,
+    max_control_points: int = 256,
+) -> dict[str, Any]:
     adaptor = BRepAdaptor_Surface(face, True)
     geometry_type = _surface_type(adaptor)
     parameters: dict[str, Any] = {
@@ -390,14 +575,84 @@ def _surface_parameters(face: TopoDS_Face) -> dict[str, Any]:
             }
         )
     elif geometry_type in {"BEZIER", "BSPLINE"}:
+        u_pole_count = int(adaptor.NbUPoles())
+        v_pole_count = int(adaptor.NbVPoles())
         parameters.update(
             {
                 "u_degree": int(adaptor.UDegree()),
                 "v_degree": int(adaptor.VDegree()),
-                "u_pole_count": int(adaptor.NbUPoles()),
-                "v_pole_count": int(adaptor.NbVPoles()),
+                "u_pole_count": u_pole_count,
+                "v_pole_count": v_pole_count,
             }
         )
+        if geometry_type == "BSPLINE":
+            parameters.update(
+                {
+                    "u_knot_count": int(adaptor.NbUKnots()),
+                    "v_knot_count": int(adaptor.NbVKnots()),
+                }
+            )
+        if include_definition:
+            control_point_count = u_pole_count * v_pole_count
+            if control_point_count > max_control_points:
+                raise BRepEntityError(
+                    "Surface definition contains "
+                    f"{control_point_count} control points; maximum is "
+                    f"{max_control_points}"
+                )
+            surface = (
+                adaptor.BSpline() if geometry_type == "BSPLINE" else adaptor.Bezier()
+            )
+            u_rational = bool(surface.IsURational())
+            v_rational = bool(surface.IsVRational())
+            parameters.update(
+                {
+                    "surface_definition_scope": "untrimmed_carrier",
+                    "rational": u_rational or v_rational,
+                    "u_rational": u_rational,
+                    "v_rational": v_rational,
+                    "control_point_count": control_point_count,
+                    "control_points": [
+                        [
+                            xyz(surface.Pole(u_index, v_index))
+                            for v_index in range(1, v_pole_count + 1)
+                        ]
+                        for u_index in range(1, u_pole_count + 1)
+                    ],
+                    "weights": (
+                        [
+                            [
+                                float(surface.Weight(u_index, v_index))
+                                for v_index in range(1, v_pole_count + 1)
+                            ]
+                            for u_index in range(1, u_pole_count + 1)
+                        ]
+                        if u_rational or v_rational
+                        else None
+                    ),
+                }
+            )
+            if geometry_type == "BSPLINE":
+                parameters.update(
+                    {
+                        "u_knot_values": [
+                            float(surface.UKnot(index))
+                            for index in range(1, surface.NbUKnots() + 1)
+                        ],
+                        "v_knot_values": [
+                            float(surface.VKnot(index))
+                            for index in range(1, surface.NbVKnots() + 1)
+                        ],
+                        "u_multiplicities": [
+                            int(surface.UMultiplicity(index))
+                            for index in range(1, surface.NbUKnots() + 1)
+                        ],
+                        "v_multiplicities": [
+                            int(surface.VMultiplicity(index))
+                            for index in range(1, surface.NbVKnots() + 1)
+                        ],
+                    }
+                )
     elif geometry_type == "REVOLUTION":
         parameters["axis"] = _axis_parameters(adaptor.AxeOfRevolution())
     elif geometry_type == "EXTRUSION":
@@ -437,6 +692,7 @@ def _curve_parameters(
             {
                 "center": xyz(circle.Location()),
                 "axis_direction": xyz(circle.Axis().Direction()),
+                "x_direction": xyz(circle.XAxis().Direction()),
                 "radius": float(circle.Radius()),
             }
         )
@@ -446,8 +702,30 @@ def _curve_parameters(
             {
                 "center": xyz(ellipse.Location()),
                 "axis_direction": xyz(ellipse.Axis().Direction()),
+                "x_direction": xyz(ellipse.XAxis().Direction()),
                 "major_radius": float(ellipse.MajorRadius()),
                 "minor_radius": float(ellipse.MinorRadius()),
+            }
+        )
+    elif geometry_type == "HYPERBOLA":
+        hyperbola = adaptor.Hyperbola()
+        parameters.update(
+            {
+                "center": xyz(hyperbola.Location()),
+                "axis_direction": xyz(hyperbola.Axis().Direction()),
+                "x_direction": xyz(hyperbola.XAxis().Direction()),
+                "major_radius": float(hyperbola.MajorRadius()),
+                "minor_radius": float(hyperbola.MinorRadius()),
+            }
+        )
+    elif geometry_type == "PARABOLA":
+        parabola = adaptor.Parabola()
+        parameters.update(
+            {
+                "vertex": xyz(parabola.Location()),
+                "axis_direction": xyz(parabola.Axis().Direction()),
+                "x_direction": xyz(parabola.XAxis().Direction()),
+                "focal_length": float(parabola.Focal()),
             }
         )
     elif geometry_type in {"BEZIER", "BSPLINE"}:
@@ -496,6 +774,18 @@ def _curve_parameters(
                 )
 
     return parameters
+
+
+def _curve_definition_available(geometry_type: str) -> bool:
+    return geometry_type in {
+        "LINE",
+        "CIRCLE",
+        "ELLIPSE",
+        "HYPERBOLA",
+        "PARABOLA",
+        "BEZIER",
+        "BSPLINE",
+    }
 
 
 def _endpoint_differential(
@@ -618,6 +908,8 @@ def _describe_geometry(
     entity: TopoDS_Shape,
     *,
     include_curve_definition: bool = False,
+    include_surface_definition: bool = False,
+    max_surface_control_points: int = 256,
 ) -> dict[str, Any]:
     if kind == "body":
         body = TopoDS.Solid_s(entity)
@@ -648,7 +940,11 @@ def _describe_geometry(
             "normal_at_center": _face_normal(face),
             "outer_edge_count": _wire_edge_count(outer_wire_of(face)),
             "inner_boundary_count": len(inner_wires_of(face)),
-            "parameters": _surface_parameters(face),
+            "parameters": _surface_parameters(
+                face,
+                include_definition=include_surface_definition,
+                max_control_points=max_surface_control_points,
+            ),
         }
 
     if kind == "edge":
@@ -895,7 +1191,11 @@ class BRepModel:
         entity_id: str,
         *,
         include_curve_definition: bool = False,
+        include_surface_definition: bool = False,
+        max_surface_control_points: int = 256,
     ) -> dict[str, Any]:
+        if max_surface_control_points < 1:
+            raise ValueError("max_surface_control_points must be at least one")
         kind, index, entity = self.resolve_entity(entity_id)
         canonical = _canonical_entity_id(kind, index)
         return {
@@ -905,6 +1205,8 @@ class BRepModel:
                 kind,
                 entity,
                 include_curve_definition=include_curve_definition,
+                include_surface_definition=include_surface_definition,
+                max_surface_control_points=max_surface_control_points,
             ),
             "bounding_box": _bounding_box(entity),
             "adjacency": self.adjacency_details(canonical),
@@ -933,16 +1235,55 @@ class BRepModel:
         curve_groups: dict[tuple[str, tuple[tuple[str, Any], ...]], list[str]] = (
             defaultdict(list)
         )
+        axis_groups: dict[
+            tuple[
+                str,
+                tuple[float, float, float] | None,
+                tuple[float, float, float],
+            ],
+            list[tuple[str, str]],
+        ] = defaultdict(list)
+        face_adjacency_groups: dict[tuple[Any, ...], list[str]] = defaultdict(list)
+        edge_adjacency_groups: dict[tuple[Any, ...], list[str]] = defaultdict(list)
         for index, face in enumerate(self.faces):
+            entity_id = f"face:{index}"
             geometry_type, parameters = _surface_group_parameters(face)
             surface_groups[_parameter_group_key(geometry_type, parameters)].append(
-                f"face:{index}"
+                entity_id
             )
+            axis = _axis_group_descriptor("face", face)
+            if axis is not None:
+                axis_groups[axis].append((entity_id, f"face:{geometry_type}"))
         for index, edge in enumerate(self.edges):
+            entity_id = f"edge:{index}"
             geometry_type, parameters = _curve_group_parameters(edge)
             curve_groups[_parameter_group_key(geometry_type, parameters)].append(
-                f"edge:{index}"
+                entity_id
             )
+            axis = _axis_group_descriptor("edge", edge)
+            if axis is not None:
+                axis_groups[axis].append((entity_id, f"edge:{geometry_type}"))
+
+        for kind, groups in (
+            ("face", face_adjacency_groups),
+            ("edge", edge_adjacency_groups),
+        ):
+            for index, shape in enumerate(self.entity_list(kind)):
+                entity_id = f"{kind}:{index}"
+                neighbor_counts: Counter[str] = Counter()
+                neighbor_geometry: Counter[str] = Counter()
+                for neighbor_id in self.direct_neighbors(entity_id):
+                    neighbor_kind, _, neighbor_shape = self.resolve_entity(neighbor_id)
+                    neighbor_counts[neighbor_kind] += 1
+                    neighbor_geometry[
+                        f"{neighbor_kind}:{_entity_geometry_type(neighbor_kind, neighbor_shape)}"
+                    ] += 1
+                key = (
+                    _entity_geometry_type(kind, shape),
+                    tuple(sorted(neighbor_counts.items())),
+                    tuple(sorted(neighbor_geometry.items())),
+                )
+                groups[key].append(entity_id)
         return {
             "surfaces": _bounded_parameter_groups(
                 surface_groups,
@@ -954,10 +1295,28 @@ class BRepModel:
                 max_groups=max_groups,
                 examples_per_group=examples_per_group,
             ),
+            "axes": _bounded_axis_groups(
+                axis_groups,
+                max_groups=max_groups,
+                examples_per_group=examples_per_group,
+            ),
+            "adjacency_signatures": {
+                "faces": _bounded_adjacency_groups(
+                    face_adjacency_groups,
+                    max_groups=max_groups,
+                    examples_per_group=examples_per_group,
+                ),
+                "edges": _bounded_adjacency_groups(
+                    edge_adjacency_groups,
+                    max_groups=max_groups,
+                    examples_per_group=examples_per_group,
+                ),
+            },
             "pattern_inference": "not_performed",
             "interpretation": (
-                "Equal scalar carrier parameters are descriptive multiplicities, "
-                "not proof of a linear, radial, or repeated feature pattern."
+                "Equal carrier parameters, canonical axes, and adjacency signatures "
+                "are descriptive multiplicities, not proof of a linear, radial, or "
+                "repeated feature pattern."
             ),
         }
 
@@ -1119,12 +1478,16 @@ def inspect_entity(
     entity_id: str,
     *,
     include_curve_definition: bool = False,
+    include_surface_definition: bool = False,
+    max_surface_control_points: int = 256,
 ) -> dict[str, Any]:
     """Return geometry, measurements, bounds, and adjacency for one entity id."""
 
     return load_step_model(path).describe_entity(
         entity_id,
         include_curve_definition=include_curve_definition,
+        include_surface_definition=include_surface_definition,
+        max_surface_control_points=max_surface_control_points,
     )
 
 

@@ -45,6 +45,8 @@ def test_agent_registry_contains_all_migrated_tools():
 
     assert set(AGENT_TOOL_NAMES) == expected
     assert {item["function"]["name"] for item in agent_tool_schemas()} == expected
+    assert len(AGENT_TOOL_NAMES) == 17
+    assert len(agent_tool_schemas()) == 17
 
 
 def test_agent_tool_dispatches_inspection_and_comparison(box_step):
@@ -82,7 +84,7 @@ def test_agent_tools_expose_opt_in_groups_and_compact_boundaries(box_step):
             "model_path": str(box_step),
             "face_id": "face:0",
             "compact": True,
-            "samples_per_edge": 2,
+            "samples_per_edge": 4,
         },
     )
 
@@ -93,6 +95,50 @@ def test_agent_tools_expose_opt_in_groups_and_compact_boundaries(box_step):
     )
     assert face["compact"] is True
     assert "samples_3d" not in face["outer"]["edges"][0]
+    assert "axes" in summary["parameter_groups"]
+    assert "adjacency_signatures" in summary["parameter_groups"]
+
+
+def test_agent_schemas_expose_bounded_definition_and_compact_options():
+    schemas = {
+        item["function"]["name"]: item["function"]["parameters"]["properties"]
+        for item in agent_tool_schemas()
+    }
+
+    assert "include_surface_definition" in schemas["inspect_entity"]
+    assert "max_surface_control_points" in schemas["inspect_entity"]
+    assert "include_curve_definitions" in schemas["extract_face_boundaries"]
+    assert "curve_definition_edge_ids" in schemas["extract_face_boundaries"]
+    assert "max_total_control_points" in schemas["extract_face_boundaries"]
+    assert "compact" in schemas["make_section"]
+    assert schemas["make_section"]["samples_per_edge"]["minimum"] == 4
+    assert schemas["compare_sections"]["samples_per_edge"]["minimum"] == 4
+
+
+def test_agent_tool_dispatches_compact_section(box_step):
+    section = call_agent_tool(
+        "make_section",
+        {
+            "model_path": str(box_step),
+            "origin": [0.0, 0.0, 2.0],
+            "normal": [0.0, 0.0, 1.0],
+            "compact": True,
+        },
+    )
+
+    assert section["compact"] is True
+    assert section["closed_contour_count"] == 1
+    assert "samples_3d" not in section["edges"][0]
+
+
+def test_agent_material_defaults_to_volume_only(box_step):
+    material = call_agent_tool(
+        "compute_material_difference",
+        {"target_path": str(box_step), "current_path": str(box_step)},
+    )
+
+    assert material["method"] == "common_volume"
+    assert material["missing_material"]["components"] is None
 
 
 def test_inspect_entity_exposes_endpoint_differentials_without_adding_a_tool(box_step):

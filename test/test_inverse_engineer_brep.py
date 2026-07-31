@@ -7,14 +7,23 @@ from pathlib import Path
 import pytest
 import simplecadapi as scad
 from OCP.BRep import BRep_Builder
-from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+from OCP.BRepBuilderAPI import (
+    BRepBuilderAPI_MakeEdge,
+    BRepBuilderAPI_MakeFace,
+    BRepBuilderAPI_Transform,
+)
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+from OCP.Geom import Geom_BezierSurface
 from OCP.IFSelect import IFSelect_RetDone
 from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+from OCP.TColStd import TColStd_Array2OfReal
+from OCP.TColgp import TColgp_Array2OfPnt
 from OCP.TopoDS import TopoDS_Compound
-from OCP.gp import gp_Trsf, gp_Vec
+from OCP.gp import gp_Ax2, gp_Dir, gp_Elips, gp_Pnt, gp_Trsf, gp_Vec
 from simplecadapi.inverse_engineer import brep
 from simplecadapi.inverse_engineer.brep.cli import main as brep_cli_main
+import simplecadapi.inverse_engineer.brep.compare as compare_module
 
 
 def _box():
@@ -128,6 +137,21 @@ def test_model_summary_parameter_groups_are_bounded_and_non_inferential():
     ]
 
 
+def test_canonical_axis_group_is_invariant_to_carrier_location():
+    direction = (1.0, 1.0, 1.0)
+    distance = 1000.0 / math.sqrt(3.0)
+
+    assert brep.model._canonical_axis((0.0, 0.0, 0.0), direction) == (
+        brep.model._canonical_axis((distance, distance, distance), direction)
+    )
+
+
+def test_canonical_direction_ignores_components_below_group_precision():
+    assert brep.model._canonical_direction((2.0e-12, 1.0, 0.0)) == (
+        brep.model._canonical_direction((-2.0e-12, 1.0, 0.0))
+    )
+
+
 def test_indexed_model_reports_analytic_surface_parameters():
     cylinder = scad.make_cylinder_rsolid(radius=5.0, height=10.0)
     model = brep.index_shape(cylinder.wrapped)
@@ -185,6 +209,92 @@ def test_indexed_model_reports_edge_endpoint_derivatives_and_exact_curve_definit
     assert differentials["end"]["outward_unit_tangent"] == pytest.approx(
         [1.0, 0.0, 0.0]
     )
+
+
+def test_indexed_model_reports_ellipse_major_axis_direction():
+    ellipse = gp_Elips(
+        gp_Ax2(
+            gp_Pnt(1.0, 2.0, 3.0),
+            gp_Dir(0.0, 0.0, 1.0),
+            gp_Dir(0.0, 1.0, 0.0),
+        ),
+        5.0,
+        2.0,
+    )
+    edge = BRepBuilderAPI_MakeEdge(ellipse).Edge()
+
+    parameters = brep.index_shape(edge).describe_entity("edge:0")["geometry"][
+        "parameters"
+    ]
+
+    assert parameters["x_direction"] == pytest.approx([0.0, 1.0, 0.0])
+
+
+def test_indexed_model_reports_bounded_surface_definition_only_on_opt_in():
+    profile = scad.make_rectangle_rface(1.0, 0.3)
+    solid = scad.twisted_sweep_rsolid(profile, distance=2.0, twist_angle=90.0)
+    model = brep.index_shape(solid.wrapped)
+    face_id = next(
+        f"face:{index}"
+        for index in range(len(model.faces))
+        if model.describe_entity(f"face:{index}")["geometry"]["type"] == "BSPLINE"
+    )
+
+    default = model.describe_entity(face_id)
+    detailed = model.describe_entity(
+        face_id,
+        include_surface_definition=True,
+        max_surface_control_points=32,
+    )
+    parameters = detailed["geometry"]["parameters"]
+
+    assert "control_points" not in default["geometry"]["parameters"]
+    assert parameters["surface_definition_scope"] == "untrimmed_carrier"
+    assert parameters["control_point_count"] == (
+        parameters["u_pole_count"] * parameters["v_pole_count"]
+    )
+    assert len(parameters["control_points"]) == parameters["u_pole_count"]
+    assert len(parameters["control_points"][0]) == parameters["v_pole_count"]
+    assert len(parameters["u_knot_values"]) == parameters["u_knot_count"]
+    assert len(parameters["v_knot_values"]) == parameters["v_knot_count"]
+
+    with pytest.raises(brep.BRepEntityError, match="control points; maximum is 1"):
+        model.describe_entity(
+            face_id,
+            include_surface_definition=True,
+            max_surface_control_points=1,
+        )
+
+
+def test_indexed_model_reports_rational_bezier_surface_definition():
+    poles = TColgp_Array2OfPnt(1, 2, 1, 2)
+    weights = TColStd_Array2OfReal(1, 2, 1, 2)
+    for u_index in (1, 2):
+        for v_index in (1, 2):
+            poles.SetValue(
+                u_index,
+                v_index,
+                gp_Pnt(
+                    float(u_index - 1),
+                    float(v_index - 1),
+                    0.2 if (u_index, v_index) == (2, 2) else 0.0,
+                ),
+            )
+            weights.SetValue(
+                u_index,
+                v_index,
+                2.0 if (u_index, v_index) == (2, 2) else 1.0,
+            )
+    surface = Geom_BezierSurface(poles, weights)
+    face = BRepBuilderAPI_MakeFace(surface, 1.0e-7).Face()
+
+    parameters = brep.index_shape(face).describe_entity(
+        "face:0",
+        include_surface_definition=True,
+    )["geometry"]["parameters"]
+
+    assert parameters["rational"] is True
+    assert parameters["weights"] == [[1.0, 1.0], [1.0, 2.0]]
 
 
 def test_indexed_model_handles_degenerate_edges():
@@ -298,6 +408,145 @@ def test_compare_same_shape_passes_geometry_and_topology():
     assert comparison.hard_gate_passed is True
     assert comparison.target_minus_candidate_volume == 0.0
     assert comparison.candidate_minus_target_volume == 0.0
+
+
+def test_compare_normalizes_duplicate_solid_material():
+    solid = BRepPrimAPI_MakeBox(2.0, 3.0, 4.0).Shape()
+    duplicate = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(duplicate)
+    builder.Add(duplicate, solid)
+    builder.Add(duplicate, solid)
+
+    comparison = brep.compare_shapes(duplicate, solid)
+
+    assert comparison.same_geometric_point_set is True
+    assert comparison.target_minus_candidate_volume == 0.0
+    assert comparison.candidate_minus_target_volume == 0.0
+
+
+def test_strict_material_comparison_uses_direct_cuts_despite_volume_cancellation():
+    target = BRepPrimAPI_MakeBox(1.0e6, 1.0e6, 1.0e6).Shape()
+    notch = BRepPrimAPI_MakeBox(
+        gp_Pnt(999999.0, 999999.0, 999999.0),
+        1.0,
+        1.0,
+        1.0,
+    ).Shape()
+    cut = BRepAlgoAPI_Cut(target, notch)
+    assert cut.IsDone()
+    candidate = cut.Shape()
+
+    volume_only = brep.compute_material_difference(
+        target,
+        candidate,
+        include_components=False,
+    )
+    strict = brep.compare_shapes(
+        target,
+        candidate,
+        boolean_volume_tolerance=0.5,
+    )
+
+    assert volume_only["missing_material"]["volume"] == 0.0
+    assert strict.target_minus_candidate_volume == pytest.approx(1.0)
+    assert strict.same_geometric_point_set is False
+
+
+def test_strict_comparison_recomputes_untrusted_precomputed_volumes():
+    target = BRepPrimAPI_MakeBox(10.0, 1.0, 1.0).Shape()
+    transform = gp_Trsf()
+    transform.SetTranslation(gp_Vec(0.09, 0.0, 0.0))
+    candidate = BRepBuilderAPI_Transform(target, transform, True).Shape()
+
+    comparison = brep.compare_shapes(
+        target,
+        candidate,
+        material_difference_volumes=(0.0, 0.0),
+    )
+
+    assert comparison.target_minus_candidate_volume == pytest.approx(0.09)
+    assert comparison.candidate_minus_target_volume == pytest.approx(0.09)
+    assert comparison.same_geometric_point_set is False
+
+
+def test_fuzzy_strict_comparison_cannot_claim_material_equality():
+    target = BRepPrimAPI_MakeBox(1000.0, 1.0, 1.0).Shape()
+    candidate = BRepPrimAPI_MakeBox(999.91, 1.0, 1.0).Shape()
+
+    comparison = brep.compare_shapes(
+        target,
+        candidate,
+        boolean_fuzzy_tolerance=0.1,
+        boolean_volume_tolerance=0.01,
+    )
+
+    assert comparison.target_minus_candidate_volume == pytest.approx(0.09)
+    assert comparison.same_geometric_point_set is False
+
+
+def test_strict_cut_is_configured_before_one_build(monkeypatch):
+    instances = []
+
+    class RecordingCut:
+        def __init__(self, *args):
+            self.constructor_args = args
+            self.events = []
+            self.result = None
+            instances.append(self)
+
+        def SetArguments(self, shapes):
+            self.result = list(shapes)[0]
+            self.events.append("arguments")
+
+        def SetTools(self, shapes):
+            assert len(list(shapes)) == 1
+            self.events.append("tools")
+
+        def SetRunParallel(self, value):
+            assert value is True
+            self.events.append("parallel")
+
+        def SetUseOBB(self, value):
+            assert value is True
+            self.events.append("obb")
+
+        def SetToFillHistory(self, value):
+            assert value is False
+            self.events.append("history")
+
+        def SetNonDestructive(self, value):
+            assert value is True
+            self.events.append("non_destructive")
+
+        def SetFuzzyValue(self, value):
+            assert value == pytest.approx(1.0e-9)
+            self.events.append("fuzzy")
+
+        def Build(self):
+            self.events.append("build")
+
+        def IsDone(self):
+            return True
+
+        def Shape(self):
+            return self.result
+
+    monkeypatch.setattr(compare_module, "BRepAlgoAPI_Cut", RecordingCut)
+    shape = _box().wrapped
+
+    assert compare_module._cut_volume(shape, shape, 1.0e-9) == pytest.approx(24.0)
+    assert instances[0].constructor_args == ()
+    assert instances[0].events == [
+        "arguments",
+        "tools",
+        "parallel",
+        "obb",
+        "history",
+        "non_destructive",
+        "fuzzy",
+        "build",
+    ]
 
 
 def test_compare_detects_same_geometry_with_different_topology():
