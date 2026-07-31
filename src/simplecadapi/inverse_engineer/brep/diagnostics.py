@@ -10,9 +10,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 from OCP.BRep import BRep_Builder, BRep_Tool
-from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Section
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Section
 from OCP.BRepBuilderAPI import (
-    BRepBuilderAPI_Copy,
     BRepBuilderAPI_MakeVertex,
 )
 from OCP.BRepCheck import BRepCheck_Analyzer
@@ -20,7 +19,7 @@ from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 from OCP.GeomAPI import GeomAPI_ProjectPointOnSurf
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID
 from OCP.TopExp import TopExp
-from OCP.TopTools import TopTools_IndexedMapOfShape
+from OCP.TopTools import TopTools_IndexedMapOfShape, TopTools_ListOfShape
 from OCP.TopoDS import TopoDS, TopoDS_Compound, TopoDS_Shape
 from OCP.gp import gp_Dir, gp_Pln, gp_Pnt
 
@@ -73,11 +72,10 @@ def _mapped_shapes(shape: TopoDS_Shape, kind: Any) -> list[TopoDS_Shape]:
     return [indexed.FindKey(index) for index in range(1, indexed.Extent() + 1)]
 
 
-def _copy_shape(shape: TopoDS_Shape) -> TopoDS_Shape:
-    operation = BRepBuilderAPI_Copy(shape, True, False)
-    if not operation.IsDone():
-        raise BRepEntityError("OpenCascade could not copy a Boolean operand")
-    return operation.Shape()
+def _shape_list(shape: TopoDS_Shape) -> TopTools_ListOfShape:
+    shapes = TopTools_ListOfShape()
+    shapes.Append(shape)
+    return shapes
 
 
 def _material_shape(model: BRepModel) -> TopoDS_Shape:
@@ -547,7 +545,13 @@ def _cut_shape(
     second: TopoDS_Shape,
     fuzzy_tolerance: float | None,
 ) -> TopoDS_Shape:
-    operation = BRepAlgoAPI_Cut(_copy_shape(first), _copy_shape(second))
+    operation = BRepAlgoAPI_Cut()
+    operation.SetArguments(_shape_list(first))
+    operation.SetTools(_shape_list(second))
+    operation.SetRunParallel(True)
+    operation.SetUseOBB(True)
+    operation.SetToFillHistory(False)
+    operation.SetNonDestructive(True)
     if fuzzy_tolerance is not None:
         operation.SetFuzzyValue(float(fuzzy_tolerance))
     operation.Build()
@@ -556,12 +560,45 @@ def _cut_shape(
     return operation.Shape()
 
 
+def _common_shape(
+    first: TopoDS_Shape,
+    second: TopoDS_Shape,
+    fuzzy_tolerance: float | None,
+) -> TopoDS_Shape:
+    operation = BRepAlgoAPI_Common()
+    operation.SetArguments(_shape_list(first))
+    operation.SetTools(_shape_list(second))
+    operation.SetRunParallel(True)
+    operation.SetUseOBB(True)
+    operation.SetToFillHistory(False)
+    operation.SetNonDestructive(True)
+    if fuzzy_tolerance is not None:
+        operation.SetFuzzyValue(float(fuzzy_tolerance))
+    operation.Build()
+    if not operation.IsDone():
+        raise BRepEntityError("OpenCascade material intersection failed")
+    return operation.Shape()
+
+
+def _material_volume(shape: TopoDS_Shape, description: str) -> float:
+    volume = shape_mass(shape, "volume")[0]
+    if not math.isfinite(volume):
+        raise BRepEntityError(f"{description} has a non-finite volume")
+    if volume < 0.0:
+        raise BRepEntityError(f"{description} has a negative signed volume")
+    return volume
+
+
 def _component_summary(
     shape: TopoDS_Shape,
     component_id: str,
     category: str,
 ) -> dict[str, Any]:
     volume, centroid = shape_mass(shape, "volume")
+    if not math.isfinite(volume):
+        raise BRepEntityError(f"{component_id} has a non-finite volume")
+    if volume < 0.0:
+        raise BRepEntityError(f"{component_id} has a negative signed volume")
     area, _ = shape_mass(shape, "area")
     return {
         "component_id": component_id,
@@ -580,19 +617,43 @@ def compute_material_difference(
     *,
     boolean_tolerance: float | None = None,
     output_directory: str | Path | None = None,
+    include_components: bool = True,
 ) -> dict[str, Any]:
-    """Compute missing material (Target-Current) and excess material."""
+    """Compute missing/excess volumes using directional cuts by default."""
 
     if boolean_tolerance is not None:
         _require_positive(boolean_tolerance, "boolean_tolerance")
+    if output_directory is not None and not include_components:
+        raise ValueError("output_directory requires include_components=True")
     target_model = _model(target)
     current_model = _model(current)
     target_material = _material_shape(target_model)
     current_material = _material_shape(current_model)
+    target_volume = _material_volume(target_material, "Target material")
+    current_volume = _material_volume(current_material, "Current material")
+    same_material_instance = target_material.IsSame(current_material)
 
-    if target_material.IsSame(current_material):
+    if same_material_instance:
         missing_shape = _make_compound([])
         excess_shape = _make_compound([])
+        missing_volume = 0.0
+        excess_volume = 0.0
+        boolean_result_valid = True
+    elif not include_components:
+        common_shape = _common_shape(
+            target_material,
+            current_material,
+            boolean_tolerance,
+        )
+        common_volume = _material_volume(common_shape, "Material intersection")
+        volume_epsilon = max(abs(target_volume), abs(current_volume), 1.0) * 1.0e-12
+        missing_volume = max(target_volume - common_volume, 0.0)
+        excess_volume = max(current_volume - common_volume, 0.0)
+        boolean_result_valid = bool(BRepCheck_Analyzer(common_shape).IsValid()) and (
+            common_volume <= min(target_volume, current_volume) + volume_epsilon
+        )
+        missing_shape = None
+        excess_shape = None
     else:
         missing_shape = _cut_shape(
             target_material,
@@ -605,27 +666,73 @@ def compute_material_difference(
             boolean_tolerance,
         )
 
-    missing_solids = [
-        TopoDS.Solid_s(shape) for shape in _mapped_shapes(missing_shape, TopAbs_SOLID)
-    ]
-    excess_solids = [
-        TopoDS.Solid_s(shape) for shape in _mapped_shapes(excess_shape, TopAbs_SOLID)
-    ]
-    missing_components = [
-        _component_summary(shape, f"missing:{index}", "missing_material")
-        for index, shape in enumerate(missing_solids)
-    ]
-    excess_components = [
-        _component_summary(shape, f"excess:{index}", "excess_material")
-        for index, shape in enumerate(excess_solids)
-    ]
-    boolean_result_valid = (
-        bool(BRepCheck_Analyzer(missing_shape).IsValid())
-        and bool(BRepCheck_Analyzer(excess_shape).IsValid())
-        and all(
-            component["valid"]
-            for component in [*missing_components, *excess_components]
+    if include_components:
+        assert missing_shape is not None and excess_shape is not None
+        missing_solids = [
+            TopoDS.Solid_s(shape)
+            for shape in _mapped_shapes(missing_shape, TopAbs_SOLID)
+        ]
+        excess_solids = [
+            TopoDS.Solid_s(shape)
+            for shape in _mapped_shapes(excess_shape, TopAbs_SOLID)
+        ]
+        missing_components = [
+            _component_summary(shape, f"missing:{index}", "missing_material")
+            for index, shape in enumerate(missing_solids)
+        ]
+        excess_components = [
+            _component_summary(shape, f"excess:{index}", "excess_material")
+            for index, shape in enumerate(excess_solids)
+        ]
+        missing_volume = float(sum(item["volume"] for item in missing_components))
+        excess_volume = float(sum(item["volume"] for item in excess_components))
+        missing_shape_volume = _material_volume(
+            missing_shape, "Missing-material result"
         )
+        excess_shape_volume = _material_volume(excess_shape, "Excess-material result")
+        volume_epsilon = (
+            max(
+                missing_shape_volume,
+                excess_shape_volume,
+                missing_volume,
+                excess_volume,
+                1.0,
+            )
+            * 1.0e-12
+        )
+        boolean_result_valid = (
+            bool(BRepCheck_Analyzer(missing_shape).IsValid())
+            and bool(BRepCheck_Analyzer(excess_shape).IsValid())
+            and abs(missing_volume - missing_shape_volume) <= volume_epsilon
+            and abs(excess_volume - excess_shape_volume) <= volume_epsilon
+            and all(
+                component["valid"]
+                for component in [*missing_components, *excess_components]
+            )
+        )
+    else:
+        missing_solids = []
+        excess_solids = []
+        missing_components = None
+        excess_components = None
+
+    expected_volume_delta = target_volume - current_volume
+    observed_volume_delta = missing_volume - excess_volume
+    volume_balance_tolerance = (
+        max(
+            abs(target_volume),
+            abs(current_volume),
+            abs(missing_volume),
+            abs(excess_volume),
+            1.0,
+        )
+        * 1.0e-9
+    )
+    volume_balance_error = abs(observed_volume_delta - expected_volume_delta)
+    volume_balance_valid = volume_balance_error <= volume_balance_tolerance
+    boolean_result_valid = bool(boolean_result_valid and volume_balance_valid)
+    strict_equality_supported = bool(
+        include_components and (boolean_tolerance is None or same_material_instance)
     )
 
     exported_files: dict[str, str] = {}
@@ -644,19 +751,32 @@ def compute_material_difference(
     return {
         "target_model_path": target_model.source,
         "current_model_path": current_model.source,
+        "method": "bidirectional_cut" if include_components else "common_volume",
         "missing_material": {
             "operation": "Target - Current",
-            "volume": float(sum(item["volume"] for item in missing_components)),
-            "component_count": len(missing_components),
+            "volume": missing_volume,
+            "component_count": (
+                len(missing_components) if missing_components is not None else None
+            ),
             "components": missing_components,
         },
         "excess_material": {
             "operation": "Current - Target",
-            "volume": float(sum(item["volume"] for item in excess_components)),
-            "component_count": len(excess_components),
+            "volume": excess_volume,
+            "component_count": (
+                len(excess_components) if excess_components is not None else None
+            ),
             "components": excess_components,
         },
         "boolean_result_valid": boolean_result_valid,
+        "strict_equality_supported": strict_equality_supported,
+        "volume_balance": {
+            "expected_target_minus_current": expected_volume_delta,
+            "observed_missing_minus_excess": observed_volume_delta,
+            "absolute_error": volume_balance_error,
+            "tolerance": volume_balance_tolerance,
+            "valid": volume_balance_valid,
+        },
         "exported_files": exported_files,
     }
 
@@ -1002,13 +1122,17 @@ def build_difference_regions(
             target_model,
             current_model,
             boolean_tolerance=boolean_tolerance,
+            include_components=True,
         )
     )
     if not all(
         isinstance(material.get(category, {}).get("components"), list)
         for category in ("missing_material", "excess_material")
     ):
-        raise ValueError("material_result must be a compute_material_difference result")
+        raise ValueError(
+            "material_result must contain missing/excess component lists; call "
+            "compute_material_difference(..., include_components=True)"
+        )
     scale = max(
         target_model.summary()["bounding_box"]["diagonal"],
         current_model.summary()["bounding_box"]["diagonal"],
@@ -1345,6 +1469,7 @@ def evaluate_result(
         target_model,
         current_model,
         boolean_tolerance=boolean_tolerance,
+        include_components=True,
     )
     target_volume = max(float(global_properties["volume"]["target"]), 1.0e-12)
     relative_material = (
@@ -1359,7 +1484,7 @@ def evaluate_result(
             candidate_name=current_model.source,
             geometric_tolerance=strict_geometric_tolerance,
             boolean_volume_tolerance=strict_material_tolerance,
-            boolean_fuzzy_tolerance=boolean_tolerance or 1.0e-9,
+            boolean_fuzzy_tolerance=None,
         ).to_dict()
 
     checks = {
@@ -1385,6 +1510,9 @@ def evaluate_result(
             boundary["symmetric"]["hausdorff_approximation"] <= boundary_tolerance
         ),
         "material_difference_valid": bool(material["boolean_result_valid"]),
+        "material_strict_equality_supported": bool(
+            material["strict_equality_supported"]
+        ),
         "material_within_tolerance": (relative_material <= relative_material_tolerance),
     }
     if require_strict_brep:

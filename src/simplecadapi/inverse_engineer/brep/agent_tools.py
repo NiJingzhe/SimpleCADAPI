@@ -123,6 +123,14 @@ def _inspect(arguments: Mapping[str, Any]) -> Any:
             "include_curve_definition",
             default=False,
         ),
+        include_surface_definition=_boolean(
+            arguments,
+            "include_surface_definition",
+            default=False,
+        ),
+        max_surface_control_points=int(
+            arguments.get("max_surface_control_points", 256)
+        ),
     )
 
 
@@ -159,6 +167,7 @@ def _section(arguments: Mapping[str, Any]) -> Any:
         connection_tolerance=(
             float(connection_tolerance) if connection_tolerance is not None else None
         ),
+        compact=_boolean(arguments, "compact", default=False),
     )
 
 
@@ -168,6 +177,13 @@ def _boundaries(arguments: Mapping[str, Any]) -> Any:
         _require(arguments, "face_id"),
         samples_per_edge=int(arguments.get("samples_per_edge", 16)),
         compact=_boolean(arguments, "compact", default=False),
+        include_curve_definitions=_boolean(
+            arguments,
+            "include_curve_definitions",
+            default=False,
+        ),
+        curve_definition_edge_ids=arguments.get("curve_definition_edge_ids"),
+        max_total_control_points=int(arguments.get("max_total_control_points", 256)),
     )
 
 
@@ -213,11 +229,17 @@ def _boundary(arguments: Mapping[str, Any]) -> Any:
 
 
 def _material(arguments: Mapping[str, Any]) -> Any:
+    output_directory = arguments.get("output_directory")
     return compute_material_difference(
         _require(arguments, "target_path"),
         _require(arguments, "current_path"),
         boolean_tolerance=arguments.get("boolean_tolerance"),
-        output_directory=arguments.get("output_directory"),
+        output_directory=output_directory,
+        include_components=_boolean(
+            arguments,
+            "include_components",
+            default=output_directory is not None,
+        ),
     )
 
 
@@ -311,12 +333,19 @@ _COMMON_PAIR_PROPERTIES = {
 _TOOLS = (
     AgentTool(
         "get_model_summary",
-        "Get global model facts and optional bounded scalar carrier groups; groups do not prove a repeated pattern.",
+        "Get global facts and optional bounded carrier, canonical-axis, and adjacency-signature groups; groups do not prove a pattern.",
         _object_schema(
             {
                 "model_path": _PATH,
-                "include_parameter_groups": {"type": "boolean"},
-                "max_parameter_groups": {"type": "integer", "minimum": 1},
+                "include_parameter_groups": {
+                    "type": "boolean",
+                    "description": "Include bounded carrier, axis, and adjacency-signature groups.",
+                },
+                "max_parameter_groups": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Maximum groups returned per category.",
+                },
                 "examples_per_group": {"type": "integer", "minimum": 1},
             },
             ("model_path",),
@@ -325,12 +354,18 @@ _TOOLS = (
     ),
     AgentTool(
         "inspect_entity",
-        "Inspect one stable Body, Face, Edge, or Vertex, including edge endpoint derivatives and optional exact curve data.",
+        "Inspect one stable entity, with optional exact B-spline/Bezier curve data or a bounded untrimmed surface-carrier definition.",
         _object_schema(
             {
                 "model_path": _PATH,
                 "entity_id": _ENTITY,
                 "include_curve_definition": {"type": "boolean"},
+                "include_surface_definition": {"type": "boolean"},
+                "max_surface_control_points": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 256,
+                },
             },
             ("model_path", "entity_id"),
         ),
@@ -375,7 +410,7 @@ _TOOLS = (
     ),
     AgentTool(
         "make_section",
-        "Intersect a model with a plane and return sampled 2D/3D curves and contours.",
+        "Intersect a model with a plane; compact mode omits sampled arrays while retaining contour evidence.",
         _object_schema(
             {
                 "model_path": _PATH,
@@ -386,7 +421,8 @@ _TOOLS = (
                     "type": "number",
                     "exclusiveMinimum": 0,
                 },
-                "samples_per_edge": {"type": "integer", "minimum": 2},
+                "samples_per_edge": {"type": "integer", "minimum": 4},
+                "compact": {"type": "boolean"},
             },
             ("model_path", "origin", "normal"),
         ),
@@ -394,13 +430,24 @@ _TOOLS = (
     ),
     AgentTool(
         "extract_face_boundaries",
-        "Extract ordered outer and inner face loops with 3D and UV curves.",
+        "Extract ordered face loops; compact mode can return stable-ID-sorted exact definitions for supported selected curves.",
         _object_schema(
             {
                 "model_path": _PATH,
                 "face_id": _ENTITY,
                 "samples_per_edge": {"type": "integer", "minimum": 2},
                 "compact": {"type": "boolean"},
+                "include_curve_definitions": {"type": "boolean"},
+                "curve_definition_edge_ids": {
+                    "type": "array",
+                    "items": _ENTITY,
+                    "uniqueItems": True,
+                },
+                "max_total_control_points": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 256,
+                },
             },
             ("model_path", "face_id"),
         ),
@@ -469,15 +516,28 @@ _TOOLS = (
     ),
     AgentTool(
         "compute_material_difference",
-        "Compute Target-Current missing material and Current-Target excess material.",
+        "Estimate missing/excess volumes with one intersection, or build "
+        "directional-cut components for strict checks, regions, and export.",
         _object_schema(
             {
                 **_COMMON_PAIR_PROPERTIES,
                 "boolean_tolerance": {
                     "type": "number",
                     "exclusiveMinimum": 0,
+                    "description": (
+                        "Optional fuzzy tolerance for diagnostics; fuzzy results "
+                        "cannot prove strict material equality."
+                    ),
                 },
                 "output_directory": {"type": "string"},
+                "include_components": {
+                    "type": "boolean",
+                    "description": (
+                        "Build slower bidirectional difference components; "
+                        "required for strict material checks, region diagnostics, "
+                        "or STEP export."
+                    ),
+                },
             },
             ("target_path", "current_path"),
         ),
@@ -492,7 +552,7 @@ _TOOLS = (
                 "origin": _POINT,
                 "normal": _POINT,
                 "tolerance": {"type": "number", "exclusiveMinimum": 0},
-                "samples_per_edge": {"type": "integer", "minimum": 2},
+                "samples_per_edge": {"type": "integer", "minimum": 4},
             },
             ("target_path", "current_path", "origin", "normal"),
         ),

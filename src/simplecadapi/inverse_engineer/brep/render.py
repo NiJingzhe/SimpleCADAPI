@@ -227,13 +227,18 @@ def render_region(
     figure = plt.figure(figsize=image_size)
     for index, (elevation, azimuth, view_title) in enumerate(views, 1):
         axes = figure.add_subplot(rows, columns, index, projection="3d")
+        # Base and selected faces are coincident polygon collections. Disable
+        # automatic collection depth sorting so the highlight always overlays
+        # the translucent context model instead of being hidden by it.
+        axes.computed_zorder = False
         axes.add_collection3d(
             Poly3DCollection(
                 base_polygons,
                 facecolor="#b9c7d6",
                 edgecolor="#435466",
                 linewidth=0.12,
-                alpha=0.8,
+                alpha=0.18,
+                zorder=1,
             )
         )
         if highlighted_polygons:
@@ -242,8 +247,9 @@ def render_region(
                     highlighted_polygons,
                     facecolor="#ef476f",
                     edgecolor="#9d112d",
-                    linewidth=0.5,
-                    alpha=0.95,
+                    linewidth=0.9,
+                    alpha=1.0,
+                    zorder=10,
                 )
             )
         for line in highlighted_lines:
@@ -254,6 +260,7 @@ def render_region(
                 values[:, 2],
                 color="#d00000",
                 linewidth=2.2,
+                zorder=11,
             )
         if highlighted_points:
             values = np.asarray(highlighted_points)
@@ -264,6 +271,7 @@ def render_region(
                 color="#d00000",
                 s=30,
                 depthshade=False,
+                zorder=12,
             )
         axes.view_init(elev=elevation, azim=azimuth)
         axes.set_title(view_title)

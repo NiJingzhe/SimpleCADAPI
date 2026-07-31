@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 from OCP.BRep import BRep_Tool
@@ -14,7 +15,7 @@ from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_VERTEX
 from OCP.TopExp import TopExp, TopExp_Explorer
-from OCP.TopTools import TopTools_IndexedMapOfShape
+from OCP.TopTools import TopTools_IndexedMapOfShape, TopTools_ListOfShape
 from OCP.TopoDS import TopoDS, TopoDS_Shape
 
 from .inspect import BRepInspection
@@ -364,14 +365,48 @@ def _labelled_graph_isomorphic(graph_a, graph_b) -> bool:
 
 
 def _cut_volume(
-    first: TopoDS_Shape, second: TopoDS_Shape, fuzzy_tolerance: float
+    first: TopoDS_Shape, second: TopoDS_Shape, fuzzy_tolerance: float | None
 ) -> float:
-    operation = BRepAlgoAPI_Cut(first, second)
-    operation.SetFuzzyValue(fuzzy_tolerance)
+    arguments = TopTools_ListOfShape()
+    arguments.Append(first)
+    tools = TopTools_ListOfShape()
+    tools.Append(second)
+    operation = BRepAlgoAPI_Cut()
+    operation.SetArguments(arguments)
+    operation.SetTools(tools)
+    operation.SetRunParallel(True)
+    operation.SetUseOBB(True)
+    operation.SetToFillHistory(False)
+    operation.SetNonDestructive(True)
+    if fuzzy_tolerance is not None:
+        operation.SetFuzzyValue(fuzzy_tolerance)
     operation.Build()
     if not operation.IsDone():
         raise RuntimeError("BREP boolean difference failed")
-    return shape_mass(operation.Shape(), "volume")[0]
+    volume = shape_mass(operation.Shape(), "volume")[0]
+    if not math.isfinite(volume):
+        raise RuntimeError("BREP boolean difference produced a non-finite volume")
+    if volume < 0.0:
+        raise RuntimeError("BREP boolean difference produced a negative signed volume")
+    return volume
+
+
+def _shape_volume(shape: TopoDS_Shape, description: str) -> float:
+    volume = shape_mass(shape, "volume")[0]
+    if not math.isfinite(volume):
+        raise RuntimeError(f"{description} has a non-finite volume")
+    if volume < 0.0:
+        raise RuntimeError(f"{description} has a negative signed volume")
+    return volume
+
+
+def _material_operand(shape: TopoDS_Shape, description: str) -> TopoDS_Shape:
+    from .model import index_shape
+
+    model = index_shape(shape)
+    if not model.bodies:
+        raise RuntimeError(f"{description} has no solid material")
+    return model._material_union()
 
 
 def compare_shapes(
@@ -382,13 +417,70 @@ def compare_shapes(
     candidate_name: str | None = None,
     geometric_tolerance: float = 1.0e-7,
     boolean_volume_tolerance: float = 1.0e-9,
-    boolean_fuzzy_tolerance: float = 1.0e-9,
+    boolean_fuzzy_tolerance: float | None = None,
+    material_difference_volumes: Sequence[float] | None = None,
 ) -> BRepComparison:
-    """Compare geometric point sets and geometry-labelled incidence graphs."""
+    """Compare material point sets and geometry-labelled incidence graphs.
+
+    Optional precomputed volumes are validated for compatibility but never used
+    as equality evidence; strict directional cuts are always recomputed.
+    """
+    if boolean_fuzzy_tolerance is not None and boolean_fuzzy_tolerance <= 0.0:
+        raise ValueError("boolean_fuzzy_tolerance must be greater than zero")
+    if material_difference_volumes is not None:
+        if len(material_difference_volumes) != 2:
+            raise ValueError("material_difference_volumes must contain two values")
+        precomputed_volumes = tuple(
+            float(value) for value in material_difference_volumes
+        )
+        if not all(
+            math.isfinite(value) and value >= 0.0 for value in precomputed_volumes
+        ):
+            raise ValueError(
+                "material difference volumes must be finite and non-negative"
+            )
     target_graph = _incidence_graph(target, geometric_tolerance)
     candidate_graph = _incidence_graph(candidate, geometric_tolerance)
-    target_minus_candidate = _cut_volume(target, candidate, boolean_fuzzy_tolerance)
-    candidate_minus_target = _cut_volume(candidate, target, boolean_fuzzy_tolerance)
+    target_material = _material_operand(target, "Target BREP")
+    candidate_material = _material_operand(candidate, "Candidate BREP")
+    target_minus_candidate = _cut_volume(
+        target_material,
+        candidate_material,
+        boolean_fuzzy_tolerance,
+    )
+    candidate_minus_target = _cut_volume(
+        candidate_material,
+        target_material,
+        boolean_fuzzy_tolerance,
+    )
+    if (
+        boolean_fuzzy_tolerance is not None
+        and target_minus_candidate < boolean_volume_tolerance
+        and candidate_minus_target < boolean_volume_tolerance
+    ):
+        # A fuzzy Boolean can erase a real narrow residual. Recompute apparent
+        # equality without fuzz before using it as strict evidence.
+        target_minus_candidate = _cut_volume(
+            target_material,
+            candidate_material,
+            None,
+        )
+        candidate_minus_target = _cut_volume(
+            candidate_material,
+            target_material,
+            None,
+        )
+    target_volume = _shape_volume(target_material, "Target BREP material")
+    candidate_volume = _shape_volume(candidate_material, "Candidate BREP material")
+    volume_delta = abs(target_volume - candidate_volume)
+    volume_balance_error = abs(
+        (target_minus_candidate - candidate_minus_target)
+        - (target_volume - candidate_volume)
+    )
+    volume_balance_tolerance = max(
+        boolean_volume_tolerance,
+        max(target_volume, candidate_volume, 1.0) * 1.0e-12,
+    )
     return BRepComparison(
         target=target_name,
         candidate=candidate_name,
@@ -397,6 +489,8 @@ def compare_shapes(
         same_geometric_point_set=(
             target_minus_candidate < boolean_volume_tolerance
             and candidate_minus_target < boolean_volume_tolerance
+            and volume_delta < boolean_volume_tolerance
+            and volume_balance_error <= volume_balance_tolerance
         ),
         geometry_labelled_incidence_graph_isomorphic=_labelled_graph_isomorphic(
             target_graph, candidate_graph

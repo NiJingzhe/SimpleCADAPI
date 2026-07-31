@@ -4,6 +4,7 @@ import math
 
 import numpy as np
 import pytest
+import simplecadapi as scad
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
 from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
@@ -111,6 +112,27 @@ def test_section_of_box_returns_one_closed_contour_with_area():
     assert len(contour["samples_2d"][0]) == 2
 
 
+def test_section_requires_enough_samples_to_classify_curved_contours():
+    model = index_shape(BRepPrimAPI_MakeCylinder(5.0, 10.0).Shape())
+    with pytest.raises(ValueError, match="at least four"):
+        make_section(
+            model,
+            origin=(0.0, 0.0, 5.0),
+            normal=(0.0, 0.0, 1.0),
+            samples_per_edge=2,
+        )
+
+    section = make_section(
+        model,
+        origin=(0.0, 0.0, 5.0),
+        normal=(0.0, 0.0, 1.0),
+        samples_per_edge=4,
+    )
+
+    assert section["closed_contour_count"] == 1
+    assert section["material_area"] > 0.0
+
+
 def test_section_connection_tolerance_heals_small_endpoint_gap():
     gap = 5.0e-6
     points = [
@@ -196,6 +218,124 @@ def test_face_boundaries_compact_mode_preserves_order_without_samples():
     assert len(first["end"]) == 3
     assert "samples_3d" not in first
     assert "uv_samples" not in first
+
+
+def test_compact_boundaries_return_selected_exact_curve_definitions():
+    spline = scad.make_spline_redge(
+        control_points=[
+            (0.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (2.0, 1.0, 0.0),
+            (3.0, 0.0, 0.0),
+        ],
+        degree=3,
+    )
+    edges = [
+        spline,
+        scad.make_line_redge((3.0, 0.0, 0.0), (3.0, -1.0, 0.0)),
+        scad.make_line_redge((3.0, -1.0, 0.0), (0.0, -1.0, 0.0)),
+        scad.make_line_redge((0.0, -1.0, 0.0), (0.0, 0.0, 0.0)),
+    ]
+    face = scad.make_face_from_wire_rface(scad.make_wire_from_edges_rwire(edges))
+    model = index_shape(face.wrapped)
+    spline_id = next(
+        f"edge:{index}"
+        for index in range(len(model.edges))
+        if model.describe_entity(f"edge:{index}")["geometry"]["type"] == "BSPLINE"
+    )
+
+    boundaries = extract_face_boundaries(
+        model,
+        "face:0",
+        compact=True,
+        include_curve_definitions=True,
+        curve_definition_edge_ids=[spline_id],
+        max_total_control_points=4,
+    )
+    definitions = boundaries["curve_definitions"]
+
+    assert definitions["edge_ids"] == [spline_id]
+    assert definitions["total_control_points"] == 4
+    definition = definitions["definitions"][spline_id]["definition"]
+    assert definition["degree"] == 3
+    assert len(definition["control_points"]) == 4
+
+    with pytest.raises(BRepEntityError, match="control points; maximum is 3"):
+        extract_face_boundaries(
+            model,
+            "face:0",
+            compact=True,
+            include_curve_definitions=True,
+            max_total_control_points=3,
+        )
+
+
+def test_compact_boundary_definition_ids_are_deduplicated_and_sorted():
+    model = _model()
+    boundary = extract_face_boundaries(model, "face:0", compact=True)
+    edge_ids = [edge["entity_id"] for edge in boundary["outer"]["edges"]]
+
+    result = extract_face_boundaries(
+        model,
+        "face:0",
+        compact=True,
+        include_curve_definitions=True,
+        curve_definition_edge_ids=[edge_ids[-1], edge_ids[0], edge_ids[-1]],
+    )
+
+    assert result["curve_definitions"]["edge_ids"] == sorted(
+        {edge_ids[0], edge_ids[-1]},
+        key=lambda value: int(value.split(":")[1]),
+    )
+
+
+def test_compact_boundary_definitions_mark_unsupported_carriers_unavailable(
+    monkeypatch,
+):
+    model = _model()
+    boundary = extract_face_boundaries(model, "face:0", compact=True)
+    edge_id = boundary["outer"]["edges"][0]["entity_id"]
+    monkeypatch.setattr(
+        "simplecadapi.inverse_engineer.brep.queries._curve_type",
+        lambda edge: "OFFSET",
+    )
+
+    result = extract_face_boundaries(
+        model,
+        "face:0",
+        compact=True,
+        include_curve_definitions=True,
+        curve_definition_edge_ids=[edge_id],
+    )
+
+    definition = result["curve_definitions"]["definitions"][edge_id]
+    assert definition["available"] is False
+    assert definition["definition"] is None
+
+
+def test_compact_section_omits_samples_and_preserves_summary():
+    detailed = make_section(
+        _model(),
+        origin=(0.0, 0.0, 1.0),
+        normal=(0.0, 0.0, 1.0),
+    )
+    compact = make_section(
+        _model(),
+        origin=(0.0, 0.0, 1.0),
+        normal=(0.0, 0.0, 1.0),
+        compact=True,
+    )
+
+    assert compact["compact"] is True
+    assert compact["edge_count"] == detailed["edge_count"]
+    assert compact["material_area"] == detailed["material_area"]
+    assert (
+        compact["contours"][0]["length_exact"]
+        == detailed["contours"][0]["length_exact"]
+    )
+    assert all("samples_3d" not in edge for edge in compact["edges"])
+    assert all("samples_2d" not in contour for contour in compact["contours"])
+    assert all(len(edge["start"]) == 3 for edge in compact["edges"])
 
 
 def test_section_classifies_hole_and_reports_material_area():

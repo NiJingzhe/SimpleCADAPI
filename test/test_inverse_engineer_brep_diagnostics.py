@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from OCP.BRep import BRep_Builder
 from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
-from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeSphere
 from OCP.TopoDS import TopoDS_Compound
 from OCP.gp import gp_Trsf, gp_Vec
 
@@ -17,7 +17,7 @@ from simplecadapi.inverse_engineer.brep.diagnostics import (
     evaluate_result,
     find_nearby_entities,
 )
-from simplecadapi.inverse_engineer.brep.model import index_shape
+from simplecadapi.inverse_engineer.brep.model import BRepEntityError, index_shape
 import simplecadapi.inverse_engineer.brep.diagnostics as diagnostics
 
 
@@ -51,6 +51,140 @@ def test_global_boundary_and_material_diagnostics():
     assert boundary["symmetric"]["hausdorff_approximation"] == pytest.approx(1.0)
     assert material["missing_material"]["volume"] == pytest.approx(600.0)
     assert material["excess_material"]["volume"] == pytest.approx(0.0)
+    assert material["method"] == "bidirectional_cut"
+    assert isinstance(material["missing_material"]["components"], list)
+    assert material["boolean_result_valid"] is True
+
+
+def test_material_volume_mode_uses_intersection_without_components():
+    target = index_shape(_box())
+    current = index_shape(_box(9.0, 20.0, 30.0))
+
+    material = compute_material_difference(target, current, include_components=False)
+
+    assert material["method"] == "common_volume"
+    assert material["missing_material"]["volume"] == pytest.approx(600.0)
+    assert material["excess_material"]["volume"] == pytest.approx(0.0)
+    assert material["missing_material"]["component_count"] is None
+    assert material["missing_material"]["components"] is None
+    assert material["boolean_result_valid"] is True
+
+
+@pytest.mark.parametrize(
+    ("operation_name", "helper_name"),
+    [
+        ("BRepAlgoAPI_Cut", "_cut_shape"),
+        ("BRepAlgoAPI_Common", "_common_shape"),
+    ],
+)
+def test_material_booleans_are_configured_before_one_build(
+    monkeypatch,
+    operation_name,
+    helper_name,
+):
+    instances = []
+
+    class RecordingBoolean:
+        def __init__(self, *args):
+            self.constructor_args = args
+            self.events = []
+            self.result = None
+            instances.append(self)
+
+        def SetArguments(self, shapes):
+            self.result = list(shapes)[0]
+            self.events.append("arguments")
+
+        def SetTools(self, shapes):
+            assert len(list(shapes)) == 1
+            self.events.append("tools")
+
+        def SetRunParallel(self, value):
+            assert value is True
+            self.events.append("parallel")
+
+        def SetUseOBB(self, value):
+            assert value is True
+            self.events.append("obb")
+
+        def SetToFillHistory(self, value):
+            assert value is False
+            self.events.append("history")
+
+        def SetNonDestructive(self, value):
+            assert value is True
+            self.events.append("non_destructive")
+
+        def SetFuzzyValue(self, value):
+            assert value == pytest.approx(1.0e-7)
+            self.events.append("fuzzy")
+
+        def Build(self):
+            self.events.append("build")
+
+        def IsDone(self):
+            return True
+
+        def Shape(self):
+            return self.result
+
+    monkeypatch.setattr(diagnostics, operation_name, RecordingBoolean)
+    first = _box()
+    second = _box(9.0, 20.0, 30.0)
+
+    result = getattr(diagnostics, helper_name)(first, second, 1.0e-7)
+
+    assert result.IsSame(first)
+    assert instances[0].constructor_args == ()
+    assert instances[0].events == [
+        "arguments",
+        "tools",
+        "parallel",
+        "obb",
+        "history",
+        "non_destructive",
+        "fuzzy",
+        "build",
+    ]
+
+
+def test_material_component_rejects_negative_signed_volume():
+    with pytest.raises(BRepEntityError, match="negative signed volume"):
+        diagnostics._component_summary(
+            _box().Reversed(),
+            "missing:0",
+            "missing_material",
+        )
+
+
+def test_fuzzy_material_result_cannot_claim_strict_equality():
+    target = index_shape(_box(1000.0, 1.0, 1.0))
+    current = index_shape(_box(999.91, 1.0, 1.0))
+
+    material = compute_material_difference(
+        target,
+        current,
+        boolean_tolerance=0.1,
+        include_components=True,
+    )
+
+    assert material["missing_material"]["volume"] == 0.0
+    assert material["boolean_result_valid"] is False
+    assert material["strict_equality_supported"] is False
+    assert material["volume_balance"]["valid"] is False
+
+
+def test_material_balance_allows_valid_curved_boolean_roundoff():
+    target = BRepPrimAPI_MakeSphere(10.0).Shape()
+    current = _translated(target, 0.1, 0.0, 0.0)
+
+    material = compute_material_difference(target, current)
+
+    assert material["missing_material"]["volume"] == pytest.approx(
+        material["excess_material"]["volume"],
+        rel=1.0e-8,
+    )
+    assert material["volume_balance"]["valid"] is True
     assert material["boolean_result_valid"] is True
 
 
@@ -128,7 +262,7 @@ def test_difference_regions_reuses_precomputed_results(monkeypatch):
         max_samples=32,
         include_records=True,
     )
-    material = compute_material_difference(target, current)
+    material = compute_material_difference(target, current, include_components=True)
 
     monkeypatch.setattr(
         diagnostics,
@@ -173,6 +307,7 @@ def test_difference_regions_default_skips_boundary_sampling(monkeypatch):
     assert regions["boundary_included"] is False
     assert regions["boundary_summary"] is None
     assert regions["region_count"] >= 1
+    assert regions["material_summary"]["method"] == "bidirectional_cut"
 
 
 def test_entity_comparison_and_evaluation_gates():
@@ -202,9 +337,31 @@ def test_entity_comparison_and_evaluation_gates():
     assert entity["distance"]["distance"] == pytest.approx(0.0)
     assert passed["passed"] is True
     assert passed["strict_brep_executed"] is True
+    assert passed["metrics"]["material_difference"]["method"] == "bidirectional_cut"
     assert failed["passed"] is False
     assert failed["strict_brep_executed"] is False
     assert failed["metrics"]["strict_brep"] is None
+
+
+def test_evaluation_rejects_fuzzy_material_false_positive():
+    target = _box(10.0, 1.0, 1.0)
+    result = evaluate_result(
+        index_shape(target),
+        index_shape(_translated(target, 0.09, 0.0, 0.0)),
+        replay_succeeded=True,
+        boundary_tolerance=0.2,
+        bounding_box_tolerance=0.2,
+        relative_volume_tolerance=1.0,
+        relative_area_tolerance=1.0,
+        relative_material_tolerance=1.0,
+        linear_deflection=100.0,
+        max_samples=16,
+        boolean_tolerance=0.1,
+    )
+
+    assert result["passed"] is False
+    assert "material_strict_equality_supported" in result["failed_checks"]
+    assert result["metrics"]["material_difference"]["boolean_result_valid"] is True
 
 
 def test_evaluation_does_not_run_strict_comparison_unless_requested(monkeypatch):

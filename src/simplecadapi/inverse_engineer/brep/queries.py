@@ -39,6 +39,9 @@ from .model import (
     BRepModel,
     ENTITY_KINDS,
     _bounding_box,
+    _curve_definition_available,
+    _curve_parameters,
+    _curve_type,
     index_shape,
     load_step_model,
 )
@@ -674,6 +677,7 @@ def make_section(
     tolerance: float = 1.0e-7,
     samples_per_edge: int = 16,
     connection_tolerance: float | None = None,
+    compact: bool = False,
 ) -> dict[str, Any]:
     """Intersect a model with an unbounded plane and assemble sampled contours."""
     _require_positive(tolerance, "tolerance")
@@ -681,8 +685,8 @@ def make_section(
         tolerance if connection_tolerance is None else float(connection_tolerance)
     )
     _require_positive(connection_tolerance_value, "connection_tolerance")
-    if samples_per_edge < 2:
-        raise ValueError("samples_per_edge must be at least two")
+    if samples_per_edge < 4:
+        raise ValueError("samples_per_edge must be at least four")
     model = _model(model_or_path)
     plane_origin = _point(origin, "origin")
     plane_normal = _point(normal, "normal")
@@ -724,7 +728,7 @@ def make_section(
         y_axis,
     )
     material_area = _classify_closed_contours(contours)
-    return {
+    result = {
         "plane": {
             "origin": basis_origin.tolist(),
             "normal": (plane_normal / np.linalg.norm(plane_normal)).tolist(),
@@ -741,6 +745,34 @@ def make_section(
         "total_closed_area": float(sum(contour["area"] or 0.0 for contour in contours)),
         "material_area": material_area,
     }
+    if compact:
+        result["compact"] = True
+        result["edges"] = [
+            {
+                "index": edge["index"],
+                "start": edge["samples_3d"][0],
+                "end": edge["samples_3d"][-1],
+                "length_exact": edge["length_exact"],
+            }
+            for edge in edges
+        ]
+        result["contours"] = [
+            {
+                key: contour[key]
+                for key in (
+                    "index",
+                    "edge_indices",
+                    "closed",
+                    "length_exact",
+                    "area",
+                    "nesting_depth",
+                    "role",
+                )
+                if key in contour
+            }
+            for contour in contours
+        ]
+    return result
 
 
 def _wire_edges(wire: TopoDS_Wire, face: TopoDS_Face) -> Iterable[TopoDS_Edge]:
@@ -776,10 +808,21 @@ def extract_face_boundaries(
     face_id: str,
     samples_per_edge: int = 16,
     compact: bool = False,
+    include_curve_definitions: bool = False,
+    curve_definition_edge_ids: Sequence[str] | None = None,
+    max_total_control_points: int = 256,
 ) -> dict[str, Any]:
     """Return ordered outer and inner wire occurrences for one stable face id."""
     if samples_per_edge < 2:
         raise ValueError("samples_per_edge must be at least two")
+    if max_total_control_points < 1:
+        raise ValueError("max_total_control_points must be at least one")
+    if include_curve_definitions and not compact:
+        raise ValueError("Curve definitions require compact=True")
+    if curve_definition_edge_ids is not None and not include_curve_definitions:
+        raise ValueError(
+            "curve_definition_edge_ids requires include_curve_definitions=True"
+        )
     model = _model(model_or_path)
     canonical, kind, _, shape = _canonical_id(model, face_id)
     if kind != "face":
@@ -793,6 +836,43 @@ def extract_face_boundaries(
         wires.append(wire)
         explorer.Next()
     ordered_wires = [outer] + [wire for wire in wires if not wire.IsSame(outer)]
+    boundary_edge_ids = {
+        model.id_for_shape("edge", edge)
+        for wire in ordered_wires
+        for edge in _wire_edges(wire, face)
+    }
+
+    selected_definition_ids: list[str] = []
+    if include_curve_definitions:
+        if curve_definition_edge_ids is None:
+            selected_definition_ids = sorted(boundary_edge_ids, key=_entity_key)
+        else:
+            selected = set()
+            for entity_id in curve_definition_edge_ids:
+                canonical_edge, edge_kind, _, _ = _canonical_id(model, entity_id)
+                if edge_kind != "edge":
+                    raise BRepEntityError(
+                        "curve_definition_edge_ids must identify edges"
+                    )
+                if canonical_edge not in boundary_edge_ids:
+                    raise BRepEntityError(
+                        f"{canonical_edge} is not a boundary edge of {canonical}"
+                    )
+                selected.add(canonical_edge)
+            selected_definition_ids = sorted(selected, key=_entity_key)
+
+    total_control_points = 0
+    for edge_id in selected_definition_ids:
+        _, _, edge_shape = model.resolve_entity(edge_id)
+        edge = TopoDS.Edge_s(edge_shape)
+        if _curve_type(edge) in {"BEZIER", "BSPLINE"}:
+            total_control_points += int(BRepAdaptor_Curve(edge).NbPoles())
+    if total_control_points > max_total_control_points:
+        raise BRepEntityError(
+            "Selected curve definitions contain "
+            f"{total_control_points} control points; maximum is "
+            f"{max_total_control_points}"
+        )
 
     def describe_wire(wire, role: str, loop_index: int) -> dict[str, Any]:
         edges = []
@@ -868,13 +948,41 @@ def extract_face_boundaries(
         describe_wire(wire, "inner", index)
         for index, wire in enumerate(ordered_wires[1:])
     ]
-    return {
+    result = {
         "face": canonical,
         "outer": outer_loop,
         "inner": inner_loops,
         "inner_loop_count": len(inner_loops),
         "compact": bool(compact),
     }
+    if include_curve_definitions:
+        definitions = {}
+        for edge_id in selected_definition_ids:
+            _, _, edge_shape = model.resolve_entity(edge_id)
+            edge = TopoDS.Edge_s(edge_shape)
+            geometry_type = _curve_type(edge)
+            definition_available = _curve_definition_available(geometry_type)
+            definitions[edge_id] = {
+                "available": definition_available,
+                "geometry_type": geometry_type,
+                "definition": (
+                    _curve_parameters(edge, include_definition=True)
+                    if definition_available
+                    else None
+                ),
+            }
+        result["curve_definitions"] = {
+            "selection": (
+                "all_boundary_edges"
+                if curve_definition_edge_ids is None
+                else "selected_boundary_edges"
+            ),
+            "edge_ids": selected_definition_ids,
+            "total_control_points": total_control_points,
+            "max_total_control_points": max_total_control_points,
+            "definitions": definitions,
+        }
+    return result
 
 
 def probe_point(
