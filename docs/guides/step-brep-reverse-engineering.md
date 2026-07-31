@@ -73,18 +73,40 @@ result = brep.call_agent_tool(
 |  | `compare_brep_strict` |
 
 `inspect_step()` 的完整报告会保留 B-spline 曲线/曲面的 knot、
-multiplicity、control point 和 rational weight。自由曲面转录或拟合时应使用完整报告；
-`inspect_entity()` 默认用于低延迟局部调查，只返回 degree 和数量摘要；对曲线实体可设置
-`include_curve_definition=True` 获取完整控制点、节点和权重。曲面定义仍应读取完整报告。
+multiplicity、control point 和 rational weight。`inspect_entity()` 默认用于低延迟局部调查，
+只返回 degree 和数量摘要。对单条 B-spline/Bezier 边可设置
+`include_curve_definition=True`，它返回完整定义且没有控制点上限，因此应先检查
+`pole_count`；对 B-spline/
+Bezier 面可设置 `include_surface_definition=True`，并用
+`max_surface_control_points` 限制控制网大小。曲面返回的是未裁剪 carrier 定义；trim 仍由
+`u_range`、`v_range` 和面边界描述。超限请求会失败，不会截断精确定义。
 
 初步清点时可调用 `get_model_summary(..., include_parameter_groups=True)`，取得按
-解析半径或 B-spline 阶次分组的有界多重度和少量稳定实体 ID。该分组只描述
-相同 carrier 参数，不推断阵列、对称或重复特征。必须再用空间位置、方向、
-邻接签名和间距验证 pattern 假设。
+解析半径或 B-spline 阶次分组的 carrier、多实体规范化轴线，以及 Face/Edge 邻接签名。
+每一类都受 `max_parameter_groups` 和 `examples_per_group` 约束。它们只描述多重度，
+不推断阵列、对称或重复特征；必须再用空间位置和间距验证 pattern 假设。
 
 大轮廓优先使用 `extract_face_boundaries(..., compact=True)`。紧凑模式保留
 coedge 顺序、方向、类型、长度、端点和关键参数，不返回 3D/UV 采样数组；只有
-拟合或误差测量确实需要时再请求详细模式。
+拟合或误差测量确实需要时再请求详细模式。在 report-assisted 模式下，如果已确定
+目标边，可增加 `include_curve_definitions=True` 和可选的
+`curve_definition_edge_ids=[...]`，一次返回按稳定 edge ID 去重的精确曲线定义；
+输出按 stable edge ID 排序，不保留输入或 coedge 顺序，后者应从 `outer`/`inner` 的
+`edges` 数组读取。`max_total_control_points` 只统计所选唯一 B-spline/Bezier 边的 poles，
+不限制解析边数量或完整 payload 大小。不支持完整参数化的 carrier 返回
+`available=false` 和 `definition=null`，不会把参数范围摘要冒充精确定义。
+
+`make_section(..., compact=True)` 内部仍完成轮廓连接、嵌套和面积计算，但返回时只保留
+每条截面边的端点/精确长度及轮廓摘要。截面有微小端点间隙时应显式设置
+`connection_tolerance`；截面局部 edge index 不应跨模型作为稳定 ID 使用。
+
+Agent tool 的 `compute_material_difference` 默认使用一次 intersection，并以
+`method="common_volume"` 返回没有 component 列表的体积估计；Python API 为兼容现有调用，
+默认仍构建双向 cut components。common volume 相减在大尺度模型上可能丢失很小的残差，
+不能单独作为严格材料相等证明。严格验收、`build_difference_regions()` 或 STEP 差异导出
+应设置 `include_components=True`，并让 `boolean_tolerance=None`；fuzzy Boolean 只用于诊断，
+返回 `strict_equality_supported=false`。传给 `build_difference_regions()` 的预计算
+`material_result` 也必须来自 component 模式，否则应省略并让它自行计算。
 
 渲染和图片截面功能需要可选依赖：
 

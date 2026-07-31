@@ -72,7 +72,9 @@ record the path and continue from allowed inputs only.
 
 Use the target only through approved BREP inspection/query tools and supplied
 renders. Do not read complete control-point, knot, multiplicity, or weight
-arrays from the report.
+arrays from the report. Do not request `include_curve_definition`,
+`include_surface_definition`, or boundary `include_curve_definitions`; those
+options expose the same exact arrays through tools.
 
 ### report-assisted reconstruction
 
@@ -96,6 +98,10 @@ transcription, not inferred feature reconstruction.
 7. Do not use network services or external CAD applications.
 8. Do not add Agent tools or SDK operations during the test. Work with the
    existing API and focused tool set.
+9. Follow the Sketch-first profile policy in Phase 2. A planar profile that
+   drives an extrude, revolve, or additive/subtractive cut must start as a
+   declarative Sketch unless a documented exception applies. Wrapping an
+   already-built Wire in `Sketch([wire])` does not satisfy this rule.
 
 ## Minimal Tool Policy
 
@@ -112,12 +118,39 @@ compare_global_properties
 
 Use `get_model_summary(include_parameter_groups=true)` once during initial
 characterization when analytic radii or repeated carrier signatures may be
-informative. The returned groups are descriptive multiplicities only. They do
-not prove a pattern.
+informative. Carrier, canonical-axis, and adjacency-signature groups are
+bounded descriptive multiplicities only. They do not prove a pattern.
 
 Use `extract_face_boundaries(compact=true)` before requesting sampled boundary
 arrays. Compact mode preserves ordered edge occurrences, orientation, type,
 length, endpoints, and key scalar parameters while keeping context small.
+
+Use `make_section(compact=true)` for initial section-family and opening checks.
+Request sampled section arrays only for a specific fit or distance question.
+
+In report-assisted mode, after identifying the exact entities needed by a
+hypothesis, prefer targeted definitions over reading the full report:
+
+- use `inspect_entity(include_curve_definition=true)` for one curve. For a
+  B-spline/Bezier edge this returns the complete definition without a
+  control-point limit, so inspect its pole count first;
+- use `extract_face_boundaries(compact=true,
+  include_curve_definitions=true, curve_definition_edge_ids=[...])` for an
+  explicitly selected set of boundary curves. Definitions are deduplicated and
+  sorted by stable edge ID; read the loop `edges` arrays for coedge order.
+  Unsupported carrier types return `available=false`, not a partial definition;
+- use `inspect_entity(include_surface_definition=true,
+  max_surface_control_points=...)` for one B-spline/Bezier carrier surface.
+
+Start with the default surface and boundary-batch limits. Increase a limit only
+after recording the entity's degree and control-point counts and why the
+complete definition is needed. `max_total_control_points` counts selected
+unique B-spline/Bezier poles; it does not bound analytic edge count or the whole
+payload. Exact surface definitions describe untrimmed carriers; always retain
+UV ranges and trim-loop evidence separately. Do not echo complete arrays into
+the iteration log or subsequent prompts; persist them directly as explicit
+reconstruction parameters under `OUTPUT_DIR` and keep only a concise provenance
+summary in conversation context.
 
 Use these only when a specific local question requires them:
 
@@ -142,14 +175,25 @@ compare_brep_strict
 Cost rules:
 
 - Run `compute_material_difference` only for the final candidate or when global
-  evidence says the candidate is close enough to justify a strict proof.
+  evidence says the candidate is close enough to justify a Boolean. Agent-tool
+  calls default to volume-only mode, which uses one intersection and reports
+  `method=common_volume` without component lists. Because subtracting a common
+  volume can lose a small residual at large model scales, use it only as an
+  estimate. Request `include_components=true` for a strict material check; this
+  uses two directional cuts and is also required for difference regions or STEP
+  export. Leave `boolean_tolerance` unset for equality proof; a fuzzy result is
+  diagnostic only and reports `strict_equality_supported=false`.
+- Skip the Boolean when the absolute global volume delta already exceeds the
+  strict material tolerance: equal point sets must have equal volume, so this
+  cheaply disproves equivalence.
 - Bound it by `MATERIAL_TIMEOUT_SECONDS`. A timeout means equivalence remains
   unproved; it does not mean the model is equal.
 - Use `compare_boundary_distance` only to diagnose an approximation. Start with
   at most 200 samples and use `target_face_ids`/`current_face_ids` when a local
   region is known.
 - `build_difference_regions` defaults to Boolean material components. Reuse an
-  existing `material_result`; include boundary clustering only when needed and
+  existing `material_result` only when it was created with
+  `include_components=true`; include boundary clustering only when needed and
   reuse a boundary result created with `include_records=true`.
 - Do not run `compare_brep_strict` unless Exact BREP was explicitly requested.
 - Never repeat an expensive result when target hash, candidate hash, and tool
@@ -174,6 +218,9 @@ Cost rules:
 5. Use a small number of informative sections or local queries.
 6. Write one explicit construction hypothesis before modeling. State its
    parameters, discrete choices, and evidence that could falsify it.
+7. For every proposed feature-driving profile, record its plane, intended
+   feature, and authoring choice: declarative Sketch, path/guide Wire, or exact
+   geometry transcription.
 
 Do not inspect hundreds of entities without a hypothesis.
 
@@ -242,6 +289,79 @@ The program must:
 Prefer compact design intent over arbitrary point clouds. Do not describe a
 polyline or fitted Loft as exact NURBS transcription.
 
+### Sketch-first profile policy
+
+Use a declarative Sketch as the default authoring representation for a planar
+closed profile that drives:
+
+- an extrusion or revolution;
+- an additive boss or subtractive hole, pocket, slot, notch, or through-cut;
+- a planar section whose design intent is a named, editable profile.
+
+Build it with `make_sketch_rsketch(...)`, stable point/entity IDs,
+`add_*_rsketch(...)`, and constraints supported by the reconstruction
+evidence. Promote it with `make_face_from_sketch_rface(...)` or, when a feature
+requires a section Wire, `make_wire_from_sketch_rwire(...)`. Use
+`require_fully_constrained=True` when the intended dimensions and relations can
+be represented without inventing unsupported design intent.
+
+Prefer dimensional and geometric constraints such as radius, distance,
+horizontal/vertical, parallel, perpendicular, tangent, and concentric when
+they are supported by evidence. If only recovered coordinates are known,
+fixed points are allowed for deterministic replay, but label the result as a
+coordinate-locked reconstruction rather than claiming recovered parametric
+intent.
+
+Use `inner_profiles=(...)` only when topology and adjacent-carrier evidence
+show that the loops belong to the same generating Sketch. Model a later hole,
+slot, or pocket as its own ordered feature instead of folding its final-face
+trace into the base Sketch.
+
+Before promoting a Sketch profile, verify:
+
+- the Sketch plane and local-to-world mapping;
+- a closed non-construction loop with the intended entity segmentation;
+- Arc sweep direction and minor/major choice; `add_arc_rsketch(...)` uses the
+  positive local angular sweep, so swapping endpoints changes the geometry;
+- B-spline degree, knots, multiplicities, weights, and endpoint poles; use the
+  shared endpoint point refs as first/last poles when exact connectivity is
+  intended;
+- solve status, remaining DOF, and diagnostics.
+
+Direct Wire construction is allowed only for a concrete reason:
+
+- a non-planar path, 3-D guide curve, Helix, or other path geometry;
+- freeform carrier/trim geometry or exact BREP/NURBS transcription that is not
+  a planar design Sketch;
+- an entity, constraint, or multi-loop relationship the current Sketch API
+  cannot represent faithfully;
+- report-derived geometry whose projection onto a Sketch plane changes its
+  control data or measured geometry;
+- a demonstrated kernel or modeling regression in the Sketch path.
+
+Do not force a spatial path, freeform surface boundary, or unsupported exact
+transcription into a fake Sketch merely to satisfy Sketch-first. Record every
+direct-Wire exception and its evidence in the iteration log.
+
+When a planar Wire exception is proposed, or when Sketch promotion may change
+geometry, use the cheapest A/B sequence that can decide it:
+
+1. Keep one shared parameter source and independently build Wire and Sketch
+   profiles.
+2. Compare profile closure, area, bounds, edge count, and ordered edge lengths.
+3. If those agree, rebuild the complete Wire and Sketch candidates in fresh
+   processes and run `compare_global_properties`.
+4. Only when the candidates are close enough, compare strict bidirectional
+   material and a bounded boundary distance. Do not run `compare_brep_strict`
+   solely for this A/B unless `exact_brep` was requested.
+5. Prefer Sketch when it preserves or improves target evidence. Keep Wire when
+   Sketch introduces avoidable measured drift or changes the acceptance result,
+   and document the exception rather than hiding it.
+
+Candidate-to-target evidence remains the acceptance basis. Wire-to-Sketch A/B
+selects the authoring strategy; it does not by itself prove reconstruction
+quality.
+
 ### Boolean construction policy
 
 Use the simplest direct feature sequence supported by the evidence. Prefer a
@@ -279,12 +399,15 @@ For each complete candidate iteration:
 
 1. Run the program in a fresh process and regenerate the STEP.
 2. Require successful exit, a newly generated STEP, and valid BREP.
-3. Run `compare_global_properties`.
-4. If global/material scale is clearly wrong, fix the construction before any
+3. For every promoted Sketch used by the candidate, require a closed profile
+   and record solve status, DOF, and diagnostics.
+4. Run `compare_global_properties`.
+5. If global/material scale is clearly wrong, fix the construction before any
    dense boundary or topology work.
-5. Use sections or local diagnostics only to answer the next modeling question.
-6. When the candidate is plausibly final, attempt one bounded strict
-   `compute_material_difference`.
+6. Use sections or local diagnostics only to answer the next modeling question.
+7. When the candidate is plausibly final, attempt one bounded
+   `compute_material_difference(include_components=true)` for the strict
+   material result.
 
 An attempt that fails to replay, does not generate a new STEP, or produces an
 invalid BREP is a failed construction attempt, not a complete candidate
@@ -347,6 +470,7 @@ The iteration log records:
 
 - hypothesis and exact source/parameter change;
 - replay and validity result;
+- Sketch solve evidence and every direct-Wire exception;
 - global errors;
 - diagnostics actually used and why;
 - strict material result or timeout when attempted;
@@ -361,6 +485,7 @@ Report concisely:
 
 - classification and iteration count;
 - construction hypothesis and final command sequence;
+- Sketch-first coverage and any retained direct-Wire exceptions;
 - copied, inferred, and fitted parameters;
 - replay and BREP validity;
 - volume, area, centroid, and bounds errors;
