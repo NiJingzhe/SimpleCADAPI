@@ -868,15 +868,12 @@ def tracked_cut(body: Solid, tool: Solid) -> TrackedBooleanResult:
 
 
 def tracked_union(
-    body: Solid, tool: Solid, glue: bool = True, tol: float = 1e-7
+    body: Solid, tool: Solid, glue: bool = False, tol: float = 1e-7
 ) -> TrackedBooleanResult:
     """Perform a boolean union with full face-level history tracking.
 
-    Args:
-        body: First solid.
-        tool: Second solid.
-        glue: Enable glue mode.
-        tol: Fuzzy tolerance.
+    Glue is opt-in because OCC glue mode can skip real intersection processing
+    for overlapping shapes. ``tol`` is the explicit fuzzy tolerance.
 
     Returns:
         :class:`TrackedBooleanResult` with the fused solid and topological delta.
