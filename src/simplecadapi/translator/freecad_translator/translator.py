@@ -46,6 +46,7 @@ from .emitters import (
     emit_native_node,
 )
 from .runtime import assemble_runtime_source
+from .semantic import build_freecad_semantic_plan
 
 
 def _curve_params_with_kernel_axes(params: Dict[str, Any]) -> Dict[str, Any]:
@@ -85,12 +86,10 @@ class _FreeCADCompiler(
     - Preserve `expression_graph` as explicit translator metadata
     - Preserve dimension tolerances and tolerance-chain requirements as metadata
     - Preserve exported assembly constraints as document metadata objects
+    - Present geometry as variable-named semantic design history instead of a
+      flat node-id tree, while retaining the original graph objects internally
     - Keep assembly metadata from the full model payload alongside the IR-driven
       geometry translation
-
-    The generated script focuses on `Part`-workbench-style objects and shape
-    construction, which is a better first target for the current canonical graph
-    than a full `Sketcher/PartDesign` mapping.
     """
 
     def __init__(self, document_name: str = "SimpleCADModel") -> None:
@@ -208,10 +207,18 @@ class _FreeCADCompiler(
         if isinstance(leaf_ids, list) and leaf_ids:
             self._result_node_id_list = [str(v) for v in leaf_ids]
         else:
-            self._result_node_id_list = [leaf.node_id for leaf in source_graph.leaf_nodes()]
+            self._result_node_id_list = [
+                leaf.node_id for leaf in source_graph.leaf_nodes()
+            ]
         self._context.result_node_ids = set(self._result_node_id_list)
-        self._suppressed_profile_node_ids = self._find_cylinder_profile_nodes(source_graph)
-
+        self._suppressed_profile_node_ids = self._find_cylinder_profile_nodes(
+            source_graph
+        )
+        semantic_plan = build_freecad_semantic_plan(
+            source_graph,
+            self._result_node_id_list,
+            document_name=self.document_name,
+        )
         lines: List[str] = []
         emit = lines.append
 
@@ -252,12 +259,14 @@ class _FreeCADCompiler(
         emit("PRODUCT_VALUES = {}")
         emit("ASSEMBLY_PROJECTION_INPUTS = {}")
         emit("GUI_VISIBILITY_BY_NAME = {}")
+        emit("GUI_SHOW_IN_TREE_BY_NAME = {}")
         emit("GUI_EXPANDED_BY_NAME = {}")
         emit("GUI_SHAPE_COLOR_BY_NAME = {}")
         emit("GUI_MATERIAL_OVERRIDE_BY_NAME = {}")
         emit("MATERIAL_OBJECTS_BY_ID = {}")
         emit("SIMPLECAD_JOINT_OBJECTS = {}")
         emit("SKETCH_REGISTRY = []")
+        emit(f"SEMANTIC_PLAN = {_py_literal(semantic_plan)}")
         expression_graph_payload = payload.get("expression_graph", {})
         if hasattr(expression_graph_payload, "to_dict"):
             expression_graph_payload = expression_graph_payload.to_dict()
@@ -317,6 +326,8 @@ class _FreeCADCompiler(
         )
         emit("_apply_result_visibility(RESULT_NODE_IDS)")
         emit("_set_active_result_object(RESULT_NODE_IDS)")
+        emit("_apply_occurrence_tree(SEMANTIC_PLAN)")
+        emit("_restore_occurrence_tree_visibility()")
         emit("doc.TransientDir = getattr(doc, 'TransientDir', '')")
         return "\n".join(lines).rstrip() + "\n"
 
@@ -476,7 +487,9 @@ class _FreeCADCompiler(
             node, graph, self._result_node_ids
         )
 
-    def _should_materialize_transform_for_loft_section(self, node: OperationNode) -> bool:
+    def _should_materialize_transform_for_loft_section(
+        self, node: OperationNode
+    ) -> bool:
         graph = self._source_graph
         return graph is not None and should_materialize_transform_for_loft_section(
             node, graph
@@ -485,7 +498,6 @@ class _FreeCADCompiler(
     def _transform_feeds_only_loft(self, node_id: str, seen: Set[str]) -> bool:
         graph = self._source_graph
         return graph is not None and transform_feeds_only_loft(graph, node_id, seen)
-
 
     def _emit_node(self, node: OperationNode) -> List[str]:
         params = dict(node.params)
@@ -670,5 +682,6 @@ class FreeCADTranslator(BaseTranslator):
 
 class FreeCADScriptTranslator(FreeCADTranslator):
     """Backward-compatible class name for the FreeCAD translator."""
+
 
 __all__ = ["FreeCADScriptTranslator", "FreeCADTranslator"]

@@ -18,6 +18,28 @@ def _contains_expr_refs(value: object) -> bool:
     return False
 
 
+TRANSPARENT_GEOMETRY_OPS = frozenset({"apply_tag_rselection"})
+
+
+def unwrap_transparent_geometry_node(
+    graph: OperationGraph,
+    node: OperationNode | None,
+) -> OperationNode | None:
+    """Return the first geometry-producing node behind transparent wrappers."""
+
+    seen: Set[str] = set()
+    current = node
+    while (
+        current is not None
+        and current.op in TRANSPARENT_GEOMETRY_OPS
+        and len(current.inputs) == 1
+        and current.node_id not in seen
+    ):
+        seen.add(current.node_id)
+        current = graph.get_node(current.inputs[0].node_id)
+    return current
+
+
 def can_lower_circle_extrusion_to_cylinder(
     circle_node: OperationNode,
     extrusion_node: OperationNode,
@@ -178,4 +200,5 @@ __all__ = [
     "find_cylinder_profile_nodes",
     "should_materialize_transform_for_loft_section",
     "transform_feeds_only_loft",
+    "unwrap_transparent_geometry_node",
 ]

@@ -43,6 +43,7 @@ def export_freecad_script_to_fcstd(
         f"\nOUTPUT_PATH = {_json_ascii(resolved_output_path)}\n"
         "_apply_result_visibility(RESULT_NODE_IDS)\n"
         "_set_active_result_object(RESULT_NODE_IDS)\n"
+        "_restore_occurrence_tree_visibility()\n"
         "_save_fcstd_with_gui_visibility(OUTPUT_PATH)\n"
         "print(OUTPUT_PATH)\n"
     )

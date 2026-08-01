@@ -34,9 +34,9 @@ EXAMPLE_CASES = (
     (
         "20_integrated_bldc_joint_actuator/main.py",
         "build_integrated_bldc_joint_actuator",
-        186,
-        43,
-        34,
+        89,
+        38,
+        29,
     ),
 )
 

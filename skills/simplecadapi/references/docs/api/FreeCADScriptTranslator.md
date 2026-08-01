@@ -23,9 +23,17 @@ Current design goals:
 - Preserve `expression_graph` as explicit translator metadata
 - Preserve dimension tolerances and tolerance-chain requirements as metadata
 - Preserve exported assembly constraints as document metadata objects
+- Present geometry as variable-named native FreeCAD occurrence trees instead of
+  a flat node-id tree or a separate presentation copy
+- Expose only resolved product or standalone-geometry roots in FreeCAD Tree View;
+  assembly projection compounds and link source definitions remain internal
+- Lower `apply_tag_rselection` to custom properties on traceable geometry and
+  visible results instead of creating a FreeCAD feature or history step
 - Keep assembly metadata from the full model payload alongside the IR-driven
-geometry translation
+  geometry translation
 
-The generated script focuses on `Part`-workbench-style objects and shape
-construction, which is a better first target for the current canonical graph
-than a full `Sketcher/PartDesign` mapping.
+The generated script uses native FreeCAD geometry objects for both computation
+and the document tree. Serialized assignment targets label the native objects;
+shared DAG inputs are copied per consuming result so every result has a complete,
+recomputing dependency subtree. Stable node IDs remain available through
+SimpleCAD custom properties rather than appearing as user-facing names.

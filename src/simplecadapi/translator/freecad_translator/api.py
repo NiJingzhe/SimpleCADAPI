@@ -15,11 +15,17 @@ def translate_model_json_to_freecad_script(
 ) -> str:
     """Translate exported model JSON into a FreeCAD Python script.
 
-    Part/Assembly product nodes are emitted as editable FreeCAD document
-    structure: parts use `App::Part`, assemblies use native
-    `Assembly::AssemblyObject`, part components use `App::Link`, and
-    subassembly components use `Assembly::AssemblyLink` when the Assembly
-    workbench module is available.
+    Geometry is emitted as native FreeCAD occurrence trees. Serialized source
+    assignment targets name native design objects, shared DAG inputs are copied
+    per consuming result, and FreeCAD feature links preserve recomputing
+    dependencies. Stable node ids remain available as internal metadata.
+    `apply_tag_rselection` nodes do not create FreeCAD features. Their canonical
+    bindings and source node ids are attached to traceable geometry and visible
+    result objects as `SimpleCADAppliedTags`, `SimpleCADTagBindings`, and
+    `SimpleCADTagNodeIds`.
+    The Tree View exposes only resolved product or standalone-geometry roots.
+    Assembly projection compounds and link source definitions remain available
+    for recomputation but are hidden from the user-facing document tree.
     """
 
     return FreeCADTranslator(
@@ -42,12 +48,20 @@ def translate_model_json_to_fcstd(
     Safe single-use profile transforms such as section rotate/translate chains are
     folded into the section object's placement so downstream `Part::Loft` receives
     already-positioned sections instead of placement-bearing `App::Link` proxies.
+    Geometry results use native FreeCAD objects directly: assignment targets name
+    design objects, shared inputs receive independent occurrences per consumer,
+    and native feature links preserve recomputing dependencies. No presentation
+    proxy, duplicate history tree, or hidden graph-object archive is created.
+    `apply_tag_rselection` remains graph metadata rather than a FreeCAD feature;
+    traceable geometry and visible result objects expose `SimpleCADAppliedTags`,
+    `SimpleCADTagBindings`, and `SimpleCADTagNodeIds`.
     Part/Assembly product nodes are written as editable FreeCAD assembly structure:
     parts use `App::Part`, assemblies use native `Assembly::AssemblyObject`, part
     components use `App::Link`, and nested assembly components use
-    `Assembly::AssemblyLink`. Explicit assembly-to-compound projections remain in
-    the document for geometry workflows but do not replace the visible assembly
-    tree.
+    `Assembly::AssemblyLink`. Explicit assembly-to-compound projections remain
+    available for geometry workflows without creating a second user-facing root.
+    Link source definitions remain in the document for recomputation, but the
+    Tree View exposes only the resolved product or standalone-geometry roots.
     """
 
     freecad_exe = freecad_cmd or discover_freecad_executable()
