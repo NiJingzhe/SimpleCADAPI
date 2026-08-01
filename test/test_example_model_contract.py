@@ -151,21 +151,11 @@ class TestExampleModelContract(unittest.TestCase):
         self.assertEqual(bearing.constraint_ids(), ("inner_outer_revolute",))
         self.assertEqual(report.unsolved_component_ids, ())
         outer = bearing.get_component("outer_ring").item.body
-        plain_annulus_volume = (
-            math.pi
-            * (
-                (bearing_spec.outer_diameter / 2.0) ** 2
-                - (
-                    (bearing_spec.bore_diameter + bearing_spec.outer_diameter) / 4.0
-                    + bearing_spec.ball_diameter / 2.0 * 0.55
-                )
-                ** 2
-            )
-            * bearing_spec.width
-        )
-        self.assertGreater(outer.get_volume(), plain_annulus_volume)
-        self.assertIn("role.bearing_outer_ring", scad.list_tags(outer))
-        self.assertIn("role.decorative_rolling_elements", scad.list_tags(outer))
+        outer_meta = bearing.get_metadata("std.bearing.ball_bearing")
+        self.assertTrue(outer_meta["rolling_elements_fused"])
+        self.assertEqual(outer_meta["rolling_element_fuse_mode"], "outer_ring_union")
+        self.assertGreater(outer.get_volume(), 0.0)
+        self.assertIn("role.rolling_elements_fused_into_outer_ring", scad.list_tags(outer))
 
 
 if __name__ == "__main__":

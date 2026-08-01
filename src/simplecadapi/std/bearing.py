@@ -1,10 +1,9 @@
 """Bearing standard assemblies built from public SimpleCAD product APIs.
 
-The factories in this module return product-level assemblies rather than a
-single merged solid when the standard part has meaningful internal motion.  A
-ball bearing is a small assembly: the important kinematic relationship is the
-revolute axis between the outer ring and the inner ring, while direct sphere
-balls sit in continuous toroidal raceway grooves at authored positions.
+The default factory preserves separate rolling-element components. Callers
+that need one solver body for the outer race can request
+``fuse_rolling_elements=True``; that mode intentionally embeds the balls into
+the outer-race inner wall and records the simplification in metadata.
 """
 
 from __future__ import annotations
@@ -12,12 +11,13 @@ from __future__ import annotations
 import math
 from typing import Dict, List, Optional
 
-from ..product import Assembly, Part
+from ..product import Assembly, Material, Part
 from ..operations import (
     add_component_rassembly,
     add_connector_rpart,
     add_revolute_constraint_rassembly,
     apply_tag,
+    assign_material_rpart,
     chamfer_rsolid,
     forward_connector_rassembly,
     identity_placement_rplacement,
@@ -32,6 +32,7 @@ from ..operations import (
     make_three_point_arc_redge,
     make_wire_from_edges_rwire,
     revolve_rsolid,
+    union_rsolid,
 )
 from ..core import Face, Solid
 from ..tracking import graph_tracking_scope
@@ -240,50 +241,22 @@ def make_ball_bearing_rassembly(
     edge_chamfer: float = 0.0,
     assembly_id: str = "ball_bearing",
     drive_angle_degrees: Optional[float] = None,
+    fuse_rolling_elements: bool = False,
+    rolling_element_fuse_overlap: float = 0.01,
+    material: Optional[Material] = None,
 ) -> Assembly:
     """Create a parameterized radial ball bearing assembly.
 
-    This factory returns an `Assembly`, not a merged `Solid`, because a bearing
-    has useful internal structure.  The returned assembly contains stable
-    component ids `outer_ring`, `inner_ring`, and `ball_00`, `ball_01`, ... .
-    The inner and outer rings each carry an `axis` connector, and the assembly
-    includes one revolute constraint named `inner_outer_revolute` between those
-    two axes.  Use `bearing.get_component("inner_ring").item.body` to access
-    the inner-ring geometry directly, or use connector refs such as
-    `make_connector_ref_rconnectorref("inner_ring", "axis")` when adding shaft
-    or housing constraints to the same assembly.
+    With ``fuse_rolling_elements=False`` the factory returns separate
+    ``outer_ring``, ``inner_ring``, and ``ball_*`` components.  With
+    ``fuse_rolling_elements=True`` all rolling elements are translated to
+    their authored pitch positions and unioned into the outer-ring body using
+    normal boolean mode (``glue=False``).  The fused mode is intended for
+    simplified solver or export bodies; it deliberately embeds the balls into
+    the outer-race inner wall and therefore does not preserve the nominal
+    raceway clearance as a free gap.
 
-    The returned bearing assembly also forwards public assembly-level connectors
-    `inner_axis` and `outer_axis` from `inner_ring.axis` and `outer_ring.axis`.
-    Parent assemblies can constrain to those connectors without depending on the
-    bearing's internal component structure. These public axes are offset to the
-    bearing center plane.
-
-    The returned bearing is not grounded. Ground the parent assembly's housing,
-    shaft, or fixture components explicitly; the standard bearing assembly does
-    not emit `GroundedJoint` objects that would lock a parent mechanism.
-
-    Parameters use explicit SDK-style names rather than compact catalog labels:
-    `bore_diameter` maps to common `id`, `outer_diameter` maps to `od`,
-    `bearing_width` maps to axial bearing thickness, `ball_diameter` maps to
-    ball size, `raceway_clearance` maps to print clearance around the balls, and
-    `edge_chamfer` maps to edge break/chamfer.  There is intentionally no
-    Python keyword-only `*` separator in this signature so the function remains
-    callable with either positional or keyword arguments.
-
-    `ball_count=None` lets the factory infer a conservative visual ball count
-    from the pitch circle.  Explicit `ball_count` is accepted when you need to
-    match a real bearing or a printed cage design.  Balls are direct sphere
-    primitive solids, and the inner and outer rings are revolved from arc-groove
-    profiles to create continuous toroidal raceway grooves.  Balls are visual
-    rolling elements fixed at their authored positions; the currently modeled
-    kinematic degree of freedom is only the inner-ring-to-outer-ring revolute
-    joint.
-
-    For printable bearings, the classic checks from many parametric generators
-    are still useful: `((outer_diameter - bore_diameter) / 2) - ball_diameter`
-    should leave enough radial wall thickness, and `bearing_width - ball_diameter`
-    should be positive so balls do not protrude axially.
+    ``material`` is assigned to the generated ring and rolling-element parts.
     """
 
     bore_diameter_value = _validate_positive_finite("bore_diameter", bore_diameter)
@@ -348,6 +321,11 @@ def make_ball_bearing_rassembly(
         "inner_ring",
     )
     ball = make_sphere_rsolid(radius=ball_radius, center=(0.0, 0.0, 0.0))
+    if fuse_rolling_elements:
+        if not math.isfinite(rolling_element_fuse_overlap) or rolling_element_fuse_overlap <= 0.0:
+            raise ValueError("rolling_element_fuse_overlap must be finite and positive")
+        if rolling_element_fuse_overlap >= ball_radius:
+            raise ValueError("rolling_element_fuse_overlap must be smaller than ball radius")
     ball = apply_tag(ball, "role.rolling_element")
     ball = apply_tag(ball, "group.ball_bearing")
     ball.set_metadata(
@@ -358,19 +336,53 @@ def make_ball_bearing_rassembly(
         },
     )
 
+    fused_rolling_ring = outer_ring
+    fused_ball_component_ids: List[str] = []
+    if fuse_rolling_elements:
+        # Move the ball center slightly into the outer race so the union has
+        # a positive-volume intersection instead of a tangent-only contact.
+        fuse_radius = ball_pitch_radius + ball_radius * 0.75 + rolling_element_fuse_overlap
+        fused_balls = [
+            make_sphere_rsolid(
+                radius=ball_radius,
+                center=(
+                    fuse_radius * math.cos(2.0 * math.pi * index / resolved_ball_count),
+                    fuse_radius * math.sin(2.0 * math.pi * index / resolved_ball_count),
+                    0.0,
+                ),
+            )
+            for index in range(resolved_ball_count)
+        ]
+        fused_rolling_ring = union_rsolid(
+            fused_rolling_ring,
+            fused_balls,
+            glue=False,
+            tracking_policy="graph",
+        )
+        fused_rolling_ring = apply_tag(
+            shape=fused_rolling_ring,
+            tag="role.rolling_elements_fused_into_outer_ring",
+        )
+
     outer_part = _part_with_axis_connector(
-        "outer_ring",
-        outer_ring,
+        f"{assembly_id}_outer_ring",
+        fused_rolling_ring,
         "Outer bearing ring",
         bearing_width_value / 2.0,
     )
+    if material is not None:
+        outer_part = assign_material_rpart(part=outer_part, material=material)
     inner_part = _part_with_axis_connector(
-        "inner_ring",
+        f"{assembly_id}_inner_ring",
         inner_ring,
         "Inner bearing ring",
         bearing_width_value / 2.0,
     )
-    ball_part = make_part_rpart("ball", ball, name="Bearing ball")
+    if material is not None:
+        inner_part = assign_material_rpart(part=inner_part, material=material)
+    ball_part = make_part_rpart(f"{assembly_id}_ball", ball, name="Bearing ball")
+    if material is not None:
+        ball_part = assign_material_rpart(part=ball_part, material=material)
 
     assembly = make_assembly_rassembly(assembly_id, name="Ball bearing")
     assembly = add_component_rassembly(
@@ -388,18 +400,19 @@ def make_ball_bearing_rassembly(
 
     ball_component_ids: List[str] = []
     ball_angles: Dict[str, float] = {}
-    digits = max(2, len(str(resolved_ball_count - 1)))
-    for index in range(resolved_ball_count):
-        component_id = f"ball_{index:0{digits}d}"
-        angle_degrees = 360.0 * index / resolved_ball_count
-        ball_component_ids.append(component_id)
-        ball_angles[component_id] = angle_degrees
-        assembly = add_component_rassembly(
-            assembly,
-            ball_part,
-            component_id=component_id,
-            placement=_ball_placement(ball_pitch_radius, angle_degrees),
-        )
+    if not fuse_rolling_elements:
+        digits = max(2, len(str(resolved_ball_count - 1)))
+        for index in range(resolved_ball_count):
+            component_id = f"ball_{index:0{digits}d}"
+            ball_component_ids.append(component_id)
+            angle_degrees = 360.0 * index / resolved_ball_count
+            ball_angles[component_id] = angle_degrees
+            assembly = add_component_rassembly(
+                assembly,
+                ball_part,
+                component_id=component_id,
+                placement=_ball_placement(ball_pitch_radius, angle_degrees),
+            )
 
     assembly = add_revolute_constraint_rassembly(
         assembly,
@@ -449,6 +462,13 @@ def make_ball_bearing_rassembly(
             "inner_component_id": "inner_ring",
             "ball_component_ids": ball_component_ids,
             "ball_angles_degrees": ball_angles,
+            "rolling_elements_fused": bool(fuse_rolling_elements),
+            "rolling_element_fuse_overlap": (
+                float(rolling_element_fuse_overlap) if fuse_rolling_elements else None
+            ),
+            "rolling_element_fuse_mode": (
+                "outer_ring_union" if fuse_rolling_elements else "components"
+            ),
             "axis_connector_id": "axis",
             "outer_axis_connector_id": "outer_axis",
             "inner_axis_connector_id": "inner_axis",
