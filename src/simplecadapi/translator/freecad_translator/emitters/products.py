@@ -54,7 +54,10 @@ class ProductEmitterMixin:
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'material', 'material': {var_name}, 'material_object': {var_name}_object}}",
                 f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
-        if node.op in {"make_placement_rplacement", "make_identity_placement_rplacement"}:
+        if node.op in {
+            "make_placement_rplacement",
+            "make_identity_placement_rplacement",
+        }:
             return [
                 f"{var_name} = dict({rp})",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'placement', 'placement': {var_name}}}",
@@ -139,7 +142,11 @@ class ProductEmitterMixin:
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
             return lines
-        if node.op in {"make_face_connector_rconnector", "make_edge_connector_rconnector", "make_vertex_connector_rconnector"}:
+        if node.op in {
+            "make_face_connector_rconnector",
+            "make_edge_connector_rconnector",
+            "make_vertex_connector_rconnector",
+        }:
             return [
                 f"{var_name} = dict({rp})",
                 f"{var_name}.setdefault('anchor', {{'anchor_kind': 'geometry', 'geometry_ref': {var_name}.get('geometry_ref')}})",
@@ -193,7 +200,11 @@ class ProductEmitterMixin:
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'scalar_limit', 'scalar_limit': {var_name}}}",
                 f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
-        if node.op in {"make_ground_component_rassembly", "make_unground_component_rassembly"} and len(inputs) >= 1:
+        if (
+            node.op
+            in {"make_ground_component_rassembly", "make_unground_component_rassembly"}
+            and len(inputs) >= 1
+        ):
             action = "add" if node.op == "make_ground_component_rassembly" else "remove"
             return [
                 f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
@@ -206,7 +217,18 @@ class ProductEmitterMixin:
                 f"if {_json_ascii(action)} == 'add': _make_simplecad_grounded_joint({var_name}_assembly, {var_name}_component_id)",
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
-        if node.op in {"make_fixed_constraint_rassembly", "make_revolute_constraint_rassembly", "make_prismatic_constraint_rassembly", "make_gear_constraint_rassembly", "make_belt_constraint_rassembly", "make_rack_pinion_constraint_rassembly"} and len(inputs) >= 3:
+        if (
+            node.op
+            in {
+                "make_fixed_constraint_rassembly",
+                "make_revolute_constraint_rassembly",
+                "make_prismatic_constraint_rassembly",
+                "make_gear_constraint_rassembly",
+                "make_belt_constraint_rassembly",
+                "make_rack_pinion_constraint_rassembly",
+            }
+            and len(inputs) >= 3
+        ):
             return [
                 f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
                 f"{var_name}_constraint = dict({rp})",
@@ -240,6 +262,7 @@ class ProductEmitterMixin:
                 "doc.recompute()",
                 f"{var_name}_shapes = _shapes_from_product_value({var_name}_assembly)",
                 f"{var_name} = _make_feature({_json_ascii(object_name)}, Part.makeCompound({var_name}_shapes), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+                f"_set_tree_visibility({var_name}, False)",
             ]
         return None
 
