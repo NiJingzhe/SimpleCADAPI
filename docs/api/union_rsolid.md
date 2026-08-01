@@ -20,12 +20,16 @@ def union_rsolid(
 
 ## Description
 
-Compute the boolean union and return one solid.
+Compute the boolean union and return one manifold solid.
 
-Accepts standalone `Solid` objects, lists of `Solid`, and nested sequences,
-but always returns exactly one `Solid`. If the kernel cannot produce
-exactly one solid result, the API raises a clear error instead of
-returning multiple pieces.
+Face-area contact and positive-volume overlap can produce one solid without
+artificially embedding either input. Edge-only, vertex-only, and point/curve
+tangencies are non-manifold connections and therefore cannot satisfy this API's
+single-`Solid` contract.
+
+When `glue=True`, SimpleCAD tries OCC glue optimization first. If that optimized
+pass returns multiple solids, it automatically retries the normal fuse algorithm.
+Glue is therefore an optimization, not a topology-repair switch.
 
 ## Parameters
 
@@ -39,16 +43,16 @@ returning multiple pieces.
 
 ### glue
 
-- **Description**: Enable OCC glue mode for touching or partially overlapping inputs. Defaults to True for SimpleCAD's standard union behavior.
+- **Description**: Try OCC glue optimization first and fall back to normal fuse when necessary. Defaults to `False`. It supports compatible face-touching or coincident topology but cannot repair non-manifold point-, edge-, or tangent-only contact.
 
 ### tol
 
-- **Type**: `Optional fuzzy-boolean tolerance used by the OCC union kernel. When`
-- **Description**: omitted, SimpleCAD chooses a conservative scale-aware tolerance.
+- **Type**: `Optional[float]`
+- **Description**: Finite non-negative fuzzy tolerance. It may intentionally bridge a small gap, but it does not make lower-dimensional contact into one manifold solid.
 
 ### tracking_policy
 
-- **Description**: `TrackingPolicy.FULL` computes topology history and lineage. `TrackingPolicy.GRAPH` preserves the canonical union node, parameters, inputs, result topology references, and replay while omitting `TopoDelta` and history-derived topology lineage. Geometry options `clean`, `glue`, and `tol` are unchanged.
+- **Description**: `TrackingPolicy.FULL` computes topology history and lineage. `TrackingPolicy.GRAPH` preserves the replayable operation node while omitting history-derived topology lineage.
 
 ## Returns
 
