@@ -6,14 +6,14 @@
 
 [English](README.md)
 
-## 更新日志（2.0.2）
+## 更新日志（2.0.4b1）
 
-> **试验性版本：** 本版本中的功能后续可能引入 breaking changes
-> （不兼容变更），不建议立即用于生产环境。
+> **Beta 版本：** 用于生产前，请检查生成的 CAD 文档。
 
-SimpleCADAPI 2.0.2 新增跨 CAD 转换、浏览器三维场景查看、可回放模型与源代码
-映射、单位和公差分析、机械标准件、装配验证以及 STEP 逆向工程工具。具体实现
-细节和使用边界请阅读[完整中文更新说明](docs/updates/2.0.2.zh-CN.md)。
+SimpleCADAPI 2.0.4b1 新增了具有产品建模逻辑的 FreeCAD 语义树，并提高了
+Occurrence 和 Joint 的装配稳定性。本版本还改进了共享面 Boolean Union 和 glue
+fallback 诊断，新增融合标准轴承，并将集成 BLDC 执行器迁移到标准轴承工厂。具体
+实现、限制和验证范围请阅读[完整中文更新说明](docs/updates/2.0.4b1.zh-CN.md)。
 
 ---
 
@@ -30,7 +30,7 @@ SimpleCADAPI 2.0.2 新增跨 CAD 转换、浏览器三维场景查看、可回�
 
 SimpleCADAPI 是一个基于 OCP 的 Python CAD SDK，提供清晰的函数式建模操作和可重放的模型图。它在 OpenCascade 几何内核之上提供精简的公共 API，可用于创建实体、应用特征、添加语义标签、查询拓扑、导出制造文件，以及将记录的模型转换为 FreeCAD 工作流。
 
-当前正式版本：`simplecadapi==2.0.3`。
+当前 Beta 版本：`simplecadapi==2.0.4b1`。
 
 ## 核心能力
 
