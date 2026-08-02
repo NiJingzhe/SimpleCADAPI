@@ -2,9 +2,13 @@
 
 import ast
 import importlib.util
+import math
+import sys
 from pathlib import Path
 import unittest
 
+
+import simplecadapi as scad
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "examples"
@@ -62,7 +66,10 @@ class TestExampleModelContract(unittest.TestCase):
                 node
                 for node in tree.body
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and any(_is_decorator(decorator, "model") for decorator in node.decorator_list)
+                and any(
+                    _is_decorator(decorator, "model")
+                    for decorator in node.decorator_list
+                )
             ]
             self.assertEqual(len(model_functions), 1, path)
             self.assertFalse(
@@ -93,7 +100,9 @@ class TestExampleModelContract(unittest.TestCase):
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
-                if not (node.name.startswith("make_") or node.name.startswith("_make_")):
+                if not (
+                    node.name.startswith("make_") or node.name.startswith("_make_")
+                ):
                     continue
                 decorators = node.decorator_list
                 has_session_contract = any(
@@ -101,7 +110,52 @@ class TestExampleModelContract(unittest.TestCase):
                     or _is_decorator(decorator, "model")
                     for decorator in decorators
                 )
-                self.assertTrue(has_session_contract, f"{path}:{node.lineno}:{node.name}")
+                self.assertTrue(
+                    has_session_contract, f"{path}:{node.lineno}:{node.name}"
+                )
+
+    def test_bldc_bearing_decorative_balls_are_part_of_outer_ring(self):
+        example_dir = EXAMPLES / "20_integrated_bldc_joint_actuator"
+        sys.path.insert(0, str(example_dir))
+        try:
+            path = example_dir / "bearings.py"
+            spec = importlib.util.spec_from_file_location(
+                "bldc_bearings_contract", path
+            )
+            self.assertIsNotNone(spec)
+            assert spec is not None and spec.loader is not None
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            from dimensions import BearingSpec
+
+            bearing_spec = BearingSpec(3.0, 6.0, 3.0, 0.7, 8)
+            with scad.GraphSession():
+                material = scad.make_material_rmaterial(
+                    "bearing_contract_steel",
+                    density=7.85e-6,
+                    density_unit="kg/mm^3",
+                )
+                bearing = module.make_main_bearing_rassembly(
+                    bearing_id="bearing_contract",
+                    spec=bearing_spec,
+                    material=material,
+                )
+                solved = scad.solve_assembly_constraints_rassembly(
+                    scad.ground_component_rassembly(bearing, "outer_ring")
+                )
+                report = scad.inspect_assembly_constraints_rconstraintreport(solved)
+        finally:
+            sys.path.remove(str(example_dir))
+
+        self.assertEqual(bearing.component_ids(), ("outer_ring", "inner_ring"))
+        self.assertEqual(bearing.constraint_ids(), ("inner_outer_revolute",))
+        self.assertEqual(report.unsolved_component_ids, ())
+        outer = bearing.get_component("outer_ring").item.body
+        outer_meta = bearing.get_metadata("std.bearing.ball_bearing")
+        self.assertTrue(outer_meta["rolling_elements_fused"])
+        self.assertEqual(outer_meta["rolling_element_fuse_mode"], "outer_ring_union")
+        self.assertGreater(outer.get_volume(), 0.0)
+        self.assertIn("role.rolling_elements_fused_into_outer_ring", scad.list_tags(outer))
 
 
 if __name__ == "__main__":

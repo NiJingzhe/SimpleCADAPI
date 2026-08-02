@@ -13,6 +13,7 @@ _FRAGMENT_NAMES = (
     "curves.py",
     "sketches.py",
     "expressions.py",
+    "occurrences.py",
 )
 
 

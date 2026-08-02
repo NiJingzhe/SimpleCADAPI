@@ -307,6 +307,53 @@ class TestBooleanOperations(unittest.TestCase):
         self.assertAlmostEqual(result.get_volume(), 2.0, places=6)
         self.assertEqual(len(result.get_faces()), 6)
         self.assertEqual(stdout_buffer.getvalue(), "")
+    def test_union_glue_falls_back_for_overlapping_curved_inputs(self):
+        """Glue optimization must not prevent a valid curved-surface union."""
+
+        sphere_a = scad.make_sphere_rsolid(radius=5.0, center=(0.0, 0.0, 0.0))
+        sphere_b = scad.make_sphere_rsolid(radius=5.0, center=(9.0, 0.0, 0.0))
+
+        normal = scad.union_rsolid(sphere_a, sphere_b, glue=False)
+        optimized = scad.union_rsolid(sphere_a, sphere_b, glue=True)
+
+        self.assertAlmostEqual(optimized.get_volume(), normal.get_volume(), places=6)
+
+    def test_union_rejects_edge_only_contact_as_non_manifold(self):
+        """An edge-only connection is not one manifold solid."""
+
+        box_a = scad.make_box_rsolid(
+            1.0, 1.0, 1.0, bottom_face_center=(0.0, 0.0, 0.0)
+        )
+        box_b = scad.make_box_rsolid(
+            1.0, 1.0, 1.0, bottom_face_center=(1.0, 1.0, 0.0)
+        )
+
+        with self.assertRaises(scad.SimpleCADError) as ctx:
+            scad.union_rsolid(box_a, box_b, glue=True)
+
+        self.assertIn("not one manifold solid", str(ctx.exception))
+
+    def test_union_rejects_tangent_curved_contact_as_non_manifold(self):
+        """A tangent point between spheres is not one manifold solid."""
+
+        sphere_a = scad.make_sphere_rsolid(radius=5.0, center=(0.0, 0.0, 0.0))
+        sphere_b = scad.make_sphere_rsolid(radius=5.0, center=(10.0, 0.0, 0.0))
+
+        with self.assertRaises(scad.SimpleCADError):
+            scad.union_rsolid(sphere_a, sphere_b, glue=True, tol=0.1)
+
+    def test_union_rejects_invalid_fuzzy_tolerance(self):
+        """Invalid tolerances must not reach OCC."""
+
+        box_a = scad.make_box_rsolid(1.0, 1.0, 1.0)
+        box_b = scad.make_box_rsolid(
+            1.0, 1.0, 1.0, bottom_face_center=(0.5, 0.0, 0.0)
+        )
+
+        for invalid_tol in (-1.0, float("nan"), float("inf")):
+            with self.subTest(tol=invalid_tol):
+                with self.assertRaises(scad.SimpleCADError):
+                    scad.union_rsolid(box_a, box_b, tol=invalid_tol)
 
     def test_union_supports_fuzzy_tolerance(self):
         """Test union forwards CadQuery fuzzy tolerance to the OCC kernel."""

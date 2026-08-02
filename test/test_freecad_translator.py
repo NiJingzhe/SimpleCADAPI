@@ -22,6 +22,9 @@ from simplecadapi.graph import GraphSession
 from simplecadapi.kernel.ocp_properties import bounding_box
 from simplecadapi.topology import OperationGraph
 from simplecadapi.translator import freecad_translator
+from simplecadapi.translator.freecad_translator.semantic import (
+    build_freecad_semantic_plan,
+)
 
 
 class TestFreeCADTranslator(unittest.TestCase):
@@ -141,17 +144,21 @@ class TestFreeCADTranslator(unittest.TestCase):
 
         root = ET.fromstring(gui_xml)
         visibility = {}
+        show_in_tree = {}
         expanded = {}
         shape_colors = {}
         override_material = {}
+        view_proxy_classes = {}
         view_provider_data = root.find("ViewProviderData")
         if view_provider_data is None:
             return {
                 "entries": names,
                 "visibility": visibility,
+                "show_in_tree": show_in_tree,
                 "expanded": expanded,
                 "shape_colors": shape_colors,
                 "override_material": override_material,
+                "view_proxy_classes": view_proxy_classes,
             }
         for view_provider in view_provider_data.findall("ViewProvider"):
             name = str(view_provider.attrib.get("name", ""))
@@ -164,6 +171,12 @@ class TestFreeCADTranslator(unittest.TestCase):
                 if prop_name == "Visibility":
                     bool_value = prop.find("Bool")
                     visibility[name] = (
+                        bool_value is not None
+                        and bool_value.attrib.get("value", "").lower() == "true"
+                    )
+                elif prop_name == "ShowInTree":
+                    bool_value = prop.find("Bool")
+                    show_in_tree[name] = (
                         bool_value is not None
                         and bool_value.attrib.get("value", "").lower() == "true"
                     )
@@ -181,12 +194,22 @@ class TestFreeCADTranslator(unittest.TestCase):
                     material_value = prop.find("PropertyMaterial")
                     if material_value is not None:
                         shape_colors[name] = int(material_value.attrib["diffuseColor"])
+                elif prop_name == "Proxy":
+                    python_value = prop.find("Python")
+                    if python_value is not None:
+                        view_proxy_classes[name] = (
+                            str(python_value.attrib.get("module", ""))
+                            + "."
+                            + str(python_value.attrib.get("class", ""))
+                        )
         return {
             "entries": names,
             "visibility": visibility,
+            "show_in_tree": show_in_tree,
             "expanded": expanded,
             "shape_colors": shape_colors,
             "override_material": override_material,
+            "view_proxy_classes": view_proxy_classes,
         }
 
     def _expression_payload(self, payload: str) -> dict:
@@ -211,7 +234,7 @@ class TestFreeCADTranslator(unittest.TestCase):
         self.assertIn("EXPRESSION_GRAPH_META", script)
         self.assertIn("# Step", script)
 
-    def test_translate_model_json_emits_tag_selection_link_with_binding_metadata(self):
+    def test_translate_model_json_emits_tag_metadata_without_freecad_feature(self):
         with GraphSession() as session:
             box = scad.make_box_rsolid(width=2.0, height=3.0, depth=4.0)
             scad.apply_tag_rselection(
@@ -226,8 +249,9 @@ class TestFreeCADTranslator(unittest.TestCase):
 
         self.assertIn("# Step", script)
         self.assertIn("apply_tag_rselection", script)
-        self.assertIn("_register_tag_selection_node", script)
-        self.assertIn("SimpleCADTagBinding", script)
+        self.assertIn("_register_tag_metadata_node", script)
+        self.assertIn("SimpleCADTagBindings", script)
+        self.assertNotIn("_register_tag_selection_node", script)
 
     def test_translate_tagged_cylinder_preserves_topology_identity_bindings(self):
         with GraphSession() as session:
@@ -242,7 +266,7 @@ class TestFreeCADTranslator(unittest.TestCase):
         )
 
         self.assertIn("Part::Cylinder", script)
-        self.assertIn("_register_tag_selection_node", script)
+        self.assertIn("_register_tag_metadata_node", script)
         self.assertIn("shaft.face.start", script)
         self.assertIn("topology_name", script)
 
@@ -261,7 +285,7 @@ class TestFreeCADTranslator(unittest.TestCase):
         )
 
         self.assertIn("Part::Box", script)
-        self.assertIn("_register_tag_selection_node", script)
+        self.assertIn("_register_tag_metadata_node", script)
         self.assertIn("housing.face.top", script)
         self.assertIn("role.lid_mount", script)
         self.assertIn("topology_name", script)
@@ -282,7 +306,7 @@ class TestFreeCADTranslator(unittest.TestCase):
         )
 
         self.assertIn("Part::Cone", script)
-        self.assertIn("_register_tag_selection_node", script)
+        self.assertIn("_register_tag_metadata_node", script)
         self.assertIn("adapter.face.end", script)
         self.assertIn("adapter.edge.seam", script)
         self.assertIn("role.outlet", script)
@@ -309,66 +333,71 @@ class TestFreeCADTranslator(unittest.TestCase):
             scad.make_face_from_sketch_rface(sketch)
 
         model_json = scad.export_model_json(session)
-        script = freecad_translator.translate_model_json_to_freecad_script(
-            model_json
-        )
+        script = freecad_translator.translate_model_json_to_freecad_script(model_json)
 
         self.assertIn("SimpleCADSketchPromotion", script)
         self.assertIn("sketch_entity.bottom", script)
         self.assertIn("topology_name", script)
         self.assertIn("profile_id", script)
 
-    def test_translate_model_json_tag_branches_are_distinct_fcstd_links(self):
+    def test_translate_model_json_tag_results_keep_distinct_metadata_without_links(
+        self,
+    ):
         with GraphSession() as session:
             box = scad.make_box_rsolid(width=2.0, height=3.0, depth=4.0)
-            scad.apply_tag_rselection(
+            left = scad.apply_tag_rselection(
                 scope=box,
                 targets=[box],
                 tag="role.left_branch",
             )
-            scad.apply_tag_rselection(
+            right = scad.apply_tag_rselection(
                 scope=box,
                 targets=[box],
                 tag="role.right_branch",
             )
+            scad.capture_result(value=(left, right))
 
         model_json = scad.export_model_json(session)
-        expected_bindings = sorted(
-            json.loads(model_json)["semantic_bindings"],
-            key=lambda binding: binding["tag"],
-        )
+        payload = json.loads(model_json)
+        expected_by_tag = {
+            binding["tag"]: binding for binding in payload["semantic_bindings"]
+        }
+        expected_node_ids = {
+            node["params"]["tag_binding"]["tag"]: node["node_id"]
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "apply_tag_rselection"
+        }
         probe = """
 import json
 import FreeCAD as App
 
 doc = App.openDocument(FCSTD_PATH)
-links = sorted(
-    [
-        obj
-        for obj in doc.Objects
-        if getattr(obj, 'SimpleCADOp', '') == 'apply_tag_rselection'
-    ],
-    key=lambda obj: json.loads(obj.SimpleCADTagBinding)['tag'],
-)
+tag_objects = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'apply_tag_rselection']
+results = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADSemanticRole', '') == 'result']
 with open(OUT_PATH, 'w', encoding='utf-8') as fh:
     json.dump({
-        'names': [obj.Name for obj in links],
-        'type_ids': [obj.TypeId for obj in links],
-        'linked_names': [obj.LinkedObject.Name for obj in links],
-        'volumes': [round(float(obj.Shape.Volume), 6) for obj in links],
-        'bindings': [json.loads(obj.SimpleCADTagBinding) for obj in links],
-        'node_ids': [obj.SimpleCADNodeId for obj in links],
+        'tag_object_count': len(tag_objects),
+        'results': [
+            {
+                'bindings': json.loads(obj.SimpleCADTagBindings),
+                'node_ids': list(obj.SimpleCADTagNodeIds),
+                'tags': list(obj.SimpleCADAppliedTags),
+                'volume': round(float(obj.Shape.Volume), 6),
+            }
+            for obj in results
+        ],
     }, fh)
 """
         result = self._inspect_fcstd_json(model_json, probe)
 
-        self.assertEqual(result["type_ids"], ["App::Link", "App::Link"])
-        self.assertEqual(len(set(result["names"])), 2)
-        self.assertEqual(len(set(result["linked_names"])), 1)
-        self.assertTrue(set(result["names"]).isdisjoint(result["linked_names"]))
-        self.assertEqual(result["volumes"], [24.0, 24.0])
-        self.assertEqual(result["bindings"], expected_bindings)
-        self.assertEqual(len(set(result["node_ids"])), 2)
+        self.assertEqual(result["tag_object_count"], 0)
+        self.assertEqual(len(result["results"]), 2)
+        actual = {record["tags"][0]: record for record in result["results"]}
+        self.assertEqual(set(actual), set(expected_by_tag))
+        for tag, record in actual.items():
+            self.assertEqual(record["bindings"], [expected_by_tag[tag]])
+            self.assertEqual(record["node_ids"], [expected_node_ids[tag]])
+            self.assertEqual(record["volume"], 24.0)
 
     def test_translate_model_json_tagged_parts_preserve_nested_placements(self):
         with GraphSession() as session:
@@ -420,7 +449,7 @@ import json
 import FreeCAD as App
 
 doc = App.openDocument(FCSTD_PATH)
-tag_links = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'apply_tag_rselection']
+tag_objects = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'apply_tag_rselection']
 upper_part = next(obj for obj in doc.Objects if getattr(obj, 'SimpleCADPartId', '') == 'upper')
 upper_body = next(obj for obj in upper_part.Group if hasattr(obj, 'SimpleCADSourceBodyNodeId'))
 child_link = next(obj for obj in doc.Objects if getattr(obj, 'SimpleCADComponentId', '') == 'child')
@@ -442,7 +471,9 @@ def bbox(shape):
 
 with open(OUT_PATH, 'w', encoding='utf-8') as fh:
     json.dump({
-        'tag_link_transforms': [bool(obj.LinkTransform) for obj in tag_links],
+        'tag_object_count': len(tag_objects),
+        'upper_body_tags': list(upper_body.SimpleCADAppliedTags),
+        'upper_body_tag_node_ids': list(upper_body.SimpleCADTagNodeIds),
         'upper_body_bbox': bbox(upper_body.Shape),
         'child_bbox': bbox(child_link.Shape),
         'child_solids': len(child_link.Shape.Solids),
@@ -452,10 +483,13 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         'compound_volume': round(float(compound.Shape.Volume), 3),
     }, fh)
 """
-        result = self._inspect_fcstd_json(scad.export_model_json(session=session), probe)
+        result = self._inspect_fcstd_json(
+            scad.export_model_json(session=session), probe
+        )
 
-        self.assertTrue(result["tag_link_transforms"])
-        self.assertTrue(all(result["tag_link_transforms"]))
+        self.assertEqual(result["tag_object_count"], 0)
+        self.assertEqual(result["upper_body_tags"], ["role.structure", "role.upper"])
+        self.assertEqual(len(result["upper_body_tag_node_ids"]), 2)
         self.assertEqual(result["upper_body_bbox"], [-1.0, -2.0, 10.0, 1.0, 2.0, 11.0])
         self.assertEqual(result["child_bbox"], [18.0, 29.0, 5.0, 22.0, 31.0, 16.0])
         self.assertEqual(result["child_solids"], 2)
@@ -470,7 +504,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             material = scad.make_material_rmaterial(
                 "steel_8_8", density=7.85e-6, density_unit="kg/mm^3"
             )
-            part = scad.assign_material_rpart(scad.make_part_rpart("plate", body), material)
+            part = scad.assign_material_rpart(
+                scad.make_part_rpart("plate", body), material
+            )
             assembly = scad.make_assembly_rassembly("fixture")
             assembly = scad.add_component_rassembly(
                 assembly,
@@ -480,7 +516,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             )
             scad.make_compound_from_assembly_rcompound(assembly)
 
-        script = freecad_translator.translate_model_json_to_freecad_script(scad.export_model_json(session))
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
 
         self.assertIn("PRODUCT_VALUES = {}", script)
         self.assertIn("import Assembly", script)
@@ -530,7 +568,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             all(part.material.to_dict() == material.to_dict() for part in replayed)
         )
 
-        script = freecad_translator.translate_model_json_to_freecad_script(json.dumps(payload))
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            json.dumps(payload)
+        )
 
         self.assertIn("SimpleCADMaterial", script)
         self.assertIn("_material = _material_from_assignment_params(", script)
@@ -561,7 +601,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
                 source_connector_id="axis",
             )
 
-        script = freecad_translator.translate_model_json_to_freecad_script(scad.export_model_json(session))
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
 
         self.assertIn("make_placement_connector_rconnector", script)
         self.assertIn("make_forward_connector_rassembly", script)
@@ -574,7 +616,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             body = scad.make_box_rsolid(1.0, 1.0, 1.0)
             top_face = ql.faces().resolve(body)[-1]
             connector = scad.make_face_connector_rconnector("axis", top_face)
-            part = scad.add_connector_rpart(scad.make_part_rpart("block", body), connector)
+            part = scad.add_connector_rpart(
+                scad.make_part_rpart("block", body), connector
+            )
             assembly = scad.make_assembly_rassembly("fixture")
             assembly = scad.add_component_rassembly(
                 assembly,
@@ -598,7 +642,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             )
             scad.solve_assembly_constraints_rassembly(assembly)
 
-        script = freecad_translator.translate_model_json_to_freecad_script(scad.export_model_json(session))
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
 
         self.assertIn("import JointObject", script)
         self.assertIn("JointObject.Joint", script)
@@ -612,7 +658,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             top_face = ql.faces().resolve(body)[-1]
             x_edge = ql.edges().resolve(body)[8]
             axis_connector = scad.make_face_connector_rconnector("axis_z", top_face)
-            slide_connector = scad.make_edge_connector_rconnector("slide_x", x_edge, flip=True)
+            slide_connector = scad.make_edge_connector_rconnector(
+                "slide_x", x_edge, flip=True
+            )
             part = scad.make_part_rpart("coupler_block", body)
             part = scad.add_connector_rpart(part, axis_connector)
             part = scad.add_connector_rpart(part, slide_connector)
@@ -641,12 +689,24 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             for component_id in placements:
                 if component_id.startswith("ground_"):
                     assembly = scad.ground_component_rassembly(assembly, component_id)
-            ground_gear_a_ref = scad.make_connector_ref_rconnectorref("ground_gear_a", "axis_z")
-            ground_gear_b_ref = scad.make_connector_ref_rconnectorref("ground_gear_b", "axis_z")
-            ground_pulley_a_ref = scad.make_connector_ref_rconnectorref("ground_pulley_a", "axis_z")
-            ground_pulley_b_ref = scad.make_connector_ref_rconnectorref("ground_pulley_b", "axis_z")
-            ground_rack_ref = scad.make_connector_ref_rconnectorref("ground_rack", "slide_x")
-            ground_pinion_ref = scad.make_connector_ref_rconnectorref("ground_pinion", "axis_z")
+            ground_gear_a_ref = scad.make_connector_ref_rconnectorref(
+                "ground_gear_a", "axis_z"
+            )
+            ground_gear_b_ref = scad.make_connector_ref_rconnectorref(
+                "ground_gear_b", "axis_z"
+            )
+            ground_pulley_a_ref = scad.make_connector_ref_rconnectorref(
+                "ground_pulley_a", "axis_z"
+            )
+            ground_pulley_b_ref = scad.make_connector_ref_rconnectorref(
+                "ground_pulley_b", "axis_z"
+            )
+            ground_rack_ref = scad.make_connector_ref_rconnectorref(
+                "ground_rack", "slide_x"
+            )
+            ground_pinion_ref = scad.make_connector_ref_rconnectorref(
+                "ground_pinion", "axis_z"
+            )
             gear_a_ref = scad.make_connector_ref_rconnectorref("gear_a", "axis_z")
             gear_b_ref = scad.make_connector_ref_rconnectorref("gear_b", "axis_z")
             pulley_a_ref = scad.make_connector_ref_rconnectorref("pulley_a", "axis_z")
@@ -654,22 +714,42 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             rack_ref = scad.make_connector_ref_rconnectorref("rack", "slide_x")
             pinion_ref = scad.make_connector_ref_rconnectorref("pinion", "axis_z")
             assembly = scad.add_revolute_constraint_rassembly(
-                assembly, "gear_a_axis", ground_gear_a_ref, gear_a_ref, drive_angle_degrees=90.0,
+                assembly,
+                "gear_a_axis",
+                ground_gear_a_ref,
+                gear_a_ref,
+                drive_angle_degrees=90.0,
             )
             assembly = scad.add_revolute_constraint_rassembly(
-                assembly, "gear_b_axis", ground_gear_b_ref, gear_b_ref,
+                assembly,
+                "gear_b_axis",
+                ground_gear_b_ref,
+                gear_b_ref,
             )
             assembly = scad.add_revolute_constraint_rassembly(
-                assembly, "pulley_a_axis", ground_pulley_a_ref, pulley_a_ref, drive_angle_degrees=90.0,
+                assembly,
+                "pulley_a_axis",
+                ground_pulley_a_ref,
+                pulley_a_ref,
+                drive_angle_degrees=90.0,
             )
             assembly = scad.add_revolute_constraint_rassembly(
-                assembly, "pulley_b_axis", ground_pulley_b_ref, pulley_b_ref,
+                assembly,
+                "pulley_b_axis",
+                ground_pulley_b_ref,
+                pulley_b_ref,
             )
             assembly = scad.add_prismatic_constraint_rassembly(
-                assembly, "rack_slide", ground_rack_ref, rack_ref,
+                assembly,
+                "rack_slide",
+                ground_rack_ref,
+                rack_ref,
             )
             assembly = scad.add_revolute_constraint_rassembly(
-                assembly, "pinion_axis", ground_pinion_ref, pinion_ref,
+                assembly,
+                "pinion_axis",
+                ground_pinion_ref,
+                pinion_ref,
             )
             assembly = scad.add_gear_constraint_rassembly(
                 assembly,
@@ -696,7 +776,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             )
             scad.make_compound_from_assembly_rcompound(assembly)
 
-        script = freecad_translator.translate_model_json_to_freecad_script(scad.export_model_json(session))
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            scad.export_model_json(session)
+        )
 
         self.assertIn("'Gears'", script)
         self.assertIn("'Belt'", script)
@@ -704,9 +786,15 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn("'constraint_kind': 'gear'", script)
         self.assertIn("'constraint_kind': 'belt'", script)
         self.assertIn("'constraint_kind': 'rack_pinion'", script)
-        self.assertIn("joint.Distance2 = float(constraint_payload.get('pitch_radius_b'))", script)
-        self.assertIn("joint.Distance2 = float(constraint_payload.get('pulley_radius_b'))", script)
-        self.assertIn("joint.Distance = float(constraint_payload.get('pitch_radius'))", script)
+        self.assertIn(
+            "joint.Distance2 = float(constraint_payload.get('pitch_radius_b'))", script
+        )
+        self.assertIn(
+            "joint.Distance2 = float(constraint_payload.get('pulley_radius_b'))", script
+        )
+        self.assertIn(
+            "joint.Distance = float(constraint_payload.get('pitch_radius'))", script
+        )
 
     def test_translate_model_json_coupling_fcstd_contains_native_joint_properties(self):
         with GraphSession() as session:
@@ -714,7 +802,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             top_face = ql.faces().resolve(body)[-1]
             x_edge = ql.edges().resolve(body)[8]
             axis_connector = scad.make_face_connector_rconnector("axis_z", top_face)
-            slide_connector = scad.make_edge_connector_rconnector("slide_x", x_edge, flip=True)
+            slide_connector = scad.make_edge_connector_rconnector(
+                "slide_x", x_edge, flip=True
+            )
             part = scad.make_part_rpart("coupler_block", body)
             part = scad.add_connector_rpart(part, axis_connector)
             part = scad.add_connector_rpart(part, slide_connector)
@@ -743,12 +833,24 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             for component_id in placements:
                 if component_id.startswith("ground_"):
                     assembly = scad.ground_component_rassembly(assembly, component_id)
-            ground_gear_a_ref = scad.make_connector_ref_rconnectorref("ground_gear_a", "axis_z")
-            ground_gear_b_ref = scad.make_connector_ref_rconnectorref("ground_gear_b", "axis_z")
-            ground_pulley_a_ref = scad.make_connector_ref_rconnectorref("ground_pulley_a", "axis_z")
-            ground_pulley_b_ref = scad.make_connector_ref_rconnectorref("ground_pulley_b", "axis_z")
-            ground_rack_ref = scad.make_connector_ref_rconnectorref("ground_rack", "slide_x")
-            ground_pinion_ref = scad.make_connector_ref_rconnectorref("ground_pinion", "axis_z")
+            ground_gear_a_ref = scad.make_connector_ref_rconnectorref(
+                "ground_gear_a", "axis_z"
+            )
+            ground_gear_b_ref = scad.make_connector_ref_rconnectorref(
+                "ground_gear_b", "axis_z"
+            )
+            ground_pulley_a_ref = scad.make_connector_ref_rconnectorref(
+                "ground_pulley_a", "axis_z"
+            )
+            ground_pulley_b_ref = scad.make_connector_ref_rconnectorref(
+                "ground_pulley_b", "axis_z"
+            )
+            ground_rack_ref = scad.make_connector_ref_rconnectorref(
+                "ground_rack", "slide_x"
+            )
+            ground_pinion_ref = scad.make_connector_ref_rconnectorref(
+                "ground_pinion", "axis_z"
+            )
             gear_a_ref = scad.make_connector_ref_rconnectorref("gear_a", "axis_z")
             gear_b_ref = scad.make_connector_ref_rconnectorref("gear_b", "axis_z")
             pulley_a_ref = scad.make_connector_ref_rconnectorref("pulley_a", "axis_z")
@@ -756,22 +858,42 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             rack_ref = scad.make_connector_ref_rconnectorref("rack", "slide_x")
             pinion_ref = scad.make_connector_ref_rconnectorref("pinion", "axis_z")
             assembly = scad.add_revolute_constraint_rassembly(
-                assembly, "gear_a_axis", ground_gear_a_ref, gear_a_ref, drive_angle_degrees=90.0,
+                assembly,
+                "gear_a_axis",
+                ground_gear_a_ref,
+                gear_a_ref,
+                drive_angle_degrees=90.0,
             )
             assembly = scad.add_revolute_constraint_rassembly(
-                assembly, "gear_b_axis", ground_gear_b_ref, gear_b_ref,
+                assembly,
+                "gear_b_axis",
+                ground_gear_b_ref,
+                gear_b_ref,
             )
             assembly = scad.add_revolute_constraint_rassembly(
-                assembly, "pulley_a_axis", ground_pulley_a_ref, pulley_a_ref, drive_angle_degrees=90.0,
+                assembly,
+                "pulley_a_axis",
+                ground_pulley_a_ref,
+                pulley_a_ref,
+                drive_angle_degrees=90.0,
             )
             assembly = scad.add_revolute_constraint_rassembly(
-                assembly, "pulley_b_axis", ground_pulley_b_ref, pulley_b_ref,
+                assembly,
+                "pulley_b_axis",
+                ground_pulley_b_ref,
+                pulley_b_ref,
             )
             assembly = scad.add_prismatic_constraint_rassembly(
-                assembly, "rack_slide", ground_rack_ref, rack_ref,
+                assembly,
+                "rack_slide",
+                ground_rack_ref,
+                rack_ref,
             )
             assembly = scad.add_revolute_constraint_rassembly(
-                assembly, "pinion_axis", ground_pinion_ref, pinion_ref,
+                assembly,
+                "pinion_axis",
+                ground_pinion_ref,
+                pinion_ref,
             )
             assembly = scad.add_gear_constraint_rassembly(
                 assembly,
@@ -840,7 +962,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             body = scad.make_box_rsolid(1.0, 1.0, 1.0)
             top_face = ql.faces().resolve(body)[-1]
             connector = scad.make_face_connector_rconnector("axis", top_face)
-            part = scad.add_connector_rpart(scad.make_part_rpart("block", body), connector)
+            part = scad.add_connector_rpart(
+                scad.make_part_rpart("block", body), connector
+            )
             assembly = scad.make_assembly_rassembly("fixture")
             assembly = scad.add_component_rassembly(
                 assembly,
@@ -1002,9 +1126,13 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
                 helix_angle=25.0,
                 gear_height=8.0,
             )
-            top_face = max(ql.select(gear.get_faces()).all(), key=lambda face: face.get_center().z)
+            top_face = max(
+                ql.select(gear.get_faces()).all(), key=lambda face: face.get_center().z
+            )
             connector = scad.make_face_connector_rconnector("axis", top_face)
-            part = scad.add_connector_rpart(scad.make_part_rpart("gear", gear), connector)
+            part = scad.add_connector_rpart(
+                scad.make_part_rpart("gear", gear), connector
+            )
             assembly = scad.make_assembly_rassembly("gear_fixture")
             assembly = scad.add_component_rassembly(
                 assembly,
@@ -1056,7 +1184,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             material = scad.make_material_rmaterial(
                 "steel_8_8", density=7.85e-6, density_unit="kg/mm^3"
             )
-            part = scad.assign_material_rpart(scad.make_part_rpart("plate", body), material)
+            part = scad.assign_material_rpart(
+                scad.make_part_rpart("plate", body), material
+            )
             assembly = scad.make_assembly_rassembly("fixture")
             assembly = scad.add_component_rassembly(
                 assembly,
@@ -1149,7 +1279,7 @@ import FreeCAD as App
 doc = App.openDocument(FCSTD_PATH)
 materials = [obj for obj in doc.Objects if obj.TypeId == 'App::MaterialObjectPython' and hasattr(obj, 'SimpleCADMaterialId')]
 parts = [obj for obj in doc.Objects if obj.TypeId == 'App::Part' and hasattr(obj, 'SimpleCADPartId')]
-bodies = [obj for obj in doc.Objects if obj.TypeId == 'Part::Feature' and hasattr(obj, 'SimpleCADSourceBodyNodeId')]
+bodies = [obj for obj in doc.Objects if hasattr(obj, 'SimpleCADSourceBodyNodeId')]
 components = [obj for obj in doc.Objects if obj.TypeId == 'App::Link' and hasattr(obj, 'SimpleCADComponentId')]
 with open(OUT_PATH, 'w', encoding='utf-8') as fh:
     json.dump({
@@ -1165,6 +1295,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         },
         'part_materials': {obj.SimpleCADPartId: obj.SimpleCADMaterialObject.SimpleCADMaterialId for obj in parts},
         'body_materials': {obj.Name: obj.SimpleCADMaterialObject.SimpleCADMaterialId for obj in bodies},
+        'body_labels': sorted(str(obj.Label) for obj in bodies),
         'component_materials': {obj.SimpleCADComponentId: obj.SimpleCADMaterialObject.SimpleCADMaterialId for obj in components},
         'body_names': {obj.SimpleCADMaterialId: sorted(candidate.Name for candidate in bodies if candidate.SimpleCADMaterialObject == obj) for obj in materials},
         'component_names': {obj.SimpleCADMaterialId: sorted(candidate.Name for candidate in components if candidate.SimpleCADMaterialObject == obj) for obj in materials},
@@ -1182,7 +1313,10 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIsNone(result["materials"]["uncolored_steel"]["density"])
         self.assertIsNone(result["materials"]["uncolored_steel"]["density_unit"])
         self.assertEqual(
-            [round(value, 3) for value in result["materials"]["blue_aluminum"]["color"]],
+            [
+                round(value, 3)
+                for value in result["materials"]["blue_aluminum"]["color"]
+            ],
             [0.2, 0.4, 0.6],
         )
         self.assertEqual(
@@ -1197,7 +1331,10 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
                 "plain": "uncolored_steel",
             },
         )
-        self.assertEqual(set(result["body_materials"].values()), {"blue_aluminum", "uncolored_steel"})
+        self.assertEqual(
+            set(result["body_materials"].values()), {"blue_aluminum", "uncolored_steel"}
+        )
+        self.assertEqual(result["body_labels"], ["body", "body (2)", "body (3)"])
         self.assertEqual(
             result["component_materials"],
             {
@@ -1222,7 +1359,10 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             {name: expected_blue for name in blue_names},
         )
         self.assertTrue(
-            all(gui["override_material"][name] is True for name in result["component_names"]["blue_aluminum"])
+            all(
+                gui["override_material"][name] is True
+                for name in result["component_names"]["blue_aluminum"]
+            )
         )
         self.assertTrue(all(name not in gui["shape_colors"] for name in plain_names))
 
@@ -1275,7 +1415,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             {"child": False, "root": True},
         )
         self.assertEqual(result["subassembly_component_ids"], ["child_1"])
-        self.assertEqual(result["subassembly_linked_type_ids"], ["Assembly::AssemblyObject"])
+        self.assertEqual(
+            result["subassembly_linked_type_ids"], ["Assembly::AssemblyObject"]
+        )
         self.assertEqual(result["subassembly_x"], [4.0])
         self.assertEqual(result["subassembly_rigid"], [True])
 
@@ -1388,9 +1530,12 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         ],
         'joint_visibility': [bool(obj.Visibility) for obj in all_joints],
         'ground_visibility': [bool(obj.Visibility) for obj in grounds],
+        'joint_names': [str(obj.Name) for obj in all_joints],
+        'ground_names': [str(obj.Name) for obj in grounds],
     }, fh)
 """
         result = self._inspect_fcstd_json(scad.export_model_json(session), probe)
+        gui = self._inspect_fcstd_gui_visibility(scad.export_model_json(session))
 
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["rigid"], [False])
@@ -1403,7 +1548,23 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertTrue(result["joint_visibility"])
         self.assertTrue(all(visible is False for visible in result["joint_visibility"]))
         self.assertTrue(result["ground_visibility"])
-        self.assertTrue(all(visible is False for visible in result["ground_visibility"]))
+        self.assertTrue(
+            all(visible is False for visible in result["ground_visibility"])
+        )
+        self.assertGreaterEqual(len(result["joint_names"]), 3)
+        self.assertTrue(
+            all(
+                gui["view_proxy_classes"].get(name) == "JointObject.ViewProviderJoint"
+                for name in result["joint_names"]
+            )
+        )
+        self.assertTrue(
+            all(
+                gui["view_proxy_classes"].get(name)
+                == "JointObject.ViewProviderGroundedJoint"
+                for name in result["ground_names"]
+            )
+        )
 
     def test_translate_model_json_places_articulated_subassembly_children_once(self):
         with GraphSession() as session:
@@ -1534,11 +1695,11 @@ loose_sketches = [obj for obj in doc.Objects if obj.TypeId == 'Sketcher::SketchO
 assemblies = [obj for obj in doc.Objects if obj.TypeId == 'Assembly::AssemblyObject' and hasattr(obj, 'SimpleCADAssemblyId')]
 links = [obj for obj in doc.Objects if obj.TypeId == 'App::Link' and hasattr(obj, 'SimpleCADComponentId')]
 parts = [obj for obj in doc.Objects if obj.TypeId == 'App::Part' and hasattr(obj, 'SimpleCADPartId')]
-libraries = [obj for obj in doc.Objects if obj.Name == 'SimpleCADProductLibrary']
 construction = [obj for obj in doc.Objects if obj.Name == 'SimpleCADConstruction']
 compound_objs = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_compound_from_assembly_rcompound']
 origins = [obj for obj in doc.Objects if obj.TypeId == 'App::Origin' or obj.Name.startswith('Origin')]
 origin_children = [child for origin in origins for child in list(getattr(origin, 'OutListRecursive', []) or [])]
+top_level_names = [obj.Name for obj in doc.Objects if not list(getattr(obj, 'InList', []) or [])]
 with open(OUT_PATH, 'w', encoding='utf-8') as fh:
     json.dump({
         'loose_sketch_count': len(loose_sketches),
@@ -1547,12 +1708,16 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         'link_visible': [bool(obj.Visibility) for obj in links],
         'link_group_sizes': [len(getattr(obj, 'Group', []) or []) for obj in links],
         'part_group_types': [[child.TypeId for child in getattr(obj, 'Group', []) if child.TypeId != 'App::Origin'] for obj in parts],
+        'part_group_labels': [[str(child.Label) for child in getattr(obj, 'Group', []) if child.TypeId != 'App::Origin'] for obj in parts],
+        'part_group_roles': [[str(getattr(child, 'SimpleCADSemanticRole', '')) for child in getattr(obj, 'Group', []) if child.TypeId != 'App::Origin'] for obj in parts],
+        'link_shape_solids': [len(obj.Shape.Solids) for obj in links],
         'part_group_visible': [[bool(child.Visibility) for child in getattr(obj, 'Group', []) if child.TypeId != 'App::Origin'] for obj in parts],
-        'library_visible': [bool(obj.Visibility) for obj in libraries],
         'construction_visible': [bool(obj.Visibility) for obj in construction],
         'origin_count': len(origins),
         'origin_visible': [bool(obj.Visibility) for obj in origins],
         'origin_child_visible': [bool(obj.Visibility) for obj in origin_children],
+        'top_level_names': top_level_names,
+        'product_library_present': doc.getObject('SimpleCADProductLibrary') is not None,
     }, fh)
 """
         payload = scad.export_model_json(session)
@@ -1563,16 +1728,22 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(result["compound_visible"], [False])
         self.assertEqual(result["link_visible"], [True])
         self.assertEqual(result["link_group_sizes"], [1])
-        self.assertEqual(result["part_group_types"], [["Part::Feature"]])
+        self.assertEqual(result["part_group_types"], [["Part::Cylinder"]])
+        self.assertEqual(result["part_group_labels"], [["body"]])
+        self.assertEqual(result["part_group_roles"], [[""]])
         self.assertEqual(result["part_group_visible"], [[True]])
-        self.assertEqual(result["library_visible"], [False])
-        self.assertEqual(result["construction_visible"], [False])
+        self.assertEqual(result["link_shape_solids"], [1])
+        self.assertEqual(result["construction_visible"], [])
+        self.assertFalse(result["product_library_present"])
         self.assertGreater(result["origin_count"], 0)
         self.assertTrue(all(visible is False for visible in result["origin_visible"]))
-        self.assertTrue(all(visible is False for visible in result["origin_child_visible"]))
+        self.assertTrue(
+            all(visible is False for visible in result["origin_child_visible"])
+        )
 
         gui = self._inspect_fcstd_gui_visibility(payload)
         gui_visibility = gui["visibility"]
+        gui_tree = gui["show_in_tree"]
         assembly_names = [
             name
             for name in gui_visibility
@@ -1592,12 +1763,20 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn("GuiDocument.xml", gui["entries"])
         self.assertEqual([gui_visibility[name] for name in assembly_names], [True])
         self.assertEqual([gui_visibility[name] for name in component_names], [True])
-        self.assertEqual(gui_visibility["SimpleCADProductLibrary"], False)
-        self.assertEqual(gui_visibility["SimpleCADConstruction"], False)
+        self.assertEqual([gui_tree[name] for name in assembly_names], [True])
+        self.assertEqual([gui_tree[name] for name in component_names], [True])
+        self.assertEqual([gui_tree[name] for name in compound_names], [False])
+        self.assertNotIn("SimpleCADConstruction", gui_visibility)
         self.assertEqual([gui_visibility[name] for name in compound_names], [False])
         self.assertEqual([gui["expanded"][name] for name in assembly_names], [True])
+        shown_top_level = [
+            name for name in result["top_level_names"] if gui_tree.get(name, True)
+        ]
+        self.assertEqual(shown_top_level, assembly_names)
 
-    def test_translate_model_json_fcstd_multifuse_bridged_union_and_hides_connectors(self):
+    def test_translate_model_json_fcstd_multifuse_bridged_union_and_hides_connectors(
+        self,
+    ):
         with GraphSession() as session:
             lower = scad.make_box_rsolid(
                 width=10.0,
@@ -1641,7 +1820,7 @@ doc = App.openDocument(FCSTD_PATH)
 parts = [obj for obj in doc.Objects if obj.TypeId == 'App::Part' and getattr(obj, 'SimpleCADPartId', '') == 'bridged_part']
 part = parts[0]
 children = [child for child in getattr(part, 'Group', []) if child.TypeId != 'App::Origin']
-body_children = [child for child in children if getattr(child, 'Label', '') == 'Body']
+body_children = [child for child in children if hasattr(child, 'SimpleCADSourceBodyNodeId')]
 connector_children = [child for child in children if hasattr(child, 'SimpleCADConnectorId')]
 body = body_children[0]
 with open(OUT_PATH, 'w', encoding='utf-8') as fh:
@@ -1655,11 +1834,11 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
 """
         result = self._inspect_fcstd_json(scad.export_model_json(session), probe)
 
-        self.assertIn("Body", result["child_labels"])
+        self.assertIn("body", result["child_labels"])
         self.assertEqual(result["body_solids"], 1)
         self.assertGreater(result["body_volume"], 0.0)
         visible_by_label = dict(zip(result["child_labels"], result["child_visible"]))
-        self.assertTrue(visible_by_label["Body"])
+        self.assertTrue(visible_by_label["body"])
         self.assertEqual(result["connector_visible"], [False])
 
     def test_translate_model_json_folds_single_use_translate_into_extrusion_fcstd(self):
@@ -1714,6 +1893,90 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn("var_fold_tx", normalized_expr_map["Placement.Base.x"])
         self.assertIn("var_fold_ty", normalized_expr_map["Placement.Base.y"])
         self.assertIn("var_fold_tz", normalized_expr_map["Placement.Base.z"])
+
+    def test_translate_model_json_extrudes_tag_wrapped_face_profile(self):
+        with GraphSession(graph_id="tagged_extrude_profile") as session:
+            profile = scad.make_rectangle_rface(width=4.0, height=3.0)
+            profile = scad.apply_tag(profile, "role.profile.primary")
+            profile = scad.apply_tag(profile, "group.profile.extrude")
+            body = scad.extrude_rsolid(profile, (0.0, 0.0, 1.0), 2.0)
+
+        payload = scad.export_model_json(session)
+        script = freecad_translator.translate_model_json_to_freecad_script(payload)
+        self.assertIn("Part::Extrusion", script)
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+extrusions = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_extrude_rsolid']
+tag_objects = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'apply_tag_rselection']
+tag_hosts = [
+    obj
+    for obj in doc.Objects
+    if 'SimpleCADTagNodeIds' in list(getattr(obj, 'PropertiesList', []) or [])
+    and getattr(obj, 'SimpleCADSemanticRole', '') != 'result'
+]
+extrusion = extrusions[0]
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'tag_object_count': len(tag_objects),
+        'tag_host_tags': [list(obj.SimpleCADAppliedTags) for obj in tag_hosts],
+        'extrusion_count': len(extrusions),
+        'base_op': getattr(extrusion.Base, 'SimpleCADOp', ''),
+        'solid_count': len(extrusion.Shape.Solids),
+        'volume': float(extrusion.Shape.Volume),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["tag_object_count"], 0)
+        self.assertIn(
+            ["role.profile.primary", "group.profile.extrude"],
+            result["tag_host_tags"],
+        )
+        self.assertEqual(result["extrusion_count"], 1)
+        self.assertEqual(result["base_op"], "make_wire_from_edges_rwire")
+        self.assertEqual(result["solid_count"], 1)
+        self.assertAlmostEqual(result["volume"], body.get_volume(), places=6)
+
+    def test_translate_model_json_extrudes_tag_wrapped_sketch_profile(self):
+        with GraphSession(graph_id="tagged_sketch_extrude") as session:
+            sketch = scad.make_sketch_rsketch("tagged_rect")
+            sketch = scad.add_point_rsketch(sketch, "p0", 0.0, 0.0)
+            sketch = scad.add_point_rsketch(sketch, "p1", 2.0, 0.0)
+            sketch = scad.add_point_rsketch(sketch, "p2", 2.0, 1.0)
+            sketch = scad.add_point_rsketch(sketch, "p3", 0.0, 1.0)
+            sketch = scad.add_line_rsketch(sketch, "bottom", "p0", "p1")
+            sketch = scad.add_line_rsketch(sketch, "right", "p1", "p2")
+            sketch = scad.add_line_rsketch(sketch, "top", "p2", "p3")
+            sketch = scad.add_line_rsketch(sketch, "left", "p3", "p0")
+            profile = scad.make_face_from_sketch_rface(sketch)
+            profile = scad.apply_tag(profile, "role.sketch.profile")
+            body = scad.extrude_rsolid(profile, (0.0, 0.0, 1.0), 3.0)
+
+        payload = scad.export_model_json(session)
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+extrusion = next(obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_extrude_rsolid')
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'base_op': getattr(extrusion.Base, 'SimpleCADOp', ''),
+        'base_type': extrusion.Base.TypeId,
+        'solid_count': len(extrusion.Shape.Solids),
+        'volume': float(extrusion.Shape.Volume),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["base_op"], "make_face_from_sketch_rface")
+        self.assertEqual(result["base_type"], "Sketcher::SketchObject")
+        self.assertEqual(result["solid_count"], 1)
+        self.assertAlmostEqual(result["volume"], body.get_volume(), places=6)
 
     def test_expression_circle_normal_uses_extrusion_profile_fcstd(self):
         normal_y = scad.var("circle_normal_y", 1.0)
@@ -1876,9 +2139,13 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         result = self._inspect_fcstd_json(payload, probe)
 
         self.assertEqual(result["link_count"], 2)
-        self.assertEqual(result["link_ops"], ["make_translate_rshape", "make_translate_rshape"])
-        self.assertEqual(result["linked_ops"], ["make_extrude_rsolid", "make_extrude_rsolid"])
-        self.assertEqual(result["folded_counts"], [0])
+        self.assertEqual(
+            result["link_ops"], ["make_translate_rshape", "make_translate_rshape"]
+        )
+        self.assertEqual(
+            result["linked_ops"], ["make_extrude_rsolid", "make_extrude_rsolid"]
+        )
+        self.assertEqual(result["folded_counts"], [0, 0])
 
     def test_translate_model_json_uses_single_low_level_graph(self):
         with GraphSession() as session:
@@ -1891,6 +2158,245 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn("Part::Box", script)
         self.assertIn("RESULT_NODE_IDS", script)
         self.assertNotIn("evaluated_graph", script)
+
+    def test_semantic_plan_treats_apply_tag_as_result_metadata(self):
+        with GraphSession(graph_id="semantic_tag_metadata") as session:
+            body = scad.make_box_rsolid(2.0, 3.0, 4.0)
+            tagged = scad.apply_tag(body, "role.finished")
+
+        result_node_id = tagged.get_metadata("graph")["node_id"]
+        plan = build_freecad_semantic_plan(
+            session.graph,
+            [result_node_id],
+            document_name="Tagged Result",
+        )
+
+        root = plan["roots"][0]
+        self.assertNotIn("history", root)
+        self.assertNotIn("references", root)
+        self.assertEqual(plan["node_labels"][result_node_id], "tagged")
+        self.assertIn(result_node_id, root["managed_node_ids"])
+
+    def test_semantic_plan_collapses_tagged_assembly_preview_into_product_root(self):
+        with GraphSession(graph_id="semantic_assembly_preview") as session:
+            body = scad.make_box_rsolid(2.0, 3.0, 4.0)
+            part = scad.make_part_rpart("part", body)
+            assembly = scad.make_assembly_rassembly("assembly")
+            assembly = scad.add_component_rassembly(
+                assembly,
+                part,
+                component_id="part_1",
+                placement=scad.identity_placement_rplacement(),
+            )
+            preview = scad.make_compound_from_assembly_rcompound(assembly)
+            preview = scad.apply_tag(preview, "scene.preview")
+
+        assembly_node_id = assembly.get_metadata("graph")["node_id"]
+        preview_node_id = preview.get_metadata("graph")["node_id"]
+        plan = build_freecad_semantic_plan(
+            session.graph,
+            [assembly_node_id, preview_node_id],
+            document_name="Assembly Preview",
+        )
+
+        self.assertEqual(plan["display_product_node_ids"], [assembly_node_id])
+        self.assertTrue(all(root["kind"] == "part" for root in plan["roots"]))
+        self.assertNotIn(
+            preview_node_id,
+            [root["result_node_id"] for root in plan["roots"]],
+        )
+
+    def test_semantic_plan_uses_variable_names_for_native_occurrences(self):
+        with GraphSession(graph_id="semantic_plan") as session:
+            base_profile = scad.make_rectangle_rface(width=10.0, height=8.0)
+            base = scad.extrude_rsolid(base_profile, (0.0, 0.0, 1.0), 3.0)
+            hole = scad.make_cylinder_rsolid(
+                radius=1.0,
+                height=5.0,
+                bottom_face_center=(0.0, 0.0, -1.0),
+            )
+            finished = scad.cut_rsolid(base, hole)
+
+        result_node_id = finished.get_metadata("graph")["node_id"]
+        plan = build_freecad_semantic_plan(
+            session.graph,
+            [result_node_id],
+            document_name="Semantic Model",
+        )
+
+        self.assertEqual(len(plan["roots"]), 1)
+        root = plan["roots"][0]
+        self.assertEqual(root["kind"], "geometry")
+        self.assertEqual(root["label"], "finished Model")
+        self.assertNotIn("history", root)
+        self.assertNotIn("references", root)
+        labels = plan["node_labels"]
+        self.assertEqual(
+            labels[base_profile.get_metadata("graph")["node_id"]], "base_profile"
+        )
+        self.assertEqual(labels[base.get_metadata("graph")["node_id"]], "base")
+        self.assertEqual(labels[hole.get_metadata("graph")["node_id"]], "hole")
+        self.assertEqual(labels[result_node_id], "finished")
+        self.assertEqual(set(root["managed_node_ids"]), set(labels))
+
+    def test_semantic_plan_keeps_explicit_product_name_over_state_variable(self):
+        with GraphSession(graph_id="semantic_product_name") as session:
+            body = scad.make_box_rsolid(2.0, 3.0, 1.0)
+            part_state = scad.make_part_rpart("bracket", body, name="Bracket")
+            material = scad.make_material_rmaterial("aluminum", name="Aluminum")
+            finished_part = scad.assign_material_rpart(part_state, material)
+
+        plan = build_freecad_semantic_plan(
+            session.graph,
+            [finished_part.get_metadata("graph")["node_id"]],
+            document_name="Semantic Part",
+        )
+
+        self.assertEqual(
+            plan["node_labels"][part_state.get_metadata("graph")["node_id"]], "Bracket"
+        )
+        self.assertEqual(plan["roots"][0]["label"], "Bracket")
+        self.assertEqual(plan["roots"][0]["result_label"], "body")
+
+    def test_translate_model_json_fcstd_builds_native_occurrence_tree(self):
+        with GraphSession(graph_id="native_occurrence_fcstd") as session:
+            base_profile = scad.make_rectangle_rface(width=10.0, height=8.0)
+            base = scad.extrude_rsolid(base_profile, (0.0, 0.0, 1.0), 3.0)
+            hole = scad.make_cylinder_rsolid(
+                radius=1.0,
+                height=5.0,
+                bottom_face_center=(0.0, 0.0, -1.0),
+            )
+            finished = scad.cut_rsolid(base, hole)
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+root = next(obj for obj in doc.Objects if obj.TypeId == 'App::Part')
+cut = next(obj for obj in doc.Objects if obj.TypeId == 'Part::Cut')
+extrusions = [obj for obj in doc.Objects if obj.TypeId == 'Part::Extrusion']
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'root_label': str(root.Label),
+        'root_group_types': [str(obj.TypeId) for obj in root.Group],
+        'root_group_labels': [str(obj.Label) for obj in root.Group],
+        'cut_base_type': str(cut.Base.TypeId),
+        'cut_tool_type': str(cut.Tool.TypeId),
+        'cut_base_label': str(cut.Base.Label),
+        'cut_tool_label': str(cut.Tool.Label),
+        'extrusion_count': len(extrusions),
+        'result_volume': round(float(cut.Shape.Volume), 3),
+        'legacy_groups': [
+            obj.Name for obj in doc.Objects
+            if obj.Name in {'SimpleCADConstruction'}
+            or str(getattr(obj, 'Label', '')) in {'Design History', 'References', 'Result'}
+        ],
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(scad.export_model_json(session), probe)
+
+        self.assertEqual(result["root_label"], "finished Model")
+        self.assertCountEqual(
+            result["root_group_types"],
+            [
+                "Part::Feature",
+                "Part::Feature",
+                "Part::Extrusion",
+                "Part::Cylinder",
+                "Part::Cut",
+            ],
+        )
+        self.assertCountEqual(
+            result["root_group_labels"],
+            ["base_profile", "Profile", "base", "hole", "finished"],
+        )
+        self.assertEqual(result["cut_base_type"], "Part::Extrusion")
+        self.assertEqual(result["cut_tool_type"], "Part::Cylinder")
+        self.assertEqual(result["extrusion_count"], 1)
+        self.assertGreater(result["result_volume"], 0.0)
+        self.assertEqual(result["legacy_groups"], [])
+
+    def test_translate_model_json_expands_shared_profile_per_consumer(self):
+        with GraphSession(graph_id="shared_profile_occurrences") as session:
+            profile = scad.make_rectangle_rface(width=4.0, height=2.0)
+            outer = scad.extrude_rsolid(profile, (0.0, 0.0, 1.0), 3.0)
+            inner_raw = scad.extrude_rsolid(profile, (0.0, 0.0, 1.0), 5.0)
+            inner = scad.translate_shape(inner_raw, (1.0, 0.5, -1.0))
+            finished = scad.cut_rsolid(outer, inner)
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+root = next(obj for obj in doc.Objects if obj.TypeId == 'App::Part')
+cut = next(obj for obj in doc.Objects if obj.TypeId == 'Part::Cut')
+profiles = [obj for obj in doc.Objects if obj.TypeId == 'Part::Feature' and obj.Label.startswith('Profile')]
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'base_profile': cut.Base.Base.Name,
+        'tool_profile': cut.Tool.Base.Name,
+        'profile_count': len(profiles),
+        'profile_labels': sorted(str(obj.Label) for obj in profiles),
+        'root_children': [str(obj.Label) for obj in root.Group],
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(scad.export_model_json(session), probe)
+
+        self.assertNotEqual(result["base_profile"], result["tool_profile"])
+        self.assertEqual(result["profile_count"], 2)
+        self.assertEqual(result["profile_labels"], ["Profile", "Profile (2)"])
+        self.assertEqual(result["root_children"].count("finished"), 1)
+
+    def test_semantic_plan_skips_product_state_result_but_keeps_part_root(self):
+        with GraphSession(graph_id="semantic_part_result") as session:
+            body = scad.make_box_rsolid(2.0, 3.0, 1.0)
+            part = scad.make_part_rpart("bracket", body, name="Bracket")
+
+        plan = build_freecad_semantic_plan(
+            session.graph,
+            [part.get_metadata("graph")["node_id"]],
+            document_name="Part Result",
+        )
+
+        root = plan["roots"][0]
+        self.assertEqual(root["kind"], "part")
+        self.assertEqual(root["label"], "Bracket")
+        self.assertNotIn("history", root)
+        self.assertNotIn("references", root)
+
+    def test_semantic_plan_filters_non_geometry_result_nodes(self):
+        graph = OperationGraph(graph_id="semantic_result_filters")
+        body = graph.add_node("make_box_rsolid", node_id="body")
+        part = graph.add_node(
+            "make_part_rpart",
+            params={"part_id": "part"},
+            inputs=[body],
+            node_id="part",
+        )
+        assembly = graph.add_node(
+            "make_assembly_rassembly",
+            params={"assembly_id": "assembly"},
+            node_id="assembly",
+        )
+        compound = graph.add_node(
+            "make_compound_from_assembly_rcompound",
+            inputs=[assembly],
+            node_id="compound",
+        )
+
+        plan = build_freecad_semantic_plan(
+            graph,
+            ["missing", assembly.node_id, compound.node_id, body.node_id, part.node_id],
+            document_name="Filtered",
+        )
+
+        self.assertEqual(len(plan["roots"]), 1)
+        self.assertEqual(plan["roots"][0]["kind"], "part")
+        self.assertEqual(plan["roots"][0]["label"], "part")
+        self.assertEqual(plan["roots"][0]["result_node_id"], body.node_id)
 
     def test_translate_model_json_requires_graph(self):
         payload = {
@@ -1906,7 +2412,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         }
 
         with self.assertRaises(ValueError):
-            freecad_translator.translate_model_json_to_freecad_script(json.dumps(payload))
+            freecad_translator.translate_model_json_to_freecad_script(
+                json.dumps(payload)
+            )
 
     def test_translate_model_json_emits_expression_formulas_for_ir(self):
         r = scad.var("r", 5.0)
@@ -1947,9 +2455,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn("expr_sheet.set('F1', \"0.2\")", script)
 
     def test_translate_model_json_preserves_units_and_uses_canonical_values(self):
-        width = scad.var(
-            "width", 1.0, unit="in", tolerance=0.1, tolerance_unit="mm"
-        )
+        width = scad.var("width", 1.0, unit="in", tolerance=0.1, tolerance_unit="mm")
         angle = scad.var("angle", math.pi / 2.0, unit="rad", tolerance=0.5)
         with GraphSession() as session:
             scad.make_box_rsolid(width, 2.0, 1.0)
@@ -1994,13 +2500,10 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
 
     def test_translate_model_json_uses_ascii_bounded_unique_aliases(self):
         variables = [
-            scad.var("宽度" + "x" * 80, float(index + 1))
-            for index in range(3)
+            scad.var("宽度" + "x" * 80, float(index + 1)) for index in range(3)
         ]
         with GraphSession() as session:
-            scad.make_box_rsolid(
-                variables[0] + variables[1] + variables[2], 2.0, 1.0
-            )
+            scad.make_box_rsolid(variables[0] + variables[1] + variables[2], 2.0, 1.0)
 
         script = freecad_translator.translate_model_json_to_freecad_script(
             scad.export_model_json(session)
@@ -2105,7 +2608,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "topology_delta_log": [],
         }
 
-        script = freecad_translator.translate_model_json_to_freecad_script(json.dumps(payload))
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            json.dumps(payload)
+        )
 
         self.assertIn("_resolve_nested_param_value", script)
         self.assertIn("_resolve_param_value", script)
@@ -2225,7 +2730,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         for node in payload_obj["graph"]["nodes"]:
             if node["op"] == "make_sweep_rsolid":
                 node["param_exprs"] = {"is_frenet": {"expr_id": "var_frenet"}}
-        script = freecad_translator.translate_model_json_to_freecad_script(json.dumps(payload_obj))
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            json.dumps(payload_obj)
+        )
 
         self.assertIn("Part::Sweep", script)
         self.assertIn(".Spine = _spine_object", script)
@@ -2252,7 +2759,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn("_twisted_sweep_loft_shape", script)
         self.assertIn("Part.makeLoft(sections, True, False, False, 5)", script)
         self.assertIn("SimpleCADTranslationSupport", script)
-        self.assertIn("'emulated'", script)
+        self.assertRegex(script, r"['\"]emulated['\"]")
         self.assertIn("approximates the continuous SimpleCAD sweep", script)
 
     def test_translate_model_json_twisted_sweep_emulation_fcstd_valid(self):
@@ -2329,7 +2836,10 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn("GRAPH_SELECTIONS = {}", script)
         self.assertIn("GRAPH_SELECTIONS[node_id] = payload", script)
         self.assertIn("GRAPH_SPINE_OBJECTS = {}", script)
-        self.assertIn("doc.addObject('Part::Feature', f'{str(op)}_{str(node_id)}')", script)
+        self.assertRegex(
+            script,
+            r"doc\.addObject\(['\"]Part::Feature['\"], f['\"]\{str\(op\)\}_\{str\(node_id\)\}['\"]\)",
+        )
         self.assertIn("obj.Shape = selected_shape", script)
         self.assertIn(
             f"_register_geo_selection_node(node_id={json.dumps(select_node['node_id'])}, op=\"make_select_rface\"",
@@ -2421,7 +2931,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "topology_delta_log": [],
         }
 
-        script = freecad_translator.translate_model_json_to_freecad_script(json.dumps(payload))
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            json.dumps(payload)
+        )
 
         self.assertIn("Part::Fuse", script)
 
@@ -2467,7 +2979,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "topology_delta_log": [],
         }
 
-        script = freecad_translator.translate_model_json_to_freecad_script(json.dumps(payload))
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            json.dumps(payload)
+        )
 
         self.assertNotIn("Part::MultiFuse", script)
         self.assertIn("cut_out_step_1 = doc.addObject('Part::Cut'", script)
@@ -2621,6 +3135,12 @@ final_cut = cut_objs[-1]
 shape = final_cut.Shape
 tools = doc.getObject('make_cut_rsolid_node_' + final_cut.Name.split('_node_')[-1] + '_tools')
 part_cut_objs = [obj for obj in doc.Objects if obj.TypeId == 'Part::Cut']
+bad_states = [
+    obj.Name
+    for obj in doc.Objects
+    if any(str(value) in {'Invalid', 'Error'} for value in list(getattr(obj, 'State', []) or []))
+]
+construction = doc.getObject('SimpleCADConstruction')
 with open(OUT_PATH, 'w', encoding='utf-8') as fh:
     json.dump({
         'cut_count': len(cut_objs),
@@ -2630,6 +3150,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         'volume': float(shape.Volume),
         'has_tools_fuse': tools is not None,
         'tool_shape_count': len(getattr(tools, 'Shapes', [])) if tools is not None else 0,
+        'bad_states': bad_states,
+        'construction_child_count': len(list(getattr(construction, 'Group', []) or [])) if construction is not None else 0,
     }, fh)
 """
         result = self._inspect_fcstd_json(payload, probe)
@@ -2640,6 +3162,8 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(result["solid_count"], 1)
         self.assertFalse(result["has_tools_fuse"])
         self.assertEqual(result["tool_shape_count"], 0)
+        self.assertEqual(result["bad_states"], [])
+        self.assertEqual(result["construction_child_count"], 0)
 
     def test_translate_model_json_applies_rotated_link_operands_in_boolean_fcstd(self):
         with GraphSession() as session:
@@ -2710,7 +3234,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         for node in payload_obj["graph"]["nodes"]:
             if node["op"] == "make_loft_rsolid":
                 node["param_exprs"] = {"ruled": {"expr_id": "var_ruled"}}
-        script = freecad_translator.translate_model_json_to_freecad_script(json.dumps(payload_obj))
+        script = freecad_translator.translate_model_json_to_freecad_script(
+            json.dumps(payload_obj)
+        )
 
         self.assertIn("Part::Loft", script)
         self.assertIn(".Sections = [GRAPH_NODES", script)
@@ -2764,9 +3290,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             elif node["op"] == "make_shell_rsolid":
                 node["param_exprs"] = {"thickness": {"expr_id": "var_thickness"}}
         expr_aliases = {
-            node["name"]
-            if node.get("kind") == "var"
-            else node.get("op"): self._expr_alias(node["expr_id"])
+            (
+                node["name"] if node.get("kind") == "var" else node.get("op")
+            ): self._expr_alias(node["expr_id"])
             for node in payload_obj["expression_graph"]["nodes"]
             if isinstance(node, dict) and node.get("expr_id")
         }
@@ -3530,7 +4056,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             result = json.loads(out_path.read_text(encoding="utf-8"))
 
         bspline_nodes = [
-            node for node in payload["graph"]["nodes"] if node.get("op") == "make_spline_redge"
+            node
+            for node in payload["graph"]["nodes"]
+            if node.get("op") == "make_spline_redge"
         ]
         self.assertEqual(len(bspline_nodes), 6)
         self.assertEqual(result["section_count"], 6)
@@ -3713,20 +4241,20 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         expr_map = {prop: expr for prop, expr in result["exprs"]}
         self.assertTrue(
             any(
-                prop.startswith("Constraints[")
-                and "var_fcstd_sketch_width" in expr
+                prop.startswith("Constraints[") and "var_fcstd_sketch_width" in expr
                 for prop, expr in expr_map.items()
             )
         )
         self.assertTrue(
             any(
-                prop.startswith("Constraints[")
-                and "var_fcstd_sketch_height" in expr
+                prop.startswith("Constraints[") and "var_fcstd_sketch_height" in expr
                 for prop, expr in expr_map.items()
             )
         )
 
-    def test_translate_model_json_large_sketch_promotion_fcstd_stays_sketcher_object(self):
+    def test_translate_model_json_large_sketch_promotion_fcstd_stays_sketcher_object(
+        self,
+    ):
         segment_count = 60
         radius = 5.0
         with GraphSession() as session:
@@ -3829,12 +4357,13 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(result["solve_status"], "solved")
         self.assertEqual(result["solve_dof"], 0)
         self.assertEqual(result["solid_count"], 1)
-        self.assertAlmostEqual(result["volume"], 3.141592653589793 * 1.5 * 1.5 * 0.5, places=5)
+        self.assertAlmostEqual(
+            result["volume"], 3.141592653589793 * 1.5 * 1.5 * 0.5, places=5
+        )
         expr_map = {prop: expr for prop, expr in result["exprs"]}
         self.assertTrue(
             any(
-                prop.startswith("Constraints[")
-                and "var_fcstd_circle_radius" in expr
+                prop.startswith("Constraints[") and "var_fcstd_circle_radius" in expr
                 for prop, expr in expr_map.items()
             )
         )
@@ -3855,8 +4384,20 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             sketch = scad.add_line_rsketch(sketch, "right_bottom", "bottom", "right")
             sketch = scad.add_line_rsketch(sketch, "top_right", "right", "top")
             sketch = scad.add_line_rsketch(sketch, "left_top", "top", "left")
-            sketch = scad.add_line_rsketch(sketch, "guide_upper", "guide_upper_start", "guide_upper_end", construction=True)
-            sketch = scad.add_line_rsketch(sketch, "guide_lower", "guide_lower_start", "guide_lower_end", construction=True)
+            sketch = scad.add_line_rsketch(
+                sketch,
+                "guide_upper",
+                "guide_upper_start",
+                "guide_upper_end",
+                construction=True,
+            )
+            sketch = scad.add_line_rsketch(
+                sketch,
+                "guide_lower",
+                "guide_lower_start",
+                "guide_lower_end",
+                construction=True,
+            )
             sketch = scad.constrain_fix_rsketch(sketch, "center")
             sketch = scad.constrain_distance_x_rsketch(sketch, "left", "center", 7.0)
             sketch = scad.constrain_distance_y_rsketch(sketch, "left", "center", 0.0)
@@ -3868,22 +4409,52 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             sketch = scad.constrain_distance_y_rsketch(sketch, "bottom", "center", 4.0)
             sketch = scad.constrain_parallel_rsketch(sketch, "bottom_left", "top_right")
             sketch = scad.constrain_parallel_rsketch(sketch, "right_bottom", "left_top")
-            sketch = scad.constrain_equal_length_rsketch(sketch, "bottom_left", "right_bottom")
-            sketch = scad.constrain_equal_length_rsketch(sketch, "right_bottom", "top_right")
-            sketch = scad.constrain_equal_length_rsketch(sketch, "top_right", "left_top")
-            sketch = scad.constrain_distance_x_rsketch(sketch, "left", "guide_upper_start", 0.0)
-            sketch = scad.constrain_distance_y_rsketch(sketch, "left", "guide_upper_start", 5.0)
-            sketch = scad.constrain_distance_x_rsketch(sketch, "top", "guide_upper_end", 0.0)
-            sketch = scad.constrain_distance_y_rsketch(sketch, "top", "guide_upper_end", 5.0)
-            sketch = scad.constrain_distance_x_rsketch(sketch, "guide_lower_start", "right", 0.0)
-            sketch = scad.constrain_distance_y_rsketch(sketch, "guide_lower_start", "right", 5.0)
-            sketch = scad.constrain_distance_x_rsketch(sketch, "guide_lower_end", "bottom", 0.0)
-            sketch = scad.constrain_distance_y_rsketch(sketch, "guide_lower_end", "bottom", 5.0)
-            sketch = scad.constrain_parallel_rsketch(sketch, "guide_upper", "guide_lower")
-            sketch = scad.constrain_parallel_rsketch(sketch, "guide_upper", "right_bottom")
+            sketch = scad.constrain_equal_length_rsketch(
+                sketch, "bottom_left", "right_bottom"
+            )
+            sketch = scad.constrain_equal_length_rsketch(
+                sketch, "right_bottom", "top_right"
+            )
+            sketch = scad.constrain_equal_length_rsketch(
+                sketch, "top_right", "left_top"
+            )
+            sketch = scad.constrain_distance_x_rsketch(
+                sketch, "left", "guide_upper_start", 0.0
+            )
+            sketch = scad.constrain_distance_y_rsketch(
+                sketch, "left", "guide_upper_start", 5.0
+            )
+            sketch = scad.constrain_distance_x_rsketch(
+                sketch, "top", "guide_upper_end", 0.0
+            )
+            sketch = scad.constrain_distance_y_rsketch(
+                sketch, "top", "guide_upper_end", 5.0
+            )
+            sketch = scad.constrain_distance_x_rsketch(
+                sketch, "guide_lower_start", "right", 0.0
+            )
+            sketch = scad.constrain_distance_y_rsketch(
+                sketch, "guide_lower_start", "right", 5.0
+            )
+            sketch = scad.constrain_distance_x_rsketch(
+                sketch, "guide_lower_end", "bottom", 0.0
+            )
+            sketch = scad.constrain_distance_y_rsketch(
+                sketch, "guide_lower_end", "bottom", 5.0
+            )
+            sketch = scad.constrain_parallel_rsketch(
+                sketch, "guide_upper", "guide_lower"
+            )
+            sketch = scad.constrain_parallel_rsketch(
+                sketch, "guide_upper", "right_bottom"
+            )
             sketch = scad.constrain_parallel_rsketch(sketch, "guide_lower", "left_top")
-            sketch = scad.constrain_equal_length_rsketch(sketch, "guide_upper", "right_bottom")
-            sketch = scad.constrain_equal_length_rsketch(sketch, "guide_lower", "left_top")
+            sketch = scad.constrain_equal_length_rsketch(
+                sketch, "guide_upper", "right_bottom"
+            )
+            sketch = scad.constrain_equal_length_rsketch(
+                sketch, "guide_lower", "left_top"
+            )
             face = scad.make_face_from_sketch_rface(
                 sketch,
                 require_fully_constrained=True,
@@ -3948,10 +4519,18 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             sketch = scad.add_point_rsketch(sketch, "lower_left", 23.0, 38.0)
             sketch = scad.add_point_rsketch(sketch, "lower_right", 41.0, 38.0)
             sketch = scad.add_circle_rsketch(sketch, "relief", "center", 4.0)
-            sketch = scad.add_circle_rsketch(sketch, "clearance", "clearance_center", 4.0, construction=True)
-            sketch = scad.add_line_rsketch(sketch, "radius_probe", "center", "rim", construction=True)
-            sketch = scad.add_line_rsketch(sketch, "upper_rail", "upper_left", "upper_right", construction=True)
-            sketch = scad.add_line_rsketch(sketch, "lower_rail", "lower_left", "lower_right", construction=True)
+            sketch = scad.add_circle_rsketch(
+                sketch, "clearance", "clearance_center", 4.0, construction=True
+            )
+            sketch = scad.add_line_rsketch(
+                sketch, "radius_probe", "center", "rim", construction=True
+            )
+            sketch = scad.add_line_rsketch(
+                sketch, "upper_rail", "upper_left", "upper_right", construction=True
+            )
+            sketch = scad.add_line_rsketch(
+                sketch, "lower_rail", "lower_left", "lower_right", construction=True
+            )
             sketch = scad.constrain_fix_rsketch(sketch, "center")
             sketch = scad.constrain_radius_rsketch(sketch, "relief", 4.0)
             sketch = scad.constrain_point_on_rsketch(sketch, "rim", "relief")
@@ -3963,10 +4542,18 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             sketch = scad.constrain_horizontal_rsketch(sketch, "lower_rail")
             sketch = scad.constrain_tangent_rsketch(sketch, "upper_rail", "relief")
             sketch = scad.constrain_tangent_rsketch(sketch, "lower_rail", "relief")
-            sketch = scad.constrain_distance_x_rsketch(sketch, "center", "upper_left", -9.0)
-            sketch = scad.constrain_distance_x_rsketch(sketch, "center", "upper_right", 9.0)
-            sketch = scad.constrain_distance_x_rsketch(sketch, "center", "lower_left", -9.0)
-            sketch = scad.constrain_distance_x_rsketch(sketch, "center", "lower_right", 9.0)
+            sketch = scad.constrain_distance_x_rsketch(
+                sketch, "center", "upper_left", -9.0
+            )
+            sketch = scad.constrain_distance_x_rsketch(
+                sketch, "center", "upper_right", 9.0
+            )
+            sketch = scad.constrain_distance_x_rsketch(
+                sketch, "center", "lower_left", -9.0
+            )
+            sketch = scad.constrain_distance_x_rsketch(
+                sketch, "center", "lower_right", 9.0
+            )
             face = scad.make_face_from_sketch_rface(
                 sketch,
                 require_fully_constrained=True,
@@ -4017,7 +4604,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(result["solid_count"], 1)
         self.assertAlmostEqual(result["volume"], 16.0 * 3.141592653589793, places=5)
 
-    def test_translate_model_json_records_unsupported_functional_sketch_constraints(self):
+    def test_translate_model_json_records_unsupported_functional_sketch_constraints(
+        self,
+    ):
         with GraphSession() as session:
             sketch = scad.make_sketch_rsketch("fcstd_midpoint_record")
             sketch = scad.add_point_rsketch(sketch, "p0", 0.0, 0.0)
@@ -4373,7 +4962,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn("selected_edge_indices", script)
         self.assertIn("selected_face_indices", script)
 
-    def test_translate_model_json_does_not_emit_assembly_object_for_plain_geometry(self):
+    def test_translate_model_json_does_not_emit_assembly_object_for_plain_geometry(
+        self,
+    ):
         with GraphSession() as session:
             scad.make_box_rsolid(1.0, 1.0, 1.0)
 
@@ -4382,7 +4973,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         )
 
         self.assertNotIn("= _make_native_assembly(", script)
-        self.assertNotIn("SimpleCADAssemblyId", script)
         self.assertNotIn("PART_REGISTRY", script)
         self.assertNotIn("CONSTRAINT_REGISTRY", script)
         self.assertNotIn("SimpleCAD Constraint", script)
@@ -4448,7 +5038,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         }
 
         with self.assertRaises(ValueError):
-            freecad_translator.translate_model_json_to_freecad_script(json.dumps(payload))
+            freecad_translator.translate_model_json_to_freecad_script(
+                json.dumps(payload)
+            )
 
     def test_translate_model_json_to_fcstd_invokes_freecadcmd(self):
         with GraphSession() as session:
@@ -4470,7 +5062,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             run_mock.return_value = mock.Mock(
                 returncode=0, stdout="/tmp/out.FCStd\n", stderr=""
             )
-            out = freecad_translator.translate_model_json_to_fcstd(payload, "/tmp/out.FCStd")
+            out = freecad_translator.translate_model_json_to_fcstd(
+                payload, "/tmp/out.FCStd"
+            )
 
         self.assertEqual(out, "/tmp/out.FCStd")
         run_mock.assert_called_once()
@@ -4486,7 +5080,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             mock.patch("os.path.exists", return_value=False),
         ):
             with self.assertRaises(scad.SimpleCADError):
-                freecad_translator.translate_model_json_to_fcstd(payload, "/tmp/out.FCStd")
+                freecad_translator.translate_model_json_to_fcstd(
+                    payload, "/tmp/out.FCStd"
+                )
 
     def test_translate_model_json_to_fcstd_discovers_macos_bundle_freecadcmd(self):
         with GraphSession() as session:
@@ -4509,7 +5105,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             run_mock.return_value = mock.Mock(
                 returncode=0, stdout="/tmp/out.FCStd\n", stderr=""
             )
-            out = freecad_translator.translate_model_json_to_fcstd(payload, "/tmp/out.FCStd")
+            out = freecad_translator.translate_model_json_to_fcstd(
+                payload, "/tmp/out.FCStd"
+            )
 
         self.assertEqual(out, "/tmp/out.FCStd")
         args, _kwargs = run_mock.call_args
