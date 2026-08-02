@@ -87,6 +87,12 @@ manufacturable attachment geometry.
 | Output cap to housing | Fixed | Six M3 screws | 43.0 mm PCD, 3.2 mm holes |
 | Output link | External fixed attachment | Six M3 screws | 34.0 mm PCD tapped holes, Ø15.96 locating pilot |
 
+Bearing rolling elements are decorative geometry fused into each outer-ring Part.
+Each bearing subassembly therefore exposes only the outer ring and inner ring as
+solver bodies, with one revolute joint between them. This intentionally omits
+ball/cage contact kinematics while ensuring the visible balls follow the bearing
+through FreeCAD assembly simulation instead of becoming unconstrained bodies.
+
 ## Electronics Packaging
 
 The controller PCB is a 44.4 mm circular board behind the rear motor bearing. It

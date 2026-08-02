@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from ....topology import OperationNode
 from ..codegen import *
+from ..analysis import unwrap_transparent_geometry_node
 
 
 _TWISTED_SWEEP_EMULATION_LIMITATION = (
@@ -56,7 +57,8 @@ class FeatureEmitterMixin:
             ]
 
         if node.op == "make_extrude_rsolid" and len(inputs) == 1:
-            base_node = graph.get_node(inputs[0])
+            direct_base_node = graph.get_node(inputs[0])
+            base_node = unwrap_transparent_geometry_node(graph, direct_base_node)
             profile_node = base_node
             if (
                 profile_node is not None
@@ -73,8 +75,10 @@ class FeatureEmitterMixin:
                 edge_node = graph.get_node(profile_node.inputs[0].node_id)
                 if edge_node is not None and edge_node.op == "make_circle_redge":
                     circle_node = edge_node
-            if circle_node is not None and self._can_lower_circle_extrusion_to_cylinder(
-                circle_node, node
+            if (
+                direct_base_node is base_node
+                and circle_node is not None
+                and self._can_lower_circle_extrusion_to_cylinder(circle_node, node)
             ):
                 circle_var = _safe_name(circle_node.node_id)
                 lines = [
@@ -95,9 +99,16 @@ class FeatureEmitterMixin:
                 "make_2d_union_rface",
                 "make_2d_intersect_rface",
             }:
-                sketch_node_id = inputs[0]
+                sketch_node = base_node
                 if base_node.op == "make_face_from_wire_rface" and base_node.inputs:
-                    sketch_node_id = base_node.inputs[0].node_id
+                    sketch_node = unwrap_transparent_geometry_node(
+                        graph, graph.get_node(base_node.inputs[0].node_id)
+                    )
+                sketch_node_id = (
+                    sketch_node.node_id
+                    if sketch_node is not None
+                    else base_node.node_id
+                )
                 base_expr = f"GRAPH_NODES[{_json_ascii(sketch_node_id)}]"
                 lines: List[str] = []
                 lines.extend(
@@ -125,14 +136,16 @@ class FeatureEmitterMixin:
             }:
                 source_expr = f"GRAPH_NODES[{_json_ascii(inputs[0])}]"
                 lines: List[str] = []
-                lines.extend([
-                    f"{var_name} = doc.addObject('Part::Revolution', {_json_ascii(object_name)})",
-                    f"{var_name}.Source = {source_expr}",
-                    f"{var_name}.Axis = _vec(_resolve_vec3_param({rp}, {re}, 'axis') if 'axis' in {rp} else (0.0, 0.0, 1.0))",
-                    f"{var_name}.Base = _vec(_resolve_vec3_param({rp}, {re}, 'origin') if 'origin' in {rp} else (0.0, 0.0, 0.0))",
-                    f"{var_name}.Angle = float(_resolve_param_value({rp}, {re}, 'angle') if 'angle' in {rp} else 360.0)",
-                    f"{var_name}.Solid = True",
-                ])
+                lines.extend(
+                    [
+                        f"{var_name} = doc.addObject('Part::Revolution', {_json_ascii(object_name)})",
+                        f"{var_name}.Source = {source_expr}",
+                        f"{var_name}.Axis = _vec(_resolve_vec3_param({rp}, {re}, 'axis') if 'axis' in {rp} else (0.0, 0.0, 1.0))",
+                        f"{var_name}.Base = _vec(_resolve_vec3_param({rp}, {re}, 'origin') if 'origin' in {rp} else (0.0, 0.0, 0.0))",
+                        f"{var_name}.Angle = float(_resolve_param_value({rp}, {re}, 'angle') if 'angle' in {rp} else 360.0)",
+                        f"{var_name}.Solid = True",
+                    ]
+                )
                 lines.append(
                     f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
                 )

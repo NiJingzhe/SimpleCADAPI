@@ -57,10 +57,26 @@ def _is_result_member(result_shape: TopoDS_Shape, candidate: TopoDS_Shape) -> bo
     return False
 
 
+def _prefer_normal_fuse_for_glue_result(
+    shapes: Sequence[TopoDS_Shape],
+    result: TopoDS_Shape,
+) -> bool:
+    """Return whether glue mode should retry the normal fuse algorithm.
+
+    OCC glue is an optimization, not a stronger boolean operation.  In some
+    intersecting curved or N-ary cases it returns a compound of the original
+    solids without doing the expected intersection.  Retrying with GlueOff is
+    safe because the public union contract still rejects genuinely separated
+    or lower-dimensional contacts as multiple solids.
+    """
+
+    return len(solids_of(result)) != 1 and len(shapes) > 1
+
+
 def fuse_shapes_with_history(
     shapes: Sequence[TopoDS_Shape],
     *,
-    glue: bool = True,
+    glue: bool = False,
     tol: Optional[float] = None,
     clean: bool = True,
 ) -> FuseHistoryResult:
@@ -88,6 +104,15 @@ def fuse_shapes_with_history(
     history = BRepTools_History()
     history.Merge(builder.History())
     section_edges = tuple(builder.SectionEdges())
+
+    if glue and _prefer_normal_fuse_for_glue_result(shapes, result):
+        fallback = fuse_shapes_with_history(
+            shapes,
+            glue=False,
+            tol=tol,
+            clean=clean,
+        )
+        return fallback
 
     if clean:
         unifier = ShapeUpgrade_UnifySameDomain(result, True, True, True)
@@ -118,7 +143,7 @@ def fuse_shapes_with_history(
 def fuse_shapes(
     shapes: Sequence[TopoDS_Shape],
     *,
-    glue: bool = True,
+    glue: bool = False,
     tol: Optional[float] = None,
     clean: bool = True,
 ) -> TopoDS_Shape:
@@ -143,6 +168,13 @@ def fuse_shapes(
         raise ValueError("OCP fuse failed")
 
     result = builder.Shape()
+    if glue and _prefer_normal_fuse_for_glue_result(shapes, result):
+        return fuse_shapes(
+            shapes,
+            glue=False,
+            tol=tol,
+            clean=clean,
+        )
     return clean_shape(result) if clean else result
 
 

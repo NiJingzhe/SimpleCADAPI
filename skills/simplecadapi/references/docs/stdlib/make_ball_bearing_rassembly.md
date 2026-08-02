@@ -2,9 +2,7 @@
 
 ## API Definition
 
-```python
-def make_ball_bearing_rassembly(bore_diameter: float, outer_diameter: float, bearing_width: float, ball_diameter: float, ball_count: Optional[int] = None, raceway_clearance: float = 0.02, edge_chamfer: float = 0.0, assembly_id: str = 'ball_bearing', drive_angle_degrees: Optional[float] = None) -> Assembly
-```
+def make_ball_bearing_rassembly(bore_diameter: float, outer_diameter: float, bearing_width: float, ball_diameter: float, ball_count: Optional[int] = None, raceway_clearance: float = 0.02, edge_chamfer: float = 0.0, assembly_id: str = 'ball_bearing', drive_angle_degrees: Optional[float] = None, fuse_rolling_elements: bool = False, rolling_element_fuse_overlap: float = 0.01, material: Optional[Material] = None) -> Assembly
 
 *Source: std/bearing.py*
 

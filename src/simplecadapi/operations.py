@@ -156,7 +156,7 @@ from .kernel.ocp_mesh import tessellate_face
 from .kernel.ocp_properties import bounding_box, distance as ocp_distance
 
 
-_DEFAULT_UNION_GLUE = True
+_DEFAULT_UNION_GLUE = False
 _DEFAULT_UNION_TOL_FACTOR = 1e-7
 _DEFAULT_UNION_TOL_MIN = 1e-7
 _DEFAULT_UNION_TOL_MAX = 1e-5
@@ -500,15 +500,19 @@ def _constraint_params(constraint: Constraint) -> Dict[str, object]:
 def _resolve_union_tol(
     solids: Sequence[Solid], tol: Optional[float]
 ) -> Optional[float]:
-    """Resolve a conservative fuzzy tolerance for boolean union.
+    """Resolve and validate the fuzzy tolerance for boolean union.
 
-    When callers do not specify `tol`, use a scale-aware value that is large enough
-    to absorb small numerical noise but not aggressive enough to close meaningful
-    modeling gaps by default.
+    The default is scale-aware and intentionally conservative.  An explicit
+    tolerance is accepted only when it is finite and non-negative; silently
+    forwarding NaN or a negative fuzzy value to OCC makes failures difficult
+    to diagnose and can vary across kernel versions.
     """
 
     if tol is not None:
-        return tol
+        resolved = float(tol)
+        if not math.isfinite(resolved) or resolved < 0.0:
+            raise ValueError("tol must be a finite non-negative number")
+        return resolved
 
     bbox_min = np.array([np.inf, np.inf, np.inf], dtype=float)
     bbox_max = np.array([-np.inf, -np.inf, -np.inf], dtype=float)
@@ -6139,16 +6143,25 @@ def union_rsolid(
     tol: Optional[float] = None,
     tracking_policy: TrackingPolicy | str = TrackingPolicy.FULL,
 ) -> Solid:
-    """Compute the boolean union and return one solid.
+    """Compute the boolean union and return one manifold solid.
+
+    Face-area contact and positive-volume overlap can produce one solid without
+    artificial embedding. Edge-only, vertex-only, and point/curve tangencies
+    are non-manifold connections and cannot satisfy the one-Solid contract.
+
+    ``glue`` is an OCC optimization for compatible touching or coincident
+    topology, not a geometry repair switch. If the optimized pass does not
+    return one solid, SimpleCAD automatically retries the normal fuse algorithm.
 
     Args:
         solids: One or more Solid objects or sequences of Solid. Nested sequences are
             flattened before processing.
         clean: Unify same-domain faces and remove splitter edges when possible.
-        glue: Enable OCC glue mode for touching or partially overlapping inputs.
-            Defaults to True for SimpleCAD's standard union behavior.
-        tol: Optional fuzzy-boolean tolerance used by the OCC union kernel. When
-            omitted, SimpleCAD chooses a conservative scale-aware tolerance.
+        glue: Try OCC glue optimization first, then fall back to normal fuse if
+            necessary. Defaults to False.
+        tol: Optional finite non-negative fuzzy-boolean tolerance used by OCC. It
+            may intentionally bridge a small gap but cannot make a non-manifold
+            point or edge contact into a valid solid.
         tracking_policy: FULL computes topology history and lineage. GRAPH keeps
             the replayable operation node without computing a TopoDelta.
 
@@ -6209,13 +6222,19 @@ def union_rsolid(
         )
         result_shapes = solids_of(fused_shape)
 
-        failure_reason = "并集结果中未找到有效实体。"
+        failure_reason = "union did not produce a valid solid"
         if len(result_shapes) != 1:
             diagnostic = _union_separation_diagnostic(
                 [Solid(result_shape) for result_shape in result_shapes], effective_tol
             )
             if diagnostic:
                 failure_reason = diagnostic
+            elif len(result_shapes) > 1:
+                failure_reason = (
+                    f"union produced {len(result_shapes)} solids at zero detected gap; "
+                    "the inputs likely meet only along an edge, vertex, tangent point, "
+                    "or tangent curve, which is not one manifold solid"
+                )
         fused_solid = _require_single_boolean_solid(
             result_shapes,
             operation="union_rsolid",
@@ -6285,12 +6304,14 @@ def union_rsolid(
             possible_causes=[
                 "One or more inputs are not Solid objects.",
                 "At least one input solid is null or invalid.",
-                "The kernel could not fuse the solids into exactly one solid with the current geometry or tolerance.",
+                "The inputs are separated beyond tol, so the kernel cannot produce exactly one solid.",
+                "The inputs meet only along an edge, vertex, tangent point, or tangent curve, so their union is not one manifold solid.",
             ],
             how_to_fix=[
-                "Pass only Solid objects or sequences of Solid objects.",
-                "Validate each input solid before union.",
-                "If the solids still remain disconnected, move them so they overlap or increase tol intentionally.",
+                "Pass only valid Solid objects or sequences of Solid objects.",
+                "For intended face contact, make the solids share a finite-area face and retry; no artificial overlap is required.",
+                "For a real small gap, pass an explicit tol only when approximating that gap is acceptable.",
+                "Do not expect glue or tol to turn point-, edge-, or tangent-only contact into a valid single solid.",
             ],
             error=e,
         )

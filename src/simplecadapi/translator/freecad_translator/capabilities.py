@@ -159,7 +159,7 @@ for _op in (
     )
 OP_SUPPORT["apply_tag_rselection"] = OperationCapability(
     SupportLevel.METADATA_ONLY,
-    reason="The semantic view is preserved as a linked object with its canonical TagBinding metadata.",
+    reason="Canonical TagBinding metadata is attached to the traceable geometry and visible result objects without creating a FreeCAD feature.",
 )
 
 CAPABILITIES = BackendCapabilities(
