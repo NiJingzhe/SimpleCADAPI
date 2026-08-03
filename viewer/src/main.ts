@@ -223,6 +223,7 @@ let selectedNodeId: string | null = null;
 let selectedFeatureId: string | null = null;
 let selectedOverlays: THREE.Object3D[] = [];
 const featureRows = new Map<string, HTMLButtonElement[]>();
+let focusFeatureInTree: ((featureId: string) => void) | null = null;
 let selectionMode: SelectionMode = 'component';
 
 function setStatus(message: string, ready = false): void {
@@ -432,6 +433,7 @@ function clearModel(): void {
   featureCount.textContent = '0';
   selectedNodeId = null;
   selectedFeatureId = null;
+  focusFeatureInTree = null;
 }
 
 function renderTree(manifest: SceneManifest): void {
@@ -498,6 +500,7 @@ function renderFeatureTree(): void {
   const model = currentModel;
   if (!model || model.graph.nodes.length === 0) {
     featureTree.innerHTML = '<div class="tree-empty">This package has no embedded operation DAG.</div>';
+    focusFeatureInTree = null;
     featureCount.textContent = '0';
     return;
   }
@@ -532,6 +535,23 @@ function renderFeatureTree(): void {
 
   const expandedPaths = new Set<string>(rootIds.map((_, index) => `root/${index}`));
   const canonicalPathById = new Map<string, string>();
+  const pathToFeature = (targetId: string): string | null => {
+    const visit = (featureId: string, path: string, ancestors: Set<string>): string | null => {
+      if (featureId === targetId) return path;
+      if (ancestors.has(featureId)) return null;
+      const nextAncestors = new Set(ancestors).add(featureId);
+      for (const [index, input] of (inputsById.get(featureId) ?? []).entries()) {
+        const resolved = visit(input, `${path}/${index}`, nextAncestors);
+        if (resolved) return resolved;
+      }
+      return null;
+    };
+    for (const [index, rootId] of rootIds.entries()) {
+      const resolved = visit(rootId, `root/${index}`, new Set());
+      if (resolved) return resolved;
+    }
+    return null;
+  };
   const rowsByPath = new Map<string, HTMLButtonElement>();
   const addFeatureRow = (parent: HTMLElement, featureId: string, depth: number, path: string, ancestors: Set<string>): void => {
     const feature = byId.get(featureId);
@@ -587,6 +607,18 @@ function renderFeatureTree(): void {
   };
   rebuild();
   featureCount.textContent = String(visibleFeatures.length);
+  focusFeatureInTree = (featureId: string): void => {
+    const targetPath = pathToFeature(featureId);
+    if (!targetPath) return;
+    const segments = targetPath.split('/');
+    for (let depth = 2; depth < segments.length; depth += 1) expandedPaths.add(segments.slice(0, depth).join('/'));
+    rebuild();
+    const canonicalPath = canonicalPathById.get(featureId) ?? targetPath;
+    const row = rowsByPath.get(canonicalPath);
+    row?.scrollIntoView({ block: 'center' });
+    row?.classList.add('feature-reference-target');
+    window.setTimeout(() => row?.classList.remove('feature-reference-target'), 700);
+  };
 }
 
 function escapeHtml(value: string): string { return value.replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character] || character); }
@@ -641,6 +673,14 @@ function selectionSourceForEntity(entity: Entity): SourceRecord {
   };
   const producer = findSolidProducer(source.node_id);
   return producer ? { ...source, node_id: producer.node_id, output_slot: 0 } : source;
+}
+
+function featureIdForGeometry(definition: Definition | undefined, entity: Entity | undefined): string | null {
+  if (!currentModel) return null;
+  const source = entity ? selectionSourceForEntity(entity) : definition?.source;
+  if (!source || typeof source.node_id !== 'string') return null;
+  if (typeof source.graph_id === 'string' && source.graph_id !== currentModel.graph.graph_id) return null;
+  return currentModel.graph.nodes.some((feature) => feature.node_id === source.node_id) ? source.node_id : null;
 }
 
 function qlSelectorForEntity(entity: Entity, sidecar: EntitySidecar): { expression: string; unique: boolean } {
@@ -737,6 +777,15 @@ function selectNode(nodeId: string, entityId?: string): void {
   const solid = sidecar?.entities.find((item) => item.kind === 'solid');
   selectionKind.textContent = entity?.kind.toUpperCase() ?? definition?.kind.toUpperCase() ?? 'NODE';
   const evaluated = entity ?? solid;
+  const linkedFeatureId = featureIdForGeometry(definition, evaluated);
+  selectedFeatureId = linkedFeatureId;
+  for (const [id, rows] of featureRows) rows.forEach((row) => row.classList.toggle('selected', id === linkedFeatureId));
+  if (linkedFeatureId) {
+    setNavigatorTab('features');
+    focusFeatureInTree?.(linkedFeatureId);
+    const feature = currentModel?.graph.nodes.find((item) => item.node_id === linkedFeatureId);
+    if (feature?.source) sourceDock.reveal(feature.source);
+  }
   const inspected = evaluated;
   const measure = inspected ? entityMeasure(inspected) : null;
   const measureLabel = inspected?.kind === 'face' ? 'Area' : inspected?.kind === 'edge' ? 'Length' : inspected?.kind === 'vertex' ? 'Position' : 'Volume';
