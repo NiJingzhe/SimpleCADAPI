@@ -6,12 +6,14 @@ import {
   Boxes,
   Combine,
   ChevronDown,
+  ChevronRight,
   CircleDot,
   Copy,
   CopyCheck,
   Eye,
   EyeOff,
   GitBranch,
+  Link,
   Layers,
   LayoutDashboard,
   Maximize2,
@@ -32,6 +34,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { bindClickSelection } from './components/click-selection';
 import { bindResizablePanels } from './components/panel-resizer';
+import { SourceDock } from './components/source-dock';
 
 type Vec3 = [number, number, number];
 type Bounds = { min: Vec3; max: Vec3 };
@@ -70,12 +73,14 @@ const lucideIcons = {
   Boxes,
   Combine,
   ChevronDown,
+  ChevronRight,
   CircleDot,
   Copy,
   CopyCheck,
   Eye,
   EyeOff,
   GitBranch,
+  Link,
   Layers,
   LayoutDashboard,
   Maximize2,
@@ -115,8 +120,21 @@ app.innerHTML = `
        </section>
        <div id="inspector-resizer" class="panel-resizer" role="separator" aria-label="Resize Inspector" aria-orientation="vertical" tabindex="0"></div>
         <aside id="inspector-panel" class="panel details-panel"><div class="panel-heading"><span class="eyebrow">INSPECTOR</span><span id="selection-kind" class="tag">SCENE</span></div><div id="details" class="details"><div class="empty-state"><span class="empty-cross">${iconMarkup('Box', 'empty-state-icon')}</span><strong>Select an occurrence</strong><span>Choose a node or face in the viewport to inspect evaluated data.</span></div></div></aside>
+       <div id="source-dock-resizer" class="source-dock-resizer" role="separator" aria-label="Resize source code panel" aria-orientation="horizontal" tabindex="0" hidden></div>
+       <section id="source-dock" class="source-dock" aria-label="Embedded source code" hidden>
+         <aside class="source-files-panel">
+           <div class="source-dock-heading"><span class="eyebrow">SOURCE FILES</span><span id="source-file-count" class="count">0</span></div>
+           <div id="source-file-list" class="source-file-list" role="listbox" aria-label="Embedded source files"></div>
+         </aside>
+         <div id="source-files-resizer" class="source-files-resizer" role="separator" aria-label="Resize source file list" aria-orientation="vertical" tabindex="0"></div>
+         <section class="source-editor-panel">
+           <div class="source-editor-heading"><span id="source-active-path">No source file selected</span><button id="source-close-button" class="source-close-button" type="button" aria-label="Close source code panel">×</button></div>
+           <div id="source-editor" class="source-editor"></div>
+           <div id="source-empty-state" class="source-empty-state">Open a model package with embedded source files.</div>
+         </section>
+       </section>
     </section>
-     <footer class="footer"><span id="package-meta">No package loaded</span><span class="footer-note">CAD-local precision retained · GLB transport assets</span></footer>
+     <footer class="footer"><span id="package-meta">No package loaded</span><span class="footer-actions"><button id="source-toggle-button" class="footer-button" type="button" aria-expanded="false" disabled>Source</button><span class="footer-note">CAD-local precision retained · GLB transport assets</span></span></footer>
   </main>`;
 
 renderIcons(app);
@@ -142,6 +160,20 @@ const componentsTab = document.querySelector<HTMLButtonElement>('#components-tab
 const featuresTab = document.querySelector<HTMLButtonElement>('#features-tab')!;
 const componentsView = document.querySelector<HTMLDivElement>('#components-view')!;
 const featuresView = document.querySelector<HTMLDivElement>('#features-view')!;
+const sourceDock = new SourceDock({
+  dock: document.querySelector<HTMLElement>('#source-dock')!,
+  resizer: document.querySelector<HTMLElement>('#source-dock-resizer')!,
+  fileListResizer: document.querySelector<HTMLElement>('#source-files-resizer')!,
+  fileList: document.querySelector<HTMLElement>('#source-file-list')!,
+  fileCount: document.querySelector<HTMLElement>('#source-file-count')!,
+  activePath: document.querySelector<HTMLElement>('#source-active-path')!,
+  editorHost: document.querySelector<HTMLElement>('#source-editor')!,
+  emptyState: document.querySelector<HTMLElement>('#source-empty-state')!,
+  toggleButton: document.querySelector<HTMLButtonElement>('#source-toggle-button')!,
+  closeButton: document.querySelector<HTMLButtonElement>('#source-close-button')!,
+  workspace,
+});
+
 
 bindResizablePanels({ workspace, navigatorPanel, inspectorPanel, navigatorResizer, inspectorResizer });
 
@@ -190,7 +222,7 @@ const sourceFiles = new Map<string, string>();
 let selectedNodeId: string | null = null;
 let selectedFeatureId: string | null = null;
 let selectedOverlays: THREE.Object3D[] = [];
-const featureRows = new Map<string, HTMLButtonElement>();
+const featureRows = new Map<string, HTMLButtonElement[]>();
 let selectionMode: SelectionMode = 'component';
 
 function setStatus(message: string, ready = false): void {
@@ -394,6 +426,7 @@ function clearModel(): void {
   entityCache.clear();
   currentModel = null;
   sourceFiles.clear();
+  sourceDock.clear();
   featureRows.clear();
   featureTree.innerHTML = '<div class="tree-empty">Open a model-backed scene to inspect its operations.</div>';
   featureCount.textContent = '0';
@@ -453,66 +486,116 @@ function featureLabel(feature: ModelNode): string {
   return feature.display?.label || feature.op.replace(/^make_/, '').replace(/_r(.*)$/, ' $1').replaceAll('_', ' ');
 }
 
+function featureTreeLabel(feature: ModelNode): string {
+  const operation = featureLabel(feature);
+  const targets = feature.source?.assignment_targets.filter((target) => target.trim().length > 0) ?? [];
+  return targets.length ? `${targets.join(', ')} = ${operation}` : operation;
+}
+
 function renderFeatureTree(): void {
   featureRows.clear();
   featureTree.replaceChildren();
   const model = currentModel;
   if (!model || model.graph.nodes.length === 0) {
-    featureTree.innerHTML = '<div class="tree-empty">This package has no embedded operation tree.</div>';
+    featureTree.innerHTML = '<div class="tree-empty">This package has no embedded operation DAG.</div>';
     featureCount.textContent = '0';
     return;
   }
 
   const byId = new Map(model.graph.nodes.map((feature) => [feature.node_id, feature]));
-  const consumers = new Set<string>();
-  for (const feature of model.graph.nodes) for (const input of feature.inputs) if (byId.has(input)) consumers.add(input);
-  const roots = (model.leaf_ids ?? []).filter((id) => byId.has(id));
-  if (!roots.length) roots.push(...model.graph.nodes.filter((feature) => !consumers.has(feature.node_id)).map((feature) => feature.node_id));
-  const rendered = new Set<string>();
-
-  const append = (parent: HTMLElement, featureId: string, depth: number, path: Set<string>): void => {
+  const visibleFeatures = model.graph.nodes.filter((feature) => !/^apply_tag(?:_|$)/.test(feature.op));
+  const visibleIds = new Set(visibleFeatures.map((feature) => feature.node_id));
+  const resolvedInputCache = new Map<string, string[]>();
+  const resolveVisibleInput = (featureId: string, path = new Set<string>()): string[] => {
+    if (visibleIds.has(featureId)) return [featureId];
+    if (path.has(featureId)) return [];
+    const cached = resolvedInputCache.get(featureId);
+    if (cached) return cached;
     const feature = byId.get(featureId);
-    if (!feature || path.has(featureId) || rendered.has(featureId)) return;
-    rendered.add(featureId);
-    const children = feature.inputs.filter((input) => byId.has(input));
-    const row = document.createElement('button');
-    row.className = 'tree-row feature-tree-row';
-    row.style.setProperty('--depth', String(depth));
-    row.dataset.featureId = feature.node_id;
-    row.classList.toggle('selected', feature.node_id === selectedFeatureId);
-    row.innerHTML = `<span class="tree-chevron">${iconMarkup(children.length ? 'ChevronDown' : 'CircleDot', 'tree-chevron-icon')}</span><span class="tree-glyph feature-glyph">${iconMarkup(featureIconName(feature.op), 'tree-type-icon')}</span><span class="tree-label" title="${escapeHtml(feature.op)}">${escapeHtml(featureLabel(feature))}</span>${feature.tags?.length ? '<span class="feature-tag-mark">TAG</span>' : ''}`;
-    renderIcons(row);
-    row.addEventListener('click', () => selectFeature(feature.node_id));
-    parent.append(row);
-    featureRows.set(feature.node_id, row);
-    if (children.length) {
-      const childList = document.createElement('div');
-      childList.className = 'feature-tree-children';
-      parent.append(childList);
-      const nextPath = new Set(path).add(featureId);
-      for (const childId of children) append(childList, childId, depth + 1, nextPath);
-    }
+    if (!feature || !/^apply_tag(?:_|$)/.test(feature.op)) return [];
+    const nextPath = new Set(path).add(featureId);
+    const resolved = [...new Set(feature.inputs.flatMap((input) => resolveVisibleInput(input, nextPath)))];
+    resolvedInputCache.set(featureId, resolved);
+    return resolved;
   };
+  const inputsById = new Map<string, string[]>();
+  const consumerCount = new Map<string, number>();
+  for (const feature of visibleFeatures) {
+    const inputs = [...new Set(feature.inputs.flatMap((input) => resolveVisibleInput(input)))];
+    inputsById.set(feature.node_id, inputs);
+    for (const input of inputs) consumerCount.set(input, (consumerCount.get(input) ?? 0) + 1);
+  }
+  const rootIds = [...new Set((model.leaf_ids ?? []).flatMap((id) => resolveVisibleInput(id)))];
+  if (!rootIds.length) {
+    rootIds.push(...visibleFeatures.filter((feature) => !consumerCount.has(feature.node_id)).map((feature) => feature.node_id));
+  }
 
-  for (const rootId of roots) append(featureTree, rootId, 0, new Set());
-  for (const feature of model.graph.nodes) append(featureTree, feature.node_id, 0, new Set());
-  featureCount.textContent = String(model.graph.nodes.length);
+  const expandedPaths = new Set<string>(rootIds.map((_, index) => `root/${index}`));
+  const canonicalPathById = new Map<string, string>();
+  const rowsByPath = new Map<string, HTMLButtonElement>();
+  const addFeatureRow = (parent: HTMLElement, featureId: string, depth: number, path: string, ancestors: Set<string>): void => {
+    const feature = byId.get(featureId);
+    if (!feature) return;
+    const inputs = inputsById.get(featureId) ?? [];
+    const canonicalPath = canonicalPathById.get(featureId);
+    const reference = canonicalPath !== undefined || ancestors.has(featureId);
+    if (!reference) canonicalPathById.set(featureId, path);
+    const row = document.createElement('button');
+    row.className = `tree-row feature-tree-row${reference ? ' feature-reference-row' : ''}`;
+    row.style.setProperty('--depth', String(depth));
+    row.dataset.featureId = featureId;
+    row.dataset.featurePath = path;
+    row.classList.toggle('selected', featureId === selectedFeatureId);
+    const expanded = !reference && inputs.length > 0 && expandedPaths.has(path);
+    const shared = (consumerCount.get(featureId) ?? 0) > 1;
+    const prefixIcon = reference ? 'Link' : inputs.length ? (expanded ? 'ChevronDown' : 'ChevronRight') : 'CircleDot';
+    row.setAttribute('aria-expanded', inputs.length && !reference ? String(expanded) : 'false');
+    row.setAttribute('aria-label', reference ? `Reference to ${featureTreeLabel(feature)}` : featureTreeLabel(feature));
+    row.innerHTML = `<span class="tree-chevron">${iconMarkup(prefixIcon, 'tree-chevron-icon')}</span><span class="tree-glyph feature-glyph">${iconMarkup(featureIconName(feature.op), 'tree-type-icon')}</span><span class="tree-label" title="${escapeHtml(feature.op)}">${escapeHtml(featureTreeLabel(feature))}</span>${reference ? '<span class="feature-reference-mark">REF</span>' : ''}${shared && !reference ? `<span class="feature-shared-mark" title="Used by ${consumerCount.get(featureId)} operations">USED ${consumerCount.get(featureId)}</span>` : ''}${inputs.length && !reference ? `<span class="feature-input-count" title="${inputs.length} visible graph input${inputs.length === 1 ? '' : 's'}">${inputs.length} IN</span>` : ''}${feature.tags?.length ? '<span class="feature-tag-mark">TAG</span>' : ''}`;
+    renderIcons(row);
+    row.addEventListener('click', () => {
+      selectFeature(featureId);
+      if (reference) {
+        const targetPath = canonicalPathById.get(featureId);
+        const target = targetPath ? rowsByPath.get(targetPath) : undefined;
+        target?.scrollIntoView({ block: 'center' });
+        target?.classList.add('feature-reference-target');
+        window.setTimeout(() => target?.classList.remove('feature-reference-target'), 700);
+        return;
+      }
+      if (!inputs.length) return;
+      if (expandedPaths.has(path)) expandedPaths.delete(path);
+      else expandedPaths.add(path);
+      rebuild();
+    });
+    parent.append(row);
+    rowsByPath.set(path, row);
+    featureRows.set(featureId, [...(featureRows.get(featureId) ?? []), row]);
+    if (!expanded) return;
+    const children = document.createElement('div');
+    children.className = 'feature-dag-children';
+    parent.append(children);
+    const nextAncestors = new Set(ancestors).add(featureId);
+    inputs.forEach((input, index) => addFeatureRow(children, input, depth + 1, `${path}/${index}`, nextAncestors));
+  };
+  const rebuild = (): void => {
+    featureTree.replaceChildren();
+    featureRows.clear();
+    canonicalPathById.clear();
+    rowsByPath.clear();
+    rootIds.forEach((rootId, index) => addFeatureRow(featureTree, rootId, 0, `root/${index}`, new Set()));
+  };
+  rebuild();
+  featureCount.textContent = String(visibleFeatures.length);
 }
 
 function escapeHtml(value: string): string { return value.replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character] || character); }
 
-function sourceCodeMarkup(source: OperationSource): string {
-  if (!source.path) return `<div class="detail-muted">Source path is unavailable.</div><pre class="source-code"><code>${escapeHtml(source.call_text)}</code></pre>`;
-  const content = sourceFiles.get(source.path);
-  if (content === undefined) return `<div class="detail-muted">Embedded source file is missing.</div><pre class="source-code"><code>${escapeHtml(source.call_text)}</code></pre>`;
-  const lines = content.split(/\r?\n/);
+function sourceLocationMarkup(source: OperationSource): string {
   const start = Math.max(1, source.line);
   const end = Math.max(start, source.end_line);
-  return `<div class="source-file-path">${escapeHtml(source.path)}:${start}${end !== start ? `-${end}` : ''}</div><pre class="source-code"><code>${lines.map((line, index) => {
-    const lineNumber = index + 1;
-    const active = lineNumber >= start && lineNumber <= end;
-    return `<span class="source-line${active ? ' active' : ''}"${lineNumber === start ? ' id="active-source-line"' : ''}><span class="source-line-number">${lineNumber}</span><span class="source-line-text">${escapeHtml(line) || ' '}</span></span>`;
-  }).join('\n')}</code></pre>`;
+  const location = source.path ? `${source.path}:${start}${end !== start ? `-${end}` : ''}` : 'Source path is unavailable';
+  return `<div class="source-file-path">${escapeHtml(location)}</div>${source.path && sourceFiles.has(source.path) ? '<p class="detail-muted">The embedded file is open in the Source dock.</p>' : `<pre class="source-call"><code>${escapeHtml(source.call_text)}</code></pre>`}`;
 }
 
 function pythonLiteral(value: unknown): string {
@@ -644,7 +727,7 @@ function selectNode(nodeId: string, entityId?: string): void {
   selectedNodeId = nodeId;
   selectedFeatureId = null;
   for (const [id, row] of nodeRows) row.classList.toggle('selected', id === nodeId);
-  for (const row of featureRows.values()) row.classList.remove('selected');
+  for (const rows of featureRows.values()) rows.forEach((row) => row.classList.remove('selected'));
   const node = currentManifest.nodes.find((item) => item.node_id === nodeId);
   if (!node) return;
   const definition = manifestByDefinition.get(node.definition_id);
@@ -709,22 +792,22 @@ function selectFeature(featureId: string): void {
   selectedFeatureId = featureId;
   selectedNodeId = null;
   for (const row of nodeRows.values()) row.classList.remove('selected');
-   for (const [id, row] of featureRows) row.classList.toggle('selected', id === featureId);
+   for (const [id, rows] of featureRows) rows.forEach((row) => row.classList.toggle('selected', id === featureId));
   const feature = currentModel.graph.nodes.find((item) => item.node_id === featureId);
   if (!feature) return;
   selectionKind.textContent = 'FEATURE';
   const inputs = feature.inputs.length ? feature.inputs.join(', ') : 'none';
    const assignment = feature.source?.assignment_targets.length ? feature.source.assignment_targets.join(', ') : 'unassigned';
-   details.innerHTML = `<div class="detail-title"><span class="detail-icon">${iconMarkup(featureIconName(feature.op), 'detail-icon-svg')}</span><div><strong>${escapeHtml(featureLabel(feature))}</strong><span class="detail-definition-path">${escapeHtml(feature.node_id)}</span></div></div><div class="detail-section"><span class="eyebrow">OPERATION</span><dl><dt>Function</dt><dd>${escapeHtml(feature.op)}</dd><dt>Category</dt><dd>${escapeHtml(feature.display?.category || 'operation')}</dd><dt>Assigned to</dt><dd>${escapeHtml(assignment)}</dd><dt>Inputs</dt><dd title="${escapeHtml(inputs)}">${escapeHtml(inputs)}</dd><dt>Output count</dt><dd>${feature.output_count ?? 1}</dd></dl></div>${feature.source ? `<div class="detail-section source-section"><span class="eyebrow">SOURCE</span>${sourceCodeMarkup(feature.source)}</div>` : ''}${feature.tags?.length ? `<div class="detail-section"><span class="eyebrow">TAGS</span><div class="tag-list">${feature.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div></div>` : ''}<div class="detail-section"><span class="eyebrow">PARAMETERS</span><pre class="params">${escapeHtml(JSON.stringify(feature.params, null, 2))}</pre></div>${feature.display?.summary ? `<div class="detail-section"><span class="eyebrow">SUMMARY</span><p class="detail-summary">${escapeHtml(feature.display.summary)}</p></div>` : ''}`;
+   details.innerHTML = `<div class="detail-title"><span class="detail-icon">${iconMarkup(featureIconName(feature.op), 'detail-icon-svg')}</span><div><strong>${escapeHtml(featureLabel(feature))}</strong><span class="detail-definition-path">${escapeHtml(feature.node_id)}</span></div></div><div class="detail-section"><span class="eyebrow">OPERATION</span><dl><dt>Function</dt><dd>${escapeHtml(feature.op)}</dd><dt>Category</dt><dd>${escapeHtml(feature.display?.category || 'operation')}</dd><dt>Assigned to</dt><dd>${escapeHtml(assignment)}</dd><dt>Inputs</dt><dd title="${escapeHtml(inputs)}">${escapeHtml(inputs)}</dd><dt>Output count</dt><dd>${feature.output_count ?? 1}</dd></dl></div>${feature.source ? `<div class="detail-section source-section"><span class="eyebrow">SOURCE</span>${sourceLocationMarkup(feature.source)}</div>` : ''}<div class="detail-section"><span class="eyebrow">PARAMETERS</span><pre class="params">${escapeHtml(jsonText(feature.params))}</pre></div>${feature.display?.summary ? `<div class="detail-section"><span class="eyebrow">SUMMARY</span><p class="detail-summary">${escapeHtml(feature.display.summary)}</p></div>` : ''}${feature.tags?.length ? `<div class="detail-section"><span class="eyebrow">TAGS</span><div class="tag-list">${feature.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div></div>` : ''}`;
    renderIcons(details);
-   details.querySelector('#active-source-line')?.scrollIntoView({ block: 'center' });
+   if (feature.source) sourceDock.reveal(feature.source);
 }
 
 function clearFeatureSelection(): void {
   if (selectedFeatureId === null) return;
   selectedFeatureId = null;
   selectionKind.textContent = 'SCENE';
-  for (const row of featureRows.values()) row.classList.remove('selected');
+  for (const rows of featureRows.values()) rows.forEach((row) => row.classList.remove('selected'));
    details.innerHTML = `<div class="empty-state"><span class="empty-cross">${iconMarkup('LayoutDashboard', 'empty-state-icon')}</span><strong>Feature selection cleared</strong><span>Select a Blueprint node to inspect its operation and dependencies.</span></div>`;
    renderIcons(details);
 }
@@ -868,7 +951,7 @@ function toggleNodeVisibility(nodeId: string): void {
     selectedNodeId = null;
     selectedFeatureId = null;
     for (const selectedRow of nodeRows.values()) selectedRow.classList.remove('selected');
-    for (const row of featureRows.values()) row.classList.remove('selected');
+    for (const rows of featureRows.values()) rows.forEach((row) => row.classList.remove('selected'));
     selectionKind.textContent = 'SCENE';
      details.innerHTML = `<div class="empty-state"><span class="empty-cross">${iconMarkup('EyeOff', 'empty-state-icon')}</span><strong>Selection hidden</strong><span>The selected occurrence is hidden or no longer selectable.</span></div>`;
      renderIcons(details);
@@ -911,6 +994,7 @@ async function loadPackage(files: PackageFiles): Promise<void> {
     for (const sourceFile of manifest.source.source_files ?? []) {
       sourceFiles.set(sourceFile.path, strFromU8(bytesFor(files, sourceFile.uri)));
     }
+    sourceDock.setFiles(sourceFiles);
   }
   renderTree(manifest);
   renderFeatureTree();
