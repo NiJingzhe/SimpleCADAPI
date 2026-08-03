@@ -398,3 +398,15 @@ def test_render_region_writes_highlighted_image(tmp_path):
     assert result == output
     assert output.is_file()
     assert output.stat().st_size > 0
+
+
+def test_render_region_does_not_mutate_cached_model_geometry(tmp_path):
+    model = _model()
+    before = model.summary()
+
+    render_region(model, ["face:0"], tmp_path / "highlight.png", dpi=60)
+
+    after = model.summary()
+    assert after["bounding_box"] == pytest.approx(before["bounding_box"])
+    assert after["volume"] == pytest.approx(before["volume"])
+    assert after["surface_area"] == pytest.approx(before["surface_area"])

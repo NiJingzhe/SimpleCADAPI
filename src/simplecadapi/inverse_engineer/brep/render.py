@@ -8,6 +8,7 @@ from typing import Sequence
 import numpy as np
 from OCP.BRep import BRep_Tool
 from OCP.BRepAdaptor import BRepAdaptor_Curve
+from OCP.BRepBuilderAPI import BRepBuilderAPI_Copy
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.TopAbs import TopAbs_FACE, TopAbs_VERTEX
 from OCP.TopExp import TopExp_Explorer
@@ -28,9 +29,18 @@ DEFAULT_VIEWS: tuple[tuple[float, float, str], ...] = (
 def _triangles(
     shape: TopoDS_Shape, linear_deflection: float, angular_deflection: float
 ):
-    BRepMesh_IncrementalMesh(shape, linear_deflection, False, angular_deflection, True)
+    # Meshing stores triangulations on the input topology. Render a detached
+    # copy so diagnostics cannot alter a cached BRepModel used by later tools.
+    render_shape = BRepBuilderAPI_Copy(shape, True, False).Shape()
+    BRepMesh_IncrementalMesh(
+        render_shape,
+        linear_deflection,
+        False,
+        angular_deflection,
+        True,
+    )
     polygons: list[list[tuple[float, float, float]]] = []
-    explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    explorer = TopExp_Explorer(render_shape, TopAbs_FACE)
     while explorer.More():
         face = TopoDS.Face_s(explorer.Current())
         location = face.Location()
