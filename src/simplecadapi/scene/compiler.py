@@ -57,8 +57,8 @@ from ..scene.validation import validate_scene_package
 from ..topology import OperationGraph, OperationNode
 
 
-DEFAULT_LINEAR_TOLERANCE = 0.35
-DEFAULT_ANGULAR_TOLERANCE = 0.22
+DEFAULT_LINEAR_TOLERANCE = 0.1
+DEFAULT_ANGULAR_TOLERANCE = 0.08
 _IDENTITY = {
     "origin": [0.0, 0.0, 0.0],
     "x_axis": [1.0, 0.0, 0.0],
