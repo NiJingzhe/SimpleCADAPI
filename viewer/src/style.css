@@ -58,11 +58,17 @@ h1 { margin: 7px 0 0; color: #eef4fb; font-size: 17px; font-weight: 600; letter-
 .tab-icon svg { display: block; width: 13px; height: 13px; }
 .navigator-view { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; }
 .navigator-view[hidden] { display: none; }
-.feature-tree { padding-top: 8px; }
-.feature-tree-row { position: relative; padding-right: 10px; }
+.feature-tree { overflow: auto; padding-top: 8px; }
+.feature-tree::-webkit-scrollbar { display: block; width: 0; height: 7px; }
+.feature-tree::-webkit-scrollbar-track { background: #0d1218; }
+.feature-tree::-webkit-scrollbar-thumb { border-radius: 4px; background: #344353; }
+.feature-tree::-webkit-scrollbar-thumb:hover { background: #52677c; }
+.feature-tree-row { position: relative; width: max(100%, max-content); min-width: max-content; padding-right: 10px; }
 .feature-tree-row::before { position: absolute; top: -8px; bottom: -8px; left: calc(17px + max(0, var(--depth) - 1) * 16px); width: 1px; content: ''; background: #273342; opacity: 0; }
 .feature-tree-row[style*="--depth: 1"]::before, .feature-tree-row[style*="--depth: 2"]::before, .feature-tree-row[style*="--depth: 3"]::before, .feature-tree-row[style*="--depth: 4"]::before, .feature-tree-row[style*="--depth: 5"]::before { opacity: .7; }
 .feature-dag-children { display: block; }
+.feature-tree .tree-label { flex: 0 0 auto; max-width: none; overflow: visible; text-overflow: clip; }
+.feature-tree .feature-dag-children { width: max-content; min-width: 100%; }
 .feature-glyph { color: #91b8ed; }
 .feature-tree-row.selected .feature-glyph { color: #b3e36b; }
 .feature-tree-row.feature-reference-row { color: #718094; font-style: italic; }
