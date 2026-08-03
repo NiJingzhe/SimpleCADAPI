@@ -1015,7 +1015,7 @@ function highlightComponent(nodeId: string): void {
   if (!node) return;
   const meshes: THREE.Mesh[] = [];
   node.traverse((child) => {
-    if (child instanceof THREE.Mesh && isEffectivelyVisible(child)) meshes.push(child);
+    if (child instanceof THREE.Mesh && !(child instanceof LineSegments2) && child.userData.pickable !== false && isEffectivelyVisible(child)) meshes.push(child);
   });
   for (const child of meshes) {
     const geometry = child.geometry.clone();
