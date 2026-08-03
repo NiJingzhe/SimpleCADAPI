@@ -386,8 +386,12 @@ def test_compiler_declares_angular_edge_render_profile():
     )
 
     assert package.manifest["generator"]["profile"] == "scene-1.0-ocp-glb-2"
+    assert package.manifest["geometry_assets"][0]["tessellation"] == {
+        "linear_tolerance": 0.1,
+        "angular_tolerance": 0.08,
+    }
     assert package.manifest["edge_assets"][0]["tessellation"] == {
-        "linear_tolerance": 0.35
+        "linear_tolerance": 0.1
     }
     assert validate_scene_package(package.manifest, package.blobs).valid
 
