@@ -6,17 +6,17 @@
 
 [中文说明](README.zh-CN.md)
 
-## Update Notes (2.0.2)
+## Update Notes (2.0.4b1)
 
-> **Experimental release:** The capabilities in this release may introduce
-> breaking changes in later versions and are not recommended for immediate
-> production use.
+> **Beta release:** Review generated CAD documents before using this version in
+> production.
 
-SimpleCADAPI 2.0.2 expands the workflow with cross-CAD translation, a browser
-scene viewer, replayable model artifacts with source mapping, units and
-tolerance analysis, standard mechanical parts, assembly verification, and STEP
-reverse-engineering tools. See the [full English update notes](docs/updates/2.0.2.md)
-for implementation details and usage boundaries.
+SimpleCADAPI 2.0.4b1 adds semantic, product-oriented FreeCAD model trees and
+more reliable assembly occurrences and joints. It also hardens face-touching
+boolean unions with glue fallback diagnostics, adds fused standard bearings,
+and migrates the integrated BLDC actuator to the standard bearing factory. See
+the [full English update notes](docs/updates/2.0.4b1.md) for implementation
+details, limitations, and verification coverage.
 
 ---
 
@@ -37,7 +37,7 @@ in a compact public API for creating solids, applying features, tagging semantic
 intent, querying topology, exporting manufacturing files, and translating recorded
 models into FreeCAD workflows.
 
-Current release: `simplecadapi==2.0.3`.
+Current beta release: `simplecadapi==2.0.4b1`.
 
 ## What It Provides
 
