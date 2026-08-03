@@ -323,10 +323,55 @@ function placementMatrix(transform: Transform): THREE.Matrix4 {
   );
 }
 
+const CAD_EDGE_LIGHTNESS_OFFSET = 0.5;
+const CAD_EDGE_LINE_WIDTH = 1.6;
+
+function cadEdgeColor(baseColor: [number, number, number, 1]): THREE.Color {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(baseColor[0], baseColor[1], baseColor[2]).getHSL(hsl);
+  return new THREE.Color().setHSL(hsl.h, hsl.s, (hsl.l + CAD_EDGE_LIGHTNESS_OFFSET) % 1);
+}
+
 function materialFor(definition: Definition): THREE.MeshStandardMaterial {
   const appearance = definition.appearance_id ? appearanceById.get(definition.appearance_id) : undefined;
   const color = appearance?.base_color ?? [0.72, 0.75, 0.78, 1];
   return new THREE.MeshStandardMaterial({ color: new THREE.Color(color[0], color[1], color[2]), metalness: appearance?.metallic ?? 0, roughness: appearance?.roughness ?? 0.55, side: appearance?.double_sided ? THREE.DoubleSide : THREE.FrontSide, transparent: appearance?.alpha_mode === 'blend', opacity: color[3] });
+}
+
+function edgeMaterialFor(definition: Definition): LineMaterial {
+  const appearance = definition.appearance_id ? appearanceById.get(definition.appearance_id) : undefined;
+  const baseColor = appearance?.base_color ?? [0.72, 0.75, 0.78, 1];
+  const material = new LineMaterial({
+    color: cadEdgeColor(baseColor),
+    linewidth: CAD_EDGE_LINE_WIDTH,
+    worldUnits: false,
+    transparent: baseColor[3] < 1,
+    opacity: baseColor[3],
+    depthTest: true,
+    depthWrite: false,
+  });
+  material.resolution.set(renderer.domElement.clientWidth, renderer.domElement.clientHeight);
+  return material;
+}
+function addWideEdgeVisual(source: THREE.LineSegments, definition: Definition): void {
+  const position = source.geometry.getAttribute('position');
+  const index = source.geometry.index;
+  const indexCount = index?.count ?? position.count;
+  const positions: number[] = [];
+  for (let offset = 0; offset + 1 < indexCount; offset += 2) {
+    const a = index ? index.getX(offset) : offset;
+    const b = index ? index.getX(offset + 1) : offset + 1;
+    positions.push(position.getX(a), position.getY(a), position.getZ(a), position.getX(b), position.getY(b), position.getZ(b));
+  }
+  const geometry = new LineSegmentsGeometry();
+  geometry.setPositions(positions);
+  const visual = new LineSegments2(geometry, edgeMaterialFor(definition));
+  visual.name = 'cad-edge-visual';
+  visual.userData.pickable = false;
+  source.add(visual);
+  const pickingMaterial = new THREE.LineBasicMaterial();
+  pickingMaterial.visible = false;
+  source.material = pickingMaterial;
 }
 
 async function instantiateDefinition(definition: Definition): Promise<THREE.Group> {
@@ -353,10 +398,10 @@ async function instantiateDefinition(definition: Definition): Promise<THREE.Grou
     if (!edge) {
       edge = await loadGlb(currentFiles, edgeAsset.uri);
       applyAssetTransform(edge, edgeAsset.asset_to_scene);
-      edge.traverse((child) => { if (child instanceof THREE.LineSegments) child.material = new THREE.LineBasicMaterial({ color: '#6e7e92', transparent: true, opacity: 0.58 }); });
       edgeCache.set(edgeAsset.asset_id, edge);
     }
     const edgeInstance = edge.clone(true);
+    edgeInstance.traverse((child) => { if (child instanceof THREE.LineSegments) addWideEdgeVisual(child, definition); });
     edgeInstance.visible = true;
     group.add(edgeInstance);
   }
@@ -1176,6 +1221,9 @@ function resize(): void {
       if (object instanceof LineSegments2) object.material.resolution.set(width, height);
     });
   }
+  modelRoot.traverse((object) => {
+    if (object instanceof LineSegments2) object.material.resolution.set(width, height);
+  });
 }
 new ResizeObserver(resize).observe(viewport);
 resize();
