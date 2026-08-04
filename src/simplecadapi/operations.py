@@ -121,6 +121,7 @@ from .kernel.ocp_curves import (
     make_bspline_edge,
     make_circle_edge,
     make_helix_wire,
+    make_interpolated_bspline_edge,
     make_line_edge,
     make_polyline_wire,
     make_wire_from_edges as make_wire_from_edges_ocp,
@@ -168,6 +169,7 @@ _OP_MAKE_CIRCLE_REDGE = "make_circle_redge"
 _OP_MAKE_THREE_POINT_ARC_REDGE = "make_three_point_arc_redge"
 _OP_MAKE_ANGLE_ARC_REDGE = "make_angle_arc_redge"
 _OP_MAKE_SPLINE_REDGE = "make_spline_redge"
+_OP_MAKE_INTERPOLATED_SPLINE_REDGE = "make_interpolated_spline_redge"
 _OP_MAKE_HELIX_REDGE = "make_helix_redge"
 _OP_MAKE_WIRE_FROM_EDGES_RWIRE = "make_wire_from_edges_rwire"
 _OP_MAKE_FACE_FROM_WIRE_RFACE = "make_face_from_wire_rface"
@@ -645,7 +647,9 @@ def _copy_runtime_state(source: AnyShape, target: AnyShape) -> AnyShape:
         target._runtime = {
             key: value
             for key, value in runtime.items()
-            if not key == "mesh.error" and not key == "mesh.default" and not key.startswith("mesh:")
+            if not key == "mesh.error"
+            and not key == "mesh.default"
+            and not key.startswith("mesh:")
         }
     return target
 
@@ -1416,16 +1420,10 @@ def _copy_exact_topology_identity_tags(
     source_members = [
         member
         for source in sources
-        for member in (
-            source.get_edges()
-            if hasattr(source, "get_edges")
-            else [source]
-        )
+        for member in (source.get_edges() if hasattr(source, "get_edges") else [source])
         if isinstance(member, Edge)
     ]
-    target_members = (
-        target.get_edges() if hasattr(target, "get_edges") else [target]
-    )
+    target_members = target.get_edges() if hasattr(target, "get_edges") else [target]
     result = target
     for target_member in target_members:
         if not isinstance(target_member, Edge):
@@ -1470,11 +1468,7 @@ def _apply_topology_identity_tag(
         scope,
         targets,
         normalized,
-        (
-            TopologyPropagation.DOWNWARD
-            if kind == "face"
-            else TopologyPropagation.LOCAL
-        ),
+        (TopologyPropagation.DOWNWARD if kind == "face" else TopologyPropagation.LOCAL),
         LineagePolicy.CONTINUATION_FRAGMENT,
         authoring_source=authoring_source,
         extra_evidence={
@@ -1759,7 +1753,10 @@ def _apply_operation_role_tags(
 def _topology_identity_local_name(shape: AnyShape) -> Optional[str]:
     for binding in shape._local_tag_bindings():
         payload = _topology_identity_payload(binding)
-        if payload is not None and payload.get("kind") == shape.__class__.__name__.lower():
+        if (
+            payload is not None
+            and payload.get("kind") == shape.__class__.__name__.lower()
+        ):
             local_name = payload.get("local_name")
             if isinstance(local_name, str) and local_name:
                 return local_name
@@ -3099,7 +3096,9 @@ def _apply_sketch_promotion_identity_tags(
     """Attach topology-identity tags from an exact sketch promotion map."""
 
     sketch_prefix = _safe_semantic_tag("sketch", sketch.name or sketch.sketch_id)
-    profile_local_name = _sketch_topology_tag_local_name(profile_payload.get("id", "profile"))
+    profile_local_name = _sketch_topology_tag_local_name(
+        profile_payload.get("id", "profile")
+    )
     profile_kind = "wire" if isinstance(shape, Wire) else "face"
     profile_tag = f"{sketch_prefix}.profile.{profile_local_name}"
     shape._add_tag_binding(
@@ -3589,9 +3588,11 @@ def make_circle_rwire(
                 _apply_profile_tag_prefix(
                     wire,
                     tag_prefix,
-                    [local_edge_tag]
-                    if tag_prefix is not None or edge_tag is not None
-                    else None,
+                    (
+                        [local_edge_tag]
+                        if tag_prefix is not None or edge_tag is not None
+                        else None
+                    ),
                     authoring_source="simplecadapi.make_circle_rwire.tag_prefix",
                 ),
             )
@@ -3614,9 +3615,11 @@ def make_circle_rwire(
             _apply_profile_tag_prefix(
                 wire,
                 tag_prefix,
-                [local_edge_tag]
-                if tag_prefix is not None or edge_tag is not None
-                else None,
+                (
+                    [local_edge_tag]
+                    if tag_prefix is not None or edge_tag is not None
+                    else None
+                ),
                 authoring_source="simplecadapi.make_circle_rwire.tag_prefix",
             ),
         )
@@ -3654,9 +3657,7 @@ def make_circle_rface(
                 tag_prefix=tag_prefix,
                 edge_tag=edge_tag,
             )
-            return make_face_from_wire_rface(
-                wire, normal=normal, tag_prefix=tag_prefix
-            )
+            return make_face_from_wire_rface(wire, normal=normal, tag_prefix=tag_prefix)
 
         with suspend_graph_recording():
             wire = make_circle_rwire(
@@ -5177,6 +5178,168 @@ def make_spline_redge(
             ],
             error=e,
         )
+
+
+def _normalize_interpolation_points(
+    points: Sequence[Sequence[ScalarLike]],
+    *,
+    periodic: bool,
+    tolerance: float,
+) -> Tuple[Tuple[float, float, float], ...]:
+    normalized = list(_normalize_bspline_control_points(points))
+    if periodic and len(normalized) >= 2:
+        if (
+            np.linalg.norm(np.asarray(normalized[0]) - np.asarray(normalized[-1]))
+            <= tolerance
+        ):
+            normalized.pop()
+    minimum = 3 if periodic else 2
+    if len(normalized) < minimum:
+        qualifier = "distinct" if periodic else ""
+        raise ValueError(
+            f"interpolation requires at least {minimum} {qualifier} points".replace(
+                "  ", " "
+            )
+        )
+    adjacent_pairs = list(zip(normalized, normalized[1:]))
+    if periodic:
+        adjacent_pairs.append((normalized[-1], normalized[0]))
+    for index, (first, second) in enumerate(adjacent_pairs):
+        if np.linalg.norm(np.asarray(first) - np.asarray(second)) <= tolerance:
+            second_index = (index + 1) % len(normalized)
+            raise ValueError(
+                f"interpolation points {index} and {second_index} are within "
+                f"the interpolation tolerance"
+            )
+    return tuple(normalized)
+
+
+def make_interpolated_spline_redge(
+    *,
+    points: Sequence[Sequence[ScalarLike]],
+    periodic: bool = False,
+    tolerance: ScalarLike = 1.0e-6,
+) -> Edge:
+    """Interpolate an exact B-spline edge through the supplied points."""
+    try:
+        periodic_value = bool(periodic)
+        tolerance_value = float(evaluate_scalar(tolerance))
+        if not math.isfinite(tolerance_value) or tolerance_value <= 0.0:
+            raise ValueError("tolerance must be a finite positive value")
+        local_points = _normalize_interpolation_points(
+            points,
+            periodic=periodic_value,
+            tolerance=tolerance_value,
+        )
+        cs = get_current_cs()
+        global_points = tuple(
+            tuple(float(component) for component in cs.transform_point(np.array(point)))
+            for point in local_points
+        )
+        edge = Edge(
+            make_interpolated_bspline_edge(
+                global_points,
+                periodic=periodic_value,
+                tolerance=tolerance_value,
+            )
+        )
+        edge.set_metadata(
+            "geo",
+            {
+                "type": "bspline",
+                "construction": "interpolated",
+                "interpolation_points": [list(point) for point in global_points],
+                "periodic": periodic_value,
+                "tolerance": tolerance_value,
+            },
+        )
+        return cast(
+            Edge,
+            _finalize_primitive_shape(
+                edge,
+                op=_OP_MAKE_INTERPOLATED_SPLINE_REDGE,
+                params={
+                    "points": points,
+                    "periodic": periodic_value,
+                    "tolerance": tolerance,
+                },
+                tags={"primitive", "edge"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_interpolated_spline_redge",
+            what_happened="Failed to interpolate a B-spline edge through the input points.",
+            possible_causes=[
+                "Too few distinct interpolation points were provided.",
+                "Consecutive points are duplicated or contain invalid coordinates.",
+                "The requested periodic interpolation is geometrically inconsistent.",
+            ],
+            how_to_fix=[
+                "Provide at least two open-curve points or three periodic-curve points.",
+                "Remove consecutive duplicate points; a repeated periodic endpoint is optional.",
+                "Use a smaller positive tolerance when nearby points must remain distinct.",
+            ],
+            error=e,
+        )
+
+
+def make_interpolated_spline_rwire(
+    *,
+    points: Sequence[Sequence[ScalarLike]],
+    periodic: bool = False,
+    tolerance: ScalarLike = 1.0e-6,
+) -> Wire:
+    """Create a one-edge wire that interpolates the supplied points."""
+    try:
+        edge_kwargs = {
+            "points": points,
+            "periodic": periodic,
+            "tolerance": tolerance,
+        }
+        if get_active_session() is not None:
+            edge = make_interpolated_spline_redge(**edge_kwargs)
+            return make_wire_from_edges_rwire([edge])
+
+        with suspend_graph_recording():
+            edge = make_interpolated_spline_redge(**edge_kwargs)
+        wire_shape = make_wire_from_edges_ocp([edge.wrapped])
+        return cast(
+            Wire,
+            _finalize_primitive_shape(
+                Wire(wire_shape),
+                op="make_interpolated_spline_wire",
+                params=edge_kwargs,
+                tags={"primitive", "wire"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_interpolated_spline_rwire",
+            what_happened="Failed to create an interpolated spline wire.",
+            possible_causes=[
+                "The interpolated spline edge could not be created.",
+                "The kernel rejected the resulting one-edge wire.",
+            ],
+            how_to_fix=[
+                "Validate the interpolation points and tolerance.",
+                "Use periodic=True for a closed profile and omit a duplicated final point.",
+            ],
+            error=e,
+        )
+
+
+def make_periodic_spline_rwire(
+    *,
+    points: Sequence[Sequence[ScalarLike]],
+    tolerance: ScalarLike = 1.0e-6,
+) -> Wire:
+    """Create a closed periodic spline wire interpolating the supplied points."""
+    return make_interpolated_spline_rwire(
+        points=points,
+        periodic=True,
+        tolerance=tolerance,
+    )
 
 
 def make_spline_rwire(
@@ -8079,500 +8242,28 @@ def render_screenshot_rpath(
     zoom: float = 4.0,
     show_callouts: bool = True,
 ) -> str:
-    """Render a screenshot of shapes and save it to a file."""
+    """Render SDK solids through the shared OCCT/VTK BREP renderer."""
     try:
-        import matplotlib
-
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        from matplotlib.colors import to_rgb
-        from mpl_toolkits.mplot3d import proj3d
-        from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
+        from .inspect.brep.render import _render_sdk_screenshot_rpath
 
         shape_list = _normalize_shape_input(shapes)
         solids = [shape for shape in shape_list if isinstance(shape, Solid)]
-        if not solids:
-            raise ValueError("render_screenshot_rpath 仅支持 Solid 类型")
-
-        background = "#111111"
-        base_color = (0.6, 0.62, 0.64)
-        highlight_colors: Dict[str, Tuple[float, float, float]] = {}
-        fit_mode = "model"
-        axis_scale = 1.6
-        axis_fit_weight = 0.0
-        wireframe_only = False
-        mesh_tolerance = 0.35
-        mesh_angular_tolerance = 0.22
-
-        highlight_list = [tag for tag in (highlight_tags or [])]
-        labels = tag_labels or {}
-        label_points: Dict[str, Tuple[float, float, float]] = {}
-
-        all_polys: List[List[Tuple[float, float, float]]] = []
-        all_colors: List[Tuple[float, float, float, float]] = []
-        triangles: List[np.ndarray] = []
-        tri_normals: List[np.ndarray] = []
-        bbox_min = np.array([np.inf, np.inf, np.inf])
-        bbox_max = np.array([-np.inf, -np.inf, -np.inf])
-
-        base_rgb = np.array(to_rgb(base_color))
-        palette = [
-            "#f39c12",
-            "#9b59b6",
-            "#f1c40f",
-            "#1abc9c",
-            "#e67e22",
-            "#e84393",
-            "#16a085",
-            "#d35400",
-        ]
-        highlight_colors = highlight_colors or {}
-        highlight_color_map: Dict[str, np.ndarray] = {}
-        for idx, tag in enumerate(highlight_list):
-            if tag in highlight_colors:
-                highlight_color_map[tag] = np.array(to_rgb(highlight_colors[tag]))
-            else:
-                highlight_color_map[tag] = np.array(to_rgb(palette[idx % len(palette)]))
-
-        light_dirs = [
-            np.array([0.7, -0.1, 0.7]),
-            np.array([-0.6, 0.25, 0.32]),
-            np.array([0.15, -0.9, 0.2]),
-            np.array([0.0, 0.0, 1.0]),
-            np.array([-0.15, -0.1, -0.98]),
-        ]
-        light_dirs = [vec / np.linalg.norm(vec) for vec in light_dirs]
-        light_weights = [1.35, 0.4, 0.3, 0.18, 0.08]
-
-        def _shade(normals: np.ndarray, color: np.ndarray) -> np.ndarray:
-            ambient = 0.12
-            intensity = np.full((normals.shape[0],), ambient, dtype=float)
-            for w, light in zip(light_weights, light_dirs):
-                intensity += w * np.maximum(0.0, normals @ light)
-            intensity = np.clip(intensity, 0.0, 1.0)
-            intensity = np.power(intensity, 1.35)
-            shaded = color[None, :] * intensity[:, None]
-            shaded = np.clip(shaded, 0.0, 1.0)
-            alpha = np.ones((shaded.shape[0], 1))
-            return np.hstack([shaded, alpha])
-
-        for solid in solids:
-            bb = bounding_box(solid.wrapped)
-            bbox_min = np.minimum(bbox_min, np.array([bb.xmin, bb.ymin, bb.zmin]))
-            bbox_max = np.maximum(bbox_max, np.array([bb.xmax, bb.ymax, bb.zmax]))
-
-        model_min = bbox_min.copy()
-        model_max = bbox_max.copy()
-
-        axis_solids: List[Solid] = []
-        axis_colors: Dict[str, np.ndarray] = {}
-        axis_len_x = 0.0
-        axis_len_y = 0.0
-        axis_len_z = 0.0
-        if show_axes:
-            span = float(np.max(model_max - model_min))
-            if span <= 0:
-                span = 1.0
-            axis_margin = span * 0.08
-            axis_len_x_base = max(span * 0.3, max(0.0, bbox_max[0]) + axis_margin)
-            axis_len_y_base = max(span * 0.3, max(0.0, bbox_max[1]) + axis_margin)
-            axis_len_z_base = max(span * 0.3, max(0.0, bbox_max[2]) + axis_margin)
-            axis_len_x = max(0.0, axis_len_x_base + axis_margin * (axis_scale - 1.0))
-            axis_len_y = max(0.0, axis_len_y_base + axis_margin * (axis_scale - 1.0))
-            axis_len_z = max(0.0, axis_len_z_base + axis_margin * (axis_scale - 1.0))
-            axis_radius = max(
-                span * 0.004, min(axis_len_x, axis_len_y, axis_len_z) * 0.02
+        if len(solids) != len(shape_list) or not solids:
+            raise ValueError("render_screenshot_rpath only supports Solid inputs")
+        return str(
+            _render_sdk_screenshot_rpath(
+                solids,
+                output_path,
+                highlight_tags=tuple(highlight_tags or ()),
+                tag_labels=tag_labels,
+                image_size=image_size,
+                view=view,
+                show_axes=show_axes,
+                show_legend=show_legend,
+                zoom=zoom,
+                show_callouts=show_callouts,
             )
-            head_len_factor = 0.2
-            head_radius = axis_radius * 2.0
-
-            def _axis_solid(axis: Tuple[float, float, float], length: float) -> Solid:
-                shaft_len = length * (1.0 - head_len_factor)
-                head_len = length * head_len_factor
-                shaft = make_cylinder_rsolid(
-                    axis_radius,
-                    shaft_len,
-                    bottom_face_center=(0.0, 0.0, 0.0),
-                    axis=axis,
-                )
-                cone = make_cone_rsolid(
-                    head_radius,
-                    head_len,
-                    0.0,
-                    bottom_face_center=tuple(np.array(axis) * shaft_len),
-                    axis=axis,
-                )
-                merged = union_rsolid(shaft, cone)
-                return merged
-
-            axis_x = _axis_solid((1.0, 0.0, 0.0), axis_len_x)
-            axis_y = _axis_solid((0.0, 1.0, 0.0), axis_len_y)
-            axis_z = _axis_solid((0.0, 0.0, 1.0), axis_len_z)
-
-            axis_x._apply_tag("axis.x")
-            axis_y._apply_tag("axis.y")
-            axis_z._apply_tag("axis.z")
-            axis_solids = [axis_x, axis_y, axis_z]
-            axis_colors = {
-                "axis.x": np.array([1.0, 0.35, 0.35]),
-                "axis.y": np.array([0.35, 1.0, 0.55]),
-                "axis.z": np.array([0.45, 0.65, 1.0]),
-            }
-
-        render_solids = solids + axis_solids
-
-        for solid in render_solids:
-            bb = bounding_box(solid.wrapped)
-            if solid not in solids and fit_mode == "axes":
-                bbox_min = np.minimum(bbox_min, np.array([bb.xmin, bb.ymin, bb.zmin]))
-                bbox_max = np.maximum(bbox_max, np.array([bb.xmax, bb.ymax, bb.zmax]))
-
-            highlight_tag = next(
-                (tag for tag in highlight_list if solid._has_tag(tag)), None
-            )
-            axis_tag = next((tag for tag in axis_colors if solid._has_tag(tag)), None)
-            if highlight_tag and highlight_tag not in label_points:
-                label_points[highlight_tag] = (
-                    0.5 * (bb.xmin + bb.xmax),
-                    0.5 * (bb.ymin + bb.ymax),
-                    0.5 * (bb.zmin + bb.zmax),
-                )
-
-            for face in solid.get_faces():
-                face_tag = next(
-                    (tag for tag in highlight_list if face._has_tag(tag)), None
-                )
-                face_highlight_tag = face_tag or highlight_tag
-                if face_highlight_tag and face_tag and face_tag not in label_points:
-                    center = face.get_center()
-                    label_points[face_tag] = (center.x, center.y, center.z)
-
-                verts, tri_indices = tessellate_face(
-                    face.wrapped, mesh_tolerance, mesh_angular_tolerance
-                )
-                if not tri_indices:
-                    continue
-
-                vertices = np.array(verts, dtype=float)
-                tris = np.array(tri_indices, dtype=int)
-                tri_pts = vertices[tris]
-                normals = np.cross(
-                    tri_pts[:, 1] - tri_pts[:, 0], tri_pts[:, 2] - tri_pts[:, 0]
-                )
-                norms = np.linalg.norm(normals, axis=1)
-                normals = np.divide(
-                    normals,
-                    norms[:, None],
-                    out=np.zeros_like(normals),
-                    where=norms[:, None] != 0,
-                )
-
-                if axis_tag:
-                    color = axis_colors[axis_tag]
-                elif face_highlight_tag:
-                    color = highlight_color_map.get(face_highlight_tag, base_rgb)
-                else:
-                    color = base_rgb
-                colors = _shade(normals, color)
-                all_polys.extend(tri_pts.tolist())
-                all_colors.extend(colors.tolist())
-                triangles.extend(list(tri_pts))
-                tri_normals.extend(list(normals))
-
-        if not all_polys:
-            raise ValueError("未生成任何可渲染三角面")
-
-        fig = plt.figure(figsize=(image_size[0] / 100, image_size[1] / 100), dpi=100)
-        fig.patch.set_facecolor(background)
-        ax = fig.add_subplot(111, projection="3d")
-        ax.set_facecolor(background)
-        ax.set_axis_off()
-        fig.subplots_adjust(left=0.0, right=1.0, bottom=0.0, top=1.0)
-        ax.set_position((0.0, 0.0, 1.0, 1.0))
-
-        if wireframe_only:
-            face_colors = np.array(all_colors, dtype=float)
-            face_colors[:, 3] = 0.0
-            collection = Poly3DCollection(
-                all_polys, facecolors=face_colors, linewidths=0.0
-            )
-        else:
-            collection = Poly3DCollection(
-                all_polys, facecolors=all_colors, linewidths=0.0
-            )
-        collection.set_edgecolor((0, 0, 0, 0))
-        collection.set_zsort("average")
-        ax.add_collection3d(collection)
-
-        bbox_min = model_min
-        bbox_max = model_max
-        axis_origin = np.array([0.0, 0.0, 0.0])
-        if show_axes:
-            axis_points = np.array(
-                [
-                    axis_origin,
-                    axis_origin + np.array([axis_len_x, 0.0, 0.0]),
-                    axis_origin + np.array([0.0, axis_len_y, 0.0]),
-                    axis_origin + np.array([0.0, 0.0, axis_len_z]),
-                ]
-            )
-        else:
-            axis_points = np.array([axis_origin])
-
-        extent_min = model_min.copy()
-        extent_max = model_max.copy()
-        if fit_mode == "axes":
-            extent_min = np.minimum(extent_min, axis_points.min(axis=0))
-            extent_max = np.maximum(extent_max, axis_points.max(axis=0))
-        elif fit_mode == "model":
-            weight = float(axis_fit_weight)
-            if weight > 0 and show_axes:
-                weight = max(0.0, min(1.0, weight))
-                axis_min = axis_points.min(axis=0)
-                axis_max = axis_points.max(axis=0)
-                extent_min = np.where(
-                    axis_min < extent_min,
-                    extent_min + (axis_min - extent_min) * weight,
-                    extent_min,
-                )
-                extent_max = np.where(
-                    axis_max > extent_max,
-                    extent_max + (axis_max - extent_max) * weight,
-                    extent_max,
-                )
-        else:
-            raise ValueError("fit_mode 仅支持 'model' 或 'axes'")
-
-        span = float(np.max(extent_max - extent_min))
-        if span <= 0:
-            span = 1.0
-        if zoom <= 0:
-            raise ValueError("zoom 必须大于 0")
-        size = extent_max - extent_min
-        pad_ratio = 0.08
-        pad_min = span * 0.01
-        pad_vec = np.maximum(size * (pad_ratio / zoom), pad_min)
-        min_extent = extent_min - pad_vec
-        max_extent = extent_max + pad_vec
-        ax.set_xlim(min_extent[0], max_extent[0])
-        ax.set_ylim(min_extent[1], max_extent[1])
-        ax.set_zlim(min_extent[2], max_extent[2])
-        try:
-            ax.set_box_aspect(max_extent - min_extent)
-        except Exception:
-            pass
-
-        def _resolve_view(view_spec):
-            if isinstance(view_spec, str):
-                token = view_spec.strip().lower()
-                spans = bbox_max - bbox_min
-                if token == "auto":
-                    azim = 35.0 if spans[0] >= spans[1] else 125.0
-                    elev = 22.0 if spans[2] <= max(spans[0], spans[1]) else 35.0
-                    return elev, azim
-                if token in {"iso", "isometric"}:
-                    return 25.0, 35.0
-                if token == "top":
-                    return 90.0, 0.0
-                if token == "bottom":
-                    return -90.0, 0.0
-                if token == "front":
-                    return 0.0, -90.0
-                if token == "back":
-                    return 0.0, 90.0
-                if token == "left":
-                    return 0.0, 180.0
-                if token == "right":
-                    return 0.0, 0.0
-                if token == "front_right":
-                    return 20.0, -45.0
-                if token == "front_left":
-                    return 20.0, 135.0
-                if token == "rear_right":
-                    return 20.0, 45.0
-                if token == "rear_left":
-                    return 20.0, -135.0
-                raise ValueError(f"不支持的 view 预设: {view_spec}")
-
-            if isinstance(view_spec, (list, tuple)) and len(view_spec) == 2:
-                return float(view_spec[0]), float(view_spec[1])
-
-            raise ValueError("view 必须为 (elev, azim) 或预设名称")
-
-        elev, azim = _resolve_view(view)
-        ax.view_init(elev=elev, azim=azim)
-
-        if triangles:
-            elev_rad = math.radians(elev)
-            azim_rad = math.radians(azim)
-            view_dir = np.array(
-                [
-                    math.cos(elev_rad) * math.cos(azim_rad),
-                    math.cos(elev_rad) * math.sin(azim_rad),
-                    math.sin(elev_rad),
-                ],
-                dtype=float,
-            )
-            edge_quant = max(mesh_tolerance * 0.001, 1e-6)
-
-            def _quantize_point(point: np.ndarray) -> Tuple[float, float, float]:
-                snapped = np.round(point / edge_quant) * edge_quant
-                return (float(snapped[0]), float(snapped[1]), float(snapped[2]))
-
-            edge_to_tris: Dict[
-                Tuple[Tuple[float, float, float], Tuple[float, float, float]],
-                List[int],
-            ] = {}
-            edge_to_seg: Dict[
-                Tuple[Tuple[float, float, float], Tuple[float, float, float]],
-                Tuple[np.ndarray, np.ndarray],
-            ] = {}
-
-            for tri_idx, tri in enumerate(triangles):
-                for i0, i1 in ((0, 1), (1, 2), (2, 0)):
-                    p0 = tri[i0]
-                    p1 = tri[i1]
-                    q0 = _quantize_point(p0)
-                    q1 = _quantize_point(p1)
-                    key = (q0, q1) if q0 <= q1 else (q1, q0)
-                    edge_to_tris.setdefault(key, []).append(tri_idx)
-                    edge_to_seg.setdefault(key, (p0, p1))
-
-            hard_segments: List[np.ndarray] = []
-            silhouette_segments: List[np.ndarray] = []
-            angle_threshold = max(math.radians(40.0), mesh_angular_tolerance * 3.0)
-
-            for key, tri_indices in edge_to_tris.items():
-                seg = edge_to_seg[key]
-                if len(tri_indices) == 1:
-                    silhouette_segments.append(np.array(seg, dtype=float))
-                    continue
-
-                normals = [tri_normals[i] for i in tri_indices]
-                facing = [float(np.dot(n, view_dir)) for n in normals]
-                if min(facing) <= 0.0 <= max(facing):
-                    silhouette_segments.append(np.array(seg, dtype=float))
-
-                max_angle = 0.0
-                for i in range(len(normals)):
-                    for j in range(i + 1, len(normals)):
-                        dot = float(np.clip(np.dot(normals[i], normals[j]), -1.0, 1.0))
-                        angle = math.acos(dot)
-                        if angle > max_angle:
-                            max_angle = angle
-                if max_angle >= angle_threshold:
-                    hard_segments.append(np.array(seg, dtype=float))
-
-            if hard_segments:
-                hard_collection = Line3DCollection(
-                    hard_segments,
-                    colors=[(0.62, 0.64, 0.68, 0.75)],
-                    linewidths=0.6,
-                )
-                ax.add_collection3d(hard_collection)
-            if silhouette_segments:
-                sil_collection = Line3DCollection(
-                    silhouette_segments,
-                    colors=[(0.88, 0.89, 0.92, 0.9)],
-                    linewidths=1.1,
-                )
-                ax.add_collection3d(sil_collection)
-
-        def _project_to_fig(point: Tuple[float, float, float]) -> Tuple[float, float]:
-            x2, y2, _ = proj3d.proj_transform(
-                point[0], point[1], point[2], ax.get_proj()
-            )
-            display = ax.transData.transform((x2, y2))
-            return tuple(fig.transFigure.inverted().transform(display))
-
-        def _clamp(value: float, low: float, high: float) -> float:
-            return max(low, min(high, value))
-
-        if show_axes:
-            axis_label_offset = 0.008
-            axis_label_specs = (
-                ("X", axis_origin + np.array([axis_len_x, 0.0, 0.0]), "axis.x"),
-                ("Y", axis_origin + np.array([0.0, axis_len_y, 0.0]), "axis.y"),
-                ("Z", axis_origin + np.array([0.0, 0.0, axis_len_z]), "axis.z"),
-            )
-            for label, point, tag in axis_label_specs:
-                color = axis_colors.get(tag, np.array([1.0, 1.0, 1.0]))
-                xfig, yfig = _project_to_fig(
-                    (float(point[0]), float(point[1]), float(point[2]))
-                )
-                xfig = _clamp(xfig + axis_label_offset, 0.02, 0.98)
-                yfig = _clamp(yfig + axis_label_offset, 0.02, 0.98)
-                fig.text(
-                    xfig,
-                    yfig,
-                    label,
-                    color=color,
-                    fontsize=16,
-                    ha="left",
-                    va="center",
-                )
-
-        if show_legend and (highlight_list or show_axes):
-            y = 0.98
-            if highlight_list:
-                for tag in highlight_list:
-                    label = labels.get(tag, tag)
-                    color = highlight_color_map.get(tag, base_rgb)
-                    fig.text(
-                        0.02,
-                        y,
-                        f"■ {label}",
-                        color=color,
-                        fontsize=10,
-                        ha="left",
-                        va="top",
-                    )
-                    y -= 0.035
-
-            if show_axes:
-                for label, color in (
-                    ("+X", axis_colors.get("axis.x", np.array([1.0, 0.35, 0.35]))),
-                    ("+Y", axis_colors.get("axis.y", np.array([0.35, 1.0, 0.55]))),
-                    ("+Z", axis_colors.get("axis.z", np.array([0.45, 0.65, 1.0]))),
-                ):
-                    fig.text(
-                        0.02,
-                        y,
-                        f"■ {label}",
-                        color=color,
-                        fontsize=10,
-                        ha="left",
-                        va="top",
-                    )
-                    y -= 0.035
-
-        if show_callouts:
-            label_offset = 0.012
-            for idx, (tag, point) in enumerate(label_points.items()):
-                label = labels.get(tag, tag)
-                xfig, yfig = _project_to_fig(point)
-                xfig = _clamp(xfig + label_offset, 0.02, 0.98)
-                yfig = _clamp(yfig + label_offset, 0.02, 0.98)
-                yfig = _clamp(yfig - idx * 0.02, 0.02, 0.98)
-                fig.text(
-                    xfig,
-                    yfig,
-                    label,
-                    color="#ffd27a",
-                    fontsize=10,
-                    ha="left",
-                    va="center",
-                    bbox=dict(
-                        boxstyle="round,pad=0.2",
-                        fc="#111111",
-                        ec="#ffaa33",
-                        alpha=0.9,
-                    ),
-                )
-
-        plt.savefig(output_path, facecolor=background)
-        plt.close(fig)
-        return output_path
+        )
     except Exception as e:
         _wrap_public_api_error(
             operation="render_screenshot_rpath",
@@ -8894,7 +8585,9 @@ def loft_rsolid(
         result = (
             cast(Solid, tracked.shape)
             if tracked is not None
-            else Solid(make_loft_solid((profile.wrapped for profile in profiles), ruled=ruled))
+            else Solid(
+                make_loft_solid((profile.wrapped for profile in profiles), ruled=ruled)
+            )
         )
 
         all_metadata = {}

@@ -120,6 +120,46 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 "translator/freecad_translator/translator.py",
                 resolved_names,
             )
+            self.assertIn("inspect/brep/inspect.py", resolved_names)
+            self.assertIn("inspect/brep/queries.py", resolved_names)
+
+    def test_inspect_brep_api_docs_use_inspection_namespace(self):
+        class InspectionDocGenerator(auto_docs_gen.APIDocumentGenerator):
+            def _module_name_for(self, file_path):
+                return "inspect/brep/inspect.py"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            package_root = tmp_path / "simplecadapi"
+            source_file = package_root / "inspect/brep/inspect.py"
+            source_file.parent.mkdir(parents=True)
+            (package_root / "__init__.py").write_text(
+                "__all__ = ['inspect']\n",
+                encoding="utf-8",
+            )
+            source_file.write_text(
+                "def inspect_step_rsummary(path: str) -> dict:\n"
+                "    \"\"\"Inspect one STEP summary.\"\"\"\n"
+                "    return {}\n",
+                encoding="utf-8",
+            )
+            output_dir = tmp_path / "docs/api"
+            generator = InspectionDocGenerator(
+                source_files=[source_file],
+                output_dirs=[output_dir],
+                quiet=True,
+            )
+            generator.extract_apis()
+            generator.generate_markdown_docs()
+
+            readme = (output_dir / "README.md").read_text(encoding="utf-8")
+            page = (output_dir / "inspect_step_rsummary.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("## STEP/BREP Inspection", readme)
+            self.assertIn("`inspection namespace`", readme)
+            self.assertIn("from simplecadapi.inspect import brep", page)
+            self.assertIn("unavailable inside GraphSession/@model", page)
 
     def test_default_stdlib_source_files_include_standard_modules(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

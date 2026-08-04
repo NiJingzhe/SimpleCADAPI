@@ -8,7 +8,7 @@
 
 ```python
 class Wire(TaggedMixin):
-    """线类，包装OCP的Wire，添加标签功能"""
+    """Wire class that wraps OCP's Wire and adds tag functionality"""
 ```
 
 ## Inheritance
@@ -42,7 +42,7 @@ from simplecadapi import (
     make_polyline_rwire
 )
 
-# 通过 SimpleCAD 函数创建线
+# Create wires through the SimpleCAD functions
 rectangle = make_rectangle_rwire(width=5, height=3)
 circle = make_circle_rwire(center=(0, 0, 0), radius=2.0)
 polyline = make_polyline_rwire(points=[(0, 0, 0), (1, 1, 0), (2, 0, 0)])
@@ -73,9 +73,9 @@ from simplecadapi import make_rectangle_rwire
 rectangle = make_rectangle_rwire(width=4, height=3)
 edges = rectangle.get_edges()
 
-print(f"矩形由 {len(edges)} 条边组成")
+print(f"The rectangle consists of {len(edges)} edges")
 for i, edge in enumerate(edges):
-    print(f"边 {i}: 长度 {edge.get_length():.3f}")
+    print(f"Edge {i}: length {edge.get_length():.3f}")
 ```
 
 ### `is_closed()`
@@ -92,13 +92,13 @@ Check if the wire is closed.
 ```python
 from simplecadapi import make_rectangle_rwire, make_polyline_rwire
 
-# 闭合线
+# Closed wire
 rectangle = make_rectangle_rwire(width=5, height=3)
-print(f"矩形是否闭合: {rectangle.is_closed()}")  # True
+print(f"Rectangle is closed: {rectangle.is_closed()}")  # True
 
-# 开放线
+# Open wire
 polyline = make_polyline_rwire(points=[(0, 0, 0), (1, 1, 0), (2, 0, 0)])
-print(f"折线是否闭合: {polyline.is_closed()}")  # False
+print(f"Polyline is closed: {polyline.is_closed()}")  # False
 ```
 
 ### Tagging and Metadata
@@ -117,38 +117,38 @@ from simplecadapi import (
     make_spline_rwire
 )
 
-# 矩形线
+# Rectangle wire
 rectangle = make_rectangle_rwire(width=10, height=6)
 apply_tag(rectangle, "rectangle")
 apply_tag(rectangle, "closed")
 
-# 圆形线
+# Circle wire
 circle = make_circle_rwire(center=(0, 0, 0), radius=3.0)
 apply_tag(circle, "circle")
 apply_tag(circle, "closed")
 
-# 折线
+# Polyline
 polyline = make_polyline_rwire(points=[
     (0, 0, 0), (2, 0, 0), (2, 2, 0), (1, 3, 0), (0, 2, 0)
 ])
 apply_tag(polyline, "polyline")
 apply_tag(polyline, "open")
 
-# 样条线：control_points 是 B-spline poles，不是采样点
+# Spline wire: control_points are B-spline poles, not sample points
 spline = make_spline_rwire(
     control_points=[(0, 0, 0), (1, 2, 0), (3, 2, 0), (4, 0, 0)]
 )
 apply_tag(spline, "spline")
 apply_tag(spline, "smooth")
 
-# 分析线的属性
+# Analyze wire properties
 wires = [rectangle, circle, polyline, spline]
 for wire in wires:
     edges = wire.get_edges()
     closed = wire.is_closed()
     tags = list_tags(wire)
     
-    print(f"线类型: {tags}, 边数: {len(edges)}, 闭合: {closed}")
+    print(f"Wire type: {tags}, edge count: {len(edges)}, closed: {closed}")
 ```
 
 ### Creating Complex Contours
@@ -157,30 +157,30 @@ for wire in wires:
 from simplecadapi import make_polyline_rwire
 
 def create_complex_profile():
-    """创建复杂的轮廓线"""
+    """Create a complex contour wire"""
     
-    # 定义轮廓点
+    # Define contour points
     points = [
-        (0, 0, 0),      # 起点
-        (10, 0, 0),     # 底边
-        (10, 2, 0),     # 右下
-        (8, 2, 0),      # 内凹1
+        (0, 0, 0),      # start point
+        (10, 0, 0),     # bottom edge
+        (10, 2, 0),     # bottom right
+        (8, 2, 0),      # inner notch 1
         (8, 4, 0),      # 
-        (10, 4, 0),     # 右上
-        (10, 6, 0),     # 顶边右
-        (0, 6, 0),      # 顶边左
-        (0, 4, 0),      # 左上
-        (2, 4, 0),      # 内凹2
+        (10, 4, 0),     # top right
+        (10, 6, 0),     # right of top edge
+        (0, 6, 0),      # left of top edge
+        (0, 4, 0),      # top left
+        (2, 4, 0),      # inner notch 2
         (2, 2, 0),      # 
-        (0, 2, 0),      # 左下
-        (0, 0, 0)       # 闭合回起点
+        (0, 2, 0),      # bottom left
+        (0, 0, 0)       # close back to start
     ]
     
     profile = make_polyline_rwire(points=points)
     apply_tag(profile, "complex_profile")
     apply_tag(profile, "symmetric")
     
-    # 添加几何信息
+    # Add geometric info
     edges = profile.get_edges()
     total_length = sum(edge.get_length() for edge in edges)
     
@@ -191,9 +191,9 @@ def create_complex_profile():
     return profile
 
 profile = create_complex_profile()
-print(f"复杂轮廓: {list_tags(profile)}")
-print(f"总长度: {profile.get_metadata('total_length'):.3f}")
-print(f"边数: {profile.get_metadata('edge_count')}")
+print(f"Complex profile: {list_tags(profile)}")
+print(f"Total length: {profile.get_metadata('total_length'):.3f}")
+print(f"Edge count: {profile.get_metadata('edge_count')}")
 ```
 
 ### Wire Analysis and Processing
@@ -202,29 +202,29 @@ print(f"边数: {profile.get_metadata('edge_count')}")
 from simplecadapi import make_rectangle_rwire, make_circle_rwire
 
 def analyze_wire_properties():
-    """分析线的属性"""
+    """Analyze wire properties"""
     
-    # 创建不同的线
+    # Create different wires
     rectangle = make_rectangle_rwire(width=6, height=4)
     circle = make_circle_rwire(center=(0, 0, 0), radius=2.0)
     
     wires = [rectangle, circle]
     
     for i, wire in enumerate(wires):
-        # 基本属性
+        # Basic properties
         edges = wire.get_edges()
         is_closed = wire.is_closed()
         
-        # 计算总长度
+        # Compute total length
         total_length = sum(edge.get_length() for edge in edges)
         
-        # 分析边
+        # Analyze edges
         edge_lengths = [edge.get_length() for edge in edges]
         min_edge_length = min(edge_lengths)
         max_edge_length = max(edge_lengths)
         avg_edge_length = sum(edge_lengths) / len(edge_lengths)
         
-        # 添加标签和元数据
+        # Add tags and metadata
         apply_tag(wire, f"wire_{i}")
         apply_tag(wire, "analyzed")
         
@@ -239,19 +239,19 @@ def analyze_wire_properties():
         wire.set_metadata("max_edge_length", max_edge_length)
         wire.set_metadata("avg_edge_length", avg_edge_length)
         
-        # 分类边
+        # Classify edges
         for j, edge in enumerate(edges):
             apply_tag(edge, f"wire_{i}_edge_{j}")
             edge.set_metadata("parent_wire", i)
             edge.set_metadata("position_in_wire", j)
         
-        print(f"线 {i}:")
-        print(f"  总长度: {total_length:.3f}")
-        print(f"  边数: {len(edges)}")
-        print(f"  闭合: {is_closed}")
-        print(f"  最短边: {min_edge_length:.3f}")
-        print(f"  最长边: {max_edge_length:.3f}")
-        print(f"  平均边长: {avg_edge_length:.3f}")
+        print(f"Wire {i}:")
+        print(f"  Total length: {total_length:.3f}")
+        print(f"  Edge count: {len(edges)}")
+        print(f"  Closed: {is_closed}")
+        print(f"  Shortest edge: {min_edge_length:.3f}")
+        print(f"  Longest edge: {max_edge_length:.3f}")
+        print(f"  Average edge length: {avg_edge_length:.3f}")
         print()
 
 analyze_wire_properties()
@@ -263,29 +263,29 @@ analyze_wire_properties()
 from simplecadapi import make_rectangle_rwire, translate_shape, rotate_shape
 
 def transform_wires():
-    """变换线的操作"""
+    """Transform wires"""
     
-    # 创建基础矩形
+    # Create the base rectangle
     base_rect = make_rectangle_rwire(width=4, height=2)
     apply_tag(base_rect, "base")
     apply_tag(base_rect, "original")
     
-    # 创建变换后的线
+    # Create transformed wires
     translated_rect = translate_shape(base_rect, offset=(5, 0, 0))
     apply_tag(translated_rect, "translated")
     
     rotated_rect = rotate_shape(base_rect, axis=(0, 0, 1), angle=45)
     apply_tag(rotated_rect, "rotated")
     
-    # 收集所有线
+    # Collect all wires
     all_wires = [base_rect, translated_rect, rotated_rect]
     
-    # 分析变换结果
+    # Analyze transform results
     for wire in all_wires:
         edges = wire.get_edges()
         total_length = sum(edge.get_length() for edge in edges)
         
-        # 计算边界框（简化版）
+        # Compute bounding box (simplified)
         all_coords = []
         for edge in edges:
             start_coords = edge.get_start_vertex().get_coordinates()
@@ -305,10 +305,10 @@ def transform_wires():
         
         wire.set_metadata("total_length", total_length)
         
-        print(f"线标签: {list_tags(wire)}")
-        print(f"  总长度: {total_length:.3f}")
+        print(f"Wire tags: {list_tags(wire)}")
+        print(f"  Total length: {total_length:.3f}")
         if wire.get_metadata("bbox_min"):
-            print(f"  边界框: {wire.get_metadata('bbox_min')} 到 {wire.get_metadata('bbox_max')}")
+            print(f"  Bounding box: {wire.get_metadata('bbox_min')} to {wire.get_metadata('bbox_max')}")
         print()
 
 transform_wires()
@@ -320,12 +320,12 @@ transform_wires()
 from simplecadapi import make_segment_rwire
 
 def create_wire_sequence():
-    """创建线的序列"""
+    """Create a wire sequence"""
     
-    # 创建连续的线段
+    # Create consecutive segments
     segments = []
     
-    # 定义路径点
+    # Define waypoints
     waypoints = [
         (0, 0, 0),
         (2, 0, 0),
@@ -337,7 +337,7 @@ def create_wire_sequence():
         (6, 0, 0)
     ]
     
-    # 创建连续的线段
+    # Create consecutive segments
     for i in range(len(waypoints) - 1):
         start = waypoints[i]
         end = waypoints[i + 1]
@@ -346,7 +346,7 @@ def create_wire_sequence():
         apply_tag(segment, f"segment_{i}")
         apply_tag(segment, "path_segment")
         
-        # 添加方向信息
+        # Add direction info
         direction = (
             end[0] - start[0],
             end[1] - start[1],
@@ -370,18 +370,18 @@ def create_wire_sequence():
         
         segments.append(segment)
     
-    # 分析序列
+    # Analyze the sequence
     total_path_length = sum(seg.get_edges(0).get_length() for seg in segments)
     
-    print(f"路径段数: {len(segments)}")
-    print(f"总路径长度: {total_path_length:.3f}")
+    print(f"Path segment count: {len(segments)}")
+    print(f"Total path length: {total_path_length:.3f}")
     
-    # 按方向分类
+    # Classify by direction
     eastward = [s for s in segments if "eastward" in list_tags(s)]
     northward = [s for s in segments if "northward" in list_tags(s)]
     
-    print(f"向东段数: {len(eastward)}")
-    print(f"向北段数: {len(northward)}")
+    print(f"Eastward segments: {len(eastward)}")
+    print(f"Northward segments: {len(northward)}")
     
     return segments
 

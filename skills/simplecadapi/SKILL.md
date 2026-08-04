@@ -29,7 +29,7 @@ metadata:
   - `<skill_root>/references/SDK_OVERVIEW.md`
   - `<skill_root>/references/SDK_SURFACES.md`
   - `<skill_root>/references/MODELING_WORKFLOWS.md`
-  - `<skill_root>/references/inverse_engineer/brep-reverse-engineering.md`
+  - `<skill_root>/references/inspect/brep-reverse-engineering.md`
 
 ## MUST Requirements
 1. Read `SKILL.md`, `references/docs/api/README.md`, and `references/docs/stdlib/README.md` before choosing APIs.
@@ -40,7 +40,7 @@ metadata:
 6. When calling any SimpleCAD public API or standard-library function, use keyword arguments for every documented parameter; do not use positional arguments.
 7. Use one `@model` entry point for replayable tasks, `@requires_session` for child builders, `capture_result(...)` for explicit outputs, and the returned `ModelResult` for model/session JSON and replay.
 8. Use geometry APIs for integrated parts: profiles, features, booleans, transforms, tagging, QL inspection, serialization, and exports.
-9. Use tags through `apply_tag(shape=..., tag=...)`, `apply_tag_rselection(scope=..., targets=..., tag=...)`, `list_tags(shape=..., scope=...)`, and `explain_tag(shape=..., tag=..., scope=...)`; do not call shape member tag mutators.
+9. Use tags consistently through `apply_tag(shape=..., tag=...)` and `list_tags(shape=...)`; do not call shape member tag mutators.
 10. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
 11. For inspection/debugging, query geometry with QL and print only the queried facts you need; do not print whole solids or full model objects.
 12. Boolean operations return a single `Solid`.
@@ -49,20 +49,22 @@ metadata:
 15. If union cannot produce exactly one merged solid, it fails explicitly; do not silently pick one piece.
 16. If a single merged solid is required and union fails, slightly adjust part placement so intended bodies overlap/embed, then recompute.
 17. If a task depends on model replay or interchange, prefer `ModelResult.model_json` or `export_model_json()` output over hand-written payloads.
-18. For STEP/BREP reverse engineering, geometry reconstruction, topology matching, feature-history inference, or target/candidate CAD comparison, read `references/inverse_engineer/brep-reverse-engineering.md` completely before inspecting or modeling.
-19. In BREP reverse engineering, geometry equality and topology equality are hard requirements. Use engineering prior only to choose among processes that satisfy both; do not accept visual, volume, area, or topology-count similarity as completion.
+18. For STEP/BREP inspection or target/candidate comparison, read `references/inspect/brep-reverse-engineering.md` completely.
+19. Use `simplecadapi.inspect.brep` only outside `GraphSession` and `@model`; inspection functions are diagnostic tools, not modeling operations.
+20. Reverse engineering is case-by-case: the built-in inspection primitives are tools, not a pipeline — write ad hoc inspection code for the specific model when built-ins do not answer the question. Acceptance hierarchy: BREP topology identity is the best endpoint (complete reverse engineering); identical structure with minor float-level parameter drift from export is acceptable; a visually-close but structurally different result is a valid stop only when no better feature operation order/combination exists or the SDK lacks the required operation type.
 
-## Task Router
-- **Standard mechanical part**: read `references/docs/stdlib/README.md`, then the exact stdlib API page.
-- **General integrated modeling**: read `references/MODELING_WORKFLOWS.md` and each exact API page used.
-- **STEP/BREP reverse engineering or exact target comparison**: read `references/inverse_engineer/brep-reverse-engineering.md`; use `simplecadapi.inverse_engineer.brep` for inspection, strict comparison, views, and slice XOR diagnostics.
-- **Sketch and constraints**: read the relevant sketch API pages and `references/docs/core/declarative_constraints.md` when needed.
-- **Model JSON, graph replay, or translation**: read the graph/serialization API pages and the relevant translator documentation.
+## Coding Standard (MUST)
+This file/parameter standard applies to every modeling task. It is mandatory; deviation requires explicit user approval.
+
+1. One part per file. Each distinct physical part is authored in its own script/module file. Never bundle multiple parts into one file and never split one part across files.
+2. One assembly file. The full assembly is composed in exactly one file, which imports the part modules and positions them. A second top-level assembly file is not allowed.
+3. Parameters live where they are used. Every parameter is declared in the file that directly consumes it: part parameters in the part file, assembly parameters in the assembly file. No central shared-parameters/dimensions module consumed across files.
+4. Exposed tunable parameters MUST be Var declarations. Any parameter intended to be exposed or tunable MUST be declared with a Var in the file that uses it: `from simplecadapi import var` / `Var(name, default, ...)` (optionally with `unit`, `tolerance`). Bare numeric literals and magic numbers are NOT tunable parameters: if a value must be adjustable, declare it with `var()`/`Var`; otherwise keep it a plain constant in the file that uses it.
 
 ## Standard Parts Library
 - SimpleCAD includes a standard library for parameterized mechanical parts.
 - When the user needs a standard part and does not require complex custom geometry changes, use a standard-library function first.
-- Current package-level standard-library surfaces include `scad.std.gear` for gears and racks, `scad.std.bearing` for ball bearing assemblies, `scad.std.chain` for roller-chain sprockets, and `scad.std.fastener` for bolts and nuts.
+- Current package-level standard-library surfaces include `scad.std.gear` for involute gears, internal ring gears, racks, and cycloidal discs, plus `scad.std.bearing` for ball bearing assemblies.
 - Read `references/docs/stdlib/README.md` to discover standard-library functions.
 - Read `references/docs/stdlib/<function_name>.md` before calling a standard-library function.
 - Standard-library functions return normal SimpleCAD shapes or product assemblies that can be transformed, tagged, assembled, exported, and used with graph/model JSON workflows.
@@ -83,28 +85,19 @@ metadata:
 - Treat model JSON as the interchange boundary. Prefer `ModelResult.model_json` and `ModelResult.replay()` for top-level models; use `export_model_json(session=...)` for lower-level direct sessions and `replay_model_json(json_str=...)` for standalone payloads.
 - Use QL for precise grounding. Query faces, edges, centers, normals, areas, lengths, curve types, and tags; print only the facts needed to validate the current step.
 - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` when an indexed topology pick is intentional; these picks are preserved as geo select nodes in replayable graph workflows.
-- Use tags for topology identity, semantic intent, and selection anchors, such as `housing.face.top`, `role.mounting_surface`, `anchor.datum.primary`, or `group.fasteners`.
+- Use tags for semantic intent and selection anchors, such as `role.mounting_surface`, `anchor.datum.primary`, `face.top`, or `group.fasteners`.
 - Keep numeric and geometric facts in metadata or graph payloads, not in tags.
 - When a QL-selected face or edge is used by a later feature, expect the graph/model workflow to preserve that selection as a stable geo select node.
 - For FreeCAD translation, prefer canonical model JSON generated from a `GraphSession`; selected profiles and detail-feature selections should come from the graph rather than ad hoc object lookup.
 
 ## Tagging Mental Model
 - Public tag attachment is `apply_tag(shape=..., tag=...)`.
-- Multi-entity or explicitly propagated attachment is `apply_tag_rselection(scope=..., targets=..., tag=..., topology_propagation=..., lineage_policy=...)`; it returns an independent semantic shape view.
-- Public tag inspection is `list_tags(shape=..., scope=...)`, which returns a stable sorted list. Use `explain_tag(...)` when producer and evidence matter.
+- Public tag inspection is `list_tags(shape=...)`, which returns a stable sorted list.
 - Tags are normalized lowercase dot-separated semantic tokens, for example `role.mounting_surface`, `anchor.datum.primary`, `group.fasteners`, `face.top`, or `solid.boolean.cut`.
 - Do not encode numeric dimensions or descriptive geometry payloads in tags; store them in metadata such as `shape.get_metadata("geo")` or `shape.set_metadata(...)`.
-- Direct user assignments default to local topology propagation regardless of tag text. Constructor-generated topology-identity Face tags may use downward propagation so boundary Edges expose the Face tag; use `TopologyPropagation.DOWNWARD` explicitly for the same behavior in `apply_tag_rselection(...)`.
-- `effective` includes local and inherited bindings but excludes lineage. Use `scope=TagScope.LINEAGE` only when complete topology-history evidence is available.
-- Operation events, source roles, and feature output roles are typed `metadata["track"]`, not flat tags. Query them with `ql.operation_event(...)`, `ql.origin_role(...)`, and `ql.output_role(...)`; unknown correspondence remains partial/unknown.
-- `extrude_rsolid`, `revolve_rsolid`, `fillet_rsolid`, `chamfer_rsolid`, `shell_rsolid`, `loft_rsolid`, `sweep_rsolid`, and `twisted_sweep_rsolid` accept strict role-specific tag arguments. Requested roles must have complete kernel evidence and satisfy their documented cardinality or the whole call fails.
-- Role-specific tag arguments and `result_tag` lower to canonical `apply_tag_rselection` nodes in a `GraphSession`; they are semantic assignments, not geometry parameters. There is one public argument per target role; do not use a generic role-to-tag mapping.
-- Topology identity and user semantics use the same `TagBinding`, `list_tags(...)`, `explain_tag(...)`, and `ql.tag(...)` surfaces. One topology object may carry multiple tags for different purposes.
-- Geometry constructors and features use `tag_prefix` to create topology-identity tags such as `housing.face.top`; profile APIs use `edge_tag` or `edge_tags` for local Edge tag segments. These bindings carry `topology_name` evidence and project only across exact kernel-proven correspondence.
-- Role-specific `*_tag` arguments and `result_tag` create tags with operation-role or result evidence. Tag text alone does not determine evidence or projection policy.
-- Query proven source projection with `ql.source_binding(...)` or `ql.source_topology(...)`. These predicates inspect canonical local binding evidence, never tag text or geometric similarity.
-- When a tagged profile entity must feed a later feature, pass the semantic view returned by `apply_tag_rselection(...)` into that feature. Tagging a detached branch and then using the original profile does not create hidden graph coupling.
-- Prefer scoped QL tag predicates (`ql.tag("role.*", scope="effective")`, `ql.select(...).where(...)`) for inspection and grounding.
+- `apply_tag(...)` does not expose propagation controls. The SDK propagates role/anchor/group-style semantic tags downward and keeps topology-specific tags such as `face.*`, `edge.*`, `wire.*`, `vertex.*`, and `solid.*` local.
+- Primitives, face auto-tagging, features, booleans, transforms, and tracking may add normalized topology/operation tags automatically.
+- Prefer QL tag predicates (`ql.tag("role.*")`, `ql.select(...).where(...)`) for inspection and grounding.
 
 ## SDK Focus
 - This skill is intended to describe the public CAD Python SDK surface.
@@ -114,6 +107,7 @@ metadata:
 - Use `references/SDK_OVERVIEW.md` for the package-level map.
 - Use `references/SDK_SURFACES.md` for the main public surfaces.
 - Use `references/MODELING_WORKFLOWS.md` for graph/model-oriented patterns.
+- Use `references/inspect/brep-reverse-engineering.md` for case-specific STEP/BREP evidence gathering and acceptance.
 
 ## Example SDK usage
 
@@ -144,8 +138,8 @@ Use the graph/model JSON workflow when the task needs reproducibility, interchan
 - `references/SDK_OVERVIEW.md`
 - `references/SDK_SURFACES.md`
 - `references/MODELING_WORKFLOWS.md`
+- `references/inspect/brep-reverse-engineering.md`
 - `references/SDK_PACKAGE_SUMMARY.md`
 - `references/docs/api/`
 - `references/docs/stdlib/`
 - `references/docs/core/`
-- `references/inverse_engineer/brep-reverse-engineering.md`

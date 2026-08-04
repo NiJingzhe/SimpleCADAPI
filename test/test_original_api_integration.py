@@ -1,5 +1,7 @@
 """Integration tests proving tracking/graphing is seamless in original APIs."""
 
+from pathlib import Path
+
 import unittest
 
 import simplecadapi as scad
@@ -49,6 +51,30 @@ class TestOriginalBooleanApiIntegration(unittest.TestCase):
         tagged = Q.select(faces).where(Q.op("union")).all()
         self.assertGreaterEqual(len(tagged), 0)
         self.assertEqual(result.get_metadata("track")["op"], "make_union_rsolid")
+
+
+class TestScreenshotRenderingIntegration(unittest.TestCase):
+    def test_render_screenshot_uses_vtk_with_tags_and_annotations(self):
+        box = scad.make_box_rsolid(4.0, 3.0, 2.0)
+        scad.apply_tag(box, "role.body")
+        output = Path(self._testMethodName + ".png")
+        try:
+            result = scad.render_screenshot_rpath(
+                box,
+                str(output),
+                highlight_tags=["role.body"],
+                tag_labels={"role.body": "Body"},
+                image_size=(320, 240),
+                view="iso",
+                show_axes=True,
+                show_legend=True,
+                show_callouts=True,
+            )
+            self.assertEqual(result, str(output))
+            self.assertTrue(output.is_file())
+            self.assertGreater(output.stat().st_size, 0)
+        finally:
+            output.unlink(missing_ok=True)
 
 
 class TestOriginalTransformApiIntegration(unittest.TestCase):

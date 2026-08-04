@@ -8,7 +8,7 @@
 
 ```python
 class Face(TaggedMixin):
-    """面类，包装OCP的Face，添加标签功能"""
+    """Face class that wraps OCP's Face and adds tag functionality"""
 ```
 
 ## Inheritance
@@ -43,11 +43,11 @@ from simplecadapi import (
     make_rectangle_rwire
 )
 
-# 通过 SimpleCAD 函数创建面
+# Create faces through the SimpleCAD functions
 rectangle = make_rectangle_rface(width=5, height=3)
 circle = make_circle_rface(center=(0, 0, 0), radius=2.0)
 
-# 从线创建面
+# Create a face from a wire
 wire = make_rectangle_rwire(width=4, height=4)
 face_from_wire = make_face_from_wire_rface(wire)
 ```
@@ -75,16 +75,16 @@ Get the area of the face.
 from simplecadapi import make_rectangle_rface, make_circle_rface
 import math
 
-# 矩形面
+# Rectangle face
 rectangle = make_rectangle_rface(width=5, height=3)
 rect_area = rectangle.get_area()
-print(f"矩形面积: {rect_area}")  # 15.0
+print(f"Rectangle area: {rect_area}")  # 15.0
 
-# 圆形面
+# Circle face
 circle = make_circle_rface(center=(0, 0, 0), radius=2.0)
 circle_area = circle.get_area()
 expected_area = math.pi * 2.0 * 2.0
-print(f"圆形面积: {circle_area:.3f}, 期望: {expected_area:.3f}")
+print(f"Circle area: {circle_area:.3f}, expected: {expected_area:.3f}")
 ```
 
 ### `get_normal_at(u, v)`
@@ -107,7 +107,7 @@ from simplecadapi import make_rectangle_rface
 
 rectangle = make_rectangle_rface(width=5, height=3)
 normal = rectangle.get_normal_at()
-print(f"法向量: ({normal.x:.3f}, {normal.y:.3f}, {normal.z:.3f})")
+print(f"Normal vector: ({normal.x:.3f}, {normal.y:.3f}, {normal.z:.3f})")
 ```
 
 ### `get_outer_wire()`
@@ -127,7 +127,7 @@ from simplecadapi import make_rectangle_rface
 rectangle = make_rectangle_rface(width=5, height=3)
 outer_wire = rectangle.get_outer_wire()
 edges = outer_wire.get_edges()
-print(f"外边界由 {len(edges)} 条边组成")
+print(f"The outer boundary consists of {len(edges)} edges")
 ```
 
 ### Tagging and Metadata
@@ -146,17 +146,17 @@ from simplecadapi import (
     make_polyline_rwire
 )
 
-# 矩形面
+# Rectangle face
 rectangle = make_rectangle_rface(width=10, height=6)
 apply_tag(rectangle, "rectangle")
 apply_tag(rectangle, "quadrilateral")
 
-# 圆形面
+# Circle face
 circle = make_circle_rface(center=(0, 0, 0), radius=3.0)
 apply_tag(circle, "circle")
 apply_tag(circle, "curved")
 
-# 复杂多边形面
+# Complex polygon face
 points = [
     (0, 0, 0), (4, 0, 0), (4, 3, 0), (2, 5, 0), (0, 3, 0), (0, 0, 0)
 ]
@@ -165,7 +165,7 @@ polygon = make_face_from_wire_rface(polygon_wire)
 apply_tag(polygon, "polygon")
 apply_tag(polygon, "complex")
 
-# 分析面的属性
+# Analyze face properties
 faces = [rectangle, circle, polygon]
 for face in faces:
     area = face.get_area()
@@ -174,10 +174,10 @@ for face in faces:
     edges = outer_wire.get_edges()
     tags = list_tags(face)
     
-    print(f"面类型: {tags}")
-    print(f"  面积: {area:.3f}")
-    print(f"  法向量: ({normal.x:.3f}, {normal.y:.3f}, {normal.z:.3f})")
-    print(f"  边数: {len(edges)}")
+    print(f"Face type: {tags}")
+    print(f"  Area: {area:.3f}")
+    print(f"  Normal: ({normal.x:.3f}, {normal.y:.3f}, {normal.z:.3f})")
+    print(f"  Edge count: {len(edges)}")
     print()
 ```
 
@@ -188,32 +188,32 @@ from simplecadapi import make_rectangle_rface, make_circle_rface
 import math
 
 def analyze_face_geometry():
-    """分析面的几何属性"""
+    """Analyze face geometric properties"""
     
-    # 创建不同尺寸的矩形
+    # Create rectangles of different sizes
     rectangles = [
         make_rectangle_rface(width=2, height=3),
         make_rectangle_rface(width=4, height=4),
         make_rectangle_rface(width=6, height=2)
     ]
     
-    # 创建不同半径的圆
+    # Create circles of different radii
     circles = [
         make_circle_rface(center=(0, 0, 0), radius=1.0),
         make_circle_rface(center=(0, 0, 0), radius=2.0),
         make_circle_rface(center=(0, 0, 0), radius=3.0)
     ]
     
-    # 分析矩形
+    # Analyze rectangles
     for i, rect in enumerate(rectangles):
         area = rect.get_area()
         outer_wire = rect.get_outer_wire()
         edges = outer_wire.get_edges()
         
-        # 计算周长
+        # Compute perimeter
         perimeter = sum(edge.get_length() for edge in edges)
         
-        # 计算长宽比
+        # Compute aspect ratio
         lengths = [edge.get_length() for edge in edges]
         lengths.sort()
         aspect_ratio = lengths[1] / lengths[0] if lengths[0] > 0 else 1.0
@@ -228,21 +228,21 @@ def analyze_face_geometry():
         elif aspect_ratio > 2.0:
             apply_tag(rect, "elongated")
         
-        print(f"矩形 {i}: 面积={area:.3f}, 周长={perimeter:.3f}, 长宽比={aspect_ratio:.3f}")
+        print(f"Rectangle {i}: area={area:.3f}, perimeter={perimeter:.3f}, aspect ratio={aspect_ratio:.3f}")
     
-    # 分析圆形
+    # Analyze circles
     for i, circle in enumerate(circles):
         area = circle.get_area()
         outer_wire = circle.get_outer_wire()
         edges = outer_wire.get_edges()
         
-        # 计算周长（圆周长）
+        # Compute circumference
         perimeter = sum(edge.get_length() for edge in edges)
         
-        # 从面积计算半径
+        # Compute radius from area
         radius_from_area = math.sqrt(area / math.pi)
         
-        # 从周长计算半径
+        # Compute radius from perimeter
         radius_from_perimeter = perimeter / (2 * math.pi)
         
         apply_tag(circle, f"circle_{i}")
@@ -258,7 +258,7 @@ def analyze_face_geometry():
         else:
             apply_tag(circle, "medium")
         
-        print(f"圆形 {i}: 面积={area:.3f}, 周长={perimeter:.3f}, 半径={radius_from_area:.3f}")
+        print(f"Circle {i}: area={area:.3f}, perimeter={perimeter:.3f}, radius={radius_from_area:.3f}")
 
 analyze_face_geometry()
 ```
@@ -275,24 +275,24 @@ from simplecadapi import (
 )
 
 def create_face_with_holes():
-    """创建带孔的面（概念示例）"""
+    """Create a face with holes (conceptual example)"""
     
-    # 创建外边界
+    # Create the outer boundary
     outer_boundary = make_rectangle_rwire(width=10, height=8)
     
-    # 创建内边界（孔）
+    # Create inner boundaries (holes)
     hole1 = make_circle_rwire(center=(3, 2, 0), radius=1.0)
     hole2 = make_circle_rwire(center=(7, 6, 0), radius=1.5)
     
-    # 注意：SimpleCAD 当前版本可能不直接支持多边界面
-    # 这里展示概念和标签使用
+    # Note: the current SimpleCAD version may not directly support
+    # multi-boundary faces; this example shows the concept and tag usage.
     
-    # 主面
+    # Main face
     main_face = make_rectangle_rface(width=10, height=8)
     apply_tag(main_face, "main_surface")
     apply_tag(main_face, "with_holes")
     
-    # 孔面（用于布尔运算）
+    # Hole faces (for boolean operations)
     hole_face1 = make_circle_rface(center=(3, 2, 0), radius=1.0)
     apply_tag(hole_face1, "hole")
     apply_tag(hole_face1, "circular")
@@ -307,7 +307,7 @@ def create_face_with_holes():
     hole_face2.set_metadata("center", (7, 6, 0))
     hole_face2.set_metadata("radius", 1.5)
     
-    # 计算有效面积
+    # Compute effective area
     main_area = main_face.get_area()
     hole1_area = hole_face1.get_area()
     hole2_area = hole_face2.get_area()
@@ -317,9 +317,9 @@ def create_face_with_holes():
     main_face.set_metadata("hole_area", hole1_area + hole2_area)
     main_face.set_metadata("effective_area", effective_area)
     
-    print(f"主面面积: {main_area:.3f}")
-    print(f"孔面积总和: {hole1_area + hole2_area:.3f}")
-    print(f"有效面积: {effective_area:.3f}")
+    print(f"Main face area: {main_area:.3f}")
+    print(f"Total hole area: {hole1_area + hole2_area:.3f}")
+    print(f"Effective area: {effective_area:.3f}")
     
     return main_face, [hole_face1, hole_face2]
 
@@ -336,14 +336,14 @@ from simplecadapi import (
 )
 
 def transform_faces():
-    """变换面的操作"""
+    """Transform faces"""
     
-    # 创建基础面
+    # Create the base face
     base_face = make_rectangle_rface(width=4, height=3)
     apply_tag(base_face, "base")
     apply_tag(base_face, "original")
     
-    # 应用变换
+    # Apply transforms
     translated_face = translate_shape(base_face, offset=(6, 0, 0))
     apply_tag(translated_face, "translated")
     
@@ -353,17 +353,17 @@ def transform_faces():
     elevated_face = translate_shape(base_face, offset=(0, 0, 2))
     apply_tag(elevated_face, "elevated")
     
-    # 收集所有面
+    # Collect all faces
     all_faces = [base_face, translated_face, rotated_face, elevated_face]
     
-    # 分析变换结果
+    # Analyze transform results
     for face in all_faces:
         area = face.get_area()
         normal = face.get_normal_at()
         outer_wire = face.get_outer_wire()
         edges = outer_wire.get_edges()
         
-        # 计算边界框
+        # Compute bounding box
         all_coords = []
         for edge in edges:
             start_coords = edge.get_start_vertex().get_coordinates()
@@ -384,11 +384,11 @@ def transform_faces():
         face.set_metadata("area", area)
         face.set_metadata("normal", (normal.x, normal.y, normal.z))
         
-        print(f"面标签: {list_tags(face)}")
-        print(f"  面积: {area:.3f}")
-        print(f"  法向量: ({normal.x:.3f}, {normal.y:.3f}, {normal.z:.3f})")
+        print(f"Face tags: {list_tags(face)}")
+        print(f"  Area: {area:.3f}")
+        print(f"  Normal: ({normal.x:.3f}, {normal.y:.3f}, {normal.z:.3f})")
         if face.get_metadata("bbox_min"):
-            print(f"  边界框: {face.get_metadata('bbox_min')} 到 {face.get_metadata('bbox_max')}")
+            print(f"  Bounding box: {face.get_metadata('bbox_min')} to {face.get_metadata('bbox_max')}")
         print()
 
 transform_faces()
@@ -400,33 +400,33 @@ transform_faces()
 from simplecadapi import make_rectangle_rface, make_circle_rface
 
 def classify_faces():
-    """分类和筛选面"""
+    """Classify and filter faces"""
     
-    # 创建不同类型的面
+    # Create different types of faces
     faces = []
     
-    # 小矩形
+    # Small rectangles
     small_rects = [
         make_rectangle_rface(width=1, height=1),
         make_rectangle_rface(width=2, height=1),
         make_rectangle_rface(width=1, height=2)
     ]
     
-    # 大矩形
+    # Large rectangles
     large_rects = [
         make_rectangle_rface(width=5, height=4),
         make_rectangle_rface(width=6, height=3),
         make_rectangle_rface(width=4, height=6)
     ]
     
-    # 圆形
+    # Circles
     circles = [
         make_circle_rface(center=(0, 0, 0), radius=1.0),
         make_circle_rface(center=(0, 0, 0), radius=2.0),
         make_circle_rface(center=(0, 0, 0), radius=3.0)
     ]
     
-    # 标记面
+    # Tag faces
     for i, face in enumerate(small_rects):
         apply_tag(face, "rectangle")
         apply_tag(face, "small")
@@ -456,24 +456,24 @@ def classify_faces():
         face.set_metadata("shape_type", "circle")
         faces.append(face)
     
-    # 分类统计
+    # Classification statistics
     rectangles = [f for f in faces if "rectangle" in list_tags(f)]
     circles = [f for f in faces if "circle" in list_tags(f)]
     small_faces = [f for f in faces if "small" in list_tags(f)]
     large_faces = [f for f in faces if "large" in list_tags(f)]
     
-    print(f"总面数: {len(faces)}")
-    print(f"矩形面: {len(rectangles)}")
-    print(f"圆形面: {len(circles)}")
-    print(f"小面: {len(small_faces)}")
-    print(f"大面: {len(large_faces)}")
+    print(f"Total faces: {len(faces)}")
+    print(f"Rectangle faces: {len(rectangles)}")
+    print(f"Circle faces: {len(circles)}")
+    print(f"Small faces: {len(small_faces)}")
+    print(f"Large faces: {len(large_faces)}")
     
-    # 计算统计信息
+    # Compute statistics
     total_area = sum(f.get_area() for f in faces)
     avg_area = total_area / len(faces)
     
-    print(f"总面积: {total_area:.3f}")
-    print(f"平均面积: {avg_area:.3f}")
+    print(f"Total area: {total_area:.3f}")
+    print(f"Average area: {avg_area:.3f}")
     
     return faces
 

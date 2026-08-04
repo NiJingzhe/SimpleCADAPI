@@ -8,7 +8,7 @@
 
 ```python
 class Vertex(TaggedMixin):
-    """顶点类，包装OCP的Vertex，添加标签功能"""
+    """Vertex class that wraps OCP's Vertex and adds tag functionality"""
 ```
 
 ## Inheritance Relationships
@@ -38,7 +38,7 @@ Initialize a vertex object.
 ```python
 from simplecadapi import make_point_rvertex
 
-# 通过 SimpleCAD 函数创建顶点
+# Create a vertex through the SimpleCAD function
 vertex = make_point_rvertex(1.0, 2.0, 3.0)
 ```
 
@@ -82,7 +82,7 @@ apply_tag(vertex, "role.origin")
 apply_tag(vertex, "anchor.reference_point")
 
 if "role.origin" in list_tags(vertex):
-    print("这是原点")
+    print("This is the origin")
 ```
 
 ### Metadata Management Methods
@@ -119,16 +119,16 @@ print(unknown)  # "default_value"
 ```python
 from simplecadapi import make_point_rvertex
 
-# 创建顶点
+# Create vertices
 vertex1 = make_point_rvertex(0, 0, 0)
 vertex2 = make_point_rvertex(1, 1, 1)
 
-# 获取坐标
+# Get coordinates
 coords1 = vertex1.get_coordinates()
 coords2 = vertex2.get_coordinates()
 
-print(f"顶点1坐标: {coords1}")  # 顶点1坐标: (0.0, 0.0, 0.0)
-print(f"顶点2坐标: {coords2}")  # 顶点2坐标: (1.0, 1.0, 1.0)
+print(f"Vertex 1 coordinates: {coords1}")  # Vertex 1 coordinates: (0.0, 0.0, 0.0)
+print(f"Vertex 2 coordinates: {coords2}")  # Vertex 2 coordinates: (1.0, 1.0, 1.0)
 ```
 
 ### Vertex Tag Management
@@ -136,13 +136,13 @@ print(f"顶点2坐标: {coords2}")  # 顶点2坐标: (1.0, 1.0, 1.0)
 ```python
 from simplecadapi import make_point_rvertex
 
-# 创建关键点
+# Create key points
 origin = make_point_rvertex(0, 0, 0)
 corner1 = make_point_rvertex(10, 0, 0)
 corner2 = make_point_rvertex(10, 10, 0)
 corner3 = make_point_rvertex(0, 10, 0)
 
-# 添加标签
+# Add tags
 apply_tag(origin, "origin")
 apply_tag(origin, "reference")
 
@@ -155,11 +155,11 @@ apply_tag(corner2, "diagonal")
 apply_tag(corner3, "corner")
 apply_tag(corner3, "y_axis")
 
-# 查找所有角点
+# Find all corner points
 vertices = [origin, corner1, corner2, corner3]
 corners = [v for v in vertices if "corner" in list_tags(v)]
 
-print(f"找到 {len(corners)} 个角点")
+print(f"Found {len(corners)} corner points")
 ```
 
 ### Vertex Classification and Management
@@ -168,7 +168,7 @@ print(f"找到 {len(corners)} 个角点")
 from simplecadapi import make_point_rvertex
 
 def create_grid_vertices(width, height, spacing):
-    """创建网格顶点"""
+    """Create grid vertices"""
     vertices = []
     
     for i in range(width + 1):
@@ -179,7 +179,7 @@ def create_grid_vertices(width, height, spacing):
             
             vertex = make_point_rvertex(x, y, z)
             
-            # 添加位置标签
+            # Add position tags
             if i == 0 and j == 0:
                 apply_tag(vertex, "origin")
             elif i == 0:
@@ -192,11 +192,11 @@ def create_grid_vertices(width, height, spacing):
             elif j == height:
                 apply_tag(vertex, "top_edge")
             
-            # 添加角点标签
+            # Add corner tags
             if (i == 0 or i == width) and (j == 0 or j == height):
                 apply_tag(vertex, "corner")
             
-            # 添加元数据
+            # Add metadata
             vertex.set_metadata("grid_position", (i, j))
             vertex.set_metadata("distance_from_origin", (x*x + y*y)**0.5)
             
@@ -204,16 +204,16 @@ def create_grid_vertices(width, height, spacing):
     
     return vertices
 
-# 创建 5x3 网格
+# Create a 5x3 grid
 vertices = create_grid_vertices(5, 3, 1.0)
 
-# 查找特定顶点
+# Find specific vertices
 corners = [v for v in vertices if "corner" in list_tags(v)]
 origin = [v for v in vertices if "origin" in list_tags(v)][0]
 
-print(f"网格顶点总数: {len(vertices)}")
-print(f"角点数量: {len(corners)}")
-print(f"原点坐标: {origin.get_coordinates()}")
+print(f"Total grid vertices: {len(vertices)}")
+print(f"Corner count: {len(corners)}")
+print(f"Origin coordinates: {origin.get_coordinates()}")
 ```
 
 ### Vertex Distance Calculation
@@ -223,7 +223,7 @@ import math
 from simplecadapi import make_point_rvertex
 
 def calculate_distance(vertex1, vertex2):
-    """计算两个顶点之间的距离"""
+    """Calculate the distance between two vertices"""
     coords1 = vertex1.get_coordinates()
     coords2 = vertex2.get_coordinates()
     
@@ -233,19 +233,19 @@ def calculate_distance(vertex1, vertex2):
     
     return math.sqrt(dx*dx + dy*dy + dz*dz)
 
-# 创建顶点
+# Create vertices
 v1 = make_point_rvertex(0, 0, 0)
 v2 = make_point_rvertex(3, 4, 0)
 v3 = make_point_rvertex(0, 0, 5)
 
-# 计算距离
+# Calculate distances
 dist12 = calculate_distance(v1, v2)
 dist13 = calculate_distance(v1, v3)
 dist23 = calculate_distance(v2, v3)
 
-print(f"v1 到 v2 的距离: {dist12}")  # 5.0
-print(f"v1 到 v3 的距离: {dist13}")  # 5.0
-print(f"v2 到 v3 的距离: {dist23}")  # 约 7.07
+print(f"Distance from v1 to v2: {dist12}")  # 5.0
+print(f"Distance from v1 to v3: {dist13}")  # 5.0
+print(f"Distance from v2 to v3: {dist23}")  # approx 7.07
 ```
 
 ## String Representation

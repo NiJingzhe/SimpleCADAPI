@@ -3,10 +3,10 @@
 ## Class Definition
 
 ```python
-class FreeCADScriptTranslator(document_name: str = 'SimpleCADModel')
+class FreeCADScriptTranslator
 ```
 
-*Source: translator/freecad_translator/script_translator.py*
+*Source: translator/freecad_translator/translator.py*
 
 ## Import Surface
 
@@ -14,18 +14,4 @@ class FreeCADScriptTranslator(document_name: str = 'SimpleCADModel')
 
 ## Description
 
-Compile a SimpleCAD model payload into a FreeCAD Python script.
-
-Current design goals:
-
-- Translate only from the canonical low-level `graph` IR
-- Preserve node metadata and graph lineage as FreeCAD custom properties
-- Preserve `expression_graph` as explicit translator metadata
-- Preserve dimension tolerances and tolerance-chain requirements as metadata
-- Preserve exported assembly constraints as document metadata objects
-- Keep assembly metadata from the full model payload alongside the IR-driven
-geometry translation
-
-The generated script focuses on `Part`-workbench-style objects and shape
-construction, which is a better first target for the current canonical graph
-than a full `Sketcher/PartDesign` mapping.
+Backward-compatible class name for the FreeCAD translator.

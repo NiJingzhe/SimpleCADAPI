@@ -29,6 +29,15 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "sketch.py",
     "errors.py",
     "topology.py",
+    "inspect/brep/compare.py",
+    "inspect/brep/diagnostics.py",
+    "inspect/brep/inspect.py",
+    "inspect/brep/io.py",
+    "inspect/brep/model.py",
+    "inspect/brep/parity.py",
+    "inspect/brep/queries.py",
+    "inspect/brep/render.py",
+    "inspect/brep/slices.py",
 )
 
 DEFAULT_STDLIB_SOURCE_FILENAMES: tuple[str, ...] = (
@@ -54,6 +63,15 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "tolerance.py",
         "units.py",
         "errors.py",
+        "inspect/brep/compare.py",
+        "inspect/brep/diagnostics.py",
+        "inspect/brep/inspect.py",
+        "inspect/brep/io.py",
+        "inspect/brep/model.py",
+        "inspect/brep/parity.py",
+        "inspect/brep/queries.py",
+        "inspect/brep/render.py",
+        "inspect/brep/slices.py",
     }
 )
 
@@ -282,6 +300,25 @@ class APIDocumentGenerator:
             return True
         if _translator_backend_name(module_name) is not None:
             return True
+        if module_name.startswith("inspect/brep/"):
+            return name.endswith(
+                (
+                    "_rbrepcomparison",
+                    "_rbrepinspection",
+                    "_rbrepmodel",
+                    "_rdescriptor",
+                    "_rdescriptorlist",
+                    "_rentityinspectionparity",
+                    "_rinspectionsummarycomparison",
+                    "_rnone",
+                    "_rpath",
+                    "_rshape",
+                    "_rslicecomparison",
+                    "_rslicespeclist",
+                    "_rsummary",
+                    "_rtuple",
+                )
+            )
         if module_name in EXPORTED_FUNCTION_MODULES:
             if not exported_names:
                 return True
@@ -298,6 +335,18 @@ class APIDocumentGenerator:
             return False
         if _translator_backend_name(module_name) is not None:
             return True
+        if module_name.startswith("inspect/brep/"):
+            return name in {
+                "BRepComparison",
+                "BRepEntityError",
+                "BRepInspection",
+                "BRepModel",
+                "EntityInspectionParity",
+                "InspectionSummaryComparison",
+                "SliceComparison",
+                "SlicePanelResult",
+                "SliceSpec",
+            }
         if module_name not in EXPORTED_CALLABLE_MODULES:
             return False
         if not exported_names:
@@ -337,6 +386,12 @@ class APIDocumentGenerator:
             return (
                 "translator backend: "
                 f"`from simplecadapi.translator.{translator_backend} import {name}`"
+            )
+
+        if module_name.startswith("inspect/brep/"):
+            return (
+                "inspection namespace: `from simplecadapi.inspect import brep` "
+                f"then `brep.{name}(...)`; unavailable inside GraphSession/@model"
             )
 
         module_stem = module_name.removesuffix(".py")
@@ -491,11 +546,16 @@ class APIDocumentGenerator:
             "Types and Errors": [],
             "Advanced Features": [],
             "Evolve": [],
+            "STEP/BREP Inspection": [],
             "Other": [],
         }
 
         for api in self.apis:
             name = api.name
+
+            if api.source_file.startswith("inspect/brep/"):
+                categories["STEP/BREP Inspection"].append(api)
+                continue
 
             if api.source_file == "evolve.py":
                 categories["Evolve"].append(api)
@@ -547,12 +607,13 @@ class APIDocumentGenerator:
         md_lines: List[str] = [
             "# SimpleCAD API Index",
             "",
-            "This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, expressions, QL, and export helpers.",
+            "This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, inspection tools, expressions, QL, and export helpers.",
             "",
             "## Import Surfaces",
             "",
             "- Entries marked `top-level` are exported from `simplecadapi` and can be imported with `from simplecadapi import <name>`.",
             "- Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.",
+            "- Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession` or `@model`.",
             "- Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.",
             "",
         ]
@@ -566,6 +627,8 @@ class APIDocumentGenerator:
                 source_info = f" *(from {api.source_file})*"
                 if api.name in self.exported_names:
                     surface_info = " `top-level`"
+                elif api.source_file.startswith("inspect/brep/"):
+                    surface_info = " `inspection namespace`"
                 elif api.source_file.startswith("translator/"):
                     surface_info = " `translator backend`"
                 else:

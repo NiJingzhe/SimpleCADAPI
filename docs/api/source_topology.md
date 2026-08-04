@@ -10,10 +10,8 @@ def source_topology(topo_id: str) -> SerializablePredicate
 
 ## Import Surface
 
-- submodule: `from simplecadapi import ql`
+- submodule: `from simplecadapi.ql import source_topology` or `simplecadapi.ql.source_topology`
 
 ## Description
 
-Match a local projected `TagBinding` by the exact source topology identity stored
-in its kernel-history evidence. This predicate queries source-preserving evidence;
-it does not infer ancestry from geometry.
+Match a projected local binding by its exact source topology identity.
