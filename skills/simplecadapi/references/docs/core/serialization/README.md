@@ -34,16 +34,17 @@ Inspect these fields:
 - `node["inputs"]`: upstream node ids used by replay.
 - `payload["leaf_ids"]`: explicit final result node ids.
 - `payload["expression_graph"]`: expression DAG used by expression-backed parameters.
+- `payload["tolerance_graph"]`: dimension-chain requirements and validation evidence.
 
 For new top-level models, `ModelResult.model_json` is the preferred artifact
 accessor. Use `@scad.requires_session` for reusable builders and
-`scad.capture_result(...)` to keep intermediate graph leaves out of the model
-outputs. If a model invocation also needs durable CAD/viewer files, pass
-`export_dir=...` to `@scad.model`; its captured geometry/product values then
-produce one self-contained `<graph_id>.scene.zip`. It embeds model JSON, mapped
-project-relative Python sources, and evaluated render/selection assets; it does
-not create adjacent model/session JSON, STEP, STL, or FCStd files. No files are
-written when `export_dir` is omitted.
+`scad.capture_result(...)` when the final output should not be inferred from
+all graph leaves. If a model invocation also needs durable CAD/viewer files,
+pass `export_dir=...` to `@scad.model`; its captured geometry/product values
+then produce one self-contained `<graph_id>.scene.zip`. It embeds
+`model/model.json`, mapped project-relative Python sources, and the evaluated
+render/selection assets. It does not create adjacent model/session JSON, STEP,
+STL, or FCStd files. No files are written when `export_dir` is omitted.
 
 ## Important rule: source API is not always graph API
 
@@ -67,6 +68,8 @@ Many user-facing functions are convenience APIs. During an active `GraphSession`
 - [Primitive and profile operations](primitives-and-profiles.md)
 - [Features, booleans, transforms, patterns, and selectors](features-booleans-transforms.md)
 - [Expressions and replay behavior](expressions-and-replay.md)
+- [Physical units and dimension inference](../physical-units.md)
+- [Dimension tolerance chains](../dimension-tolerance-chains.md)
 
 ## Examples
 

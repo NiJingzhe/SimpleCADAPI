@@ -132,6 +132,9 @@ class TestSkillPackPathResolution(unittest.TestCase):
             self.assertTrue(
                 (result.skill_root / "references/docs/stdlib/README.md").exists()
             )
+            self.assertTrue(
+                (result.skill_root / "references/inspect/brep-reverse-engineering.md").exists()
+            )
             package_summary = (
                 result.skill_root / "references/SDK_PACKAGE_SUMMARY.md"
             ).read_text(encoding="utf-8")
@@ -198,6 +201,11 @@ class TestSkillPackPathResolution(unittest.TestCase):
             self.assertIn("SDK_OVERVIEW.md", content)
             self.assertIn("SDK_SURFACES.md", content)
             self.assertIn("MODELING_WORKFLOWS.md", content)
+            self.assertIn("references/inspect/brep-reverse-engineering.md", content)
+            self.assertIn("simplecadapi.inspect.brep", content)
+            self.assertIn("outside `GraphSession` and `@model`", content)
+            self.assertIn("Acceptance hierarchy", content)
+            self.assertIn("ad hoc inspection code", content)
             self.assertIn("SDK_PACKAGE_SUMMARY.md", content)
             self.assertNotIn("scripts/", content)
             self.assertNotIn("v1", content.lower())

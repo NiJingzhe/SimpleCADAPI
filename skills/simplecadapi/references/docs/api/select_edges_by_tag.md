@@ -3,11 +3,7 @@
 ## API Definition
 
 ```python
-def select_edges_by_tag(
-    shape: Union[Face, Solid],
-    tag: str,
-    scope: str | TagScope = TagScope.EFFECTIVE,
-) -> List[Edge]
+def select_edges_by_tag(shape: Union[Face, Solid], tag: str, scope: str | TagScope = TagScope.EFFECTIVE) -> List[Edge]
 ```
 
 *Source: operations.py*
@@ -18,6 +14,4 @@ def select_edges_by_tag(
 
 ## Description
 
-Select edges by an exact normalized tag in the requested semantic scope.
-`effective` does not include lineage; request `scope="lineage"` explicitly when
-selection depends on complete topology-history evidence.
+Select edges by tag.
