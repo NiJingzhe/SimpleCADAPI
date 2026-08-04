@@ -235,6 +235,7 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_three_point_arc_redge",
             "make_angle_arc_redge",
             "make_spline_redge",
+            "make_interpolated_spline_redge",
             "make_helix_redge",
             "make_wire_from_edges_rwire",
             "make_face_from_wire_rface",
@@ -429,9 +430,7 @@ class TestReplay(unittest.TestCase):
         self.assertEqual(len(replayed), 1)
         result = replayed[0]
         self.assertEqual(result.get_metadata("graph")["node_id"], node["node_id"])
-        self.assertEqual(
-            result.get_metadata("topo_ref")["node_id"], geometry_node_id
-        )
+        self.assertEqual(result.get_metadata("topo_ref")["node_id"], geometry_node_id)
         selected = scad.select_faces_by_tag(result, tag, scope="local")
         self.assertEqual(len(selected), 1)
         explanation = scad.explain_tag(selected[0], tag, scope="local")
@@ -509,9 +508,7 @@ class TestReplay(unittest.TestCase):
         self.assertEqual(len(replayed), 1)
         result = replayed[0]
         self.assertTrue(
-            {"role.alpha", "role.beta"}.issubset(
-                scad.list_tags(result, scope="local")
-            )
+            {"role.alpha", "role.beta"}.issubset(scad.list_tags(result, scope="local"))
         )
         self.assertEqual(
             len(scad.explain_tag(result, "role.alpha", scope="local")),
@@ -563,15 +560,11 @@ class TestReplay(unittest.TestCase):
             1,
         )
         self.assertEqual(
-            scad.select_faces_by_tag(
-                replayed_left, "role.right_branch", scope="local"
-            ),
+            scad.select_faces_by_tag(replayed_left, "role.right_branch", scope="local"),
             [],
         )
         self.assertEqual(
-            scad.select_faces_by_tag(
-                replayed_right, "role.left_branch", scope="local"
-            ),
+            scad.select_faces_by_tag(replayed_right, "role.left_branch", scope="local"),
             [],
         )
         self.assertEqual(
@@ -688,7 +681,9 @@ class TestReplay(unittest.TestCase):
                 source_connector_id="axis",
             )
 
-        replayed = scad.replay_model_json(json_str=scad.export_model_json(session=session))
+        replayed = scad.replay_model_json(
+            json_str=scad.export_model_json(session=session)
+        )
         assemblies = [item for item in replayed if isinstance(item, scad.Assembly)]
 
         self.assertTrue(assemblies)
@@ -815,7 +810,9 @@ class TestReplay(unittest.TestCase):
         selection_node_ids = fillet_node["params"]["selected_edge_node_ids"]
         self.assertEqual(len(selection_node_ids), 1)
         selection_node = next(
-            node for node in payload["nodes"] if node["node_id"] == selection_node_ids[0]
+            node
+            for node in payload["nodes"]
+            if node["node_id"] == selection_node_ids[0]
         )
         self.assertEqual(selection_node["op"], "make_select_redge")
         self.assertNotIn("source_index", selection_node["params"]["geo_selector"])
@@ -892,7 +889,9 @@ class TestReplay(unittest.TestCase):
         selection_node_ids = shell_node["params"]["selected_face_node_ids"]
         self.assertEqual(len(selection_node_ids), 1)
         selection_node = next(
-            node for node in payload["nodes"] if node["node_id"] == selection_node_ids[0]
+            node
+            for node in payload["nodes"]
+            if node["node_id"] == selection_node_ids[0]
         )
         self.assertEqual(selection_node["op"], "make_select_rface")
         self.assertNotIn("source_index", selection_node["params"]["geo_selector"])
@@ -1029,7 +1028,9 @@ class TestReplay(unittest.TestCase):
         selection_node_ids = fillet_node["params"]["selected_edge_node_ids"]
         self.assertEqual(len(selection_node_ids), 1)
         selection_node = next(
-            node for node in payload["nodes"] if node["node_id"] == selection_node_ids[0]
+            node
+            for node in payload["nodes"]
+            if node["node_id"] == selection_node_ids[0]
         )
         self.assertEqual(selection_node["op"], "make_select_redge")
         self.assertEqual(selection_node["params"]["target_kind"], "edge")
@@ -1110,7 +1111,9 @@ class TestReplay(unittest.TestCase):
             )
         )
         self.assertTrue(
-            all("tags" not in node["params"]["geo_selector"] for node in selection_nodes)
+            all(
+                "tags" not in node["params"]["geo_selector"] for node in selection_nodes
+            )
         )
 
         restored = import_graph_json(json.dumps(payload))
@@ -1290,7 +1293,10 @@ class TestReplay(unittest.TestCase):
 
     def test_replay_leaf_without_output_raises_by_default(self):
         graph = OperationGraph()
-        graph.add_node("make_union_rsolid", {"input_count": 0, "clean": True, "glue": True, "tol": None})
+        graph.add_node(
+            "make_union_rsolid",
+            {"input_count": 0, "clean": True, "glue": True, "tol": None},
+        )
 
         with self.assertRaises(ValueError):
             replay_graph(graph)
@@ -1312,7 +1318,9 @@ class TestReplay(unittest.TestCase):
 
         payload = json.loads(scad.export_model_json(session))
         cut_node = next(
-            node for node in payload["graph"]["nodes"] if node["op"] == "make_cut_rsolid"
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_cut_rsolid"
         )
         self.assertTrue(cut_node["params"]["skip_non_intersecting"])
 
@@ -1330,7 +1338,9 @@ class TestReplay(unittest.TestCase):
 
         payload = json.loads(scad.export_model_json(session))
         cut_node = next(
-            node for node in payload["graph"]["nodes"] if node["op"] == "make_cut_rsolid"
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_cut_rsolid"
         )
         del cut_node["params"]["skip_non_intersecting"]
 
@@ -1340,12 +1350,16 @@ class TestReplay(unittest.TestCase):
     def test_union_replay_preserves_clean_glue_and_tol_params(self):
         with scad.GraphSession() as session:
             a = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0.0, 0.0, 0.0))
-            b = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(1.001, 0.0, 0.0))
+            b = scad.make_box_rsolid(
+                1.0, 1.0, 1.0, bottom_face_center=(1.001, 0.0, 0.0)
+            )
             original = scad.union_rsolid(a, b, clean=False, glue=False, tol=1e-3)
 
         payload = json.loads(scad.export_model_json(session))
         union_node = next(
-            node for node in payload["graph"]["nodes"] if node["op"] == "make_union_rsolid"
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_union_rsolid"
         )
 
         self.assertFalse(union_node["params"]["clean"])
@@ -1353,7 +1367,9 @@ class TestReplay(unittest.TestCase):
         self.assertEqual(union_node["params"]["tol"], 1e-3)
 
         replayed = scad.replay_model_json(json.dumps(payload))
-        self.assertAlmostEqual(replayed[0].get_volume(), original.get_volume(), places=5)
+        self.assertAlmostEqual(
+            replayed[0].get_volume(), original.get_volume(), places=5
+        )
 
     def test_boolean_replay_defaults_missing_tracking_policy_to_full(self):
         with scad.GraphSession() as session:
@@ -1367,12 +1383,16 @@ class TestReplay(unittest.TestCase):
 
         payload = json.loads(scad.export_model_json(session))
         cut_node = next(
-            node for node in payload["graph"]["nodes"] if node["op"] == "make_cut_rsolid"
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_cut_rsolid"
         )
         self.assertEqual(cut_node["params"].pop("tracking_policy"), "full")
 
         replayed = scad.replay_model_json(json.dumps(payload))
-        self.assertAlmostEqual(replayed[0].get_volume(), original.get_volume(), places=6)
+        self.assertAlmostEqual(
+            replayed[0].get_volume(), original.get_volume(), places=6
+        )
 
     def test_replay_selection_cardinality_mismatch_raises_by_default(self):
         with scad.GraphSession() as session:
@@ -1381,12 +1401,16 @@ class TestReplay(unittest.TestCase):
 
         payload = json.loads(scad.export_model_json(session))
         fillet_node = next(
-            node for node in payload["graph"]["nodes"] if node["op"] == "make_fillet_rsolid"
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_fillet_rsolid"
         )
         fillet_node["params"]["selected_edge_node_ids"] = []
         fillet_node["params"]["selected_edges"] = []
         fillet_node["params"]["selected_edge_indices"] = []
-        fillet_node["params"]["selection_query"] = scad.ql.edges().take(2).exactly(2).to_dict()
+        fillet_node["params"]["selection_query"] = (
+            scad.ql.edges().take(2).exactly(2).to_dict()
+        )
         fillet_node["params"]["edge_count"] = 1
 
         restored = import_model_json(json.dumps(payload))["graph"]

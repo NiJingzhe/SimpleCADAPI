@@ -8,7 +8,7 @@
 
 ```python
 class Solid(TaggedMixin):
-    """实体类，包装OCP的Solid，添加标签功能"""
+    """Solid class that wraps OCP's Solid and adds tag functionality"""
 ```
 
 ## Inheritance
@@ -43,7 +43,7 @@ from simplecadapi import (
     make_sphere_rsolid
 )
 
-# 通过 SimpleCAD 函数创建实体
+# Create solids through the SimpleCAD functions
 box = make_box_rsolid(width=5, height=3, depth=2)
 cylinder = make_cylinder_rsolid(center=(0, 0, 0), radius=2, height=4)
 sphere = make_sphere_rsolid(center=(0, 0, 0), radius=1.5)
@@ -73,22 +73,22 @@ Get the volume of the solid.
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid, make_sphere_rsolid
 import math
 
-# 立方体体积
+# Box volume
 box = make_box_rsolid(width=2, height=3, depth=4)
 box_volume = box.get_volume()
-print(f"立方体体积: {box_volume}")  # 24.0
+print(f"Box volume: {box_volume}")  # 24.0
 
-# 圆柱体体积
+# Cylinder volume
 cylinder = make_cylinder_rsolid(center=(0, 0, 0), radius=2, height=5)
 cylinder_volume = cylinder.get_volume()
 expected_volume = math.pi * 2**2 * 5
-print(f"圆柱体体积: {cylinder_volume:.3f}, 期望: {expected_volume:.3f}")
+print(f"Cylinder volume: {cylinder_volume:.3f}, expected: {expected_volume:.3f}")
 
-# 球体体积
+# Sphere volume
 sphere = make_sphere_rsolid(center=(0, 0, 0), radius=1.5)
 sphere_volume = sphere.get_volume()
 expected_volume = (4/3) * math.pi * 1.5**3
-print(f"球体体积: {sphere_volume:.3f}, 期望: {expected_volume:.3f}")
+print(f"Sphere volume: {sphere_volume:.3f}, expected: {expected_volume:.3f}")
 ```
 
 ### `get_faces()`
@@ -108,10 +108,10 @@ from simplecadapi import make_box_rsolid
 box = make_box_rsolid(width=4, height=3, depth=2)
 faces = box.get_faces()
 
-print(f"立方体有 {len(faces)} 个面")
+print(f"The box has {len(faces)} faces")
 for i, face in enumerate(faces):
     area = face.get_area()
-    print(f"面 {i}: 面积 {area:.3f}")
+    print(f"Face {i}: area {area:.3f}")
 ```
 
 ### `get_faces(index)`
@@ -148,10 +148,10 @@ from simplecadapi import make_box_rsolid
 box = make_box_rsolid(width=4, height=3, depth=2)
 edges = box.get_edges()
 
-print(f"立方体有 {len(edges)} 条边")
+print(f"The box has {len(edges)} edges")
 for i, edge in enumerate(edges):
     length = edge.get_length()
-    print(f"边 {i}: 长度 {length:.3f}")
+    print(f"Edge {i}: length {length:.3f}")
 ```
 
 ### `get_edges(index)`
@@ -182,21 +182,21 @@ Automatically add tags to faces.
 ```python
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid
 
-# 立方体面标记
+# Box face tagging
 box = make_box_rsolid(width=4, height=3, depth=2)
 box.auto_tag_faces("box")
 
 faces = box.get_faces()
 for face in faces:
-    print(f"面标签: {list_tags(face)}")
+    print(f"Face tags: {list_tags(face)}")
 
-# 圆柱体面标记
+# Cylinder face tagging
 cylinder = make_cylinder_rsolid(center=(0, 0, 0), radius=2, height=4)
 cylinder.auto_tag_faces("cylinder")
 
 faces = cylinder.get_faces()
 for face in faces:
-    print(f"面标签: {list_tags(face)}")
+    print(f"Face tags: {list_tags(face)}")
 ```
 
 ### Tagging and Metadata
@@ -215,9 +215,9 @@ from simplecadapi import (
 )
 
 def create_basic_solids():
-    """创建和分析基础实体"""
+    """Create and analyze basic solids"""
     
-    # 创建不同类型的实体
+    # Create different types of solids
     solids = [
         ("box", make_box_rsolid(width=4, height=3, depth=2)),
         ("cylinder", make_cylinder_rsolid(center=(0, 0, 0), radius=2, height=4)),
@@ -225,28 +225,28 @@ def create_basic_solids():
     ]
     
     for name, solid in solids:
-        # 添加基本标签
+        # Add basic tags
         apply_tag(solid, name)
         apply_tag(solid, "basic_geometry")
         
-        # 自动标记面
+        # Auto-tag faces
         solid.auto_tag_faces(name)
         
-        # 获取几何属性
+        # Get geometric properties
         volume = solid.get_volume()
         faces = solid.get_faces()
         edges = solid.get_edges()
         
-        # 计算表面积
+        # Compute surface area
         total_surface_area = sum(face.get_area() for face in faces)
         
-        # 分析面的分布
+        # Analyze face distribution
         face_areas = [face.get_area() for face in faces]
         min_face_area = min(face_areas)
         max_face_area = max(face_areas)
         avg_face_area = sum(face_areas) / len(face_areas)
         
-        # 存储元数据
+        # Store metadata
         solid.set_metadata("volume", volume)
         solid.set_metadata("surface_area", total_surface_area)
         solid.set_metadata("face_count", len(faces))
@@ -255,17 +255,17 @@ def create_basic_solids():
         solid.set_metadata("max_face_area", max_face_area)
         solid.set_metadata("avg_face_area", avg_face_area)
         
-        # 计算体积效率（体积/表面积比）
+        # Compute volume efficiency (volume/surface-area ratio)
         volume_efficiency = volume / total_surface_area if total_surface_area > 0 else 0
         solid.set_metadata("volume_efficiency", volume_efficiency)
         
-        print(f"{name.upper()} 实体分析:")
-        print(f"  体积: {volume:.3f}")
-        print(f"  表面积: {total_surface_area:.3f}")
-        print(f"  面数: {len(faces)}")
-        print(f"  边数: {len(edges)}")
-        print(f"  体积效率: {volume_efficiency:.3f}")
-        print(f"  面积范围: {min_face_area:.3f} - {max_face_area:.3f}")
+        print(f"{name.upper()} solid analysis:")
+        print(f"  Volume: {volume:.3f}")
+        print(f"  Surface area: {total_surface_area:.3f}")
+        print(f"  Face count: {len(faces)}")
+        print(f"  Edge count: {len(edges)}")
+        print(f"  Volume efficiency: {volume_efficiency:.3f}")
+        print(f"  Area range: {min_face_area:.3f} - {max_face_area:.3f}")
         print()
 
 create_basic_solids()
@@ -283,37 +283,37 @@ from simplecadapi import (
 )
 
 def boolean_operations_example():
-    """布尔运算示例"""
+    """Boolean operations example"""
     
-    # 创建基础几何体
+    # Create base geometries
     box = make_box_rsolid(width=6, height=4, depth=3)
     apply_tag(box, "base_box")
     
     cylinder = make_cylinder_rsolid(center=(3, 2, 0), radius=1, height=5)
     apply_tag(cylinder, "cutting_cylinder")
     
-    # 并集运算
+    # Union operation
     union_result = union_rsolid(box, cylinder)
     apply_tag(union_result, "union_result")
     apply_tag(union_result, "combined_geometry")
     
-    # 差集运算（从盒子中减去圆柱）
+    # Difference operation (subtract the cylinder from the box)
     cut_result = cut_rsolid(box, cylinder)[0]
     apply_tag(cut_result, "cut_result")
     apply_tag(cut_result, "with_hole")
     
-    # 交集运算
+    # Intersection operation
     intersect_result = intersect_rsolid(box, cylinder)[0]
     apply_tag(intersect_result, "intersect_result")
     apply_tag(intersect_result, "common_volume")
     
-    # 分析结果
+    # Analyze results
     operations = [
-        ("原始盒子", box),
-        ("原始圆柱", cylinder),
-        ("并集", union_result),
-        ("差集", cut_result),
-        ("交集", intersect_result)
+        ("original box", box),
+        ("original cylinder", cylinder),
+        ("union", union_result),
+        ("difference", cut_result),
+        ("intersection", intersect_result)
     ]
     
     for name, solid in operations:
@@ -326,10 +326,10 @@ def boolean_operations_example():
         solid.set_metadata("surface_area", surface_area)
         
         print(f"{name}:")
-        print(f"  体积: {volume:.3f}")
-        print(f"  表面积: {surface_area:.3f}")
-        print(f"  面数: {len(faces)}")
-        print(f"  标签: {list_tags(solid)}")
+        print(f"  Volume: {volume:.3f}")
+        print(f"  Surface area: {surface_area:.3f}")
+        print(f"  Face count: {len(faces)}")
+        print(f"  Tags: {list_tags(solid)}")
         print()
 
 boolean_operations_example()
@@ -346,25 +346,25 @@ from simplecadapi import (
 )
 
 def feature_operations_example():
-    """特征操作示例"""
+    """Feature operations example"""
     
-    # 创建基础盒子
+    # Create the base box
     base_box = make_box_rsolid(width=8, height=6, depth=4)
     apply_tag(base_box, "base_geometry")
     base_box.auto_tag_faces("box")
     
-    # 分析原始几何体
+    # Analyze the original geometry
     original_volume = base_box.get_volume()
     original_faces = base_box.get_faces()
     original_edges = base_box.get_edges()
     
-    print(f"原始几何体:")
-    print(f"  体积: {original_volume:.3f}")
-    print(f"  面数: {len(original_faces)}")
-    print(f"  边数: {len(original_edges)}")
+    print(f"Original geometry:")
+    print(f"  Volume: {original_volume:.3f}")
+    print(f"  Face count: {len(original_faces)}")
+    print(f"  Edge count: {len(original_edges)}")
     print()
     
-    # 圆角操作
+    # Fillet operation
     try:
         filleted_box = fillet_rsolid(base_box, radius=0.5)
         apply_tag(filleted_box, "filleted")
@@ -378,18 +378,18 @@ def feature_operations_example():
         filleted_box.set_metadata("volume_change", filleted_volume - original_volume)
         filleted_box.set_metadata("volume_ratio", filleted_volume / original_volume)
         
-        print(f"圆角后几何体:")
-        print(f"  体积: {filleted_volume:.3f}")
-        print(f"  体积变化: {filleted_volume - original_volume:.3f}")
-        print(f"  面数: {len(filleted_faces)}")
-        print(f"  边数: {len(filleted_edges)}")
+        print(f"After fillet:")
+        print(f"  Volume: {filleted_volume:.3f}")
+        print(f"  Volume change: {filleted_volume - original_volume:.3f}")
+        print(f"  Face count: {len(filleted_faces)}")
+        print(f"  Edge count: {len(filleted_edges)}")
         print()
         
     except Exception as e:
-        print(f"圆角操作失败: {e}")
+        print(f"Fillet failed: {e}")
         filleted_box = None
     
-    # 倒角操作
+    # Chamfer operation
     try:
         chamfered_box = chamfer_rsolid(base_box, distance=0.3)
         apply_tag(chamfered_box, "chamfered")
@@ -403,30 +403,30 @@ def feature_operations_example():
         chamfered_box.set_metadata("volume_change", chamfered_volume - original_volume)
         chamfered_box.set_metadata("volume_ratio", chamfered_volume / original_volume)
         
-        print(f"倒角后几何体:")
-        print(f"  体积: {chamfered_volume:.3f}")
-        print(f"  体积变化: {chamfered_volume - original_volume:.3f}")
-        print(f"  面数: {len(chamfered_faces)}")
-        print(f"  边数: {len(chamfered_edges)}")
+        print(f"After chamfer:")
+        print(f"  Volume: {chamfered_volume:.3f}")
+        print(f"  Volume change: {chamfered_volume - original_volume:.3f}")
+        print(f"  Face count: {len(chamfered_faces)}")
+        print(f"  Edge count: {len(chamfered_edges)}")
         print()
         
     except Exception as e:
-        print(f"倒角操作失败: {e}")
+        print(f"Chamfer failed: {e}")
         chamfered_box = None
     
-    # 比较结果
-    results = [("原始", base_box)]
+    # Compare results
+    results = [("original", base_box)]
     if filleted_box:
-        results.append(("圆角", filleted_box))
+        results.append(("fillet", filleted_box))
     if chamfered_box:
-        results.append(("倒角", chamfered_box))
+        results.append(("chamfer", chamfered_box))
     
-    print("特征操作比较:")
+    print("Feature operation comparison:")
     for name, solid in results:
         volume = solid.get_volume()
         faces = solid.get_faces()
         tags = list_tags(solid)
-        print(f"  {name}: 体积={volume:.3f}, 面数={len(faces)}, 标签={tags}")
+        print(f"  {name}: volume={volume:.3f}, face count={len(faces)}, tags={tags}")
 
 feature_operations_example()
 ```
@@ -445,14 +445,14 @@ from simplecadapi import (
 )
 
 def create_complex_geometry():
-    """创建复杂几何体"""
+    """Create complex geometry"""
     
-    # 创建主体
+    # Create the main body
     main_body = make_box_rsolid(width=12, height=8, depth=6)
     apply_tag(main_body, "main_body")
     apply_tag(main_body, "base_structure")
     
-    # 创建圆柱形孔
+    # Create cylindrical holes
     holes = []
     hole_positions = [(3, 2, 0), (9, 2, 0), (3, 6, 0), (9, 6, 0)]
     
@@ -462,49 +462,49 @@ def create_complex_geometry():
         apply_tag(hole, "mounting_hole")
         holes.append(hole)
     
-    # 创建球形特征
+    # Create a spherical feature
     sphere_feature = make_sphere_rsolid(center=(6, 4, 6), radius=2)
     apply_tag(sphere_feature, "sphere_feature")
     apply_tag(sphere_feature, "decorative")
     
-    # 创建圆柱形支柱
+    # Create a cylindrical support
     support_cylinder = make_cylinder_rsolid(center=(6, 4, 0), radius=1, height=4)
     apply_tag(support_cylinder, "support_cylinder")
     apply_tag(support_cylinder, "structural")
     
-    # 组合几何体
+    # Combine geometries
     complex_solid = union_rsolid(main_body, sphere_feature)
     complex_solid = union_rsolid(complex_solid, support_cylinder)
     
-    # 减去孔
+    # Subtract holes
     for hole in holes:
         complex_solid = cut_rsolid(complex_solid, hole)[0]
     
-    # 标记复杂几何体
+    # Tag the complex solid
     apply_tag(complex_solid, "complex_geometry")
     apply_tag(complex_solid, "multi_feature")
     apply_tag(complex_solid, "machined_part")
     
-    # 分析复杂几何体
+    # Analyze the complex solid
     volume = complex_solid.get_volume()
     faces = complex_solid.get_faces()
     edges = complex_solid.get_edges()
     
-    # 计算几何复杂度
+    # Compute geometric complexity
     face_count = len(faces)
     edge_count = len(edges)
     complexity_ratio = edge_count / face_count if face_count > 0 else 0
     
-    # 分析面的分布
+    # Analyze face distribution
     face_areas = [face.get_area() for face in faces]
     total_surface_area = sum(face_areas)
     
-    # 分类面
+    # Classify faces
     small_faces = [f for f in faces if f.get_area() < 1.0]
     large_faces = [f for f in faces if f.get_area() > 10.0]
     medium_faces = [f for f in faces if 1.0 <= f.get_area() <= 10.0]
     
-    # 存储分析结果
+    # Store analysis results
     complex_solid.set_metadata("volume", volume)
     complex_solid.set_metadata("surface_area", total_surface_area)
     complex_solid.set_metadata("face_count", face_count)
@@ -514,7 +514,7 @@ def create_complex_geometry():
     complex_solid.set_metadata("medium_face_count", len(medium_faces))
     complex_solid.set_metadata("large_face_count", len(large_faces))
     
-    # 根据复杂度添加标签
+    # Add complexity tags
     if complexity_ratio < 5:
         apply_tag(complex_solid, "simple_topology")
     elif complexity_ratio < 10:
@@ -522,14 +522,14 @@ def create_complex_geometry():
     else:
         apply_tag(complex_solid, "complex_topology")
     
-    print(f"复杂几何体分析:")
-    print(f"  体积: {volume:.3f}")
-    print(f"  表面积: {total_surface_area:.3f}")
-    print(f"  面数: {face_count}")
-    print(f"  边数: {edge_count}")
-    print(f"  复杂度比: {complexity_ratio:.2f}")
-    print(f"  面分布 - 小:{len(small_faces)}, 中:{len(medium_faces)}, 大:{len(large_faces)}")
-    print(f"  标签: {list_tags(complex_solid)}")
+    print(f"Complex geometry analysis:")
+    print(f"  Volume: {volume:.3f}")
+    print(f"  Surface area: {total_surface_area:.3f}")
+    print(f"  Face count: {face_count}")
+    print(f"  Edge count: {edge_count}")
+    print(f"  Complexity ratio: {complexity_ratio:.2f}")
+    print(f"  Face distribution - small:{len(small_faces)}, medium:{len(medium_faces)}, large:{len(large_faces)}")
+    print(f"  Tags: {list_tags(complex_solid)}")
     
     return complex_solid
 
@@ -542,9 +542,9 @@ complex_geometry = create_complex_geometry()
 from simplecadapi import make_box_rsolid, make_cylinder_rsolid, make_sphere_rsolid
 
 def analyze_solid_quality():
-    """分析实体质量"""
+    """Analyze solid quality"""
     
-    # 创建测试实体
+    # Create test solids
     test_solids = [
         ("small_box", make_box_rsolid(width=1, height=1, depth=1)),
         ("large_box", make_box_rsolid(width=10, height=10, depth=10)),
@@ -557,21 +557,21 @@ def analyze_solid_quality():
         apply_tag(solid, name)
         apply_tag(solid, "test_geometry")
         
-        # 基本几何属性
+        # Basic geometric properties
         volume = solid.get_volume()
         faces = solid.get_faces()
         edges = solid.get_edges()
         
-        # 计算质量指标
+        # Compute quality metrics
         surface_area = sum(face.get_area() for face in faces)
         volume_to_surface_ratio = volume / surface_area if surface_area > 0 else 0
         
-        # 分析拓扑复杂度
+        # Analyze topology complexity
         face_count = len(faces)
         edge_count = len(edges)
-        euler_characteristic = None  # 简化版本不计算欧拉特征数
+        euler_characteristic = None  # the simplified version does not compute the Euler characteristic
         
-        # 面积分布分析
+        # Face area distribution analysis
         face_areas = [face.get_area() for face in faces]
         if face_areas:
             min_area = min(face_areas)
@@ -580,43 +580,43 @@ def analyze_solid_quality():
         else:
             min_area = max_area = area_ratio = 0
         
-        # 质量评估
+        # Quality assessment
         quality_score = 0
         quality_issues = []
         
-        # 体积检查
+        # Volume check
         if volume > 1e-6:
             quality_score += 20
         else:
-            quality_issues.append("极小体积")
+            quality_issues.append("extremely small volume")
         
-        # 面数检查
+        # Face count check
         if 4 <= face_count <= 100:
             quality_score += 20
         elif face_count > 100:
-            quality_issues.append("面数过多")
+            quality_issues.append("too many faces")
         else:
-            quality_issues.append("面数异常")
+            quality_issues.append("abnormal face count")
         
-        # 面积比检查
+        # Area ratio check
         if area_ratio < 1000:
             quality_score += 20
         else:
-            quality_issues.append("面积差异过大")
+            quality_issues.append("excessive area variation")
         
-        # 体积效率检查
+        # Volume efficiency check
         if volume_to_surface_ratio > 0.1:
             quality_score += 20
         else:
-            quality_issues.append("体积效率低")
+            quality_issues.append("low volume efficiency")
         
-        # 边数合理性检查
+        # Edge count sanity check
         if edge_count < face_count * 10:
             quality_score += 20
         else:
-            quality_issues.append("边数过多")
+            quality_issues.append("too many edges")
         
-        # 存储质量数据
+        # Store quality data
         solid.set_metadata("volume", volume)
         solid.set_metadata("surface_area", surface_area)
         solid.set_metadata("face_count", face_count)
@@ -626,7 +626,7 @@ def analyze_solid_quality():
         solid.set_metadata("quality_score", quality_score)
         solid.set_metadata("quality_issues", quality_issues)
         
-        # 质量标签
+        # Quality tags
         if quality_score >= 80:
             apply_tag(solid, "high_quality")
         elif quality_score >= 60:
@@ -636,17 +636,17 @@ def analyze_solid_quality():
         else:
             apply_tag(solid, "poor_quality")
         
-        print(f"{name.upper()} 质量分析:")
-        print(f"  体积: {volume:.6f}")
-        print(f"  表面积: {surface_area:.3f}")
-        print(f"  面数: {face_count}")
-        print(f"  边数: {edge_count}")
-        print(f"  体积效率: {volume_to_surface_ratio:.3f}")
-        print(f"  面积比: {area_ratio:.2f}")
-        print(f"  质量分数: {quality_score}/100")
+        print(f"{name.upper()} quality analysis:")
+        print(f"  Volume: {volume:.6f}")
+        print(f"  Surface area: {surface_area:.3f}")
+        print(f"  Face count: {face_count}")
+        print(f"  Edge count: {edge_count}")
+        print(f"  Volume efficiency: {volume_to_surface_ratio:.3f}")
+        print(f"  Area ratio: {area_ratio:.2f}")
+        print(f"  Quality score: {quality_score}/100")
         if quality_issues:
-            print(f"  质量问题: {', '.join(quality_issues)}")
-        print(f"  质量等级: {[tag for tag in list_tags(solid) if 'quality' in tag]}")
+            print(f"  Quality issues: {', '.join(quality_issues)}")
+        print(f"  Quality grade: {[tag for tag in list_tags(solid) if 'quality' in tag]}")
         print()
 
 analyze_solid_quality()

@@ -232,6 +232,21 @@ def _ignore_common_noise(_: str, names: list[str]) -> list[str]:
             continue
         if name.endswith(".pyc"):
             ignored.append(name)
+            continue
+        # Keep the skill bundle English-only and reference-focused: drop
+        # deliberate Chinese release-note twins and internal design/history
+        # docs (the repo keeps them; the bundle does not ship them).
+        if name.endswith(".zh-CN.md"):
+            ignored.append(name)
+            continue
+        if name in {
+            "architecture",
+            "rearchitecture_2_0.md",
+            "rearchitecture_2_0_requirements.md",
+            "operation_graph_json_spec.md",
+        }:
+            ignored.append(name)
+            continue
     return ignored
 
 
@@ -396,6 +411,19 @@ class SkillPackager:
             self._build_sdk_package_summary(),
             encoding="utf-8",
         )
+        inspection_reference = self.source_docs / "guides" / "step-brep-reverse-engineering.md"
+        destination = self.references_dir / "inspect" / "brep-reverse-engineering.md"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if inspection_reference.exists():
+            shutil.copy2(inspection_reference, destination)
+        else:
+            destination.write_text(
+                "# STEP/BREP Inspection\n\n"
+                "Use `simplecadapi.inspect.brep` outside GraphSession/@model. "
+                "Select inspection primitives according to the case; do not "
+                "apply a fixed reverse-engineering pipeline.\n",
+                encoding="utf-8",
+            )
 
     def _validate_generated_skill(self) -> None:
         self.log("Validating generated skill...")
@@ -405,6 +433,7 @@ class SkillPackager:
             self.references_dir / "SDK_SURFACES.md",
             self.references_dir / "MODELING_WORKFLOWS.md",
             self.references_dir / "SDK_PACKAGE_SUMMARY.md",
+            self.references_dir / "inspect" / "brep-reverse-engineering.md",
             self.references_dir / "LICENSE.txt",
             self.docs_dir / "api" / "README.md",
             self.docs_dir / "core" / "README.md",
@@ -473,6 +502,7 @@ class SkillPackager:
               - `<skill_root>/references/SDK_OVERVIEW.md`
               - `<skill_root>/references/SDK_SURFACES.md`
               - `<skill_root>/references/MODELING_WORKFLOWS.md`
+              - `<skill_root>/references/inspect/brep-reverse-engineering.md`
 
             ## MUST Requirements
             1. Read `SKILL.md`, `references/docs/api/README.md`, and `references/docs/stdlib/README.md` before choosing APIs.
@@ -492,6 +522,17 @@ class SkillPackager:
             15. If union cannot produce exactly one merged solid, it fails explicitly; do not silently pick one piece.
             16. If a single merged solid is required and union fails, slightly adjust part placement so intended bodies overlap/embed, then recompute.
             17. If a task depends on model replay or interchange, prefer `ModelResult.model_json` or `export_model_json()` output over hand-written payloads.
+            18. For STEP/BREP inspection or target/candidate comparison, read `references/inspect/brep-reverse-engineering.md` completely.
+            19. Use `simplecadapi.inspect.brep` only outside `GraphSession` and `@model`; inspection functions are diagnostic tools, not modeling operations.
+            20. Reverse engineering is case-by-case: the built-in inspection primitives are tools, not a pipeline — write ad hoc inspection code for the specific model when built-ins do not answer the question. Acceptance hierarchy: BREP topology identity is the best endpoint (complete reverse engineering); identical structure with minor float-level parameter drift from export is acceptable; a visually-close but structurally different result is a valid stop only when no better feature operation order/combination exists or the SDK lacks the required operation type.
+
+            ## Coding Standard (MUST)
+            This file/parameter standard applies to every modeling task. It is mandatory; deviation requires explicit user approval.
+
+            1. One part per file. Each distinct physical part is authored in its own script/module file. Never bundle multiple parts into one file and never split one part across files.
+            2. One assembly file. The full assembly is composed in exactly one file, which imports the part modules and positions them. A second top-level assembly file is not allowed.
+            3. Parameters live where they are used. Every parameter is declared in the file that directly consumes it: part parameters in the part file, assembly parameters in the assembly file. No central shared-parameters/dimensions module consumed across files.
+            4. Exposed tunable parameters MUST be Var declarations. Any parameter intended to be exposed or tunable MUST be declared with a Var in the file that uses it: `from simplecadapi import var` / `Var(name, default, ...)` (optionally with `unit`, `tolerance`). Bare numeric literals and magic numbers are NOT tunable parameters: if a value must be adjustable, declare it with `var()`/`Var`; otherwise keep it a plain constant in the file that uses it.
 
             ## Standard Parts Library
             - SimpleCAD includes a standard library for parameterized mechanical parts.
@@ -539,6 +580,7 @@ class SkillPackager:
             - Use `references/SDK_OVERVIEW.md` for the package-level map.
             - Use `references/SDK_SURFACES.md` for the main public surfaces.
             - Use `references/MODELING_WORKFLOWS.md` for graph/model-oriented patterns.
+            - Use `references/inspect/brep-reverse-engineering.md` for case-specific STEP/BREP evidence gathering and acceptance.
 
             ## Example SDK usage
 
@@ -569,6 +611,7 @@ class SkillPackager:
             - `references/SDK_OVERVIEW.md`
             - `references/SDK_SURFACES.md`
             - `references/MODELING_WORKFLOWS.md`
+            - `references/inspect/brep-reverse-engineering.md`
             - `references/SDK_PACKAGE_SUMMARY.md`
             - `references/docs/api/`
             - `references/docs/stdlib/`
@@ -709,6 +752,7 @@ class SkillPackager:
 
             ## Modeling Mental Model
 
+            - Follow the Coding Standard in `SKILL.md`: one part per file, one assembly file, parameters colocated with the file that uses them, and every exposed tunable parameter declared with `var()`/`Var`.
             - Model the part as a sequence of intentional operations, not as one opaque final shape.
             - Use the standard parts library first when a requested standard component is available and does not need complex custom geometry changes.
             - Start from profiles and reference geometry, then create solids with features such as extrude, revolve, loft, and sweep.

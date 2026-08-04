@@ -21,6 +21,7 @@ _CANONICAL_OPS = (
     "make_three_point_arc_redge",
     "make_angle_arc_redge",
     "make_spline_redge",
+    "make_interpolated_spline_redge",
     "make_helix_redge",
     "make_wire_from_edges_rwire",
     "make_face_from_wire_rface",
@@ -116,6 +117,10 @@ OP_SUPPORT: Dict[str, OperationCapability] = {
 OP_SUPPORT["make_point_rvertex"] = OperationCapability(
     SupportLevel.UNSUPPORTED,
     reason="The FreeCAD point emitter has not been implemented yet.",
+)
+OP_SUPPORT["make_interpolated_spline_redge"] = OperationCapability(
+    SupportLevel.UNSUPPORTED,
+    reason="The FreeCAD interpolated B-spline emitter has not been implemented yet.",
 )
 OP_SUPPORT["make_twisted_sweep_rsolid"] = OperationCapability(
     SupportLevel.EMULATED,
