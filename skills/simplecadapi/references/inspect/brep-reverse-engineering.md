@@ -102,6 +102,7 @@ case-by-case inspection code for the model:
 |---|---|
 | Global size, mass properties, topology scale | `inspect_step_rsummary`, `compare_global_properties_rdescriptor` |
 | Single face/edge parameters and adjacency | `inspect_step_entity_rdescriptor`, `inspect_topology_neighborhood_rdescriptor` |
+| Map stable geometry IDs to visual entities | `render_entity_map_rpath` (opaque depth-preserving context with type-specific edge/face/point marks, distinct colors, and anchored `entity_id · geometry.type` callouts) |
 | Section profile, wall thickness, or local cut | `inspect_section_rdescriptor`, `compare_sections_rdescriptor` |
 | Assembly tree and interface visualization | `inspect_step_components_rdescriptorlist`, `render_step_components_rpath` |
 | Side-by-side multi-part observation | `render_step_components_colored_rpath` (direct `{component name: color name}` mapping, highlights multiple solids at once, with legend) |
