@@ -16,6 +16,5 @@ def add_bspline_rsketch(sketch: Sketch, entity_id: str, start: Union[SketchRef, 
 
 Add a B-spline curve entity to a sketch.
 
-The start/end point refs link the B-spline into a closed profile loop. Each
-control point may be a literal 2-D coordinate or a point ref from the same
-Sketch. Referenced poles follow the solved Sketch point.
+The start/end point refs link the B-spline into a closed profile
+loop. Control points may be literal 2-D coordinates or point refs.

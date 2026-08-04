@@ -14,6 +14,4 @@ def make_wire_from_edges_rwire(edges: List[Edge], *, tag_prefix: Optional[str] =
 
 ## Description
 
-Create a wire from a list of connected edges. Existing proven Edge topology
-tags are preserved by exact topology identity; `tag_prefix` optionally adds
-`<tag_prefix>.wire` to the resulting wire.
+Create a wire from a list of connected edges.

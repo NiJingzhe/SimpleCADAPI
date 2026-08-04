@@ -10,10 +10,8 @@ def source_binding(binding_id: str) -> SerializablePredicate
 
 ## Import Surface
 
-- submodule: `from simplecadapi import ql`
+- submodule: `from simplecadapi.ql import source_binding` or `simplecadapi.ql.source_binding`
 
 ## Description
 
-Match a local projected `TagBinding` whose topology-change evidence preserves the
-exact source `binding_id`. Objects without canonical local binding evidence raise
-an unsupported-query capability error instead of consulting flat tags.
+Match a projected local binding by its exact source binding identity.

@@ -1,11 +1,12 @@
 # SimpleCAD API Index
 
-This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, expressions, QL, and export helpers.
+This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, inspection tools, expressions, QL, and export helpers.
 
 ## Import Surfaces
 
 - Entries marked `top-level` are exported from `simplecadapi` and can be imported with `from simplecadapi import <name>`.
 - Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.
+- Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession` or `@model`.
 - Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.
 
 ## Basic Creation
@@ -31,9 +32,12 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_face_from_wires_rface](make_face_from_wires_rface.md) *(from operations.py)* `top-level`
 - [make_helix_redge](make_helix_redge.md) *(from operations.py)* `top-level`
 - [make_helix_rwire](make_helix_rwire.md) *(from operations.py)* `top-level`
+- [make_interpolated_spline_redge](make_interpolated_spline_redge.md) *(from operations.py)* `top-level`
+- [make_interpolated_spline_rwire](make_interpolated_spline_rwire.md) *(from operations.py)* `top-level`
 - [make_line_redge](make_line_redge.md) *(from operations.py)* `top-level`
 - [make_material_rmaterial](make_material_rmaterial.md) *(from operations.py)* `top-level`
 - [make_part_rpart](make_part_rpart.md) *(from operations.py)* `top-level`
+- [make_periodic_spline_rwire](make_periodic_spline_rwire.md) *(from operations.py)* `top-level`
 - [make_placement_connector_rconnector](make_placement_connector_rconnector.md) *(from operations.py)* `top-level`
 - [make_placement_rplacement](make_placement_rplacement.md) *(from operations.py)* `top-level`
 - [make_point_rvertex](make_point_rvertex.md) *(from operations.py)* `top-level`
@@ -65,37 +69,14 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [loft_rsolid](loft_rsolid.md) *(from operations.py)* `top-level`
 - [revolve_rsolid](revolve_rsolid.md) *(from operations.py)* `top-level`
 - [sweep_rsolid](sweep_rsolid.md) *(from operations.py)* `top-level`
-- [twisted_sweep_rsolid](twisted_sweep_rsolid.md) *(from operations.py)* `top-level`
 
 ## Tagging and Selection
 
 - [apply_tag](apply_tag.md) *(from operations.py)* `top-level`
 - [apply_tag_rselection](apply_tag_rselection.md) *(from operations.py)* `top-level`
-- [explain_tag](explain_tag.md) *(from operations.py)* `top-level`
 - [list_tags](list_tags.md) *(from operations.py)* `top-level`
 - [select_edges_by_tag](select_edges_by_tag.md) *(from operations.py)* `top-level`
 - [select_faces_by_tag](select_faces_by_tag.md) *(from operations.py)* `top-level`
-
-Creation-time topology-identity tags are supported by profile constructors and
-native feature primitives through `tag_prefix`. QL selectors also support `shared_boundary(...)`,
-`intersection(...)`, `incident_to(...)`, `incident_face_count(...)`, and
-`solids()` for relation-aware Edge selection.
-
-## Unified Tag Contract
-
-Topology identity and user semantics share one public tag model. Every binding
-is inspected with `list_tags(...)` and `explain_tag(...)` and queried with
-`ql.tag(...)`; one topology object may carry several tags for different uses.
-
-`tag_prefix="housing"` creates topology-identity tags such as
-`housing.face.top` and `housing.solid`. These bindings carry `topology_name`
-evidence and project only when kernel history proves exact correspondence.
-
-Role parameters such as `top_face_tag`, `side_faces_tag`, and
-`generated_faces_tag`, plus `result_tag`, create tags whose evidence identifies
-the kernel-proven role or result. Their tag text alone does not establish
-topology identity. There is one public tag parameter per target role, not a
-generic role-to-tag mapping.
 
 ## Boolean Operations
 
@@ -108,11 +89,18 @@ generic role-to-tag mapping.
 - [export_step](export_step.md) *(from operations.py)* `top-level`
 - [export_stl](export_stl.md) *(from operations.py)* `top-level`
 
-## FreeCAD Translation
+## Translator Backends
 
-- [FreeCADScriptTranslator](FreeCADScriptTranslator.md) *(from translator/freecad_translator/script_translator.py)* `translator backend`
+- [FreeCADScriptTranslator](FreeCADScriptTranslator.md) *(from translator/freecad_translator/translator.py)* `translator backend`
+- [FreeCADTranslator](FreeCADTranslator.md) *(from translator/freecad_translator/translator.py)* `translator backend`
+- [Fusion360Translator](Fusion360Translator.md) *(from translator/fusion360_translator/translator.py)* `translator backend`
+- [SolidWorksTranslator](SolidWorksTranslator.md) *(from translator/solidworks_translator/translator.py)* `translator backend`
+- [export_model_json_to_fcstd](export_model_json_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
+- [export_model_json_to_solidworks_step](export_model_json_to_solidworks_step.md) *(from translator/solidworks_translator/api.py)* `translator backend`
 - [translate_model_json_to_fcstd](translate_model_json_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
 - [translate_model_json_to_freecad_script](translate_model_json_to_freecad_script.md) *(from translator/freecad_translator/api.py)* `translator backend`
+- [translate_model_json_to_fusion360_script](translate_model_json_to_fusion360_script.md) *(from translator/fusion360_translator/api.py)* `translator backend`
+- [translate_model_json_to_solidworks_script](translate_model_json_to_solidworks_script.md) *(from translator/solidworks_translator/api.py)* `translator backend`
 
 ## Math Helpers
 
@@ -124,16 +112,17 @@ generic role-to-tag mapping.
 - [GraphSession](GraphSession.md) *(from graph.py)* `top-level`
 - [ModelResult](ModelResult.md) *(from graph.py)* `top-level`
 - [capture_result](capture_result.md) *(from graph.py)* `top-level`
-- [model](model.md) *(from graph.py)* `top-level`
-- [requires_session](requires_session.md) *(from graph.py)* `top-level`
 - [export_graph_json](export_graph_json.md) *(from serializer.py)* `top-level`
 - [export_model_json](export_model_json.md) *(from serializer.py)* `top-level`
 - [export_session_json](export_session_json.md) *(from serializer.py)* `top-level`
+- [get_active_session](get_active_session.md) *(from graph.py)* `top-level`
 - [import_graph_json](import_graph_json.md) *(from serializer.py)* `top-level`
 - [import_model_json](import_model_json.md) *(from serializer.py)* `top-level`
 - [import_session_json](import_session_json.md) *(from serializer.py)* `top-level`
+- [model](model.md) *(from graph.py)* `top-level`
 - [replay_graph](replay_graph.md) *(from serializer.py)* `top-level`
 - [replay_model_json](replay_model_json.md) *(from serializer.py)* `top-level`
+- [requires_session](requires_session.md) *(from graph.py)* `top-level`
 - [suspend_graph_recording](suspend_graph_recording.md) *(from graph.py)* `top-level`
 
 ## Expressions and Parameters
@@ -188,6 +177,54 @@ generic role-to-tag mapping.
 - [make_n_hole_flange_rsolid](make_n_hole_flange_rsolid.md) *(from evolve.py)* `top-level`
 - [make_naca_propeller_blade_rsolid](make_naca_propeller_blade_rsolid.md) *(from evolve.py)* `top-level`
 - [make_threaded_rod_rsolid](make_threaded_rod_rsolid.md) *(from evolve.py)* `top-level`
+
+## STEP/BREP Inspection
+
+- [BRepComparison](BRepComparison.md) *(from inspect/brep/compare.py)* `inspection namespace`
+- [BRepEntityError](BRepEntityError.md) *(from inspect/brep/model.py)* `inspection namespace`
+- [BRepInspection](BRepInspection.md) *(from inspect/brep/inspect.py)* `inspection namespace`
+- [BRepModel](BRepModel.md) *(from inspect/brep/model.py)* `inspection namespace`
+- [EntityInspectionParity](EntityInspectionParity.md) *(from inspect/brep/parity.py)* `inspection namespace`
+- [InspectionSummaryComparison](InspectionSummaryComparison.md) *(from inspect/brep/compare.py)* `inspection namespace`
+- [SliceSpec](SliceSpec.md) *(from inspect/brep/slices.py)* `inspection namespace`
+- [clear_step_model_cache_rnone](clear_step_model_cache_rnone.md) *(from inspect/brep/model.py)* `inspection namespace`
+- [compare_boundary_distance_rdescriptor](compare_boundary_distance_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
+- [compare_entities_rdescriptor](compare_entities_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
+- [compare_global_properties_rdescriptor](compare_global_properties_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
+- [compare_inspections_rinspectionsummarycomparison](compare_inspections_rinspectionsummarycomparison.md) *(from inspect/brep/compare.py)* `inspection namespace`
+- [compare_material_rdescriptor](compare_material_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
+- [compare_model_to_inspection_rentityinspectionparity](compare_model_to_inspection_rentityinspectionparity.md) *(from inspect/brep/parity.py)* `inspection namespace`
+- [compare_sections_rdescriptor](compare_sections_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
+- [compare_shape_slices_rslicecomparison](compare_shape_slices_rslicecomparison.md) *(from inspect/brep/slices.py)* `inspection namespace`
+- [compare_shapes_rbrepcomparison](compare_shapes_rbrepcomparison.md) *(from inspect/brep/compare.py)* `inspection namespace`
+- [compare_step_slices_rslicecomparison](compare_step_slices_rslicecomparison.md) *(from inspect/brep/slices.py)* `inspection namespace`
+- [compare_step_to_inspection_rentityinspectionparity](compare_step_to_inspection_rentityinspectionparity.md) *(from inspect/brep/parity.py)* `inspection namespace`
+- [compare_steps_rbrepcomparison](compare_steps_rbrepcomparison.md) *(from inspect/brep/compare.py)* `inspection namespace`
+- [evaluate_reconstruction_rdescriptor](evaluate_reconstruction_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
+- [index_shape_rbrepmodel](index_shape_rbrepmodel.md) *(from inspect/brep/model.py)* `inspection namespace`
+- [inspect_difference_regions_rdescriptor](inspect_difference_regions_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
+- [inspect_face_boundaries_rdescriptor](inspect_face_boundaries_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
+- [inspect_nearby_entities_rdescriptor](inspect_nearby_entities_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
+- [inspect_point_rdescriptor](inspect_point_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
+- [inspect_section_rdescriptor](inspect_section_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
+- [inspect_shape_rbrepinspection](inspect_shape_rbrepinspection.md) *(from inspect/brep/inspect.py)* `inspection namespace`
+- [inspect_step_components_rdescriptorlist](inspect_step_components_rdescriptorlist.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [inspect_step_entity_rdescriptor](inspect_step_entity_rdescriptor.md) *(from inspect/brep/model.py)* `inspection namespace`
+- [inspect_step_rbrepinspection](inspect_step_rbrepinspection.md) *(from inspect/brep/inspect.py)* `inspection namespace`
+- [inspect_step_rsummary](inspect_step_rsummary.md) *(from inspect/brep/model.py)* `inspection namespace`
+- [inspect_topology_neighborhood_rdescriptor](inspect_topology_neighborhood_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
+- [load_step_rbrepmodel](load_step_rbrepmodel.md) *(from inspect/brep/model.py)* `inspection namespace`
+- [load_step_rshape](load_step_rshape.md) *(from inspect/brep/io.py)* `inspection namespace`
+- [make_center_slice_specs_rslicespeclist](make_center_slice_specs_rslicespeclist.md) *(from inspect/brep/slices.py)* `inspection namespace`
+- [measure_entity_relation_rdescriptor](measure_entity_relation_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
+- [measure_shape_mass_rtuple](measure_shape_mass_rtuple.md) *(from inspect/brep/io.py)* `inspection namespace`
+- [render_entity_map_rpath](render_entity_map_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [render_region_rpath](render_region_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [render_shape_views_rpath](render_shape_views_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [render_step_components_colored_rpath](render_step_components_colored_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [render_step_components_rpath](render_step_components_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [render_step_views_rpath](render_step_views_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [select_region_entities_rdescriptor](select_region_entities_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
 
 ## Other
 
@@ -244,6 +281,7 @@ generic role-to-tag mapping.
 - [constrain_symmetric_rsketch](constrain_symmetric_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_tangent_rsketch](constrain_tangent_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_vertical_rsketch](constrain_vertical_rsketch.md) *(from operations.py)* `top-level`
+- [explain_tag](explain_tag.md) *(from operations.py)* `top-level`
 - [forward_connector_rassembly](forward_connector_rassembly.md) *(from operations.py)* `top-level`
 - [geo](geo.md) *(from ql.py)* `submodule:ql`
 - [get_sketch_entity_rsketchref](get_sketch_entity_rsketchref.md) *(from operations.py)* `top-level`
@@ -256,16 +294,18 @@ generic role-to-tag mapping.
 - [measure_constraint_residual_rconstraintresidual](measure_constraint_residual_rconstraintresidual.md) *(from operations.py)* `top-level`
 - [meta](meta.md) *(from ql.py)* `submodule:ql`
 - [not_](not_.md) *(from ql.py)* `submodule:ql`
+- [operation_event](operation_event.md) *(from ql.py)* `submodule:ql`
 - [or_](or_.md) *(from ql.py)* `submodule:ql`
+- [origin_role](origin_role.md) *(from ql.py)* `submodule:ql`
 - [output_role](output_role.md) *(from ql.py)* `submodule:ql`
 - [place_component_rassembly](place_component_rassembly.md) *(from operations.py)* `top-level`
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`
-- [solids](solids.md) *(from ql.py)* `submodule:ql`
 - [solve_assembly_constraints_rassembly](solve_assembly_constraints_rassembly.md) *(from operations.py)* `top-level`
 - [source_binding](source_binding.md) *(from ql.py)* `submodule:ql`
 - [source_topology](source_topology.md) *(from ql.py)* `submodule:ql`
 - [tag](tag.md) *(from ql.py)* `submodule:ql`
+- [twisted_sweep_rsolid](twisted_sweep_rsolid.md) *(from operations.py)* `top-level`
 - [unground_component_rassembly](unground_component_rassembly.md) *(from operations.py)* `top-level`
 - [value](value.md) *(from ql.py)* `submodule:ql`
