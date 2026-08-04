@@ -1,8 +1,8 @@
 # SDK Overview
 
 - Project: `simplecadapi`
-- Version: `2.0.3`
-- Package distribution: `simplecadapi==2.0.3`
+- Version: `2.0.4b1`
+- Package distribution: `simplecadapi==2.0.4b1`
 
 ## What this skill bundles
 
@@ -20,13 +20,11 @@
 ## Main SDK surfaces
 
 - Geometry and modeling operations in `docs/api/`.
-- Standard parts library in `docs/stdlib/`, including `scad.std.gear`, `scad.std.bearing`, `scad.std.chain`, and `scad.std.fastener` factories.
+- Standard parts library in `docs/stdlib/`, including `scad.std.gear` gear, ring gear, rack, and cycloidal disc factories plus `scad.std.bearing` bearing assembly factories.
 - Core shape/type semantics in `docs/core/`.
 - Graph/model serialization and replay APIs.
 - Expression, parameter, and semantic reference types.
-- Source-preserving tagging with `apply_tag(...)`, `apply_tag_rselection(...)`, scoped `list_tags(...)`/`explain_tag(...)`, and scoped QL tag predicates.
-- Kernel-proven primitive and feature output roles with strict role-based output tag assignment for box, cylinder, extrude, revolve, fillet, chamfer, shell, loft, sweep, and twisted sweep.
-- Serializable QL predicates for `output_role`, projected `source_binding`, and projected `source_topology` evidence.
+- Functional tagging with `apply_tag(shape=..., tag=...)`, `list_tags(shape=...)`, and QL tag predicates.
 
 ## Preferred replayable workflow
 

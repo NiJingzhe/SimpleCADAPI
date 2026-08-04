@@ -3,13 +3,7 @@
 ## API Definition
 
 ```python
-def union_rsolid(
-    *solids: Union[Solid, Sequence[Solid]],
-    clean: bool = True,
-    glue: bool = _DEFAULT_UNION_GLUE,
-    tol: Optional[float] = None,
-    tracking_policy: TrackingPolicy | str = TrackingPolicy.FULL,
-) -> Solid
+def union_rsolid(*solids: Union[Solid, Sequence[Solid]], clean: bool = True, glue: bool = _DEFAULT_UNION_GLUE, tol: Optional[float] = None, tracking_policy: TrackingPolicy | str = TrackingPolicy.FULL) -> Solid
 ```
 
 *Source: operations.py*
@@ -23,13 +17,17 @@ def union_rsolid(
 Compute the boolean union and return one manifold solid.
 
 Face-area contact and positive-volume overlap can produce one solid without
-artificially embedding either input. Edge-only, vertex-only, and point/curve
-tangencies are non-manifold connections and therefore cannot satisfy this API's
-single-`Solid` contract.
+artificial embedding. Edge-only, vertex-only, and point/curve tangencies
+are non-manifold connections and cannot satisfy the one-Solid contract.
 
-When `glue=True`, SimpleCAD tries OCC glue optimization first. If that optimized
-pass returns multiple solids, it automatically retries the normal fuse algorithm.
-Glue is an optimization, not a topology-repair switch.
+``glue`` is an OCC optimization for compatible touching or coincident
+topology, not a geometry repair switch. If the optimized pass does not
+return one solid, SimpleCAD automatically retries the normal fuse algorithm.
+
+Accepts standalone `Solid` objects, lists of `Solid`, and nested sequences,
+but always returns exactly one `Solid`. If the kernel cannot produce
+exactly one solid result, the API raises a clear error instead of
+returning multiple pieces.
 
 ## Parameters
 
@@ -43,16 +41,16 @@ Glue is an optimization, not a topology-repair switch.
 
 ### glue
 
-- **Description**: Try OCC glue optimization first and fall back to normal fuse when necessary. Defaults to `False`. It supports compatible face-touching or coincident topology but cannot repair non-manifold point-, edge-, or tangent-only contact.
+- **Description**: Try OCC glue optimization first, then fall back to normal fuse if necessary. Defaults to False.
 
 ### tol
 
-- **Type**: `Optional[float]`
-- **Description**: Finite non-negative fuzzy tolerance. It may intentionally bridge a small gap, but it does not make lower-dimensional contact into one manifold solid.
+- **Type**: `Optional finite non-negative fuzzy-boolean tolerance used by OCC. It`
+- **Description**: may intentionally bridge a small gap but cannot make a non-manifold point or edge contact into a valid solid.
 
 ### tracking_policy
 
-- **Description**: `TrackingPolicy.FULL` computes topology history and lineage. `TrackingPolicy.GRAPH` preserves the replayable operation node while omitting history-derived topology lineage.
+- **Description**: FULL computes topology history and lineage. GRAPH keeps the replayable operation node without computing a TopoDelta.
 
 ## Returns
 

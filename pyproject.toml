@@ -1,6 +1,6 @@
 [project]
 name = "simplecadapi"
-version = "2.0.3"
+version = "2.0.4b1"
 description = "A simplified OCP-native CAD modeling Python API"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -44,7 +44,7 @@ editor = []
 collision = [
     "python-fcl>=0.7.0.11",
 ]
-inverse-engineer = [
+inspect = [
     "matplotlib>=3.7.0",
 ]
 
@@ -98,4 +98,3 @@ evolve = "simplecadapi.auto_tools.evolution:main"
 make-export = "simplecadapi.auto_tools.make_export:main"
 auto-docs-gen = "simplecadapi.auto_tools.auto_docs_gen:main"
 skill-pack = "simplecadapi.auto_tools.skill_pack:main"
-simplecad-brep = "simplecadapi.inverse_engineer.brep.cli:main"

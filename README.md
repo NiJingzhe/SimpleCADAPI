@@ -6,17 +6,17 @@
 
 [中文说明](README.zh-CN.md)
 
-## Update Notes (2.0.2)
+## Update Notes (2.0.4b2 development)
 
-> **Experimental release:** The capabilities in this release may introduce
-> breaking changes in later versions and are not recommended for immediate
-> production use.
+> **Beta release:** Review reconstructed geometry and generated CAD documents
+> before using this version in production.
 
-SimpleCADAPI 2.0.2 expands the workflow with cross-CAD translation, a browser
-scene viewer, replayable model artifacts with source mapping, units and
-tolerance analysis, standard mechanical parts, assembly verification, and STEP
-reverse-engineering tools. See the [full English update notes](docs/updates/2.0.2.md)
-for implementation details and usage boundaries.
+SimpleCADAPI 2.0.4b2 adds an Agent-oriented STEP/BREP reconstruction workflow
+with stable entity IDs, 17 schema-validated inspection and diagnostic tools,
+focused material/boundary/topology acceptance gates, and replayable
+interpolated B-spline profiles. See the
+[full English update notes](docs/updates/2.0.4b2.md) for implementation details,
+operating modes, limitations, and verification coverage.
 
 ---
 
@@ -37,7 +37,8 @@ in a compact public API for creating solids, applying features, tagging semantic
 intent, querying topology, exporting manufacturing files, and translating recorded
 models into FreeCAD workflows.
 
-Current release: `simplecadapi==2.0.3`.
+Current published beta release: `simplecadapi==2.0.4b1`. The 2.0.4b2 notes
+describe the next beta while it is under validation.
 
 ## What It Provides
 
@@ -54,6 +55,10 @@ Current release: `simplecadapi==2.0.3`.
   selections.
 - Semantic tags through `apply_tag(shape=..., tag=...)` and `list_tags(shape=...)`.
 - STEP/STL export and FreeCAD translation helpers for script or `.FCStd` output.
+- Agent-oriented STEP/BREP reconstruction with stable entity IDs, focused local
+  diagnostics, highlighted region renders, and measured acceptance gates.
+- Replayable open and periodic interpolated B-spline Edges/Wires for freeform
+  profiles and Loft sections.
 
 ## Install
 
@@ -157,6 +162,45 @@ STEP, STL, or FCStd files; those explicit export APIs remain available. The
 package path is `result.artifact_paths["scene"]`. Without `export_dir`, model
 execution remains in memory.
 
+## STEP/BREP Inspection
+
+Install the optional rendering dependency when synchronized STEP views,
+highlighted regions, or slice overlays are needed:
+
+```bash
+pip install "simplecadapi[inspect]"
+```
+
+Inspection lives under `simplecadapi.inspect.brep`. These APIs are diagnostic
+tools, not modeling operations: they do not enter the graph and are rejected
+inside `GraphSession` and `@model`. Export or obtain the geometry first, then
+inspect it outside the modeling script.
+
+Choose calls from the evidence required by the case instead of following a
+fixed reverse-engineering pipeline. Start with bounded global and local facts;
+add sections, component renders, boundary distance, material difference, or
+strict topology comparison only when those facts answer the current question.
+
+```python
+from simplecadapi.inspect import brep
+
+summary = brep.inspect_step_rsummary(
+    path="target.step",
+    include_parameter_groups=True,
+)
+face = brep.inspect_step_entity_rdescriptor(
+    path="target.step",
+    entity_id="face:0",
+)
+
+print("faces", summary["face_count"])
+print("carrier", face["geometry"]["type"])
+```
+
+Use the [Reconstruction Agent test specification](docs/guides/reconstruction-agent-test-prompt.md)
+for controlled runs and the [STEP BREP reverse-engineering guide](docs/guides/step-brep-reverse-engineering.md)
+for the inspection primitives, modeling loop, replay checks, and acceptance gates.
+
 ## Physical Units And Tolerances
 
 Declare nominal and manufacturing-tolerance units at the variable boundary.
@@ -246,6 +290,11 @@ uv run python examples/20_integrated_bldc_joint_actuator/main.py
 
 ## Documentation
 
+- 2.0.4b2 update notes: [`docs/updates/2.0.4b2.md`](docs/updates/2.0.4b2.md)
+- Reconstruction Agent test specification:
+  [`docs/guides/reconstruction-agent-test-prompt.md`](docs/guides/reconstruction-agent-test-prompt.md)
+- STEP BREP reverse-engineering guide:
+  [`docs/guides/step-brep-reverse-engineering.md`](docs/guides/step-brep-reverse-engineering.md)
 - Public API reference: [`docs/api/`](docs/api/)
 - Core type and modeling notes: [`docs/core/`](docs/core/)
 - Serialization and replay details:

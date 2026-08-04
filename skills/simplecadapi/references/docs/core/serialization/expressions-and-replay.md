@@ -15,14 +15,15 @@ This lets consumers choose between:
 ```python
 import simplecadapi as scad
 
-width = scad.var("width", 24.0, comment="plate width")
-height = scad.var("height", 12.0, comment="plate height")
-thickness = scad.var("thickness", 4.0, comment="plate thickness")
+width = scad.var("width", 24.0, unit="mm", comment="plate width", tolerance=0.1)
+height = scad.var("height", 12.0, unit="mm", comment="plate height", tolerance=0.1)
+thickness = scad.var("thickness", 4.0, unit="mm", comment="plate thickness", tolerance=(-0.05, 0.1))
 
 with scad.GraphSession() as session:
     plate = scad.make_box_rsolid(width, height, thickness)
     rib = scad.make_box_rsolid(width / 4.0, height, thickness * 2.0)
     part = scad.union_rsolid(plate, rib)
+    session.require_tolerance(width + height, 0.2, tolerance_unit="mm", name="plate_envelope")
 
 model_json = scad.export_model_json(session)
 ```
@@ -48,7 +49,9 @@ A node with expression-backed params may look like:
 }
 ```
 
-`params.distance` is the evaluated snapshot. `param_exprs.distance` says the value came from expression node `var_thickness`.
+`params.distance` is the evaluated canonical snapshot. Unit-aware lengths are
+stored in millimeters and angles in degrees. `param_exprs.distance` says the value
+came from expression node `var_thickness` and preserves its declaration metadata.
 
 For tuple/list params, `param_exprs` mirrors the shape of the parameter and uses `null` where no expression is present:
 
@@ -78,11 +81,23 @@ Consumers that want parameterization should:
 
 Consumers that only want geometry can ignore `param_exprs` and `expression_graph`.
 
+Variable nodes may contain `unit`, `tolerance`, and `tolerance_unit`. Registered
+units use string symbols; custom units use `{symbol, dimension,
+scale_to_canonical}` objects. Import reconstructs the expression graph and reruns
+dimension inference rather than trusting external dimension claims.
+
+Session/model payloads store derived-dimension requirements in `tolerance_graph`.
+See [Physical Units](../physical-units.md) and [Dimension Tolerance
+Chains](../dimension-tolerance-chains.md) for inference, propagation, and
+validation semantics.
+
 ## Replay policy in current implementation
 
 `replay_model_json(model_json)` currently uses the canonical low-level `graph` and the numeric values in `node.params`.
 
 That means replay is deterministic with respect to the exported snapshot. It does not currently re-solve expressions with changed variable values.
+
+Replay does validate stored tolerance requirements before rebuilding the nominal geometry. A failing tolerance chain blocks replay, but passing bounds do not cause replay to sample or regenerate limit geometry.
 
 In practical terms:
 

@@ -16,8 +16,8 @@ def make_helical_gear_rsolid(n_teeth: int, module: float, pressure_angle: float 
 
 Create an involute helical gear.
 
-Non-zero helix angles use a continuous twisted sweep along the gear axis. An
-auxiliary-spine rotation law preserves the profile while generating one
+Non-zero helix angles use a continuous twisted sweep along the gear axis.
+An auxiliary-spine rotation law preserves the profile while generating one
 continuous side face per profile edge instead of one face per loft interval.
 
 ## Parameters

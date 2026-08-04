@@ -1,14 +1,14 @@
 # SDK Package Summary
 
 - Project: `simplecadapi`
-- Version: `2.0.3`
+- Version: `2.0.4b1`
 - Summary: A simplified OCP-native CAD modeling Python API
 
 ## Scope
 
 - OCP-native public CAD Python SDK for geometry and replayable modeling.
 - Includes generated API, standard-library, and core type references under `references/docs/`.
-- Includes a standard parts library for reusable bearings, gears, roller-chain sprockets, bolts, nuts, racks, and cycloidal discs.
+- Includes a standard parts library for reusable mechanical parts such as bearings, gears, internal ring gears, racks, and cycloidal discs.
 - Emphasizes public surfaces rather than repository operations.
 
 ## Main reference entry points

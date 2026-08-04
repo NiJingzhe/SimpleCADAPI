@@ -14,6 +14,4 @@ def render_screenshot_rpath(shapes: Union[Solid, Sequence[Solid]], output_path: 
 
 ## Description
 
-Render a screenshot of shapes and save it to a file. Set `show_callouts=False`
-to retain highlighted material colors and the legend without placing tag labels
-over the model.
+Render SDK solids through the shared OCCT/VTK BREP renderer.

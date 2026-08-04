@@ -2762,7 +2762,7 @@ wheels = [
 
 [[package]]
 name = "simplecadapi"
-version = "2.0.3"
+version = "2.0.4b1"
 source = { editable = "." }
 dependencies = [
     { name = "cadquery-ocp" },
@@ -2786,7 +2786,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
-inverse-engineer = [
+inspect = [
     { name = "matplotlib" },
 ]
 
@@ -2808,7 +2808,7 @@ requires-dist = [
     { name = "cadquery-ocp", specifier = ">=7.9.3.1" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "jsonschema", specifier = ">=4.25.1,<5.0.0" },
-    { name = "matplotlib", marker = "extra == 'inverse-engineer'", specifier = ">=3.7.0" },
+    { name = "matplotlib", marker = "extra == 'inspect'", specifier = ">=3.7.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "numpy", specifier = ">=1.21.0" },
     { name = "py-slvs", specifier = "==1.0.6" },
@@ -2819,7 +2819,7 @@ requires-dist = [
     { name = "rich", specifier = ">=14.0.0" },
     { name = "typing-extensions", specifier = ">=4.12,<5" },
 ]
-provides-extras = ["dev", "editor", "collision", "inverse-engineer"]
+provides-extras = ["dev", "editor", "collision", "inspect"]
 
 [package.metadata.requires-dev]
 dev = [

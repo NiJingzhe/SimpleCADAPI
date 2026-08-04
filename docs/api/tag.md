@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def tag(pattern: str) -> SerializablePredicate
+def tag(pattern: str, scope: str | TagScope = TagScope.EFFECTIVE) -> SerializablePredicate
 ```
 
 *Source: ql.py*
@@ -21,6 +21,10 @@ Build a tag predicate for QL filtering.
 ### pattern
 
 - **Description**: Exact tag string or a trailing `*` prefix match.
+
+### scope
+
+- **Description**: One of ``local``, ``inherited``, ``effective``, or ``lineage``.
 
 ## Returns
 

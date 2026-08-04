@@ -6,14 +6,14 @@
 
 [English](README.md)
 
-## 更新日志（2.0.2）
+## 更新日志（2.0.4b2 开发中）
 
-> **试验性版本：** 本版本中的功能后续可能引入 breaking changes
-> （不兼容变更），不建议立即用于生产环境。
+> **Beta 版本：** 用于生产前，请检查逆向得到的几何以及生成的 CAD 文档。
 
-SimpleCADAPI 2.0.2 新增跨 CAD 转换、浏览器三维场景查看、可回放模型与源代码
-映射、单位和公差分析、机械标准件、装配验证以及 STEP 逆向工程工具。具体实现
-细节和使用边界请阅读[完整中文更新说明](docs/updates/2.0.2.zh-CN.md)。
+SimpleCADAPI 2.0.4b2 新增面向 Agent 的 STEP/BREP 逆向工作流，包括稳定实体 ID、
+17 个经过 Schema 校验的检查和诊断工具、聚焦材料/边界/拓扑的验收门槛，以及可回放
+的插值 B 样条轮廓。具体实现、运行模式、限制和验证范围请阅读
+[完整中文更新说明](docs/updates/2.0.4b2.zh-CN.md)。
 
 ---
 
@@ -30,7 +30,8 @@ SimpleCADAPI 2.0.2 新增跨 CAD 转换、浏览器三维场景查看、可回�
 
 SimpleCADAPI 是一个基于 OCP 的 Python CAD SDK，提供清晰的函数式建模操作和可重放的模型图。它在 OpenCascade 几何内核之上提供精简的公共 API，可用于创建实体、应用特征、添加语义标签、查询拓扑、导出制造文件，以及将记录的模型转换为 FreeCAD 工作流。
 
-当前正式版本：`simplecadapi==2.0.3`。
+当前已发布 Beta 版本：`simplecadapi==2.0.4b1`。2.0.4b2 更新说明描述的是正在验证的
+下一版 Beta。
 
 ## 核心能力
 
@@ -41,6 +42,9 @@ SimpleCADAPI 是一个基于 OCP 的 Python CAD SDK，提供清晰的函数式�
 - 使用 QL 选择器定位几何、查询拓扑并稳定选择特征。
 - 通过 `apply_tag(shape=..., tag=...)` 和 `list_tags(shape=...)` 管理语义标签。
 - 支持 STEP/STL 导出，以及 FreeCAD 脚本和 `.FCStd` 转换。
+- 面向 Agent 的 STEP/BREP 逆向能力，提供稳定实体 ID、局部诊断、区域高亮截图和
+  可测量的验收门槛。
+- 可回放的开放/周期插值 B 样条 Edge 和 Wire，可用于自由轮廓与 Loft 截面。
 
 ## 安装
 
@@ -125,6 +129,50 @@ Viewer 所需的 GLB/entity 资源。自动导出不会在旁边生成 model/ses
 STEP、STL 或 FCStd；这些格式仍可通过显式导出 API 生成。文件路径为
 `result.artifact_paths["scene"]`。省略 `export_dir` 时不会写文件。
 
+## STEP/BREP Agent 逆向
+
+需要生成同步 STEP 视图或局部高亮截图时，请安装渲染依赖：
+
+```bash
+pip install "simplecadapi[inverse-engineer]"
+```
+
+专用命名空间 `simplecadapi.inverse_engineer.brep` 提供稳定的
+Body/Face/Edge/Vertex ID，以及与 Agent 框架无关的工具注册表。逆向时应先读取
+有界证据，只有在候选模型足够接近后，才执行成本较高的材料差集或严格拓扑检查：
+
+```python
+from simplecadapi.inverse_engineer import brep
+
+schemas = brep.agent_tool_schemas()
+summary = brep.call_agent_tool(
+    name="get_model_summary",
+    arguments={
+        "model_path": "target.step",
+        "include_parameter_groups": True,
+    },
+)
+face = brep.call_agent_tool(
+    name="inspect_entity",
+    arguments={"model_path": "target.step", "entity_id": "face:0"},
+)
+
+print("tools", len(schemas))
+print("faces", summary["face_count"])
+print("carrier", face["geometry"]["type"])
+```
+
+CLI 使用同一份工具契约：
+
+```bash
+simplecad-brep tools
+simplecad-brep tool get_model_summary --arguments-file summary-args.json
+```
+
+受控测试请使用 [Reconstruction Agent 测试规范](docs/guides/reconstruction-agent-test-prompt.md)，
+完整证据、建模、回放和验收流程请阅读
+[STEP BREP 逆向工程指南](docs/guides/step-brep-reverse-engineering.md)。
+
 ## FreeCAD 转换
 
 可以把记录的模型 JSON 转换为 FreeCAD Python 脚本：
@@ -141,6 +189,11 @@ scad.translator.freecad_translator.translate_model_json_to_fcstd(model_json, "br
 
 ## 文档
 
+- 2.0.4b2 更新说明：[`docs/updates/2.0.4b2.zh-CN.md`](docs/updates/2.0.4b2.zh-CN.md)
+- Reconstruction Agent 测试规范：
+  [`docs/guides/reconstruction-agent-test-prompt.md`](docs/guides/reconstruction-agent-test-prompt.md)
+- STEP BREP 逆向工程指南：
+  [`docs/guides/step-brep-reverse-engineering.md`](docs/guides/step-brep-reverse-engineering.md)
 - 公共 API 参考：[`docs/api/`](docs/api/)
 - 核心类型与建模说明：[`docs/core/`](docs/core/)
 - 序列化与重放：[`docs/core/serialization/README.md`](docs/core/serialization/README.md)

@@ -291,6 +291,15 @@ class TestModelJson(unittest.TestCase):
                     (2.0, 0.0, 0.0),
                 ]
             )
+            scad.make_interpolated_spline_rwire(
+                points=[
+                    (1.0, 0.0, 0.0),
+                    (0.0, 1.0, 0.0),
+                    (-1.0, 0.0, 0.0),
+                    (0.0, -1.0, 0.0),
+                ],
+                periodic=True,
+            )
             scad.make_helix_rwire(1.0, 2.0, 0.8)
 
         payload = json.loads(scad.export_model_json(session))
@@ -300,6 +309,7 @@ class TestModelJson(unittest.TestCase):
         self.assertIn("make_three_point_arc_redge", core_ops)
         self.assertIn("make_angle_arc_redge", core_ops)
         self.assertIn("make_spline_redge", core_ops)
+        self.assertIn("make_interpolated_spline_redge", core_ops)
         self.assertIn("make_helix_redge", core_ops)
         self.assertIn("make_wire_from_edges_rwire", core_ops)
         self.assertNotIn("make_polyline_wire", core_ops)
