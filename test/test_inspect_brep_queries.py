@@ -32,6 +32,7 @@ from simplecadapi.inspect.brep.render import (
     _load_step_xcaf,
     _mesh_polydata,
     inspect_step_components_rdescriptorlist,
+    render_entity_map_rpath,
     render_region_rpath,
     render_step_components_colored_rpath,
     render_step_components_rpath,
@@ -529,6 +530,57 @@ def test_render_step_components_colored_maps_palette_and_legend(tmp_path):
 
     with pytest.raises(ValueError):
         render_step_components_colored_rpath(step, {}, tmp_path / "none.png")
+
+
+def test_render_entity_map_writes_multicolor_annotated_image(tmp_path):
+    model = _model()
+    output = tmp_path / "entity-map.png"
+
+    result = render_entity_map_rpath(
+        model,
+        ["body:0", "face:0", "edge:0", "vertex:0"],
+        output,
+        views=((28.0, -45.0, "isometric"),),
+        image_size=(4.0, 3.0),
+        dpi=80,
+    )
+
+    assert result == output
+    assert output.is_file()
+    assert output.stat().st_size > 0
+
+def test_render_entity_map_preserves_opaque_context_and_true_edges(tmp_path):
+    model = _model()
+    output = tmp_path / "depth-map.png"
+    assert render_entity_map_rpath(
+        model,
+        ["body:0", "face:0", "edge:0", "vertex:0"],
+        output,
+        views=((28.0, -45.0, "isometric"),),
+        image_size=(4.0, 3.0),
+        dpi=80,
+    ) == output
+    assert output.stat().st_size > 0
+
+
+def test_render_entity_map_rejects_empty_duplicate_and_invalid_options(tmp_path):
+    model = _model()
+
+    with pytest.raises(ValueError, match="At least one entity ID"):
+        render_entity_map_rpath(model, [], tmp_path / "empty.png")
+    with pytest.raises(ValueError, match="duplicate entity ID 'face:0'"):
+        render_entity_map_rpath(
+            model,
+            ["face:0", "face:0"],
+            tmp_path / "duplicate.png",
+        )
+    with pytest.raises(ValueError, match="context_opacity"):
+        render_entity_map_rpath(
+            model,
+            ["face:0"],
+            tmp_path / "opacity.png",
+            context_opacity=1.1,
+        )
 
 
 def test_render_region_does_not_mutate_cached_model_geometry(tmp_path):

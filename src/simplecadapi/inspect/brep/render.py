@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import colorsys
 import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -57,6 +58,21 @@ def _vtk_modules():
     except ImportError as error:
         raise ImportError("BREP rendering requires VTK") from error
     return vtk, numpy_to_vtk, numpy_to_vtkIdTypeArray
+
+_OFFSCREEN_WINDOW: Any | None = None
+
+
+def _offscreen_window(width: int, height: int):
+    """Reuse one native offscreen context; repeated macOS VTK teardown is unsafe."""
+    global _OFFSCREEN_WINDOW
+    vtk, _, _ = _vtk_modules()
+    if _OFFSCREEN_WINDOW is None:
+        _OFFSCREEN_WINDOW = vtk.vtkRenderWindow()
+        _OFFSCREEN_WINDOW.SetOffScreenRendering(1)
+        _OFFSCREEN_WINDOW.SetMultiSamples(4)
+    _OFFSCREEN_WINDOW.GetRenderers().RemoveAllItems()
+    _OFFSCREEN_WINDOW.SetSize(width, height)
+    return _OFFSCREEN_WINDOW
 
 
 def _compound(shapes: Sequence[TopoDS_Shape]) -> TopoDS_Shape:
@@ -637,6 +653,91 @@ def _point_actor(polydata, color: tuple[float, float, float], size: float):
     return actor
 
 
+def _add_geometry_callouts(
+    renderer,
+    callouts: Sequence[
+        tuple[str, tuple[float, float, float], tuple[float, float, float]]
+    ],
+    *,
+    font_size: int,
+    viewport_size: tuple[int, int],
+) -> list[tuple[Any, ...]]:
+    """Project anchors to non-overlapping 2D labels connected by leader lines."""
+    vtk, _, _ = _vtk_modules()
+    width, height = viewport_size
+    margin = 12
+    line_height = font_size + 8
+    placed: list[tuple[float, float, float, float]] = []
+    resources: list[tuple[Any, ...]] = []
+
+    def overlaps(box: tuple[float, float, float, float]) -> bool:
+        return any(
+            box[0] < other[2]
+            and box[2] > other[0]
+            and box[1] < other[3]
+            and box[3] > other[1]
+            for other in placed
+        )
+
+    origin_x, origin_y = renderer.GetOrigin()
+    for index, (label, anchor, color) in enumerate(callouts):
+        renderer.SetWorldPoint(*anchor, 1.0)
+        renderer.WorldToDisplay()
+        display_x, display_y, _ = renderer.GetDisplayPoint()
+        anchor_x = display_x - origin_x
+        anchor_y = display_y - origin_y
+        label_width = max(88, int(len(label) * font_size * 0.62) + 12)
+        offset_x = 18 if index % 2 == 0 else -label_width - 18
+        offset_y = 14 if index % 4 < 2 else -line_height - 14
+        label_x = min(max(anchor_x + offset_x, margin), width - label_width - margin)
+        label_y = min(max(anchor_y + offset_y, margin), height - line_height - margin)
+        attempts = 0
+        box = (label_x, label_y, label_x + label_width, label_y + line_height)
+        while overlaps(box) and attempts < 24:
+            label_y += line_height if attempts % 2 == 0 else -2 * line_height
+            label_y = min(max(label_y, margin), height - line_height - margin)
+            if attempts % 4 == 3:
+                label_x = min(
+                    max(label_x + label_width + 16, margin),
+                    width - label_width - margin,
+                )
+            box = (label_x, label_y, label_x + label_width, label_y + line_height)
+            attempts += 1
+        placed.append(box)
+        line_end_x = label_x if label_x >= anchor_x else label_x + label_width
+        line_end_y = label_y + line_height * 0.5
+        points = vtk.vtkPoints()
+        points.InsertNextPoint(anchor_x, anchor_y, 0.0)
+        points.InsertNextPoint(line_end_x, line_end_y, 0.0)
+        lines = vtk.vtkCellArray()
+        lines.InsertNextCell(2)
+        lines.InsertCellPoint(0)
+        lines.InsertCellPoint(1)
+        polydata = vtk.vtkPolyData()
+        polydata.SetPoints(points)
+        polydata.SetLines(lines)
+        mapper = vtk.vtkPolyDataMapper2D()
+        mapper.SetInputData(polydata)
+        leader = vtk.vtkActor2D()
+        leader.SetMapper(mapper)
+        leader.GetProperty().SetColor(*color)
+        leader.GetProperty().SetLineWidth(2.0)
+        renderer.AddViewProp(leader)
+        resources.append((points, lines, polydata, mapper, leader))
+        actor = vtk.vtkTextActor()
+        actor.SetInput(label)
+        actor.SetPosition(label_x, label_y)
+        prop = actor.GetTextProperty()
+        prop.SetColor(*color)
+        prop.SetBackgroundColor(0.04, 0.05, 0.07)
+        prop.SetBackgroundOpacity(0.86)
+        prop.SetFontSize(font_size)
+        prop.SetBold(True)
+        renderer.AddViewProp(actor)
+        resources.append((actor,))
+    return resources
+
+
 def _set_camera(renderer, elevation: float, azimuth: float) -> None:
     bounds = renderer.ComputeVisiblePropBounds()
     center = np.asarray(
@@ -709,15 +810,21 @@ def _render_polydata_views(
     highlighted_point_polydata=None,
     highlighted_groups=None,
     highlighted_edge_groups=None,
+    highlighted_point_groups=None,
     legend: Sequence[tuple[str, tuple[float, float, float]]] | None = None,
+    callouts: Sequence[
+        tuple[str, tuple[float, float, float], tuple[float, float, float]]
+    ]
+    | None = None,
 ) -> Path:
     """Render smooth views; optionally multiple colored highlight groups.
 
     ``highlighted_groups`` is a sequence of ``(polydata, rgb, opacity)``
     triples rendered as separate colored actors; ``highlighted_edge_groups``
-    is ``(polydata, rgb)`` pairs drawn as colored edge lines. ``legend`` is a
-    list of ``(label, rgb)`` entries drawn as colored text in the first
-    viewport.
+    and ``highlighted_point_groups`` are ``(polydata, rgb)`` pairs. ``legend``
+    is a list of ``(label, rgb)`` entries drawn in the first viewport.
+    ``callouts`` is ``(label, anchor, rgb)`` entries drawn next to their
+    geometry with same-color anchor markers in every viewport.
     """
     if not views:
         raise ValueError("at least one render view is required")
@@ -728,10 +835,9 @@ def _render_polydata_views(
     height = max(1, int(round(image_size[1] * dpi)))
     columns = min(2, len(views))
     rows = (len(views) + columns - 1) // columns
-    window = vtk.vtkRenderWindow()
-    window.SetOffScreenRendering(1)
-    window.SetSize(width, height)
-    window.SetMultiSamples(4)
+    window = _offscreen_window(width, height)
+    callout_resources: list[tuple[Any, ...]] = []
+    callout_renderers: list[tuple[Any, int]] = []
 
     for index, (elevation, azimuth, view_title) in enumerate(views):
         row = index // columns
@@ -764,7 +870,10 @@ def _render_polydata_views(
                 renderer.AddActor(_line_actor(polydata, color, 3.0))
         elif highlighted_edge_polydata is not None:
             renderer.AddActor(_line_actor(highlighted_edge_polydata, (0.78, 0.0, 0.0), 3.0))
-        if highlighted_point_polydata is not None:
+        if highlighted_point_groups:
+            for polydata, color in highlighted_point_groups:
+                renderer.AddActor(_point_actor(polydata, color, 11.0))
+        elif highlighted_point_polydata is not None:
             renderer.AddActor(_point_actor(highlighted_point_polydata, (0.78, 0.0, 0.0), 9.0))
         label = vtk.vtkTextActor()
         label.SetInput(f"{title}\n{view_title}" if index == 0 else view_title)
@@ -790,12 +899,27 @@ def _render_polydata_views(
                 renderer.AddViewProp(entry)
         window.AddRenderer(renderer)
         _set_camera(renderer, elevation, azimuth)
+        if callouts:
+            callout_renderers.append((renderer, index))
 
     window.Render()
+    for renderer, index in callout_renderers:
+        callout_resources.extend(
+            _add_geometry_callouts(
+                renderer,
+                callouts or (),
+                font_size=max(
+                    12,
+                    min(18, min(width // columns, height // rows) // 48),
+                ),
+                viewport_size=(width // columns, height // rows),
+            )
+        )
+    if callout_renderers:
+        window.Render()
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     _write_window(window, output)
-    window.Finalize()
     return output
 
 
@@ -946,6 +1070,8 @@ _NAMED_COLORS: Mapping[str, tuple[float, float, float]] = {
     "lime": (0.50, 0.80, 0.20),
     "green": (0.20, 0.75, 0.35),
     "teal": (0.15, 0.70, 0.70),
+
+
     "cyan": (0.15, 0.85, 0.90),
     "skyblue": (0.40, 0.75, 0.95),
     "blue": (0.20, 0.35, 0.95),
@@ -963,11 +1089,128 @@ _NAMED_COLORS: Mapping[str, tuple[float, float, float]] = {
     "black": (0.10, 0.10, 0.12),
     "white": (0.96, 0.96, 0.96),
 }
+def _distinct_entity_colors(count: int) -> list[tuple[float, float, float]]:
+    """Return deterministic high-contrast colors with no duplicate RGB values."""
+    if count < 0:
+        raise ValueError("color count must not be negative")
+    colors: list[tuple[float, float, float]] = []
+    golden_ratio = 0.6180339887498949
+    for index in range(count):
+        hue = (0.97 + index * golden_ratio) % 1.0
+        saturation = 0.72 if index % 2 == 0 else 0.86
+        value = 0.92 if index % 3 else 0.78
+        colors.append(tuple(float(channel) for channel in colorsys.hsv_to_rgb(hue, saturation, value)))
+    return colors
 
 
-ColorSpec = str | tuple[float, float, float] | int
+def _entity_anchor(descriptor: Mapping[str, Any]) -> tuple[float, float, float]:
+    geometry = descriptor["geometry"]
+    values = geometry.get("centroid") or geometry.get("coordinates")
+    if values is None:
+        values = descriptor["bounding_box"]["center"]
+    return tuple(float(value) for value in values)
 
 
+def render_entity_map_rpath(
+    model_or_path: BRepModel | TopoDS_Shape | str | Path,
+    entity_ids: Sequence[str],
+    output_path: str | Path,
+    *,
+    title: str = "BREP entity map",
+    views: Sequence[tuple[float, float, str]] = DEFAULT_VIEWS,
+    image_size: tuple[float, float] = (18.0, 12.0),
+    dpi: int = 180,
+    linear_deflection: float = 0.12,
+    angular_deflection: float = 0.18,
+    edge_samples: int = 96,
+    context_opacity: float = 1.0,
+) -> Path:
+    """Render stable BREP entity IDs without flattening model depth.
+
+    The base model stays opaque by default and keeps its true BREP edges.
+    Bodies use colored topology edges, faces use a restrained translucent tint
+    plus boundary edges, edges use thick curves, and vertices use colored
+    points. Viewport-aware leader labels bind each mark to its stable entity ID
+    and geometry type.
+    """
+    if edge_samples < 2:
+        raise ValueError("edge_samples must be at least two")
+    if not 0.0 <= context_opacity <= 1.0:
+        raise ValueError("context_opacity must be between zero and one")
+    if not entity_ids:
+        raise ValueError("At least one entity ID is required")
+    model = (
+        model_or_path
+        if isinstance(model_or_path, BRepModel)
+        else index_shape_rbrepmodel(model_or_path)
+        if isinstance(model_or_path, TopoDS_Shape)
+        else load_step_rbrepmodel(model_or_path)
+    )
+    canonical_ids: list[str] = []
+    resolved: list[tuple[str, TopoDS_Shape, Mapping[str, Any]]] = []
+    seen: set[str] = set()
+    for entity_id in entity_ids:
+        kind, index, shape = model.resolve_entity(entity_id)
+        canonical = f"{kind}:{index}"
+        if canonical in seen:
+            raise ValueError(f"duplicate entity ID {canonical!r}")
+        seen.add(canonical)
+        canonical_ids.append(canonical)
+        resolved.append((kind, shape, model.describe_entity(canonical)))
+
+    surface_groups: list[tuple[Any, tuple[float, float, float], float]] = []
+    edge_groups: list[tuple[Any, tuple[float, float, float]]] = []
+    point_groups: list[tuple[Any, tuple[float, float, float]]] = []
+    callouts: list[
+        tuple[str, tuple[float, float, float], tuple[float, float, float]]
+    ] = []
+    has_specific_entities = any(kind != "body" for kind, _, _ in resolved)
+    for canonical, color, (kind, shape, descriptor) in zip(
+        canonical_ids,
+        _distinct_entity_colors(len(resolved)),
+        resolved,
+        strict=True,
+    ):
+        anchor = _entity_anchor(descriptor)
+        if kind == "face":
+            surface_groups.append(
+                (
+                    _mesh_polydata(
+                        [shape], linear_deflection, angular_deflection
+                    ),
+                    color,
+                    min(0.28, context_opacity),
+                )
+            )
+            edge_groups.append(
+                (_edge_polydata([shape], deflection=linear_deflection), color)
+            )
+        elif kind == "body":
+            edge_groups.append(
+                (_edge_polydata([shape], deflection=linear_deflection), color)
+            )
+        elif kind == "edge":
+            edge_groups.append(
+                (_edge_polydata([shape], sample_count=edge_samples), color)
+            )
+        point_groups.append((_point_polydata([anchor]), color))
+        geometry_type = str(descriptor["geometry"]["type"])
+        callouts.append((f"{canonical} · {geometry_type}", anchor, color))
+
+    return _render_polydata_views(
+        _mesh_polydata([model.root], linear_deflection, angular_deflection),
+        output_path,
+        title=title,
+        views=views,
+        image_size=image_size,
+        dpi=dpi,
+        context_opacity=context_opacity,
+        brep_edge_polydata=_edge_polydata([model.root], deflection=linear_deflection),
+        highlighted_groups=surface_groups,
+        highlighted_edge_groups=edge_groups,
+        highlighted_point_groups=point_groups,
+        callouts=callouts,
+    )
 def _resolve_color(
     spec: ColorSpec,
     palette: Sequence[ColorSpec] | None = None,
