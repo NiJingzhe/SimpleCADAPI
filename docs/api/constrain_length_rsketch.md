@@ -14,4 +14,4 @@ def constrain_length_rsketch(sketch: Sketch, line: Union[SketchRef, str], value:
 
 ## Description
 
-Add a driving or reference length constraint to a line, circular arc, or B-spline. B-spline reference length is measured by deterministic numerical evaluation; py-slvs driving length is currently supported for line endpoints only.
+Add a driving length constraint to a line, arc, or B-spline.

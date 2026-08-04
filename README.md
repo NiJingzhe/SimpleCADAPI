@@ -162,51 +162,44 @@ STEP, STL, or FCStd files; those explicit export APIs remain available. The
 package path is `result.artifact_paths["scene"]`. Without `export_dir`, model
 execution remains in memory.
 
-## STEP/BREP Agent Reconstruction
+## STEP/BREP Inspection
 
-Install the rendering dependency when synchronized STEP views or highlighted
-regions are needed:
+Install the optional rendering dependency when synchronized STEP views,
+highlighted regions, or slice overlays are needed:
 
 ```bash
-pip install "simplecadapi[inverse-engineer]"
+pip install "simplecadapi[inspect]"
 ```
 
-The specialized `simplecadapi.inverse_engineer.brep` namespace exposes stable
-Body/Face/Edge/Vertex IDs and a framework-neutral Agent tool registry. Start
-with bounded evidence and request expensive material or strict topology checks
-only when a candidate is close enough to justify them:
+Inspection lives under `simplecadapi.inspect.brep`. These APIs are diagnostic
+tools, not modeling operations: they do not enter the graph and are rejected
+inside `GraphSession` and `@model`. Export or obtain the geometry first, then
+inspect it outside the modeling script.
+
+Choose calls from the evidence required by the case instead of following a
+fixed reverse-engineering pipeline. Start with bounded global and local facts;
+add sections, component renders, boundary distance, material difference, or
+strict topology comparison only when those facts answer the current question.
 
 ```python
-from simplecadapi.inverse_engineer import brep
+from simplecadapi.inspect import brep
 
-schemas = brep.agent_tool_schemas()
-summary = brep.call_agent_tool(
-    name="get_model_summary",
-    arguments={
-        "model_path": "target.step",
-        "include_parameter_groups": True,
-    },
+summary = brep.inspect_step_rsummary(
+    path="target.step",
+    include_parameter_groups=True,
 )
-face = brep.call_agent_tool(
-    name="inspect_entity",
-    arguments={"model_path": "target.step", "entity_id": "face:0"},
+face = brep.inspect_step_entity_rdescriptor(
+    path="target.step",
+    entity_id="face:0",
 )
 
-print("tools", len(schemas))
 print("faces", summary["face_count"])
 print("carrier", face["geometry"]["type"])
 ```
 
-The same contracts are available from the CLI:
-
-```bash
-simplecad-brep tools
-simplecad-brep tool get_model_summary --arguments-file summary-args.json
-```
-
 Use the [Reconstruction Agent test specification](docs/guides/reconstruction-agent-test-prompt.md)
 for controlled runs and the [STEP BREP reverse-engineering guide](docs/guides/step-brep-reverse-engineering.md)
-for the full evidence, modeling, replay, and acceptance workflow.
+for the inspection primitives, modeling loop, replay checks, and acceptance gates.
 
 ## Physical Units And Tolerances
 

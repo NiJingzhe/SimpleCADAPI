@@ -8,7 +8,7 @@
 
 ```python
 class Edge(TaggedMixin):
-    """边类，包装OCP的Edge，添加标签功能"""
+    """Edge class that wraps OCP's Edge and adds tag functionality"""
 ```
 
 ## Inheritance Relationships
@@ -38,7 +38,7 @@ Initialize an edge object.
 ```python
 from simplecadapi import make_line_redge, make_circle_redge
 
-# 通过 SimpleCAD 函数创建边
+# Create edges through the SimpleCAD functions
 line_edge = make_line_redge(start=(0, 0, 0), end=(1, 1, 0))
 circle_edge = make_circle_redge(center=(0, 0, 0), radius=1.0)
 ```
@@ -66,15 +66,15 @@ Get the length of the edge.
 from simplecadapi import make_line_redge, make_circle_redge
 import math
 
-# 直线边
+# Line edge
 line = make_line_redge(start=(0, 0, 0), end=(3, 4, 0))
 line_length = line.get_length()
-print(f"直线长度: {line_length}")  # 5.0
+print(f"Line length: {line_length}")  # 5.0
 
-# 圆形边
+# Circle edge
 circle = make_circle_redge(center=(0, 0, 0), radius=2.0)
 circle_length = circle.get_length()
-print(f"圆形周长: {circle_length}")  # 约 12.566 (2π * 2)
+print(f"Circle circumference: {circle_length}")  # approx 12.566 (2π * 2)
 ```
 
 ### `get_start_vertex()`
@@ -94,7 +94,7 @@ from simplecadapi import make_line_redge
 line = make_line_redge(start=(1, 2, 3), end=(4, 5, 6))
 start_vertex = line.get_start_vertex()
 start_coords = start_vertex.get_coordinates()
-print(f"起始点坐标: {start_coords}")  # (1.0, 2.0, 3.0)
+print(f"Start point coordinates: {start_coords}")  # (1.0, 2.0, 3.0)
 ```
 
 ### `get_end_vertex()`
@@ -114,7 +114,7 @@ from simplecadapi import make_line_redge
 line = make_line_redge(start=(1, 2, 3), end=(4, 5, 6))
 end_vertex = line.get_end_vertex()
 end_coords = end_vertex.get_coordinates()
-print(f"结束点坐标: {end_coords}")  # (4.0, 5.0, 6.0)
+print(f"End point coordinates: {end_coords}")  # (4.0, 5.0, 6.0)
 ```
 
 ### Tagging and Metadata
@@ -133,15 +133,15 @@ from simplecadapi import (
     make_spline_redge
 )
 
-# 直线边
+# Line edge
 line = make_line_redge(start=(0, 0, 0), end=(5, 0, 0))
 apply_tag(line, "base_line")
 
-# 圆形边
+# Circle edge
 circle = make_circle_redge(center=(0, 0, 0), radius=2.0)
 apply_tag(circle, "full_circle")
 
-# 三点圆弧边
+# Three-point arc edge
 arc = make_three_point_arc_redge(
     start=(0, 0, 0), 
     mid=(1, 1, 0), 
@@ -149,16 +149,16 @@ arc = make_three_point_arc_redge(
 )
 apply_tag(arc, "arc_segment")
 
-# 样条边：control_points 是 B-spline poles，不是采样点
+# Spline edge: control_points are B-spline poles, not sample points
 spline = make_spline_redge(
     control_points=[(0, 0, 0), (1, 1, 0), (2, 1, 0), (3, 0, 0)]
 )
 apply_tag(spline, "smooth_curve")
 
-# 打印边的信息
+# Print edge info
 edges = [line, circle, arc, spline]
 for edge in edges:
-    print(f"边标签: {list_tags(edge)}, 长度: {edge.get_length():.3f}")
+    print(f"Edge tags: {list_tags(edge)}, length: {edge.get_length():.3f}")
 ```
 
 ### Edge Analysis and Classification
@@ -168,31 +168,31 @@ from simplecadapi import make_line_redge
 import math
 
 def analyze_edge_collection():
-    """分析边的集合"""
+    """Analyze a collection of edges"""
     
-    # 创建多条边
+    # Create multiple edges
     edges = [
-        make_line_redge(start=(0, 0, 0), end=(1, 0, 0)),  # 水平线
-        make_line_redge(start=(0, 0, 0), end=(0, 1, 0)),  # 垂直线
-        make_line_redge(start=(0, 0, 0), end=(1, 1, 0)),  # 对角线
-        make_line_redge(start=(0, 0, 0), end=(2, 0, 0)),  # 长水平线
-        make_line_redge(start=(0, 0, 0), end=(0, 2, 0)),  # 长垂直线
+        make_line_redge(start=(0, 0, 0), end=(1, 0, 0)),  # horizontal line
+        make_line_redge(start=(0, 0, 0), end=(0, 1, 0)),  # vertical line
+        make_line_redge(start=(0, 0, 0), end=(1, 1, 0)),  # diagonal line
+        make_line_redge(start=(0, 0, 0), end=(2, 0, 0)),  # long horizontal line
+        make_line_redge(start=(0, 0, 0), end=(0, 2, 0)),  # long vertical line
     ]
     
-    # 分析每条边
+    # Analyze each edge
     for i, edge in enumerate(edges):
         length = edge.get_length()
         start_coords = edge.get_start_vertex().get_coordinates()
         end_coords = edge.get_end_vertex().get_coordinates()
         
-        # 计算方向向量
+        # Compute the direction vector
         direction = (
             end_coords[0] - start_coords[0],
             end_coords[1] - start_coords[1],
             end_coords[2] - start_coords[2]
         )
         
-        # 分类边
+        # Classify edges
         if abs(direction[0]) > 0 and abs(direction[1]) == 0:
             apply_tag(edge, "horizontal")
         elif abs(direction[0]) == 0 and abs(direction[1]) > 0:
@@ -200,18 +200,18 @@ def analyze_edge_collection():
         elif abs(direction[0]) > 0 and abs(direction[1]) > 0:
             apply_tag(edge, "diagonal")
         
-        # 根据长度分类
+        # Classify by length
         if length < 1.5:
             apply_tag(edge, "short")
         else:
             apply_tag(edge, "long")
         
-        # 添加元数据
+        # Add metadata
         edge.set_metadata("length", length)
         edge.set_metadata("direction", direction)
         edge.set_metadata("index", i)
         
-        print(f"边 {i}: 长度={length:.3f}, 标签={list_tags(edge)}")
+        print(f"Edge {i}: length={length:.3f}, tags={list_tags(edge)}")
 
 analyze_edge_collection()
 ```
@@ -222,18 +222,18 @@ analyze_edge_collection()
 from simplecadapi import make_line_redge
 
 def create_edge_network():
-    """创建边的网络结构"""
+    """Create an edge network"""
     
-    # 定义节点
+    # Define nodes
     nodes = [
         (0, 0, 0),  # A
         (2, 0, 0),  # B
         (2, 2, 0),  # C
         (0, 2, 0),  # D
-        (1, 1, 0),  # E (中心点)
+        (1, 1, 0),  # E (center point)
     ]
     
-    # 定义连接关系
+    # Define connections
     connections = [
         (0, 1),  # A-B
         (1, 2),  # B-C
@@ -253,16 +253,16 @@ def create_edge_network():
         
         edge = make_line_redge(start=start_point, end=end_point)
         
-        # 添加连接信息
+        # Add connection info
         apply_tag(edge, f"connection_{chr(65+start_idx)}{chr(65+end_idx)}")
         
-        # 分类边
+        # Classify edges
         if start_idx < 4 and end_idx < 4:
             apply_tag(edge, "perimeter")
         else:
             apply_tag(edge, "internal")
         
-        # 添加元数据
+        # Add metadata
         edge.set_metadata("start_node", chr(65+start_idx))
         edge.set_metadata("end_node", chr(65+end_idx))
         edge.set_metadata("connection_index", i)
@@ -271,19 +271,19 @@ def create_edge_network():
     
     return edges
 
-# 创建网络
+# Create the network
 network_edges = create_edge_network()
 
-# 分析网络
+# Analyze the network
 perimeter_edges = [e for e in network_edges if "perimeter" in list_tags(e)]
 internal_edges = [e for e in network_edges if "internal" in list_tags(e)]
 
-print(f"周边边数: {len(perimeter_edges)}")
-print(f"内部边数: {len(internal_edges)}")
+print(f"Perimeter edge count: {len(perimeter_edges)}")
+print(f"Internal edge count: {len(internal_edges)}")
 
-# 计算总长度
+# Compute total length
 total_length = sum(edge.get_length() for edge in network_edges)
-print(f"网络总长度: {total_length:.3f}")
+print(f"Network total length: {total_length:.3f}")
 ```
 
 ### Edge Geometric Calculations
@@ -293,40 +293,40 @@ from simplecadapi import make_line_redge, make_circle_redge
 import math
 
 def calculate_edge_properties():
-    """计算边的几何属性"""
+    """Calculate edge geometric properties"""
     
-    # 创建不同类型的边
+    # Create different types of edges
     line = make_line_redge(start=(0, 0, 0), end=(3, 4, 0))
     circle = make_circle_redge(center=(0, 0, 0), radius=5.0)
     
-    # 直线属性
+    # Line properties
     line_length = line.get_length()
     line_start = line.get_start_vertex().get_coordinates()
     line_end = line.get_end_vertex().get_coordinates()
     
-    # 计算直线的中点
+    # Compute the line midpoint
     line_midpoint = (
         (line_start[0] + line_end[0]) / 2,
         (line_start[1] + line_end[1]) / 2,
         (line_start[2] + line_end[2]) / 2
     )
     
-    # 计算直线的方向向量
+    # Compute the line direction vector
     line_direction = (
         line_end[0] - line_start[0],
         line_end[1] - line_start[1],
         line_end[2] - line_start[2]
     )
     
-    # 归一化方向向量
+    # Normalize the direction vector
     line_dir_length = math.sqrt(sum(x*x for x in line_direction))
     line_unit_direction = tuple(x / line_dir_length for x in line_direction)
     
-    # 圆形属性
-    circle_length = circle.get_length()  # 周长
+    # Circle properties
+    circle_length = circle.get_length()  # circumference
     circle_radius = circle_length / (2 * math.pi)
     
-    # 存储计算结果
+    # Store computed results
     line.set_metadata("midpoint", line_midpoint)
     line.set_metadata("direction", line_direction)
     line.set_metadata("unit_direction", line_unit_direction)
@@ -336,11 +336,11 @@ def calculate_edge_properties():
     circle.set_metadata("circumference", circle_length)
     apply_tag(circle, "calculated")
     
-    print(f"直线长度: {line_length:.3f}")
-    print(f"直线中点: {line_midpoint}")
-    print(f"直线单位方向: {line_unit_direction}")
-    print(f"圆形周长: {circle_length:.3f}")
-    print(f"圆形半径: {circle_radius:.3f}")
+    print(f"Line length: {line_length:.3f}")
+    print(f"Line midpoint: {line_midpoint}")
+    print(f"Line unit direction: {line_unit_direction}")
+    print(f"Circle circumference: {circle_length:.3f}")
+    print(f"Circle radius: {circle_radius:.3f}")
 
 calculate_edge_properties()
 ```

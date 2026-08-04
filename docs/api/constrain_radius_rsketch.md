@@ -14,4 +14,4 @@ def constrain_radius_rsketch(sketch: Sketch, circle: Union[SketchRef, str], valu
 
 ## Description
 
-Add a driving or reference radius constraint to a sketch circle or circular arc.
+Add a driving circle or arc radius constraint.

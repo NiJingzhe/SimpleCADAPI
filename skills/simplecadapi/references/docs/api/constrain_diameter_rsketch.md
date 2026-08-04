@@ -14,4 +14,4 @@ def constrain_diameter_rsketch(sketch: Sketch, circle: Union[SketchRef, str], va
 
 ## Description
 
-Add a driving or reference diameter constraint to a sketch circle or circular arc.
+Add a driving circle or arc diameter constraint.

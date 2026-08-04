@@ -308,6 +308,7 @@ from .scene import (
 )
 
 from . import ql
+from . import inspect
 from . import math
 from . import std
 from . import translator
@@ -514,6 +515,7 @@ __all__ = [
     "shell_rsolid",
     # 其他
     "linear_pattern_rsolidlist",
+    "inspect",
     "math",
     "make_n_hole_flange_rsolid",
     "make_naca_propeller_blade_rsolid",

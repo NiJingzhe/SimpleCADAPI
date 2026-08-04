@@ -14,17 +14,13 @@ def make_straight_bevel_gear_rsolid(n_teeth: int, module: float, pitch_angle: fl
 
 ## Description
 
-Create a straight bevel gear with standard metric tooth proportions. The large-end transverse section uses an analytic involute profile. A similar small-end section is placed on the pitch cone and connected with ruled straight tooth surfaces.
+Create a straight bevel gear with standard metric tooth proportions.
 
-The returned solid contains nominal tooth geometry. Releasing a mating pair still requires mounting-distance, contact-pattern, backlash, material, heat-treatment, and strength checks.
+The large-end transverse section uses the same analytic involute profile as
+:func:`make_spur_gear_rsolid`. A similar small-end section is located on the
+requested pitch cone and joined with ruled straight tooth surfaces.
 
-## Parameters
-
-- `n_teeth`: Number of teeth, at least 3.
-- `module`: Large-end transverse module in millimetres.
-- `pitch_angle`: Pitch-cone angle in degrees, greater than 0 and less than 90.
-- `pressure_angle`: Transverse pressure angle in degrees.
-- `face_width`: Tooth face width along the pitch-cone generator in millimetres; must be smaller than the outer pitch-cone distance.
-- `addendum_factor`: Large-end tooth addendum divided by module.
-- `clearance_factor`: Root clearance beyond the addendum divided by module.
-- `backlash`: Large-end circumferential tooth-thickness reduction at the pitch circle in millimetres.
+``face_width`` is measured along the pitch-cone generator. This factory
+supplies nominal tooth geometry; a released pair still requires mating-gear,
+mounting-distance, contact-pattern, backlash, material, heat-treatment, and
+strength checks.
