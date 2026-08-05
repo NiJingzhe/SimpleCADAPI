@@ -15,7 +15,7 @@ suppress_vendor_deprecation_warnings()
 
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
-from OCP.gp import gp_Pnt
+from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
 from OCP.TopoDS import TopoDS
 
 from .core import (
@@ -26,8 +26,10 @@ from .core import (
     Solid,
     Compound,
     AnyShape,
+    WORLD_CS,
     clone_semantic_shape_view,
     get_current_cs,
+    use_coordinate_system,
 )
 from .autotag import apply_tracking_tags_to_delta
 from .expr import ScalarLike, evaluate_scalar, evaluate_value
@@ -342,6 +344,50 @@ def _orthonormal_plane_axes(
     return z_axis, x_axis, y_axis
 
 
+def _default_plane_x_direction(normal: Sequence[float]) -> np.ndarray:
+    """Return OCP's canonical in-plane X axis for a local normal."""
+    normal_vec = np.asarray(normal, dtype=float)
+    axis = gp_Ax2(
+        gp_Pnt(0.0, 0.0, 0.0),
+        gp_Dir(float(normal_vec[0]), float(normal_vec[1]), float(normal_vec[2])),
+    )
+    direction = axis.XDirection()
+    return np.asarray(direction.Coord(), dtype=float)
+
+
+def _sketch_plane_in_current_coordinates(
+    plane: Any,
+) -> Dict[str, Tuple[float, float, float]]:
+    if isinstance(plane, str):
+        token = plane.upper()
+        frames = {
+            "XY": ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+            "XZ": ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+            "YZ": ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+        }
+        if token not in frames:
+            raise ValueError(
+                "Sketch plane must be 'XY', 'XZ', 'YZ', or a plane mapping"
+            )
+        origin, x_axis, y_axis = frames[token]
+    elif isinstance(plane, Mapping):
+        origin = tuple(plane.get("origin", (0.0, 0.0, 0.0)))
+        x_axis = tuple(plane.get("x_axis", (1.0, 0.0, 0.0)))
+        y_axis = tuple(plane.get("y_axis", (0.0, 1.0, 0.0)))
+    else:
+        raise ValueError("Sketch plane must be 'XY', 'XZ', 'YZ', or a plane mapping")
+
+    cs = get_current_cs()
+    global_origin = cs.transform_point(np.asarray(origin, dtype=float))
+    global_x_axis = cs.transform_vector(np.asarray(x_axis, dtype=float))
+    global_y_axis = cs.transform_vector(np.asarray(y_axis, dtype=float))
+    return {
+        "origin": tuple(float(value) for value in global_origin),
+        "x_axis": tuple(float(value) for value in global_x_axis),
+        "y_axis": tuple(float(value) for value in global_y_axis),
+    }
+
+
 def _pick_perpendicular_unit(axis: Tuple[float, float, float]) -> np.ndarray:
     axis_vec = np.array(axis, dtype=float)
     axis_norm = float(np.linalg.norm(axis_vec))
@@ -465,14 +511,6 @@ def _semantic_modified(
 
 def _material_params(material: Material) -> Dict[str, object]:
     return material.to_dict()
-
-
-def _placement_params(placement: Placement) -> Dict[str, object]:
-    return {
-        "origin": placement.origin,
-        "x_axis": placement.x_axis,
-        "y_axis": placement.y_axis,
-    }
 
 
 def _part_params(part: Part) -> Dict[str, object]:
@@ -1939,7 +1977,11 @@ def make_sketch_rsketch(
     build a sketch profile with constraints.
     """
     try:
-        sketch = Sketch(name=name, plane=plane, sketch_id=sketch_id)
+        sketch = Sketch(
+            name=name,
+            plane=_sketch_plane_in_current_coordinates(plane),
+            sketch_id=sketch_id,
+        )
         return cast(
             Sketch,
             _finalize_runtime_object(
@@ -2494,7 +2536,10 @@ def constrain_tangent_rsketch(
         [a, b],
         constraint_id=constraint_id,
         metadata={"at_a": at_a, "at_b": at_b, "mode": mode},
-        expected=[("line", "circle", "arc", "bspline"), ("line", "circle", "arc", "bspline")],
+        expected=[
+            ("line", "circle", "arc", "bspline"),
+            ("line", "circle", "arc", "bspline"),
+        ],
     )
 
 
@@ -2853,9 +2898,7 @@ def _sketch_promotion_map(
         ],
     ]
     for loop_profile, loop_payload, loop_role in loop_specs:
-        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(
-            sketch, loop_payload
-        )
+        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(sketch, loop_payload)
         loop_edges: List[Dict[str, Any]] = []
         for entity_id in loop_payload.get("entity_ids", []):
             entity_tag = _safe_semantic_tag("sketch_entity", entity_id)
@@ -2956,18 +2999,14 @@ def _apply_sketch_promotion_metadata(
 
     for wire in wires:
         matches = [
-            source
-            for source in source_wires
-            if source[3].wrapped.IsSame(wire.wrapped)
+            source for source in source_wires if source[3].wrapped.IsSame(wire.wrapped)
         ]
         if len(matches) != 1:
             raise ValueError(
                 "Sketch promotion cannot establish exact profile-to-wire correspondence"
             )
         loop_profile, loop_payload, _loop_role, _source_wire = matches[0]
-        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(
-            sketch, loop_payload
-        )
+        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(sketch, loop_payload)
         wire.set_metadata("source_sketch", source_sketch)
         wire.set_metadata("sketch_solve", solve_snapshot)
         wire.set_metadata("sketch_promotion", promotion_map)
@@ -2986,19 +3025,13 @@ def _apply_sketch_promotion_metadata(
         )
     ]
     for edge in cast(List[Edge], shape.get_edges()):
-        matches = [
-            source
-            for source in source_edges
-            if source[4].IsSame(edge.wrapped)
-        ]
+        matches = [source for source in source_edges if source[4].IsSame(edge.wrapped)]
         if len(matches) != 1:
             raise ValueError(
                 "Sketch promotion cannot establish exact entity-to-edge correspondence"
             )
         loop_profile, loop_payload, loop_role, entity_id, _source_edge = matches[0]
-        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(
-            sketch, loop_payload
-        )
+        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(sketch, loop_payload)
         entity_tag = _safe_semantic_tag("sketch_entity", entity_id)
         edge.set_metadata(
             "sketch_ref",
@@ -3148,9 +3181,7 @@ def _apply_sketch_promotion_identity_tags(
         )
     ]
     for edge in cast(List[Edge], shape.get_edges()):
-        matches = [
-            source for source in source_edges if source[2].IsSame(edge.wrapped)
-        ]
+        matches = [source for source in source_edges if source[2].IsSame(edge.wrapped)]
         if len(matches) != 1:
             raise ValueError(
                 "Sketch promotion cannot establish exact entity-to-edge correspondence"
@@ -3212,7 +3243,7 @@ def _promote_sketch_profile(
         seen_profile_ids.add(inner_profile_id)
         inner_profile_payloads.append((inner_profile, inner_payload))
     solve_snapshot = _sketch_solve_snapshot(solve_result)
-    with suspend_graph_recording():
+    with suspend_graph_recording(), use_coordinate_system(WORLD_CS):
         outer_wire = sketch._wire_from_profile_payload(profile_payload)
         source_wires: List[Tuple[int | str, Dict[str, Any], str, Wire]] = [
             (profile, profile_payload, "outer", outer_wire)
@@ -3226,11 +3257,8 @@ def _promote_sketch_profile(
             for inner_profile, inner_payload in inner_profile_payloads:
                 inner_wire = sketch._wire_from_profile_payload(inner_payload)
                 inner_wires.append(inner_wire)
-                source_wires.append(
-                    (inner_profile, inner_payload, "inner", inner_wire)
-                )
-            local_normal = np.array(sketch._plane_normal_tuple(), dtype=float)
-            expected_normal = get_current_cs().transform_vector(local_normal)
+                source_wires.append((inner_profile, inner_payload, "inner", inner_wire))
+            expected_normal = np.array(sketch._plane_normal_tuple(), dtype=float)
             expected_normal = expected_normal / np.linalg.norm(expected_normal)
 
             def aligned_wire(wire: Wire):
@@ -3260,13 +3288,16 @@ def _promote_sketch_profile(
                 )
             face = Face(raw_face)
             actual_normal = face.get_normal_at()
-            if np.dot(
-                expected_normal,
-                np.array(
-                    [actual_normal.x, actual_normal.y, actual_normal.z],
-                    dtype=float,
-                ),
-            ) < 0.0:
+            if (
+                np.dot(
+                    expected_normal,
+                    np.array(
+                        [actual_normal.x, actual_normal.y, actual_normal.z],
+                        dtype=float,
+                    ),
+                )
+                < 0.0
+            ):
                 face = Face(TopoDS.Face_s(raw_face.Reversed()))
             shape = face
         else:
@@ -3530,9 +3561,17 @@ def make_circle_redge(
         center_value = cast(Tuple[float, float, float], evaluate_value(center))
         normal_value = cast(Tuple[float, float, float], evaluate_value(normal))
         center_global = cs.transform_point(np.array(center_value))
-        normal_global = cs.transform_point(np.array(normal_value)) - cs.origin
+        normal_global = cs.transform_vector(np.array(normal_value))
+        x_direction_global = cs.transform_vector(
+            _default_plane_x_direction(normal_value)
+        )
 
-        edge_shape = make_circle_edge(center_global, radius_value, normal_global)
+        edge_shape = make_circle_edge(
+            center_global,
+            radius_value,
+            normal_global,
+            x_direction=x_direction_global,
+        )
         edge = cast(
             Edge,
             _finalize_primitive_shape(
@@ -3752,23 +3791,15 @@ def make_rectangle_rwire(
         center_value = cast(Tuple[float, float, float], evaluate_value(center))
         normal_value = cast(Tuple[float, float, float], evaluate_value(normal))
         center_global = cs.transform_point(np.array(center_value))
-        normal_global = cs.transform_point(np.array(normal_value)) - cs.origin
+        normal_global = cs.transform_vector(np.array(normal_value))
 
-        # 标准化法向量
-        normal_vec = normal_global / np.linalg.norm(normal_global)
+        normal_norm = float(np.linalg.norm(normal_global))
+        if normal_norm <= 1e-15 or not np.isfinite(normal_norm):
+            raise ValueError("法向量不能是零向量")
 
-        # 创建本地坐标系
-        # 如果法向量接近Z轴，使用X轴作为参考
-        if abs(normal_vec[2]) > 0.9:
-            ref_vec = np.array([1.0, 0.0, 0.0])
-        else:
-            ref_vec = np.array([0.0, 0.0, 1.0])
-
-        # 计算本地坐标系的X和Y轴
-        local_x = np.cross(normal_vec, ref_vec)
-        local_x = local_x / np.linalg.norm(local_x)
-        local_y = np.cross(normal_vec, local_x)
-        local_y = local_y / np.linalg.norm(local_y)
+        _, local_x, local_y = _orthonormal_plane_axes(normal_value)
+        plane_x = cs.transform_vector(local_x)
+        plane_y = cs.transform_vector(local_y)
 
         # 创建矩形的四个顶点（在本地坐标系中）
         half_w, half_h = width_value / 2, height_value / 2
@@ -3784,7 +3815,7 @@ def make_rectangle_rwire(
         for local_point in local_points:
             # 在本地坐标系中的点
             point_3d = (
-                center_global + local_point[0] * local_x + local_point[1] * local_y
+                center_global + local_point[0] * plane_x + local_point[1] * plane_y
             )
             global_points.append(tuple(float(v) for v in point_3d))
 
@@ -3931,9 +3962,10 @@ def make_face_from_wire_rface(
         if not wire.is_closed():
             raise ValueError("Wire必须是封闭的才能创建面")
 
-        # 获取当前坐标系并转换法向量
+        # The wire is already global geometry; only the requested local normal
+        # is resolved through the active workplane chain.
         cs = get_current_cs()
-        global_normal = cs.transform_point(np.array(normal)) - cs.origin
+        global_normal = cs.transform_vector(np.array(normal))
 
         # 标准化法向量
         normal_vec = global_normal / np.linalg.norm(global_normal)
@@ -4021,7 +4053,7 @@ def make_face_from_wires_rface(
                 raise ValueError("inner wires must be closed")
 
         cs = get_current_cs()
-        global_normal = cs.transform_point(np.array(normal)) - cs.origin
+        global_normal = cs.transform_vector(np.array(normal))
         normal_norm = float(np.linalg.norm(global_normal))
         if normal_norm <= 1e-15 or not np.isfinite(normal_norm):
             raise ValueError("normal must be a non-zero finite vector")
@@ -4333,13 +4365,19 @@ def make_box_rsolid(
             Tuple[float, float, float], evaluate_value(bottom_face_center)
         )
         center_global = cs.transform_point(np.array(center_value))
-        pnt = center_global - np.array([width_value / 2, height_value / 2, 0])
-
+        corner_global = (
+            center_global
+            - np.asarray(cs.x_axis, dtype=float) * (width_value / 2.0)
+            - np.asarray(cs.y_axis, dtype=float) * (height_value / 2.0)
+        )
         tracked = tracked_box(
-            (float(pnt[0]), float(pnt[1]), float(pnt[2])),
+            tuple(float(value) for value in corner_global),
             width_value,
             height_value,
             depth_value,
+            x_axis=tuple(float(value) for value in cs.x_axis),
+            y_axis=tuple(float(value) for value in cs.y_axis),
+            z_axis=tuple(float(value) for value in cs.z_axis),
         )
         solid = cast(Solid, tracked.shape)
 
@@ -4825,50 +4863,10 @@ def make_angle_arc_redge(
         center_value = cast(Tuple[float, float, float], evaluate_value(center))
         normal_value = cast(Tuple[float, float, float], evaluate_value(normal))
         center_global = cs.transform_point(np.array(center_value))
-        normal_global = cs.transform_point(np.array(normal_value)) - cs.origin
-
-        # 标准化法向量
-        normal_vec = normal_global / np.linalg.norm(normal_global)
-
-        # 创建本地坐标系
-        # 如果法向量接近Z轴，使用X轴作为参考
-        if abs(normal_vec[2]) > 0.9:
-            ref_vec = np.array([1.0, 0.0, 0.0])
-        else:
-            ref_vec = np.array([0.0, 0.0, 1.0])
-
-        # 计算本地坐标系的X和Y轴
-        local_x = np.cross(normal_vec, ref_vec)
-        local_x = local_x / np.linalg.norm(local_x)
-        local_y = np.cross(normal_vec, local_x)
-        local_y = local_y / np.linalg.norm(local_y)
-
-        # 在本地坐标系中计算起始、结束和中间点
-        start_local = np.array(
-            [
-                radius_value * np.cos(start_angle_value),
-                radius_value * np.sin(start_angle_value),
-                0,
-            ]
+        normal_global = cs.transform_vector(np.array(normal_value))
+        x_direction_global = cs.transform_vector(
+            _default_plane_x_direction(normal_value)
         )
-        end_local = np.array(
-            [
-                radius_value * np.cos(end_angle_value),
-                radius_value * np.sin(end_angle_value),
-                0,
-            ]
-        )
-        mid_angle = (start_angle_value + end_angle_value) / 2
-        mid_local = np.array(
-            [radius_value * np.cos(mid_angle), radius_value * np.sin(mid_angle), 0]
-        )
-
-        # 转换到全局坐标系
-        start_global = (
-            center_global + start_local[0] * local_x + start_local[1] * local_y
-        )
-        end_global = center_global + end_local[0] * local_x + end_local[1] * local_y
-        mid_global = center_global + mid_local[0] * local_x + mid_local[1] * local_y
 
         edge_shape = make_arc_angle_edge(
             center_global,
@@ -4876,6 +4874,7 @@ def make_angle_arc_redge(
             start_angle_value,
             end_angle_value,
             normal_global,
+            x_direction=x_direction_global,
         )
         return cast(
             Edge,
@@ -5479,10 +5478,16 @@ def make_helix_redge(
         center_value = cast(Tuple[float, float, float], evaluate_value(center))
         dir_value = cast(Tuple[float, float, float], evaluate_value(dir))
         global_center = cs.transform_point(np.array(center_value))
-        global_dir = cs.transform_point(np.array(dir_value)) - cs.origin
+        global_dir = cs.transform_vector(np.array(dir_value))
+        global_x_direction = cs.transform_vector(_default_plane_x_direction(dir_value))
 
         wire_shape = make_helix_wire(
-            pitch_value, height_value, radius_value, global_center, global_dir
+            pitch_value,
+            height_value,
+            radius_value,
+            global_center,
+            global_dir,
+            x_direction=global_x_direction,
         )
         wire = Wire(wire_shape)
         edges = wire.get_edges()
@@ -5537,9 +5542,17 @@ def make_helix_rwire(
 
         cs = get_current_cs()
         global_center = cs.transform_point(np.array(center))
-        global_dir = cs.transform_point(np.array(dir)) - cs.origin
+        global_dir = cs.transform_vector(np.array(dir))
+        global_x_direction = cs.transform_vector(_default_plane_x_direction(dir))
 
-        wire_shape = make_helix_wire(pitch, height, radius, global_center, global_dir)
+        wire_shape = make_helix_wire(
+            pitch,
+            height,
+            radius,
+            global_center,
+            global_dir,
+            x_direction=global_x_direction,
+        )
         return cast(
             Wire,
             _finalize_primitive_shape(
@@ -5581,9 +5594,12 @@ def make_helix_rwire(
 def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyShape:
     """Translate a shape by an offset vector."""
     try:
+        cs = get_current_cs()
+        vector_value = cast(Tuple[float, float, float], evaluate_value(vector))
+        global_vector = cs.transform_vector(np.array(vector_value))
+        resolved_vector = tuple(float(value) for value in global_vector)
         if isinstance(shape, Solid):
-            vector_value = cast(Tuple[float, float, float], evaluate_value(vector))
-            tracked = tracked_translate(shape, vector_value)
+            tracked = tracked_translate(shape, resolved_vector)
             translated = cast(Solid, tracked.shape)
             translated._metadata = shape._metadata.copy()
             _attach_lineage_from_source(
@@ -5602,17 +5618,7 @@ def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyS
                 input_shapes=[shape],
             )
 
-        cs = get_current_cs()
-        vector_value = cast(Tuple[float, float, float], evaluate_value(vector))
-        global_vector = cs.transform_point(np.array(vector_value)) - cs.origin
-        new_shape = translate_shape_ocp(
-            shape,
-            (
-                float(global_vector[0]),
-                float(global_vector[1]),
-                float(global_vector[2]),
-            ),
-        )
+        new_shape = translate_shape_ocp(shape, resolved_vector)
 
         new_shape._metadata = shape._metadata.copy()
         _copy_runtime_state(shape, new_shape)
@@ -5661,11 +5667,19 @@ def rotate_shape(
         return shape
     else:
         try:
+            cs = get_current_cs()
+            axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
+            origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
+            global_axis = cs.transform_vector(np.array(axis_value))
+            global_origin = cs.transform_point(np.array(origin_value))
+            resolved_axis = tuple(float(value) for value in global_axis)
+            resolved_origin = tuple(float(value) for value in global_origin)
             if isinstance(shape, Solid):
-                axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
-                origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
                 tracked = tracked_rotate(
-                    shape, angle_value, axis=axis_value, origin=origin_value
+                    shape,
+                    angle_value,
+                    axis=resolved_axis,
+                    origin=resolved_origin,
                 )
                 rotated = cast(Solid, tracked.shape)
                 rotated._metadata = shape._metadata.copy()
@@ -5687,20 +5701,11 @@ def rotate_shape(
                     input_shapes=[shape],
                 )
 
-            cs = get_current_cs()
-            axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
-            origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
-            global_axis = cs.transform_point(np.array(axis_value)) - cs.origin
-            global_origin = cs.transform_point(np.array(origin_value))
             new_shape = rotate_shape_ocp(
                 shape,
                 angle_value,
-                (float(global_axis[0]), float(global_axis[1]), float(global_axis[2])),
-                (
-                    float(global_origin[0]),
-                    float(global_origin[1]),
-                    float(global_origin[2]),
-                ),
+                resolved_axis,
+                resolved_origin,
             )
 
             new_shape._metadata = shape._metadata.copy()
@@ -5773,7 +5778,7 @@ def extrude_rsolid(
 
         cs = get_current_cs()
         direction_value = cast(Tuple[float, float, float], evaluate_value(direction))
-        global_direction = cs.transform_point(np.array(direction_value)) - cs.origin
+        global_direction = cs.transform_vector(np.array(direction_value))
 
         direction_norm = float(np.linalg.norm(global_direction))
         if direction_norm <= 1e-15:
@@ -5890,7 +5895,7 @@ def revolve_rsolid(
         cs = get_current_cs()
         axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
         origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
-        global_axis = cs.transform_point(np.array(axis_value)) - cs.origin
+        global_axis = cs.transform_vector(np.array(axis_value))
         global_origin = cs.transform_point(np.array(origin_value))
 
         # 获取轮廓对应的面
@@ -6398,11 +6403,9 @@ def union_rsolid(
                     "the inputs likely meet only along an edge, vertex, tangent point, "
                     "or tangent curve, which is not one manifold solid"
                 )
-        fused_solid = _require_single_boolean_solid(
-            result_shapes,
-            operation="union_rsolid",
-            failure_reason=failure_reason,
-        )
+        if len(result_shapes) != 1:
+            raise ValueError(failure_reason)
+        fused_solid = Solid(result_shapes[0])
 
         all_metadata = {}
         for solid in remaining:
@@ -6463,7 +6466,11 @@ def union_rsolid(
     except Exception as e:
         _wrap_public_api_error(
             operation="union_rsolid",
-            what_happened="Failed to compute the boolean union.",
+            what_happened=(
+                str(e)
+                if isinstance(e, ValueError) and str(e).startswith("union produced ")
+                else "Failed to compute the boolean union."
+            ),
             possible_causes=[
                 "One or more inputs are not Solid objects.",
                 "At least one input solid is null or invalid.",
@@ -6972,17 +6979,21 @@ def make_placement_rplacement(
     x_axis: Tuple[float, float, float] = (1.0, 0.0, 0.0),
     y_axis: Tuple[float, float, float] = (0.0, 1.0, 0.0),
 ) -> Placement:
-    """Create a canonical right-handed component placement.
-
-    The placement maps child-local coordinates into parent assembly coordinates
-    using one representation only: origin plus child x/y axes in parent space.
-    """
+    """Create a canonical right-handed placement in the active workplane."""
 
     try:
-        placement = Placement(origin, x_axis=x_axis, y_axis=y_axis)
+        cs = get_current_cs()
+        origin_global = cs.transform_point(np.asarray(origin, dtype=float))
+        x_axis_global = cs.transform_vector(np.asarray(x_axis, dtype=float))
+        y_axis_global = cs.transform_vector(np.asarray(y_axis, dtype=float))
+        placement = Placement(
+            tuple(float(value) for value in origin_global),
+            x_axis=tuple(float(value) for value in x_axis_global),
+            y_axis=tuple(float(value) for value in y_axis_global),
+        )
         record_operation_if_active(
             _OP_MAKE_PLACEMENT_RPLACEMENT,
-            _placement_params(placement),
+            {"origin": origin, "x_axis": x_axis, "y_axis": y_axis},
             outputs=placement,
             context=_current_context_metadata(),
         )
@@ -7006,13 +7017,18 @@ def make_placement_rplacement(
 
 
 def identity_placement_rplacement() -> Placement:
-    """Create an identity placement."""
+    """Create the identity placement of the active workplane."""
 
     try:
-        placement = identity_placement()
+        cs = get_current_cs()
+        placement = Placement(
+            tuple(float(value) for value in cs.origin),
+            x_axis=tuple(float(value) for value in cs.x_axis),
+            y_axis=tuple(float(value) for value in cs.y_axis),
+        )
         record_operation_if_active(
             _OP_MAKE_IDENTITY_PLACEMENT_RPLACEMENT,
-            _placement_params(placement),
+            {},
             outputs=placement,
             context=_current_context_metadata(),
         )
@@ -8864,17 +8880,17 @@ def linear_pattern_rsolidlist(
         if spacing <= 0:
             raise ValueError("阵列间距必须大于0")
 
-        cs = get_current_cs()
-        global_direction = cs.transform_point(np.array(direction)) - cs.origin
-        direction_norm = float(np.linalg.norm(global_direction))
-        if direction_norm <= 1e-15:
+        direction_value = cast(Tuple[float, float, float], evaluate_value(direction))
+        direction_array = np.asarray(direction_value, dtype=float)
+        direction_norm = float(np.linalg.norm(direction_array))
+        if direction_norm <= 1e-15 or not np.isfinite(direction_norm):
             raise ValueError("阵列方向不能是零向量")
-        direction_vec = global_direction / direction_norm
+        local_direction = direction_array / direction_norm
 
         if get_active_session() is not None:
             rv: List[Solid] = []
             for i in range(count):
-                offset = direction_vec * (spacing * i)
+                offset = local_direction * (spacing * i)
                 translated_shape = translate_shape(
                     shape, (float(offset[0]), float(offset[1]), float(offset[2]))
                 )
@@ -8889,7 +8905,7 @@ def linear_pattern_rsolidlist(
         shapes = []
         with suspend_graph_recording():
             for i in range(count):
-                offset = direction_vec * (spacing * i)
+                offset = local_direction * (spacing * i)
                 translated_shape = translate_shape(
                     shape, (float(offset[0]), float(offset[1]), float(offset[2]))
                 )
@@ -9154,7 +9170,8 @@ def helical_sweep_rsolid(
 
         cs = get_current_cs()
         global_center = cs.transform_point(np.array(center))
-        global_dir = cs.transform_point(np.array(dir)) - cs.origin
+        global_dir = cs.transform_vector(np.array(dir))
+        global_x_direction = cs.transform_vector(_default_plane_x_direction(dir))
 
         result_shape = make_helical_sweep_solid(
             profile.wrapped,
@@ -9163,6 +9180,7 @@ def helical_sweep_rsolid(
             radius,
             global_center,
             global_dir,
+            x_direction=global_x_direction,
         )
         result = Solid(result_shape)
 

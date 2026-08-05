@@ -503,6 +503,77 @@ class TestModelJson(unittest.TestCase):
             places=5,
         )
 
+    def test_model_json_replays_composed_nested_workplane_once(self):
+        with GraphSession() as session:
+            with scad.Workplane(
+                origin=(10.0, 20.0, 30.0),
+                normal=(0.0, 1.0, 0.0),
+                x_dir=(1.0, 0.0, 0.0),
+            ):
+                with scad.Workplane(
+                    origin=(2.0, 3.0, 4.0),
+                    normal=(1.0, 0.0, 0.0),
+                    x_dir=(0.0, 1.0, 0.0),
+                ):
+                    box = scad.make_box_rsolid(2.0, 4.0, 6.0)
+                    original = scad.translate_shape(box, (0.0, 0.0, 2.0))
+                    scad.capture_result(value=original)
+
+        box_node = next(
+            node
+            for node in session.graph.topological_order()
+            if node.op == "make_box_rsolid"
+        )
+        self.assertEqual(box_node.context["origin"], (12.0, 24.0, 27.0))
+        self.assertEqual(box_node.context["x_axis"], (0.0, 0.0, -1.0))
+        self.assertEqual(box_node.context["y_axis"], (-0.0, 1.0, 0.0))
+        self.assertEqual(box_node.context["z_axis"], (1.0, 0.0, 0.0))
+
+        replayed = scad.replay_model_json(scad.export_model_json(session))[0]
+        from simplecadapi.inspect import brep
+
+        original_bounds = brep.index_shape_rbrepmodel(original.wrapped).summary()[
+            "bounding_box"
+        ]
+        replayed_bounds = brep.index_shape_rbrepmodel(replayed.wrapped).summary()[
+            "bounding_box"
+        ]
+        self.assertEqual(original_bounds, replayed_bounds)
+
+    def test_model_json_replays_sketch_bound_to_nested_creation_frame(self):
+        with GraphSession() as session:
+            with scad.Workplane(
+                origin=(10.0, 20.0, 30.0),
+                normal=(0.0, 1.0, 0.0),
+                x_dir=(1.0, 0.0, 0.0),
+            ):
+                with scad.Workplane(
+                    origin=(2.0, 3.0, 4.0),
+                    normal=(1.0, 0.0, 0.0),
+                    x_dir=(0.0, 1.0, 0.0),
+                ):
+                    sketch = scad.make_sketch_rsketch("nested_circle")
+                    sketch = scad.add_point_rsketch(sketch, "center", 0.0, 0.0)
+                    sketch = scad.add_circle_rsketch(sketch, "circle", "center", 1.0)
+
+            original = scad.make_face_from_sketch_rface(sketch, profile="circle")
+            scad.capture_result(value=original)
+
+        self.assertEqual(sketch.plane["origin"], (12.0, 24.0, 27.0))
+        self.assertEqual(sketch.plane["x_axis"], (0.0, 0.0, -1.0))
+        self.assertEqual(sketch.plane["y_axis"], (0.0, 1.0, 0.0))
+
+        replayed = scad.replay_model_json(scad.export_model_json(session))[0]
+        from simplecadapi.inspect import brep
+
+        original_bounds = brep.index_shape_rbrepmodel(original.wrapped).summary()[
+            "bounding_box"
+        ]
+        replayed_bounds = brep.index_shape_rbrepmodel(replayed.wrapped).summary()[
+            "bounding_box"
+        ]
+        self.assertEqual(original_bounds, replayed_bounds)
+
 
 class TestOperationGraphDeltaSerialization(unittest.TestCase):
     def test_graph_json_roundtrip_preserves_semantic_delta(self):

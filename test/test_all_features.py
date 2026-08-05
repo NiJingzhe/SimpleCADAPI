@@ -287,26 +287,35 @@ class TestBooleanOperations(unittest.TestCase):
 
         error = ctx.exception
         self.assertEqual(error.operation, "union_rsolid")
-        self.assertEqual(
-            error.guidance.what_happened, "Failed to compute the boolean union."
-        )
+        self.assertIn("separated solids", error.guidance.what_happened)
+        self.assertIn("nearest detected gap", error.guidance.what_happened)
         self.assertTrue(
-            any("exactly one solid" in cause for cause in error.guidance.possible_causes)
+            any(
+                "exactly one solid" in cause for cause in error.guidance.possible_causes
+            )
         )
 
     def test_union_touching_boxes_cleans_splitter_faces(self):
         """Test union of face-touching boxes follows CadQuery-style clean behavior."""
-
         box_left = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 0, 0))
         box_right = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(1.0, 0, 0))
-
         stdout_buffer = io.StringIO()
         with redirect_stdout(stdout_buffer):
             result = scad.union_rsolid(box_left, box_right)
-
         self.assertAlmostEqual(result.get_volume(), 2.0, places=6)
         self.assertEqual(len(result.get_faces()), 6)
         self.assertEqual(stdout_buffer.getvalue(), "")
+
+    def test_union_bridges_small_explicit_gap_only_with_tolerance(self):
+        """Tolerance bridges a measurable gap; default behavior remains strict."""
+        left = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0, 0, 0))
+        right = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(1.0001, 0, 0))
+        with self.assertRaises(scad.SimpleCADError) as ctx:
+            scad.union_rsolid(left, right, glue=False)
+        self.assertIn("nearest detected gap", ctx.exception.guidance.what_happened)
+        merged = scad.union_rsolid(left, right, glue=False, tol=0.0001)
+        self.assertAlmostEqual(merged.get_volume(), 2.0001, places=4)
+
     def test_union_glue_falls_back_for_overlapping_curved_inputs(self):
         """Glue optimization must not prevent a valid curved-surface union."""
 
@@ -321,12 +330,8 @@ class TestBooleanOperations(unittest.TestCase):
     def test_union_rejects_edge_only_contact_as_non_manifold(self):
         """An edge-only connection is not one manifold solid."""
 
-        box_a = scad.make_box_rsolid(
-            1.0, 1.0, 1.0, bottom_face_center=(0.0, 0.0, 0.0)
-        )
-        box_b = scad.make_box_rsolid(
-            1.0, 1.0, 1.0, bottom_face_center=(1.0, 1.0, 0.0)
-        )
+        box_a = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0.0, 0.0, 0.0))
+        box_b = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(1.0, 1.0, 0.0))
 
         with self.assertRaises(scad.SimpleCADError) as ctx:
             scad.union_rsolid(box_a, box_b, glue=True)
@@ -346,9 +351,7 @@ class TestBooleanOperations(unittest.TestCase):
         """Invalid tolerances must not reach OCC."""
 
         box_a = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        box_b = scad.make_box_rsolid(
-            1.0, 1.0, 1.0, bottom_face_center=(0.5, 0.0, 0.0)
-        )
+        box_b = scad.make_box_rsolid(1.0, 1.0, 1.0, bottom_face_center=(0.5, 0.0, 0.0))
 
         for invalid_tol in (-1.0, float("nan"), float("inf")):
             with self.subTest(tol=invalid_tol):
@@ -559,13 +562,164 @@ class TestCoordinateSystem(unittest.TestCase):
             # 暂时跳过坐标检查
             self.assertIsInstance(point, scad.Vertex)
 
-    def test_nested_workplane(self):
-        """Test nested workplane."""
-        with scad.SimpleWorkplane(origin=(1, 0, 0)):
-            with scad.SimpleWorkplane(origin=(0, 1, 0)):
-                point = scad.make_point_rvertex(1, 0, 0)
-                # 暂时跳过坐标检查
-                self.assertIsInstance(point, scad.Vertex)
+    def test_nested_workplane_composes_point_coordinates(self):
+        """An inner point is resolved through every parent frame exactly once."""
+        with scad.Workplane(
+            origin=(10.0, 20.0, 30.0),
+            normal=(0.0, 1.0, 0.0),
+            x_dir=(1.0, 0.0, 0.0),
+        ):
+            with scad.Workplane(
+                origin=(2.0, 3.0, 4.0),
+                normal=(1.0, 0.0, 0.0),
+                x_dir=(0.0, 1.0, 0.0),
+            ):
+                point = scad.make_point_rvertex(1.0, 2.0, 3.0)
+
+        self.assertTrue(
+            np.allclose(point.get_coordinates(), (15.0, 26.0, 26.0), atol=1e-9)
+        )
+
+    def test_rotated_workplane_box_uses_local_axes(self):
+        """A box follows the active workplane instead of global Z."""
+        with scad.Workplane(
+            origin=(10.0, 20.0, 30.0),
+            normal=(1.0, 0.0, 0.0),
+            x_dir=(0.0, 1.0, 0.0),
+        ):
+            box = scad.make_box_rsolid(2.0, 4.0, 6.0)
+        from simplecadapi.inspect import brep
+
+        report = brep.index_shape_rbrepmodel(box.wrapped).summary()
+        self.assertTrue(
+            np.allclose(report["bounding_box"]["min"], [10.0, 19.0, 28.0], atol=2e-7)
+        )
+        self.assertTrue(
+            np.allclose(report["bounding_box"]["max"], [16.0, 21.0, 32.0], atol=2e-7)
+        )
+        self.assertAlmostEqual(box.get_volume(), 48.0, places=6)
+
+    def test_nested_workplane_box_composes_local_axes(self):
+        """Box dimensions follow the fully composed inner frame."""
+        with scad.Workplane(
+            origin=(10.0, 20.0, 30.0),
+            normal=(0.0, 1.0, 0.0),
+            x_dir=(1.0, 0.0, 0.0),
+        ):
+            with scad.Workplane(
+                origin=(2.0, 3.0, 4.0),
+                normal=(1.0, 0.0, 0.0),
+                x_dir=(0.0, 1.0, 0.0),
+            ):
+                box = scad.make_box_rsolid(2.0, 4.0, 6.0)
+        from simplecadapi.inspect import brep
+
+        report = brep.index_shape_rbrepmodel(box.wrapped).summary()
+        self.assertTrue(
+            np.allclose(report["bounding_box"]["min"], [12.0, 22.0, 26.0], atol=2e-7)
+        )
+        self.assertTrue(
+            np.allclose(report["bounding_box"]["max"], [18.0, 26.0, 28.0], atol=2e-7)
+        )
+
+    def test_nested_workplane_applies_to_primitives_features_and_sketches(self):
+        """Primitives, profiles, features, and bound sketches share one chain."""
+        with scad.Workplane(
+            origin=(10.0, 20.0, 30.0),
+            normal=(0.0, 1.0, 0.0),
+            x_dir=(1.0, 0.0, 0.0),
+        ):
+            with scad.Workplane(
+                origin=(2.0, 3.0, 4.0),
+                normal=(1.0, 0.0, 0.0),
+                x_dir=(0.0, 1.0, 0.0),
+            ):
+                cylinder = scad.make_cylinder_rsolid(1.0, 3.0)
+                profile = scad.make_circle_rface((0.0, 0.0, 0.0), 1.0)
+                extrusion = scad.extrude_rsolid(profile, (0.0, 0.0, 1.0), 3.0)
+                sketch = scad.make_sketch_rsketch("nested_circle")
+                sketch = scad.add_point_rsketch(sketch, "center", 0.0, 0.0)
+                sketch = scad.add_circle_rsketch(sketch, "circle", "center", 1.0)
+
+        sketch_face = scad.make_face_from_sketch_rface(sketch, profile="circle")
+        from simplecadapi.inspect import brep
+
+        cylinder_bounds = brep.index_shape_rbrepmodel(cylinder.wrapped).summary()[
+            "bounding_box"
+        ]
+        extrusion_bounds = brep.index_shape_rbrepmodel(extrusion.wrapped).summary()[
+            "bounding_box"
+        ]
+        sketch_bounds = brep.index_shape_rbrepmodel(sketch_face.wrapped).summary()[
+            "bounding_box"
+        ]
+        self.assertTrue(
+            np.allclose(cylinder_bounds["min"], [12.0, 23.0, 26.0], atol=2e-3)
+        )
+        self.assertTrue(
+            np.allclose(cylinder_bounds["max"], [15.0, 25.0, 28.0], atol=2e-3)
+        )
+        self.assertTrue(
+            np.allclose(extrusion_bounds["min"], cylinder_bounds["min"], atol=2e-7)
+        )
+        self.assertTrue(
+            np.allclose(extrusion_bounds["max"], cylinder_bounds["max"], atol=2e-7)
+        )
+        self.assertTrue(
+            np.allclose(sketch_bounds["min"], [12.0, 23.0, 26.0], atol=2e-7)
+        )
+        self.assertTrue(
+            np.allclose(sketch_bounds["max"], [12.0, 25.0, 28.0], atol=2e-7)
+        )
+
+    def test_nested_workplane_applies_to_transforms_patterns_and_placements(self):
+        """Shape transforms and assembly frames resolve the same inner basis."""
+        source = scad.make_sphere_rsolid(0.5, center=(12.0, 25.0, 27.0))
+        with scad.Workplane(
+            origin=(10.0, 20.0, 30.0),
+            normal=(0.0, 1.0, 0.0),
+            x_dir=(1.0, 0.0, 0.0),
+        ):
+            with scad.Workplane(
+                origin=(2.0, 3.0, 4.0),
+                normal=(1.0, 0.0, 0.0),
+                x_dir=(0.0, 1.0, 0.0),
+            ):
+                moved = scad.translate_shape(source, (0.0, 0.0, 2.0))
+                rotated = scad.rotate_shape(
+                    source, 90.0, axis=(0.0, 0.0, 1.0), origin=(0.0, 0.0, 0.0)
+                )
+                pattern = scad.linear_pattern_rsolidlist(
+                    source, (1.0, 0.0, 0.0), 3, 2.0
+                )
+                identity = scad.identity_placement_rplacement()
+                placement = scad.make_placement_rplacement((1.0, 2.0, 3.0))
+
+        from simplecadapi.inspect import brep
+
+        def bounds_center(shape):
+            bounds = brep.index_shape_rbrepmodel(shape.wrapped).summary()[
+                "bounding_box"
+            ]
+            return (np.asarray(bounds["min"]) + np.asarray(bounds["max"])) / 2.0
+
+        self.assertTrue(
+            np.allclose(bounds_center(moved), [14.0, 25.0, 27.0], atol=5e-4)
+        )
+        self.assertTrue(
+            np.allclose(bounds_center(rotated), [12.0, 24.0, 28.0], atol=5e-4)
+        )
+        self.assertTrue(
+            np.allclose(
+                [bounds_center(shape) for shape in pattern],
+                [[12.0, 25.0, 27.0], [12.0, 25.0, 25.0], [12.0, 25.0, 23.0]],
+                atol=5e-4,
+            )
+        )
+        self.assertTrue(np.allclose(identity.origin, [12.0, 24.0, 27.0], atol=1e-9))
+        self.assertTrue(np.allclose(identity.x_axis, [0.0, 0.0, -1.0], atol=1e-9))
+        self.assertTrue(np.allclose(identity.y_axis, [0.0, 1.0, 0.0], atol=1e-9))
+        self.assertTrue(np.allclose(placement.origin, [15.0, 26.0, 26.0], atol=1e-9))
 
 
 class TestExport(unittest.TestCase):

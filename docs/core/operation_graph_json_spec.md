@@ -106,9 +106,9 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 规则：
 
 - 每个记录节点通常对应一个 `frame:<node_id>` frame
-- 这是重建工作平面 / 本地坐标环境的重要辅助信息
-- 当前 replay 实现本身主要依赖节点参数，不直接依赖 frame_graph
-- 但外部转译器可使用它恢复局部工作坐标语义
+- `node.context` 保存该节点记录时已经完整合成的绝对工作平面；嵌套父帧不会在 replay 时再次相乘
+- replay 对每个节点进入其 `node.context`，再用节点中的局部点和向量参数重建几何
+- `frame_graph` 提供同一坐标快照的显式注册表，外部转译器也可用它恢复局部工作坐标语义
 
 ## 4. graph JSON Schema
 
@@ -200,7 +200,7 @@ source API 名字不等于 canonical graph op 名字。Composite source API 可�
 | `tags` | `array<string>` | yes | normalized semantic labels attached at record time |
 | `display` | `object` | yes | UI-friendly derived summary; advisory only |
 | `param_exprs` | `object` | no | mapping from param name to expression references |
-| `context` | `object` | no | workplane / coordinate system snapshot |
+| `context` | `object` | no | fully composed absolute workplane snapshot used while replaying this node |
 | `semantic_delta` | `object` | no | semantic entity delta |
 | `topo_delta` | `object` | no | topology lineage delta |
 
