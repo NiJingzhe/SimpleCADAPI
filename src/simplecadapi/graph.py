@@ -63,7 +63,7 @@ from .topology import (
 )
 from .topology import SemanticDelta
 from .topology import TopoKind, TopoRef, topo_ref_to_dict
-from .core import Compound, Edge, Face, Solid, Vertex, Wire, get_current_cs
+from .core import Compound, Edge, Face, Shell, Solid, Vertex, Wire, get_current_cs
 from .product import Assembly, Part
 from .source_mapping import capture_source_provenance
 
@@ -586,6 +586,8 @@ def _shape_kind(shape: Any) -> Optional[TopoKind]:
         return TopoKind.WIRE
     if isinstance(shape, Face):
         return TopoKind.FACE
+    if isinstance(shape, Shell):
+        return TopoKind.SHELL
     if isinstance(shape, Solid):
         return TopoKind.SOLID
     if isinstance(shape, Compound):
@@ -594,7 +596,7 @@ def _shape_kind(shape: Any) -> Optional[TopoKind]:
 
 
 def _wrapped_shape(shape: Any) -> Any:
-    if isinstance(shape, (Vertex, Edge, Wire, Face, Solid, Compound)):
+    if isinstance(shape, (Vertex, Edge, Wire, Face, Shell, Solid, Compound)):
         return shape.wrapped
     return None
 
@@ -951,7 +953,7 @@ def record_operation_if_active(
         param_exprs=param_exprs or None,
         inputs=input_nodes or None,
         node_id=node_id,
-        output_count=max(len(output_list), 1),
+        output_count=len(output_list),
         semantic_delta=semantic_delta,
         topo_delta=canonical_topo_delta,
         context=context or _current_context_snapshot(),

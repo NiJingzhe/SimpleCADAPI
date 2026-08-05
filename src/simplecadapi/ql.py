@@ -1166,6 +1166,15 @@ def _boundary_items(scope: Any, target_kind: str) -> List[Any]:
             return list(scope.get_solids())
         return [scope] if cls_name == "Solid" else []
 
+    if target_kind == "shell":
+        if cls_name == "Compound" and hasattr(scope, "get_children"):
+            return [
+                child
+                for child in scope.get_children()
+                if child.__class__.__name__ == "Shell"
+            ]
+        return [scope] if cls_name == "Shell" else []
+
     if target_kind == "compound":
         return [scope] if cls_name == "Compound" else []
 
@@ -1193,6 +1202,18 @@ def _resolve_scope_items(scope: Any, target_kind: str) -> List[Any]:
     if target_kind == "face":
         if hasattr(scope, "get_faces"):
             return list(scope.get_faces())
+    if target_kind == "shell":
+        if hasattr(scope, "get_children"):
+            shells = [
+                child
+                for child in scope.get_children()
+                if child.__class__.__name__ == "Shell"
+            ]
+            if shells:
+                return shells
+        if scope.__class__.__name__ == "Shell":
+            return [scope]
+
     if target_kind == "solid":
         if hasattr(scope, "get_solids"):
             return list(scope.get_solids())
@@ -1467,6 +1488,11 @@ def vertices() -> ShapeSelector:
 
 def solids() -> ShapeSelector:
     return ShapeSelector(target_kind="solid")
+
+
+def shells() -> ShapeSelector:
+    """Select Shell entities from a Shell or compatible topology scope."""
+    return ShapeSelector(target_kind="shell")
 
 
 def selector_from_dict(data: Dict[str, Any]) -> ShapeSelector:

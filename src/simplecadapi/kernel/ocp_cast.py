@@ -8,6 +8,7 @@ from OCP.TopAbs import (
     TopAbs_COMPOUND,
     TopAbs_EDGE,
     TopAbs_FACE,
+    TopAbs_SHELL,
     TopAbs_SOLID,
     TopAbs_VERTEX,
     TopAbs_WIRE,
@@ -26,6 +27,8 @@ def shape_type_name(shape: TopoDS_Shape) -> str:
         return "wire"
     if st == TopAbs_FACE:
         return "face"
+    if st == TopAbs_SHELL:
+        return "shell"
     if st == TopAbs_SOLID:
         return "solid"
     if st == TopAbs_COMPOUND:
@@ -47,6 +50,15 @@ def as_wire(shape: TopoDS_Shape):
 
 def as_face(shape: TopoDS_Shape):
     return TopoDS.Face_s(shape)
+
+def as_shell(shape: TopoDS_Shape):
+    st = shape.ShapeType()
+    if st == TopAbs_SHELL:
+        return TopoDS.Shell_s(shape)
+    explorer = TopExp_Explorer(shape, TopAbs_SHELL)
+    if explorer.More():
+        return TopoDS.Shell_s(explorer.Current())
+    raise ValueError(f"Expected a shell-compatible OCP shape, got {shape_type_name(shape)}")
 
 
 def as_solid(shape: TopoDS_Shape):

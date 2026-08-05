@@ -9,15 +9,48 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union, cast
 
 import numpy as np
-from OCP.TopAbs import TopAbs_COMPOUND, TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID, TopAbs_VERTEX, TopAbs_WIRE
+from OCP.TopAbs import (
+    TopAbs_COMPOUND,
+    TopAbs_EDGE,
+    TopAbs_FACE,
+    TopAbs_SHELL,
+    TopAbs_SOLID,
+    TopAbs_VERTEX,
+    TopAbs_WIRE,
+)
 from OCP.TopoDS import TopoDS, TopoDS_Shape
 
 from ._vendor_warning_filters import suppress_vendor_deprecation_warnings
 from .errors import raise_harness_error
-from .kernel.ocp_cast import as_compound, as_edge, as_face, as_solid, as_vertex, as_wire, shape_type_name
+from .kernel.ocp_cast import (
+    as_compound,
+    as_edge,
+    as_face,
+    as_shell,
+    as_solid,
+    as_vertex,
+    as_wire,
+    shape_type_name,
+)
 from .kernel.ocp_booleans import solids_of
-from .kernel.ocp_properties import Vec3, center_of_mass, face_normal_at, linear_length, surface_area, volume
-from .kernel.ocp_topology import edges_of, faces_of, inner_wires_of, is_wire_closed, outer_wire_of, vertex_point, vertices_of
+from .kernel.ocp_mesh import shell_is_closed
+from .kernel.ocp_properties import (
+    Vec3,
+    center_of_mass,
+    face_normal_at,
+    linear_length,
+    surface_area,
+    volume,
+)
+from .kernel.ocp_topology import (
+    edges_of,
+    faces_of,
+    inner_wires_of,
+    is_wire_closed,
+    outer_wire_of,
+    vertex_point,
+    vertices_of,
+)
 from .tagging import (
     LineagePolicy,
     TagAttachment,
@@ -1239,6 +1272,60 @@ class Face(TaggedMixin, TopoMixein):
         return "\n".join(result)
 
 
+class Shell(TaggedMixin, TopoMixein):
+    """OCP-native connected surface shell with face and edge topology."""
+
+    def __init__(self, shell: Any, cache: Optional[_TopologyEntityCache] = None):
+        try:
+            self.wrapped = as_shell(shell)
+            self._topology_cache = cache or _TopologyEntityCache()
+            TaggedMixin.__init__(
+                self, self._topology_cache.get("shell", self.wrapped)
+            )
+            TopoMixein.__init__(self, level=4, self_shape_ref=self)
+            for face in faces_of(self.wrapped):
+                self.add_child(Face(face, cache=self._topology_cache))
+        except Exception as e:
+            raise ValueError(
+                f"Failed to initialize Shell: {e}. Expected one connected OCP shell."
+            ) from e
+
+    def get_area(self) -> float:
+        """Return the total area of every face in the shell."""
+
+        return float(surface_area(self.wrapped))
+
+    def is_closed(self) -> bool:
+        """Return whether the shell bounds a closed region."""
+
+        return shell_is_closed(self.wrapped)
+
+    def get_faces(self, index: Optional[int] = None) -> Union[List[Face], Face]:
+        faces = [
+            face for face in cast(List[Face], self.get_children()) if isinstance(face, Face)
+        ]
+        result = cast(List[Face], _selection_list(self, "face", faces))
+        if index is None:
+            return result
+        return result[index]
+
+    def get_edges(self, index: Optional[int] = None) -> Union[List[Edge], Edge]:
+        unique: Dict[str, Edge] = {}
+        for face in self.get_faces():
+            for edge in face.get_edges():
+                unique.setdefault(edge.topo_id, edge)
+        result = cast(List[Edge], _selection_list(self, "edge", unique.values()))
+        if index is None:
+            return result
+        return result[index]
+
+    def __repr__(self) -> str:
+        return (
+            f"Shell(faces={len(self.get_faces())}, area={self.get_area():.3f}, "
+            f"closed={self.is_closed()}, tags={self._list_tags()})"
+        )
+
+
 class Solid(TaggedMixin, TopoMixein):
     """OCP-native solid wrapper with tag support."""
 
@@ -1473,13 +1560,13 @@ class Compound(TaggedMixin, TopoMixein):
         return "\n".join(result)
 
 
-AnyShape = Union[Vertex, Edge, Wire, Face, Solid, Compound]
+AnyShape = Union[Vertex, Edge, Wire, Face, Shell, Solid, Compound]
 
 
 def clone_semantic_shape_view(shape: AnyShape) -> AnyShape:
     """Create an independent semantic view over the same kernel geometry."""
 
-    if not isinstance(shape, (Vertex, Edge, Wire, Face, Solid, Compound)):
+    if not isinstance(shape, (Vertex, Edge, Wire, Face, Shell, Solid, Compound)):
         raise TypeError("shape must be a SimpleCAD topology object")
 
     clone = type(shape)(shape.wrapped)
