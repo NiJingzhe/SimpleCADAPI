@@ -8,6 +8,7 @@ from .core import (
     Edge,
     Wire,
     Face,
+    Shell,
     Solid,
     Compound,
     AnyShape,
@@ -145,6 +146,19 @@ from .operations import (
     # 其他
     linear_pattern_rsolidlist,
     radial_pattern_rsolidlist,
+)
+from .surface import (
+    SurfaceBoundary,
+    SurfaceFillingSettings,
+    make_bezier_surface_rface,
+    fit_point_grid_rface,
+    make_ruled_surface_rface,
+    make_gordon_surface_rface,
+    make_surface_patch_rface,
+    make_loft_rshell,
+    sew_faces_rshell,
+    free_boundaries_rwirelist,
+    fill_holes_rshell,
 )
 
 from .evolve import (
@@ -307,6 +321,7 @@ from .scene import (
     write_triangle_glb,
 )
 
+from . import surface
 from . import ql
 from . import inspect
 from . import math
@@ -380,9 +395,23 @@ __all__ = [
     "Edge",
     "Wire",
     "Face",
+    "Shell",
     "Solid",
     "Compound",
     "AnyShape",
+
+    # Surface construction
+    "SurfaceBoundary",
+    "SurfaceFillingSettings",
+    "make_bezier_surface_rface",
+    "fit_point_grid_rface",
+    "make_ruled_surface_rface",
+    "make_gordon_surface_rface",
+    "make_surface_patch_rface",
+    "make_loft_rshell",
+    "sew_faces_rshell",
+    "free_boundaries_rwirelist",
+    "fill_holes_rshell",
     "TaggedMixin",
     # 坐标系
     "get_current_cs",

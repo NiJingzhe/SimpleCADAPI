@@ -14,7 +14,4 @@ def make_placement_rplacement(origin: Tuple[float, float, float], x_axis: Tuple[
 
 ## Description
 
-Create a canonical right-handed component placement.
-
-The placement maps child-local coordinates into parent assembly coordinates
-using one representation only: origin plus child x/y axes in parent space.
+Create a canonical right-handed placement in the active workplane.

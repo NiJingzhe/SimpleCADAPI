@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Optional, Sequence
 
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_Transform
 from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell, BRepOffsetAPI_ThruSections
@@ -70,7 +70,19 @@ def make_helical_sweep_solid(
     radius: float,
     center: Sequence[float],
     direction: Sequence[float],
+    x_direction: Optional[Sequence[float]] = None,
 ):
-    helix = make_helix_wire(pitch, height, radius, center, direction)
-    moved_profile = translate_shape(profile_wire, (float(radius), 0.0, 0.0))
+    helix = make_helix_wire(
+        pitch,
+        height,
+        radius,
+        center,
+        direction,
+        x_direction=x_direction,
+    )
+    radial_direction = x_direction if x_direction is not None else (1.0, 0.0, 0.0)
+    moved_profile = translate_shape(
+        profile_wire,
+        tuple(float(radius) * float(component) for component in radial_direction),
+    )
     return make_sweep_solid(moved_profile, helix, is_frenet=True)

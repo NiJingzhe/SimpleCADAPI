@@ -32,11 +32,19 @@ def _point(value: tuple[float, float, float]) -> gp_Pnt:
 
 
 def _axis2(
-    origin: tuple[float, float, float], direction: tuple[float, float, float]
+    origin: tuple[float, float, float],
+    direction: tuple[float, float, float],
+    x_direction: tuple[float, float, float] | None = None,
 ) -> gp_Ax2:
+    if x_direction is None:
+        return gp_Ax2(
+            _point(origin),
+            gp_Dir(float(direction[0]), float(direction[1]), float(direction[2])),
+        )
     return gp_Ax2(
         _point(origin),
         gp_Dir(float(direction[0]), float(direction[1]), float(direction[2])),
+        gp_Dir(float(x_direction[0]), float(x_direction[1]), float(x_direction[2])),
     )
 
 
@@ -45,9 +53,27 @@ def make_box_solid(corner: tuple[float, float, float], dx: float, dy: float, dz:
 
 
 def build_box_primitive(
-    corner: tuple[float, float, float], dx: float, dy: float, dz: float
+    corner: tuple[float, float, float],
+    dx: float,
+    dy: float,
+    dz: float,
+    *,
+    x_axis: tuple[float, float, float] | None = None,
+    y_axis: tuple[float, float, float] | None = None,
+    z_axis: tuple[float, float, float] | None = None,
 ) -> PrimitiveBuildResult:
-    builder = BRepPrimAPI_MakeBox(_point(corner), float(dx), float(dy), float(dz))
+    if (x_axis is None) != (y_axis is None) or (x_axis is None) != (z_axis is None):
+        raise ValueError("box axes must be provided together")
+    axis = (
+        _axis2(corner, z_axis, x_axis)
+        if x_axis is not None and z_axis is not None
+        else None
+    )
+    builder = (
+        BRepPrimAPI_MakeBox(axis, float(dx), float(dy), float(dz))
+        if axis is not None
+        else BRepPrimAPI_MakeBox(_point(corner), float(dx), float(dy), float(dz))
+    )
     builder.Build()
     if not builder.IsDone():
         raise ValueError("OCP box builder failed")

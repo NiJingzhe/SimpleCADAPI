@@ -14,4 +14,4 @@ def identity_placement_rplacement() -> Placement
 
 ## Description
 
-Create an identity placement.
+Create the identity placement of the active workplane.

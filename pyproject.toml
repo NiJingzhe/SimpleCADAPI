@@ -30,6 +30,7 @@ dependencies = [
     "rfc8785>=0.1.4,<0.2.0",
     "typing-extensions>=4.12,<5",
     "py-slvs==1.0.6",
+    "ocp-gordon>=0.2,<0.3",
 ]
 
 [project.optional-dependencies]
