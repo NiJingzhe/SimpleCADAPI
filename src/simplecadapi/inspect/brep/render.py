@@ -5,7 +5,7 @@ from __future__ import annotations
 import colorsys
 import math
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 import numpy as np
 from OCP.BRep import BRep_Builder, BRep_Tool
@@ -63,13 +63,18 @@ _OFFSCREEN_WINDOW: Any | None = None
 
 
 def _offscreen_window(width: int, height: int):
-    """Reuse one native offscreen context; repeated macOS VTK teardown is unsafe."""
+    """Reuse one native offscreen context across renders.
+
+    VTK's macOS backend can segfault when several windows are finalized in one
+    Python process. Renderers are removed before each use; the process owns the
+    single native window until exit.
+    """
     global _OFFSCREEN_WINDOW
     vtk, _, _ = _vtk_modules()
     if _OFFSCREEN_WINDOW is None:
         _OFFSCREEN_WINDOW = vtk.vtkRenderWindow()
         _OFFSCREEN_WINDOW.SetOffScreenRendering(1)
-        _OFFSCREEN_WINDOW.SetMultiSamples(4)
+        _OFFSCREEN_WINDOW.SetMultiSamples(0)
     _OFFSCREEN_WINDOW.GetRenderers().RemoveAllItems()
     _OFFSCREEN_WINDOW.SetSize(width, height)
     return _OFFSCREEN_WINDOW
@@ -804,6 +809,8 @@ def _render_polydata_views(
     image_size: tuple[float, float],
     dpi: int,
     context_opacity: float = 1.0,
+    highlight_edge_width: float = 4.5,
+    highlight_point_size: float = 15.0,
     brep_edge_polydata=None,
     highlighted_polydata=None,
     highlighted_edge_polydata=None,
@@ -812,6 +819,8 @@ def _render_polydata_views(
     highlighted_edge_groups=None,
     highlighted_point_groups=None,
     legend: Sequence[tuple[str, tuple[float, float, float]]] | None = None,
+    legend_columns: int = 1,
+    legend_panel: bool = False,
     callouts: Sequence[
         tuple[str, tuple[float, float, float], tuple[float, float, float]]
     ]
@@ -830,9 +839,17 @@ def _render_polydata_views(
         raise ValueError("at least one render view is required")
     if dpi < 1 or image_size[0] <= 0.0 or image_size[1] <= 0.0:
         raise ValueError("image size and DPI must be greater than zero")
+    if highlight_edge_width <= 0.0:
+        raise ValueError("highlight_edge_width must be greater than zero")
+    if highlight_point_size <= 0.0:
+        raise ValueError("highlight_point_size must be greater than zero")
+    if legend_columns < 1:
+        raise ValueError("legend_columns must be at least one")
     vtk, _, _ = _vtk_modules()
     width = max(1, int(round(image_size[0] * dpi)))
     height = max(1, int(round(image_size[1] * dpi)))
+    legend_panel_width = int(width * 0.30) if legend and legend_panel else 0
+    render_width = width - legend_panel_width
     columns = min(2, len(views))
     rows = (len(views) + columns - 1) // columns
     window = _offscreen_window(width, height)
@@ -842,8 +859,8 @@ def _render_polydata_views(
     for index, (elevation, azimuth, view_title) in enumerate(views):
         row = index // columns
         column = index % columns
-        left = column / columns
-        right = (column + 1) / columns
+        left = column / columns * render_width / width
+        right = (column + 1) / columns * render_width / width
         top = 1.0 - row / rows
         bottom = 1.0 - (row + 1) / rows
         renderer = vtk.vtkRenderer()
@@ -867,14 +884,18 @@ def _render_polydata_views(
             renderer.AddActor(_surface_actor(highlighted_polydata, (0.94, 0.18, 0.30), 1.0))
         if highlighted_edge_groups:
             for polydata, color in highlighted_edge_groups:
-                renderer.AddActor(_line_actor(polydata, color, 3.0))
+                renderer.AddActor(_line_actor(polydata, color, highlight_edge_width))
         elif highlighted_edge_polydata is not None:
-            renderer.AddActor(_line_actor(highlighted_edge_polydata, (0.78, 0.0, 0.0), 3.0))
+            renderer.AddActor(
+                _line_actor(highlighted_edge_polydata, (0.78, 0.0, 0.0), highlight_edge_width)
+            )
         if highlighted_point_groups:
             for polydata, color in highlighted_point_groups:
-                renderer.AddActor(_point_actor(polydata, color, 11.0))
+                renderer.AddActor(_point_actor(polydata, color, highlight_point_size))
         elif highlighted_point_polydata is not None:
-            renderer.AddActor(_point_actor(highlighted_point_polydata, (0.78, 0.0, 0.0), 9.0))
+            renderer.AddActor(
+                _point_actor(highlighted_point_polydata, (0.78, 0.0, 0.0), highlight_point_size)
+            )
         label = vtk.vtkTextActor()
         label.SetInput(f"{title}\n{view_title}" if index == 0 else view_title)
         label.SetPosition(16, 14)
@@ -883,17 +904,31 @@ def _render_polydata_views(
         text.SetFontSize(max(14, min(width // columns, height // rows) // 34))
         text.SetBold(True)
         renderer.AddViewProp(label)
-        if index == 0 and legend:
+        if index == 0 and legend and not legend_panel:
+            viewport_width = render_width // columns
             viewport_height = height // rows
-            legend_font = max(12, min(20, min(width // columns, height // rows) // 42))
-            legend_spacing = int(legend_font * 1.7)
-            legend_top = viewport_height - legend_font * 2 - legend_spacing * len(legend)
+            legend_font = max(10, min(16, min(viewport_width, viewport_height) // 52))
+            legend_spacing = int(legend_font * 1.55)
+            legend_rows = (len(legend) + legend_columns - 1) // legend_columns
+            column_width = max(
+                112,
+                max(int(len(entry_label) * legend_font * 0.62) + 26 for entry_label, _ in legend),
+            )
+            start_x = max(16, viewport_width - column_width * legend_columns - 16)
+            start_y = max(48, viewport_height - legend_spacing * legend_rows - 18)
             for legend_index, (entry_label, entry_rgb) in enumerate(legend):
+                column = legend_index // legend_rows
+                legend_row = legend_index % legend_rows
                 entry = vtk.vtkTextActor()
-                entry.SetInput(f"\u25a0 {entry_label}")
-                entry.SetPosition(16, legend_top + legend_spacing * legend_index)
+                entry.SetInput(f"■ {entry_label}")
+                entry.SetPosition(
+                    start_x + column * column_width,
+                    start_y + (legend_rows - legend_row - 1) * legend_spacing,
+                )
                 entry_prop = entry.GetTextProperty()
                 entry_prop.SetColor(float(entry_rgb[0]), float(entry_rgb[1]), float(entry_rgb[2]))
+                entry_prop.SetBackgroundColor(0.94, 0.96, 0.98)
+                entry_prop.SetBackgroundOpacity(0.82)
                 entry_prop.SetFontSize(legend_font)
                 entry_prop.SetBold(True)
                 renderer.AddViewProp(entry)
@@ -901,6 +936,31 @@ def _render_polydata_views(
         _set_camera(renderer, elevation, azimuth)
         if callouts:
             callout_renderers.append((renderer, index))
+    if legend and legend_panel:
+        panel = vtk.vtkRenderer()
+        panel.SetViewport(render_width / width, 0.0, 1.0, 1.0)
+        panel.SetBackground(0.94, 0.96, 0.98)
+        panel.SetInteractive(False)
+        panel_font = max(10, min(16, height // 78))
+        panel_spacing = int(panel_font * 1.55)
+        panel_rows = (len(legend) + legend_columns - 1) // legend_columns
+        panel_column_width = legend_panel_width / legend_columns
+        start_y = height - panel_spacing * 2
+        for legend_index, (entry_label, entry_rgb) in enumerate(legend):
+            column = legend_index // panel_rows
+            legend_row = legend_index % panel_rows
+            entry = vtk.vtkTextActor()
+            entry.SetInput(f"■ {entry_label}")
+            entry.SetPosition(
+                12 + column * panel_column_width,
+                start_y - legend_row * panel_spacing,
+            )
+            entry_prop = entry.GetTextProperty()
+            entry_prop.SetColor(float(entry_rgb[0]), float(entry_rgb[1]), float(entry_rgb[2]))
+            entry_prop.SetFontSize(panel_font)
+            entry_prop.SetBold(True)
+            panel.AddViewProp(entry)
+        window.AddRenderer(panel)
 
     window.Render()
     for renderer, index in callout_renderers:
@@ -921,8 +981,6 @@ def _render_polydata_views(
     output.parent.mkdir(parents=True, exist_ok=True)
     _write_window(window, output)
     return output
-
-
 def render_shape_views_rpath(
     shape: TopoDS_Shape,
     output_path: str | Path,
@@ -1110,6 +1168,16 @@ def _entity_anchor(descriptor: Mapping[str, Any]) -> tuple[float, float, float]:
         values = descriptor["bounding_box"]["center"]
     return tuple(float(value) for value in values)
 
+def _entity_map_legend(
+    entries: Sequence[tuple[str, str, tuple[float, float, float]]],
+    *,
+    columns: int = 3,
+) -> list[tuple[str, tuple[float, float, float]]]:
+    """Return compact ID/type rows; columns are populated top-to-bottom."""
+    if columns < 1:
+        raise ValueError("legend_columns must be at least one")
+    return [(f"{entity_id} · {geometry_type}", color) for entity_id, geometry_type, color in entries]
+
 
 def render_entity_map_rpath(
     model_or_path: BRepModel | TopoDS_Shape | str | Path,
@@ -1118,25 +1186,41 @@ def render_entity_map_rpath(
     *,
     title: str = "BREP entity map",
     views: Sequence[tuple[float, float, str]] = DEFAULT_VIEWS,
+    highlight_edge_width: float = 6.0,
+    highlight_point_size: float = 18.0,
     image_size: tuple[float, float] = (18.0, 12.0),
     dpi: int = 180,
     linear_deflection: float = 0.12,
     angular_deflection: float = 0.18,
     edge_samples: int = 96,
     context_opacity: float = 1.0,
+    label_mode: Literal["auto", "callout", "legend", "none"] = "legend",
+    max_callouts: int = 4,
+    legend_columns: int = 3,
 ) -> Path:
     """Render stable BREP entity IDs without flattening model depth.
 
     The base model stays opaque by default and keeps its true BREP edges.
     Bodies use colored topology edges, faces use a restrained translucent tint
     plus boundary edges, edges use thick curves, and vertices use colored
-    points. Viewport-aware leader labels bind each mark to its stable entity ID
-    and geometry type.
+    points. ``highlight_edge_width`` and ``highlight_point_size`` make selected
+    edges and vertices visually dominant. A dedicated ID/type key is the safe
+    default; callouts remain available for focused selections.
     """
     if edge_samples < 2:
         raise ValueError("edge_samples must be at least two")
     if not 0.0 <= context_opacity <= 1.0:
         raise ValueError("context_opacity must be between zero and one")
+    if label_mode not in {"auto", "callout", "legend", "none"}:
+        raise ValueError("label_mode must be auto, callout, legend, or none")
+    if max_callouts < 1:
+        raise ValueError("max_callouts must be at least one")
+    if label_mode == "callout" and len(entity_ids) > max_callouts:
+        raise ValueError(
+            f"callout mode supports at most {max_callouts} entities; use legend mode"
+        )
+    if legend_columns < 1:
+        raise ValueError("legend_columns must be at least one")
     if not entity_ids:
         raise ValueError("At least one entity ID is required")
     model = (
@@ -1161,10 +1245,12 @@ def render_entity_map_rpath(
     surface_groups: list[tuple[Any, tuple[float, float, float], float]] = []
     edge_groups: list[tuple[Any, tuple[float, float, float]]] = []
     point_groups: list[tuple[Any, tuple[float, float, float]]] = []
+    label_entries: list[
+        tuple[str, str, tuple[float, float, float]]
+    ] = []
     callouts: list[
         tuple[str, tuple[float, float, float], tuple[float, float, float]]
     ] = []
-    has_specific_entities = any(kind != "body" for kind, _, _ in resolved)
     for canonical, color, (kind, shape, descriptor) in zip(
         canonical_ids,
         _distinct_entity_colors(len(resolved)),
@@ -1195,11 +1281,24 @@ def render_entity_map_rpath(
             )
         point_groups.append((_point_polydata([anchor]), color))
         geometry_type = str(descriptor["geometry"]["type"])
+        label_entries.append((canonical, geometry_type, color))
         callouts.append((f"{canonical} · {geometry_type}", anchor, color))
+
+    effective_label_mode = (
+        "callout" if label_mode == "auto" and len(resolved) <= max_callouts
+        else "legend" if label_mode == "auto"
+        else label_mode
+    )
+    legend = (
+        _entity_map_legend(label_entries, columns=legend_columns)
+        if effective_label_mode == "legend"
+        else None
+    )
 
     return _render_polydata_views(
         _mesh_polydata([model.root], linear_deflection, angular_deflection),
         output_path,
+        legend_panel=effective_label_mode == "legend",
         title=title,
         views=views,
         image_size=image_size,
@@ -1209,17 +1308,76 @@ def render_entity_map_rpath(
         highlighted_groups=surface_groups,
         highlighted_edge_groups=edge_groups,
         highlighted_point_groups=point_groups,
-        callouts=callouts,
+        highlight_edge_width=highlight_edge_width,
+        highlight_point_size=highlight_point_size,
+        legend=legend,
+        legend_columns=legend_columns,
+        callouts=callouts if effective_label_mode == "callout" else None,
     )
+def render_entity_kind_maps_rpath(
+    model_or_path: BRepModel | TopoDS_Shape | str | Path,
+    entity_ids: Sequence[str],
+    output_dir: str | Path,
+    *,
+    title: str = "BREP entity map",
+    views: Sequence[tuple[float, float, str]] = DEFAULT_VIEWS,
+    image_size: tuple[float, float] = (18.0, 12.0),
+    dpi: int = 180,
+    linear_deflection: float = 0.12,
+    angular_deflection: float = 0.18,
+    edge_samples: int = 96,
+    context_opacity: float = 1.0,
+    highlight_edge_width: float = 6.0,
+    highlight_point_size: float = 18.0,
+    label_mode: Literal["auto", "callout", "legend", "none"] = "legend",
+    max_callouts: int = 4,
+    legend_columns: int = 3,
+) -> dict[str, Path]:
+    """Render independent face, edge, and vertex highlight maps."""
+    if not entity_ids:
+        raise ValueError("At least one entity ID is required")
+    if isinstance(model_or_path, BRepModel):
+        model = model_or_path
+    elif isinstance(model_or_path, TopoDS_Shape):
+        model = index_shape_rbrepmodel(model_or_path)
+    else:
+        model = load_step_rbrepmodel(model_or_path)
+    grouped: dict[str, list[str]] = {"face": [], "edge": [], "vertex": []}
+    for entity_id in entity_ids:
+        kind, index, _ = model.resolve_entity(entity_id)
+        if kind in grouped:
+            grouped[kind].append(f"{kind}:{index}")
+    output_root = Path(output_dir)
+    result: dict[str, Path] = {}
+    for kind, ids in grouped.items():
+        if not ids:
+            continue
+        result[kind] = render_entity_map_rpath(
+            model,
+            ids,
+            output_root / f"{kind}-map.png",
+            title=f"{title} · {kind}s",
+            views=views,
+            image_size=image_size,
+            dpi=dpi,
+            linear_deflection=linear_deflection,
+            angular_deflection=angular_deflection,
+            edge_samples=edge_samples,
+            context_opacity=context_opacity,
+            highlight_edge_width=highlight_edge_width,
+            highlight_point_size=highlight_point_size,
+            label_mode=label_mode,
+            max_callouts=max_callouts,
+            legend_columns=legend_columns,
+        )
+    return result
+
+
 def _resolve_color(
     spec: ColorSpec,
     palette: Sequence[ColorSpec] | None = None,
 ) -> tuple[float, float, float]:
-    """Resolve a color spec to an (r, g, b) tuple in 0..1.
-
-    Accepts an integer palette index, ``#RRGGBB`` / ``#RGB`` hex strings,
-    named colors, or a literal ``(r, g, b)`` tuple.
-    """
+    """Resolve a color spec to an (r, g, b) tuple in 0..1."""
     if isinstance(spec, int):
         if palette is None:
             raise ValueError("an integer color requires a palette")
@@ -1409,6 +1567,8 @@ def render_region_rpath(
     linear_deflection: float = 0.12,
     angular_deflection: float = 0.18,
     edge_samples: int = 96,
+    highlight_edge_width: float = 6.0,
+    highlight_point_size: float = 18.0,
 ) -> Path:
     """Highlight stable entities and their optional topology neighborhood."""
     if edge_samples < 2:
@@ -1475,5 +1635,7 @@ def render_region_rpath(
         context_opacity=0.18,
         highlighted_polydata=highlighted,
         highlighted_edge_polydata=highlighted_edges,
+        highlight_edge_width=highlight_edge_width,
+        highlight_point_size=highlight_point_size,
         highlighted_point_polydata=highlighted_points,
     )

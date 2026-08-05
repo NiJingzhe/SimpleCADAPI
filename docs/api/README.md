@@ -217,9 +217,9 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [load_step_rshape](load_step_rshape.md) *(from inspect/brep/io.py)* `inspection namespace`
 - [make_center_slice_specs_rslicespeclist](make_center_slice_specs_rslicespeclist.md) *(from inspect/brep/slices.py)* `inspection namespace`
 - [measure_entity_relation_rdescriptor](measure_entity_relation_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
-- [measure_shape_mass_rtuple](measure_shape_mass_rtuple.md) *(from inspect/brep/io.py)* `inspection namespace`
-- [render_entity_map_rpath](render_entity_map_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
-- [render_region_rpath](render_region_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+ - [measure_shape_mass_rtuple](measure_shape_mass_rtuple.md) *(from inspect/brep/io.py)* `inspection namespace`
+ - [render_entity_map_rpath](render_entity_map_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+ - [render_region_rpath](render_region_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_shape_views_rpath](render_shape_views_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_components_colored_rpath](render_step_components_colored_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_components_rpath](render_step_components_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`

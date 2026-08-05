@@ -20,7 +20,17 @@ from dataclasses import dataclass, field
 from enum import Enum
 from functools import wraps
 import math
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple, TypeVar
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+)
 
 from OCP.BRepAlgoAPI import (
     BRepAlgoAPI_Cut,
@@ -205,7 +215,10 @@ def _is_result_member(result_shape: Any, candidate: Any) -> bool:
         shape_type = candidate.ShapeType()
     except Exception:
         return False
-    return any(_is_same_shape(item, candidate) for item in _iter_subshapes(result_shape, shape_type))
+    return any(
+        _is_same_shape(item, candidate)
+        for item in _iter_subshapes(result_shape, shape_type)
+    )
 
 
 def _dedupe_shapes(shapes: Iterable[Any]) -> List[Any]:
@@ -346,16 +359,16 @@ def _query_exact_history(
                 ref = TopoRef(graph_id, node_id, 0, output_kind, mod_id)
                 modified.append(ref)
                 entry = {
-                        "topo_id": mod_id,
-                        "event": "modified",
-                        "kind": output_kind.name,
-                        "source_kind": kind.name,
-                        "origin_role": origin_role,
-                        "input_topo_id": input_id,
-                        "derivation": modified_derivation,
-                        "coverage": "complete",
-                        "status": "proven",
-                    }
+                    "topo_id": mod_id,
+                    "event": "modified",
+                    "kind": output_kind.name,
+                    "source_kind": kind.name,
+                    "origin_role": origin_role,
+                    "input_topo_id": input_id,
+                    "derivation": modified_derivation,
+                    "coverage": "complete",
+                    "status": "proven",
+                }
                 role = modified_result_role or result_role
                 if role is not None:
                     entry["result_role"] = role
@@ -375,16 +388,16 @@ def _query_exact_history(
                 ref = TopoRef(graph_id, node_id, 0, output_kind, gen_id)
                 generated.append(ref)
                 entry = {
-                        "topo_id": gen_id,
-                        "event": "generated",
-                        "kind": output_kind.name,
-                        "source_kind": kind.name,
-                        "origin_role": origin_role,
-                        "input_topo_id": input_id,
-                        "derivation": generated_derivation,
-                        "coverage": "complete",
-                        "status": "proven",
-                    }
+                    "topo_id": gen_id,
+                    "event": "generated",
+                    "kind": output_kind.name,
+                    "source_kind": kind.name,
+                    "origin_role": origin_role,
+                    "input_topo_id": input_id,
+                    "derivation": generated_derivation,
+                    "coverage": "complete",
+                    "status": "proven",
+                }
                 role = generated_result_role or result_role
                 if role is not None:
                     entry["result_role"] = role
@@ -489,7 +502,9 @@ def _operation_role(
     }
     if source_shape is not None:
         payload["input_topo_id"] = _topo_id(source_shape)
-        payload["source_kind"] = (source_kind or _shape_kind(source_shape, output_kind)).name
+        payload["source_kind"] = (
+            source_kind or _shape_kind(source_shape, output_kind)
+        ).name
     return payload
 
 
@@ -513,9 +528,7 @@ def _canonical_topo_roles(
                 source_kind = TopoKind[str(source_kind_name).upper()]
             except KeyError:
                 continue
-            parents = (
-                TopoRef(graph_id, node_id, 0, source_kind, str(source_id)),
-            )
+            parents = (TopoRef(graph_id, node_id, 0, source_kind, str(source_id)),)
         marker = (output_kind, output_id, role, parents)
         if marker in seen:
             continue
@@ -916,7 +929,9 @@ def track_union_history(
     history_entries: List[Dict[str, Any]] = []
 
     for index, solid in enumerate(inputs):
-        origin_role = "body" if index == 0 else ("tool" if index == 1 else f"tool_{index}")
+        origin_role = (
+            "body" if index == 0 else ("tool" if index == 1 else f"tool_{index}")
+        )
         pres, mod, gen, del_, entries = _query_history(
             history,
             solid.wrapped,
@@ -1033,9 +1048,7 @@ def _query_single_shape_history(
         modified=tuple(mod),
         generated=tuple(gen),
         deleted=tuple(del_),
-        entries=_canonical_topo_entries(
-            entries, graph_id=graph_id, node_id=node_id
-        ),
+        entries=_canonical_topo_entries(entries, graph_id=graph_id, node_id=node_id),
     )
     return delta, _aggregate_delta_entries(entries)
 
@@ -1185,12 +1198,31 @@ def tracked_box(
     width: float,
     height: float,
     depth: float,
+    *,
+    x_axis: Tuple[float, float, float] | None = None,
+    y_axis: Tuple[float, float, float] | None = None,
+    z_axis: Tuple[float, float, float] | None = None,
 ) -> TrackedResult:
-    """Build a box with operation-native Face role witnesses."""
+    """Build a box with operation-native Face role witnesses.
 
+    When axes are supplied, ``corner`` is the local bottom-face center already
+    transformed into global coordinates and the primitive is built in that
+    oriented frame. The y-axis is validated with the other frame axes so an
+    operation cannot silently consume an incomplete runtime workplane.
+    """
+    if (x_axis is None) != (y_axis is None) or (x_axis is None) != (z_axis is None):
+        raise ValueError("box axes must be provided together")
     graph_id = _make_id("g")
     node_id = _make_id("n")
-    built = build_box_primitive(corner, width, height, depth)
+    built = build_box_primitive(
+        corner,
+        width,
+        height,
+        depth,
+        x_axis=x_axis,
+        y_axis=y_axis,
+        z_axis=z_axis,
+    )
     result_solid = Solid(built.solid)
     roles: List[Dict[str, Any]] = []
     for witness in built.roles:
@@ -1261,9 +1293,7 @@ def tracked_cone(
 
     graph_id = _make_id("g")
     node_id = _make_id("n")
-    built = build_cone_primitive(
-        origin, axis, bottom_radius, top_radius, height
-    )
+    built = build_cone_primitive(origin, axis, bottom_radius, top_radius, height)
     result_solid = Solid(built.solid)
     roles: List[Dict[str, Any]] = []
     for witness in built.roles:
@@ -1484,7 +1514,12 @@ def tracked_fillet(solid: Solid, edges: List[Edge], radius: float) -> TrackedRes
         generated=tuple((*delta.generated, *e_gen)),
         deleted=tuple((*delta.deleted, *e_del)),
         entries=tuple(
-            (*delta.entries, *_canonical_topo_entries(edge_entries, graph_id=graph_id, node_id=node_id))
+            (
+                *delta.entries,
+                *_canonical_topo_entries(
+                    edge_entries, graph_id=graph_id, node_id=node_id
+                ),
+            )
         ),
         roles=_canonical_topo_roles(roles, graph_id=graph_id, node_id=node_id),
     )
@@ -1540,7 +1575,12 @@ def tracked_chamfer(solid: Solid, edges: List[Edge], distance: float) -> Tracked
         generated=tuple((*delta.generated, *e_gen)),
         deleted=tuple((*delta.deleted, *e_del)),
         entries=tuple(
-            (*delta.entries, *_canonical_topo_entries(edge_entries, graph_id=graph_id, node_id=node_id))
+            (
+                *delta.entries,
+                *_canonical_topo_entries(
+                    edge_entries, graph_id=graph_id, node_id=node_id
+                ),
+            )
         ),
         roles=_canonical_topo_roles(roles, graph_id=graph_id, node_id=node_id),
     )
@@ -1613,9 +1653,7 @@ def tracked_shell(
         project_source_tags=True,
     )
     boundary_edges = [
-        edge
-        for face in selected_faces
-        for edge in _iter_subshapes(face, TopAbs_EDGE)
+        edge for face in selected_faces for edge in _iter_subshapes(face, TopAbs_EDGE)
     ]
     boundary_parts = _query_exact_history(
         shell_op,
