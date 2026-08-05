@@ -58,6 +58,7 @@ class TopoKind(Enum):
     EDGE = auto()
     WIRE = auto()
     FACE = auto()
+    SHELL = auto()
     SOLID = auto()
     COMPOUND = auto()
 

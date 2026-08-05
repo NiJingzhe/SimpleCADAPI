@@ -32,6 +32,7 @@ from .core import (
     Compound,
     Edge,
     Face,
+    Shell,
     Solid,
     Vertex,
     Wire,
@@ -409,10 +410,35 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     "fillet_rsolid": {"status": "replayable", "op": "make_fillet_rsolid"},
     "chamfer_rsolid": {"status": "replayable", "op": "make_chamfer_rsolid"},
     "shell_rsolid": {"status": "replayable", "op": "make_shell_rsolid"},
+    "make_bezier_surface_rface": {
+        "status": "replayable",
+        "op": "make_bezier_surface_rface",
+    },
+    "fit_point_grid_rface": {"status": "replayable", "op": "fit_point_grid_rface"},
+    "make_ruled_surface_rface": {
+        "status": "replayable",
+        "op": "make_ruled_surface_rface",
+    },
+    "make_gordon_surface_rface": {
+        "status": "replayable",
+        "op": "make_gordon_surface_rface",
+    },
+    "make_surface_patch_rface": {
+        "status": "replayable",
+        "op": "make_surface_patch_rface",
+    },
+    "make_loft_rshell": {"status": "replayable", "op": "make_loft_rshell"},
+    "sew_faces_rshell": {"status": "replayable", "op": "sew_faces_rshell"},
+    "free_boundaries_rwirelist": {
+        "status": "replayable",
+        "op": "free_boundaries_rwirelist",
+    },
+    "fill_holes_rshell": {"status": "replayable", "op": "fill_holes_rshell"},
     "make_select_rvertex": {"status": "replayable", "op": "make_select_rvertex"},
     "make_select_redge": {"status": "replayable", "op": "make_select_redge"},
     "make_select_rwire": {"status": "replayable", "op": "make_select_rwire"},
     "make_select_rface": {"status": "replayable", "op": "make_select_rface"},
+    "make_select_rshell": {"status": "replayable", "op": "make_select_rshell"},
     "make_select_rsolid": {"status": "replayable", "op": "make_select_rsolid"},
     "apply_tag": {
         "status": "semantic_replayable",
@@ -535,10 +561,20 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_fillet_rsolid",
     "make_chamfer_rsolid",
     "make_shell_rsolid",
+    "make_bezier_surface_rface",
+    "fit_point_grid_rface",
+    "make_ruled_surface_rface",
+    "make_gordon_surface_rface",
+    "make_surface_patch_rface",
+    "make_loft_rshell",
+    "sew_faces_rshell",
+    "free_boundaries_rwirelist",
+    "fill_holes_rshell",
     "make_select_rvertex",
     "make_select_redge",
     "make_select_rwire",
     "make_select_rface",
+    "make_select_rshell",
     "make_select_rsolid",
 )
 
@@ -1121,16 +1157,12 @@ def _replay_primitive_or_simple(
     if op_name == "make_circle_redge":
         ctx.require_params(node_id, op_name, params, ("center", "radius", "normal"))
         return ops.make_circle_redge(
-            tuple(params["center"]),
-            params["radius"],
-            tuple(params["normal"]),
+            tuple(params["center"]), params["radius"], tuple(params["normal"])
         )
     if op_name == "make_three_point_arc_redge":
         ctx.require_params(node_id, op_name, params, ("start", "middle", "end"))
         return ops.make_three_point_arc_redge(
-            tuple(params["start"]),
-            tuple(params["middle"]),
-            tuple(params["end"]),
+            tuple(params["start"]), tuple(params["middle"]), tuple(params["end"])
         )
     if op_name == "make_angle_arc_redge":
         ctx.require_params(
@@ -1148,10 +1180,7 @@ def _replay_primitive_or_simple(
         )
     if op_name == "make_spline_redge":
         ctx.require_params(
-            node_id,
-            op_name,
-            params,
-            ("control_points", "degree", "knots", "multiplicities"),
+            node_id, op_name, params, ("control_points", "degree", "knots", "multiplicities")
         )
         return ops.make_spline_redge(
             control_points=params["control_points"],
@@ -1162,74 +1191,57 @@ def _replay_primitive_or_simple(
             periodic=bool(params.get("periodic", False)),
         )
     if op_name == "make_interpolated_spline_redge":
-        ctx.require_params(
-            node_id,
-            op_name,
-            params,
-            ("points", "periodic", "tolerance"),
-        )
+        ctx.require_params(node_id, op_name, params, ("points", "periodic", "tolerance"))
         return ops.make_interpolated_spline_redge(
             points=params["points"],
             periodic=bool(params["periodic"]),
             tolerance=params["tolerance"],
         )
     if op_name == "make_helix_redge":
-        ctx.require_params(
-            node_id, op_name, params, ("pitch", "height", "radius", "center", "dir")
-        )
+        ctx.require_params(node_id, op_name, params, ("pitch", "height", "radius", "center", "dir"))
         return ops.make_helix_redge(
-            params["pitch"],
-            params["height"],
-            params["radius"],
-            center=tuple(params["center"]),
-            dir=tuple(params["dir"]),
+            params["pitch"], params["height"], params["radius"],
+            center=tuple(params["center"]), dir=tuple(params["dir"]),
+        )
+    if op_name == "make_bezier_surface_rface":
+        ctx.require_params(node_id, op_name, params, ("control_points",))
+        return ops.make_bezier_surface_rface(
+            params["control_points"],
+            weights=params.get("weights"),
+            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+        )
+    if op_name == "fit_point_grid_rface":
+        ctx.require_params(node_id, op_name, params, ("points", "tolerance", "degree_min", "degree_max"))
+        return ops.fit_point_grid_rface(
+            params["points"],
+            tolerance=params["tolerance"],
+            degree_min=int(params["degree_min"]),
+            degree_max=int(params["degree_max"]),
+            smoothing=cast(Optional[Tuple[float, float, float]], params.get("smoothing")),
+            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
         )
     if op_name == "make_box_rsolid":
-        ctx.require_params(
-            node_id,
-            op_name,
-            params,
-            ("width", "height", "depth", "bottom_face_center"),
-        )
+        ctx.require_params(node_id, op_name, params, ("width", "height", "depth", "bottom_face_center"))
         return ops.make_box_rsolid(
-            params["width"],
-            params["height"],
-            params["depth"],
+            params["width"], params["height"], params["depth"],
             bottom_face_center=tuple(params["bottom_face_center"]),
         )
     if op_name == "make_cylinder_rsolid":
-        ctx.require_params(
-            node_id,
-            op_name,
-            params,
-            ("radius", "height", "bottom_face_center", "axis"),
-        )
+        ctx.require_params(node_id, op_name, params, ("radius", "height", "bottom_face_center", "axis"))
         return ops.make_cylinder_rsolid(
-            params["radius"],
-            params["height"],
+            params["radius"], params["height"],
             bottom_face_center=tuple(params["bottom_face_center"]),
             axis=tuple(params["axis"]),
         )
     if op_name == "make_cone_rsolid":
-        ctx.require_params(
-            node_id,
-            op_name,
-            params,
-            ("bottom_radius", "top_radius", "height", "bottom_face_center", "axis"),
-        )
+        ctx.require_params(node_id, op_name, params, ("bottom_radius", "top_radius", "height", "bottom_face_center", "axis"))
         return ops.make_cone_rsolid(
-            params["bottom_radius"],
-            params["height"],
-            top_radius=params["top_radius"],
-            bottom_face_center=tuple(params["bottom_face_center"]),
-            axis=tuple(params["axis"]),
+            params["bottom_radius"], params["height"], top_radius=params["top_radius"],
+            bottom_face_center=tuple(params["bottom_face_center"]), axis=tuple(params["axis"]),
         )
     if op_name == "make_sphere_rsolid":
         ctx.require_params(node_id, op_name, params, ("radius", "center"))
-        return ops.make_sphere_rsolid(
-            params["radius"],
-            center=tuple(params["center"]),
-        )
+        return ops.make_sphere_rsolid(params["radius"], center=tuple(params["center"]))
     factory = _OP_REGISTRY.get(op_name)
     if factory:
         return factory(params)
@@ -1267,6 +1279,8 @@ def _shape_kind_token(shape: AnyShape) -> str:
         return "wire"
     if isinstance(shape, Face):
         return "face"
+    if isinstance(shape, Shell):
+        return "shell"
     if isinstance(shape, Solid):
         return "solid"
     if isinstance(shape, Compound):
@@ -1291,6 +1305,14 @@ def _candidate_shapes_for_geo_selection(source: AnyShape, kind: str) -> List[Any
     kind = str(kind).lower()
     if kind == "solid":
         return [source] if isinstance(source, Solid) else []
+    if kind == "shell":
+        if isinstance(source, Compound):
+            return [
+                cast(AnyShape, child)
+                for child in source.get_children()
+                if isinstance(child, Shell)
+            ]
+        return [source] if isinstance(source, Shell) else []
     if kind == "face":
         if isinstance(source, Solid):
             return list(source.get_faces())
@@ -1412,7 +1434,6 @@ def _geo_selector_score(
         return 1e12
 
     score = _bbox_score(shape, selector) * 10.0
-
     expected_geom_type = selector.get("geom_type")
     if expected_geom_type is not None:
         actual_geom_type = _shape_geom_type(shape)
@@ -1420,42 +1441,32 @@ def _geo_selector_score(
             score += 1e6
 
     if isinstance(shape, Vertex):
-        score += (
-            _distance3(
-                cast(Tuple[float, float, float], tuple(shape.get_coordinates())),
-                _tuple3_from_any(selector.get("coordinates")),
-            )
-            * 10.0
-        )
+        score += _distance3(
+            cast(Tuple[float, float, float], tuple(shape.get_coordinates())),
+            _tuple3_from_any(selector.get("coordinates")),
+        ) * 10.0
     elif isinstance(shape, Edge):
         if "length" in selector:
             score += abs(float(shape.get_length()) - float(selector["length"])) * 10.0
         center = shape.get_center()
-        score += (
-            _distance3(
-                (float(center.x), float(center.y), float(center.z)),
-                _tuple3_from_any(selector.get("center")),
-            )
-            * 10.0
-        )
+        score += _distance3(
+            (float(center.x), float(center.y), float(center.z)),
+            _tuple3_from_any(selector.get("center")),
+        ) * 10.0
         try:
             start = cast(
                 Tuple[float, float, float],
-                tuple(float(v) for v in shape.get_start_vertex().get_coordinates()),
+                tuple(float(value) for value in shape.get_start_vertex().get_coordinates()),
             )
             end = cast(
                 Tuple[float, float, float],
-                tuple(float(v) for v in shape.get_end_vertex().get_coordinates()),
+                tuple(float(value) for value in shape.get_end_vertex().get_coordinates()),
             )
             expected_start = _tuple3_from_any(selector.get("start"))
             expected_end = _tuple3_from_any(selector.get("end"))
             if expected_start is not None and expected_end is not None:
-                direct = _distance3(start, expected_start) + _distance3(
-                    end, expected_end
-                )
-                reverse = _distance3(start, expected_end) + _distance3(
-                    end, expected_start
-                )
+                direct = _distance3(start, expected_start) + _distance3(end, expected_end)
+                reverse = _distance3(start, expected_end) + _distance3(end, expected_start)
                 score += min(direct, reverse)
         except Exception:
             pass
@@ -1468,33 +1479,29 @@ def _geo_selector_score(
         if "area" in selector:
             score += abs(float(shape.get_area()) - float(selector["area"]))
         center = shape.get_center()
-        score += (
-            _distance3(
-                (float(center.x), float(center.y), float(center.z)),
-                _tuple3_from_any(selector.get("center")),
-            )
-            * 10.0
-        )
+        score += _distance3(
+            (float(center.x), float(center.y), float(center.z)),
+            _tuple3_from_any(selector.get("center")),
+        ) * 10.0
         normal = shape.get_normal_at()
-        score += (
-            _distance3(
-                (float(normal.x), float(normal.y), float(normal.z)),
-                _tuple3_from_any(selector.get("normal")),
-            )
-            * 5.0
-        )
+        score += _distance3(
+            (float(normal.x), float(normal.y), float(normal.z)),
+            _tuple3_from_any(selector.get("normal")),
+        ) * 5.0
         if "edge_count" in selector:
             score += abs(len(shape.get_edges()) - int(selector["edge_count"])) * 10.0
         if "inner_wire_count" in selector:
-            score += (
-                abs(len(shape.get_inner_wires()) - int(selector["inner_wire_count"]))
-                * 10.0
-            )
+            score += abs(
+                len(shape.get_inner_wires()) - int(selector["inner_wire_count"])
+            ) * 10.0
+    elif isinstance(shape, Shell):
+        if "face_count" in selector:
+            score += abs(len(shape.get_faces()) - int(selector["face_count"])) * 10.0
     elif isinstance(shape, Solid):
         if "volume" in selector:
             score += abs(float(shape.get_volume()) - float(selector["volume"]))
-
     return score
+
 
 
 def _resolve_shape_from_geo_selector(
@@ -1798,7 +1805,7 @@ def _param(
 def _input_outputs(
     ctx: _ReplayContext,
     outputs: Dict[str, List[Any]],
-    node,
+    node: Any,
     index: int,
 ) -> List[Any]:
     if len(node.inputs) <= index:
@@ -1821,7 +1828,7 @@ def _input_outputs(
 def _all_input_outputs(
     ctx: _ReplayContext,
     outputs: Dict[str, List[Any]],
-    node,
+    node: Any,
 ) -> List[Any]:
     result: List[Any] = []
     for input_node in node.inputs:
@@ -1834,6 +1841,57 @@ def _all_input_outputs(
             )
         result.extend(input_outputs)
     return result
+
+
+def _ordered_input_shapes(
+    ctx: _ReplayContext,
+    graph: OperationGraph,
+    outputs: Dict[str, List[Any]],
+    node: Any,
+    params: Dict[str, Any],
+) -> List[AnyShape]:
+    raw_refs = params.get("input_refs")
+    if not isinstance(raw_refs, list):
+        if ctx.strict:
+            ctx.fail(
+                f"Graph node '{node.node_id}' ({node.op}) is missing ordered input_refs"
+            )
+        return cast(List[AnyShape], _all_input_outputs(ctx, outputs, node))
+    direct_input_ids = {input_node.node_id for input_node in node.inputs}
+    resolved: List[AnyShape] = []
+    for index, raw_ref in enumerate(raw_refs):
+        if not isinstance(raw_ref, dict):
+            ctx.fail(
+                f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] must be an object"
+            )
+        ref_graph_id = str(raw_ref.get("graph_id", ""))
+        ref_node_id = str(raw_ref.get("node_id", ""))
+        ref_slot = int(raw_ref.get("output_slot", 0))
+        ref_kind = str(raw_ref.get("kind", "")).lower().split(".", 1)[-1]
+        if ref_graph_id != graph.graph_id:
+            ctx.fail(
+                f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] belongs to foreign graph '{ref_graph_id}'"
+            )
+        if ref_node_id not in direct_input_ids:
+            ctx.fail(
+                f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] is not a direct input"
+            )
+        candidates = outputs.get(ref_node_id, [])
+        if ref_slot < 0 or ref_slot >= len(candidates):
+            ctx.fail(
+                f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] references missing output slot {ref_slot}"
+            )
+        shape = candidates[ref_slot]
+        if not isinstance(shape, (Vertex, Edge, Wire, Face, Shell, Solid, Compound)):
+            ctx.fail(
+                f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] does not resolve to geometry"
+            )
+        if ref_kind and _shape_kind_token(shape) != ref_kind:
+            ctx.fail(
+                f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] kind does not match replay output"
+            )
+        resolved.append(cast(AnyShape, shape))
+    return resolved
 
 
 def _resolve_tag_binding_targets(
@@ -1866,7 +1924,7 @@ def _resolve_tag_binding_targets(
             for entity in scope._topology_cache.entities()
             if entity.kind.lower() == kind
             for wrapper in entity.wrappers
-            if isinstance(wrapper, (Vertex, Edge, Wire, Face, Solid, Compound))
+            if isinstance(wrapper, (Vertex, Edge, Wire, Face, Shell, Solid, Compound))
             and (
                 wrapper.topo_id == topo_id
                 or str(_shape_topo_ref_dict(wrapper).get("topo_id", "")) == topo_id
@@ -2891,6 +2949,7 @@ def _execute_graph(
                         "make_select_redge",
                         "make_select_rwire",
                         "make_select_rface",
+                        "make_select_rshell",
                         "make_select_rsolid",
                     }:
                         ctx.require_params(
@@ -2906,6 +2965,187 @@ def _execute_graph(
                                 cast(Dict[str, Any], params["geo_selector"]),
                             )
                             _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_ruled_surface_rface":
+                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        if len(ordered) != 2 or not all(isinstance(item, Edge) for item in ordered):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) requires exactly two Edge inputs"
+                            )
+                        result = ops.make_ruled_surface_rface(
+                            cast(Edge, ordered[0]),
+                            cast(Edge, ordered[1]),
+                            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_gordon_surface_rface":
+                        ctx.require_params(
+                            node.node_id,
+                            op_name,
+                            params,
+                            ("profile_count", "guide_count", "tolerance"),
+                        )
+                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        profile_count = int(params["profile_count"])
+                        guide_count = int(params["guide_count"])
+                        if len(ordered) != profile_count + guide_count or not all(
+                            isinstance(item, Edge) for item in ordered
+                        ):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) input counts or kinds do not match"
+                            )
+                        result = ops.make_gordon_surface_rface(
+                            cast(Sequence[Edge], ordered[:profile_count]),
+                            cast(Sequence[Edge], ordered[profile_count:]),
+                            tolerance=float(params["tolerance"]),
+                            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_surface_patch_rface":
+                        ctx.require_params(
+                            node.node_id,
+                            op_name,
+                            params,
+                            ("boundary_count", "hole_count", "boundaries", "points", "settings"),
+                        )
+                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        raw_boundaries = params["boundaries"]
+                        boundary_count = int(params["boundary_count"])
+                        hole_count = int(params["hole_count"])
+                        if not isinstance(raw_boundaries, list) or len(raw_boundaries) != boundary_count:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) boundary metadata count does not match"
+                            )
+                        cursor = 0
+                        boundaries: List[Any] = []
+                        for boundary_index, raw_boundary in enumerate(raw_boundaries):
+                            if not isinstance(raw_boundary, dict):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) boundaries[{boundary_index}] must be an object"
+                                )
+                            if cursor >= len(ordered) or not isinstance(ordered[cursor], Edge):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) boundary edge input is missing or invalid"
+                                )
+                            edge = cast(Edge, ordered[cursor])
+                            cursor += 1
+                            support: Optional[Face] = None
+                            if bool(raw_boundary.get("has_support", False)):
+                                if cursor >= len(ordered) or not isinstance(ordered[cursor], Face):
+                                    ctx.fail(
+                                        f"Graph node '{node.node_id}' ({op_name}) boundary support input is missing or invalid"
+                                    )
+                                support = cast(Face, ordered[cursor])
+                                cursor += 1
+                            boundaries.append(
+                                ops.SurfaceBoundary(
+                                    edge=edge,
+                                    continuity=str(raw_boundary.get("continuity", "C0")),
+                                    support=support,
+                                )
+                            )
+                        holes = ordered[cursor:]
+                        if len(holes) != hole_count or not all(isinstance(item, Wire) for item in holes):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) hole inputs do not match hole_count"
+                            )
+                        settings_payload = params["settings"]
+                        if not isinstance(settings_payload, dict):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) settings must be an object"
+                            )
+                        result = ops.make_surface_patch_rface(
+                            cast(Sequence[ops.SurfaceBoundary], boundaries),
+                            points=cast(Sequence[Sequence[float]], params["points"]),
+                            settings=ops.SurfaceFillingSettings(**settings_payload),
+                            holes=cast(Sequence[Wire], holes),
+                            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_loft_rshell":
+                        ctx.require_params(node.node_id, op_name, params, ("section_count", "ruled"))
+                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        if len(ordered) != int(params["section_count"]) or not all(
+                            isinstance(item, (Wire, Vertex)) for item in ordered
+                        ):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) section inputs do not match section_count"
+                            )
+                        result = ops.make_loft_rshell(
+                            cast(Sequence[Wire | Vertex], ordered),
+                            ruled=bool(params["ruled"]),
+                            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "sew_faces_rshell":
+                        ctx.require_params(node.node_id, op_name, params, ("face_count", "tolerance"))
+                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        if len(ordered) != int(params["face_count"]) or not all(
+                            isinstance(item, Face) for item in ordered
+                        ):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) face inputs do not match face_count"
+                            )
+                        result = ops.sew_faces_rshell(
+                            cast(Sequence[Face], ordered),
+                            tolerance=float(params["tolerance"]),
+                            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "free_boundaries_rwirelist":
+                        ctx.require_params(node.node_id, op_name, params, ("tolerance",))
+                        shell_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if len(shell_outputs) != 1 or not isinstance(shell_outputs[0], Shell):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) requires exactly one Shell input"
+                            )
+                        result = ops.free_boundaries_rwirelist(
+                            cast(Shell, shell_outputs[0]),
+                            tolerance=float(params["tolerance"]),
+                        )
+                        if ctx.strict and len(result) != int(node.output_count):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) expected {node.output_count} outputs, got {len(result)}"
+                            )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "fill_holes_rshell":
+                        ctx.require_params(node.node_id, op_name, params, ("tolerance", "settings"))
+                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        if len(ordered) != 1 or not isinstance(ordered[0], Shell):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) requires exactly one Shell input"
+                            )
+                        settings_payload = params["settings"]
+                        if not isinstance(settings_payload, dict):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) settings must be an object"
+                            )
+                        raw_indices = params.get("hole_indices")
+                        result = ops.fill_holes_rshell(
+                            cast(Shell, ordered[0]),
+                            hole_indices=(
+                                None
+                                if raw_indices is None
+                                else [int(index) for index in cast(Sequence[int], raw_indices)]
+                            ),
+                            tolerance=float(params["tolerance"]),
+                            settings=ops.SurfaceFillingSettings(**settings_payload),
+                            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+                        )
+                        _store_outputs(node, result)
                         continue
 
                     if op_name == "make_cut_rsolid":

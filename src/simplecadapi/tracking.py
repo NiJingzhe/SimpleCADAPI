@@ -69,6 +69,7 @@ from OCP.TopAbs import (
     TopAbs_COMPOUND,
     TopAbs_EDGE,
     TopAbs_FACE,
+    TopAbs_SHELL,
     TopAbs_SOLID,
     TopAbs_VERTEX,
     TopAbs_WIRE,
@@ -179,6 +180,7 @@ def _shape_kind(shape, fallback: TopoKind) -> TopoKind:
             TopAbs_EDGE: TopoKind.EDGE,
             TopAbs_WIRE: TopoKind.WIRE,
             TopAbs_FACE: TopoKind.FACE,
+            TopAbs_SHELL: TopoKind.SHELL,
             TopAbs_SOLID: TopoKind.SOLID,
             TopAbs_COMPOUND: TopoKind.COMPOUND,
         }.get(shape.ShapeType(), fallback)
@@ -469,6 +471,7 @@ def kind_to_topabs(kind: TopoKind) -> int:
         TopoKind.VERTEX: TopAbs_VERTEX,
         TopoKind.EDGE: TopAbs_EDGE,
         TopoKind.WIRE: TopAbs_WIRE,
+        TopoKind.SHELL: TopAbs_SHELL,
         TopoKind.FACE: TopAbs_FACE,
         TopoKind.SOLID: TopAbs_SOLID,
         TopoKind.COMPOUND: TopAbs_COMPOUND,
