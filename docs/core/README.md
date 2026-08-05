@@ -31,6 +31,9 @@ A connected path made from edges. Wires may be open or closed.
 #### [Face](face.md)
 A bounded surface with an outer wire and optional inner wires.
 
+#### [Shell](shell.md)
+A connected set of faces that may be open or closed.
+
 #### [Solid](solid.md)
 A closed 3D body with volume, faces, edges, tags, and metadata.
 
@@ -50,6 +53,7 @@ TaggedMixin
 ├── Edge (1D)
 ├── Wire (1D)  ← composed of edges
 ├── Face (2D)  ← bounded by wires
+├── Shell (2D) ← connected set of faces
 ├── Solid (3D) ← bounded by faces
 └── Compound   ← collection of shapes
 
@@ -59,7 +63,7 @@ SimpleWorkplane  ← local modeling context
 
 ## Design Principles
 
-- **Shape-first API**: users work with `Vertex`, `Edge`, `Wire`, `Face`, and `Solid`, not graph nodes.
+- **Shape-first API**: users work with `Vertex`, `Edge`, `Wire`, `Face`, `Shell`, and `Solid`, not graph nodes.
 - **Functional modeling style**: public operations return new geometry values, e.g. `make_box_rsolid(...)`, `cut_rsolid(...)`, `fillet_rsolid(...)`.
 - **OCP-native runtime**: geometry construction, topology traversal, properties, booleans, transforms, and export use OCP/OpenCascade helpers.
 - **Replayable graph workflows**: `@scad.model` owns one `GraphSession` and returns a `ModelResult`; `@scad.requires_session` composes child builders, and `scad.capture_result()` selects canonical output nodes for replay and export.

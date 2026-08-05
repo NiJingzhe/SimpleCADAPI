@@ -17,6 +17,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_angle_arc_redge](make_angle_arc_redge.md) *(from operations.py)* `top-level`
 - [make_angle_arc_rwire](make_angle_arc_rwire.md) *(from operations.py)* `top-level`
 - [make_assembly_rassembly](make_assembly_rassembly.md) *(from operations.py)* `top-level`
+- [make_bezier_surface_rface](make_bezier_surface_rface.md) *(from operations.py)* `top-level`
 - [make_box_rsolid](make_box_rsolid.md) *(from operations.py)* `top-level`
 - [make_circle_redge](make_circle_redge.md) *(from operations.py)* `top-level`
 - [make_circle_rface](make_circle_rface.md) *(from operations.py)* `top-level`
@@ -30,11 +31,13 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_face_from_sketch_rface](make_face_from_sketch_rface.md) *(from operations.py)* `top-level`
 - [make_face_from_wire_rface](make_face_from_wire_rface.md) *(from operations.py)* `top-level`
 - [make_face_from_wires_rface](make_face_from_wires_rface.md) *(from operations.py)* `top-level`
+- [make_gordon_surface_rface](make_gordon_surface_rface.md) *(from operations.py)* `top-level`
 - [make_helix_redge](make_helix_redge.md) *(from operations.py)* `top-level`
 - [make_helix_rwire](make_helix_rwire.md) *(from operations.py)* `top-level`
 - [make_interpolated_spline_redge](make_interpolated_spline_redge.md) *(from operations.py)* `top-level`
 - [make_interpolated_spline_rwire](make_interpolated_spline_rwire.md) *(from operations.py)* `top-level`
 - [make_line_redge](make_line_redge.md) *(from operations.py)* `top-level`
+- [make_loft_rshell](make_loft_rshell.md) *(from operations.py)* `top-level`
 - [make_material_rmaterial](make_material_rmaterial.md) *(from operations.py)* `top-level`
 - [make_part_rpart](make_part_rpart.md) *(from operations.py)* `top-level`
 - [make_periodic_spline_rwire](make_periodic_spline_rwire.md) *(from operations.py)* `top-level`
@@ -44,6 +47,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_polyline_rwire](make_polyline_rwire.md) *(from operations.py)* `top-level`
 - [make_rectangle_rface](make_rectangle_rface.md) *(from operations.py)* `top-level`
 - [make_rectangle_rwire](make_rectangle_rwire.md) *(from operations.py)* `top-level`
+- [make_ruled_surface_rface](make_ruled_surface_rface.md) *(from operations.py)* `top-level`
 - [make_scalar_limit_rscalarlimit](make_scalar_limit_rscalarlimit.md) *(from operations.py)* `top-level`
 - [make_segment_redge](make_segment_redge.md) *(from operations.py)* `top-level`
 - [make_segment_rwire](make_segment_rwire.md) *(from operations.py)* `top-level`
@@ -51,6 +55,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_sphere_rsolid](make_sphere_rsolid.md) *(from operations.py)* `top-level`
 - [make_spline_redge](make_spline_redge.md) *(from operations.py)* `top-level`
 - [make_spline_rwire](make_spline_rwire.md) *(from operations.py)* `top-level`
+- [make_surface_patch_rface](make_surface_patch_rface.md) *(from operations.py)* `top-level`
 - [make_three_point_arc_redge](make_three_point_arc_redge.md) *(from operations.py)* `top-level`
 - [make_three_point_arc_rwire](make_three_point_arc_rwire.md) *(from operations.py)* `top-level`
 - [make_vertex_connector_rconnector](make_vertex_connector_rconnector.md) *(from operations.py)* `top-level`
@@ -217,9 +222,10 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [load_step_rshape](load_step_rshape.md) *(from inspect/brep/io.py)* `inspection namespace`
 - [make_center_slice_specs_rslicespeclist](make_center_slice_specs_rslicespeclist.md) *(from inspect/brep/slices.py)* `inspection namespace`
 - [measure_entity_relation_rdescriptor](measure_entity_relation_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
- - [measure_shape_mass_rtuple](measure_shape_mass_rtuple.md) *(from inspect/brep/io.py)* `inspection namespace`
- - [render_entity_map_rpath](render_entity_map_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
- - [render_region_rpath](render_region_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [measure_shape_mass_rtuple](measure_shape_mass_rtuple.md) *(from inspect/brep/io.py)* `inspection namespace`
+- [render_entity_kind_maps_rpath](render_entity_kind_maps_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [render_entity_map_rpath](render_entity_map_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [render_region_rpath](render_region_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_shape_views_rpath](render_shape_views_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_components_colored_rpath](render_step_components_colored_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_components_rpath](render_step_components_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
@@ -243,6 +249,8 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [ScalarLimit](ScalarLimit.md) *(from product.py)* `top-level`
 - [SemanticDelta](SemanticDelta.md) *(from topology.py)* `top-level`
 - [SemanticRef](SemanticRef.md) *(from topology.py)* `top-level`
+- [SurfaceBoundary](SurfaceBoundary.md) *(from operations.py)* `top-level`
+- [SurfaceFillingSettings](SurfaceFillingSettings.md) *(from operations.py)* `top-level`
 - [add_arc_rsketch](add_arc_rsketch.md) *(from operations.py)* `top-level`
 - [add_belt_constraint_rassembly](add_belt_constraint_rassembly.md) *(from operations.py)* `top-level`
 - [add_bspline_rsketch](add_bspline_rsketch.md) *(from operations.py)* `top-level`
@@ -282,7 +290,10 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [constrain_tangent_rsketch](constrain_tangent_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_vertical_rsketch](constrain_vertical_rsketch.md) *(from operations.py)* `top-level`
 - [explain_tag](explain_tag.md) *(from operations.py)* `top-level`
+- [fill_holes_rshell](fill_holes_rshell.md) *(from operations.py)* `top-level`
+- [fit_point_grid_rface](fit_point_grid_rface.md) *(from operations.py)* `top-level`
 - [forward_connector_rassembly](forward_connector_rassembly.md) *(from operations.py)* `top-level`
+- [free_boundaries_rwirelist](free_boundaries_rwirelist.md) *(from operations.py)* `top-level`
 - [geo](geo.md) *(from ql.py)* `submodule:ql`
 - [get_sketch_entity_rsketchref](get_sketch_entity_rsketchref.md) *(from operations.py)* `top-level`
 - [get_sketch_point_rsketchref](get_sketch_point_rsketchref.md) *(from operations.py)* `top-level`
@@ -302,6 +313,8 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`
+- [sew_faces_rshell](sew_faces_rshell.md) *(from operations.py)* `top-level`
+- [shells](shells.md) *(from ql.py)* `submodule:ql`
 - [solve_assembly_constraints_rassembly](solve_assembly_constraints_rassembly.md) *(from operations.py)* `top-level`
 - [source_binding](source_binding.md) *(from ql.py)* `submodule:ql`
 - [source_topology](source_topology.md) *(from ql.py)* `submodule:ql`

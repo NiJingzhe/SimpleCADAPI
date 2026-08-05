@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from dataclasses import dataclass, asdict
 import math
 import numpy as np
 
@@ -23,6 +24,7 @@ from .core import (
     Edge,
     Wire,
     Face,
+    Shell,
     Solid,
     Compound,
     AnyShape,
@@ -155,6 +157,549 @@ from .kernel.ocp_export import (
     make_compound,
     make_compound_always,
 )
+from .kernel.ocp_surfaces import (
+    fill_shell_holes as fill_shell_holes_ocp,
+    fit_point_grid_surface,
+    free_boundaries as free_boundaries_ocp,
+    make_bezier_surface,
+    make_filling_face,
+    make_gordon_surface,
+    make_loft_shell,
+    make_ruled_face,
+    sew_faces as sew_faces_ocp,
+    shell_from_face,
+)
+
+
+@dataclass(frozen=True)
+class SurfaceBoundary:
+    """One edge constraint used by ``make_surface_patch_rface``."""
+
+    edge: Edge
+    continuity: str = "C0"
+    support: Optional[Face] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.edge, Edge):
+            raise TypeError("SurfaceBoundary.edge must be an Edge")
+        if self.support is not None and not isinstance(self.support, Face):
+            raise TypeError("SurfaceBoundary.support must be a Face or None")
+        if str(self.continuity).upper() not in {"C0", "G1", "G2"}:
+            raise ValueError("SurfaceBoundary.continuity must be C0, G1, or G2")
+
+    def as_dict(self) -> Dict[str, object]:
+        return {
+            "continuity": str(self.continuity).upper(),
+            "has_support": self.support is not None,
+        }
+
+
+@dataclass(frozen=True)
+class SurfaceFillingSettings:
+    """Explicit OCCT filling controls; units are model units and radians."""
+
+    degree: int = 3
+    points_per_curve: int = 15
+    iterations: int = 2
+    anisotropic: bool = False
+    tolerance_2d: float = 1e-5
+    tolerance_3d: float = 1e-4
+    angular_tolerance: float = 0.01
+    curvature_tolerance: float = 0.1
+    max_degree: int = 8
+    max_segments: int = 9
+
+    def __post_init__(self) -> None:
+        if self.degree < 1 or self.points_per_curve < 2 or self.iterations < 1:
+            raise ValueError("filling degree, points_per_curve, and iterations must be positive")
+        if self.max_degree < self.degree or self.max_segments < 1:
+            raise ValueError("max_degree must cover degree and max_segments must be positive")
+        for name in (
+            "tolerance_2d",
+            "tolerance_3d",
+            "angular_tolerance",
+            "curvature_tolerance",
+        ):
+            value = float(getattr(self, name))
+            if not np.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be a positive finite value")
+
+    def as_dict(self) -> Dict[str, object]:
+        return cast(Dict[str, object], asdict(self))
+
+
+def _surface_tag_output(shape: AnyShape, tag_prefix: Optional[str]) -> AnyShape:
+    if tag_prefix is None:
+        return shape
+    normalized = normalize_tag(tag_prefix, strict=True)
+    shape._apply_tag(f"{normalized}.{_shape_kind_token(shape)}", propagate=False)
+    return shape
+
+
+def _surface_point_grid(points: Sequence[Sequence[Sequence[float]]]) -> List[List[Tuple[float, float, float]]]:
+    rows = [
+        [tuple(float(component) for component in point) for point in row]
+        for row in points
+    ]
+    if len(rows) < 2 or any(len(row) < 2 for row in rows):
+        raise ValueError("surface point grids require at least 2 rows and 2 columns")
+    width = len(rows[0])
+    if any(len(row) != width for row in rows):
+        raise ValueError("surface point grids must be rectangular")
+    if any(len(point) != 3 for row in rows for point in row):
+        raise ValueError("surface points must contain exactly three coordinates")
+    if not all(np.isfinite(value) for row in rows for point in row for value in point):
+        raise ValueError("surface points must be finite")
+    return rows
+
+
+def _surface_global_point_grid(points: Sequence[Sequence[Sequence[float]]]) -> List[List[Tuple[float, float, float]]]:
+    cs = get_current_cs()
+    grid = _surface_point_grid(points)
+    return [
+        [tuple(float(value) for value in cs.transform_point(np.asarray(point))) for point in row]
+        for row in grid
+    ]
+
+
+def _surface_global_points(points: Sequence[Sequence[float]]) -> List[Tuple[float, float, float]]:
+    cs = get_current_cs()
+    result = []
+    for point in points:
+        values = tuple(float(value) for value in point)
+        if len(values) != 3 or not all(np.isfinite(value) for value in values):
+            raise ValueError("surface constraint points must be finite 3D points")
+        result.append(tuple(float(value) for value in cs.transform_point(np.asarray(values))))
+    return result
+
+
+def _surface_local_point_grid(points: Sequence[Sequence[Sequence[float]]]) -> List[List[Tuple[float, float, float]]]:
+    return _surface_point_grid(points)
+
+
+def make_bezier_surface_rface(
+    control_points: Sequence[Sequence[Sequence[float]]],
+    weights: Optional[Sequence[Sequence[float]]] = None,
+    *,
+    tag_prefix: Optional[str] = None,
+) -> Face:
+    """Create a trimmed Face carrying a tensor-product Bezier surface."""
+    try:
+        local_points = _surface_local_point_grid(control_points)
+        global_points = _surface_global_point_grid(local_points)
+        global_weights = None if weights is None else [list(map(float, row)) for row in weights]
+        if global_weights is not None:
+            if len(global_weights) != len(local_points) or any(
+                len(row) != len(local_points[0]) for row in global_weights
+            ):
+                raise ValueError("Bezier weights must match the control-point grid")
+            if any(
+                weight <= 0 or not np.isfinite(weight)
+                for row in global_weights
+                for weight in row
+            ):
+                raise ValueError("Bezier weights must be positive finite values")
+        result = Face(make_bezier_surface(global_points, global_weights))
+        result = cast(
+            Face,
+            _finalize_primitive_shape(
+                result,
+                op="make_bezier_surface_rface",
+                params={
+                    "control_points": local_points,
+                    "weights": global_weights,
+                    "tag_prefix": tag_prefix,
+                },
+                tags={"primitive", "surface", "face"},
+            ),
+        )
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_bezier_surface_rface",
+            what_happened="Failed to create the Bezier surface face.",
+            possible_causes=[
+                "The control-point grid is invalid or degenerate.",
+                "The kernel rejected the Bezier surface.",
+            ],
+            how_to_fix=[
+                "Pass a rectangular finite grid with at least two rows and columns.",
+                "Use positive finite weights with the same dimensions as the grid.",
+            ],
+            error=e,
+        )
+
+
+def fit_point_grid_rface(
+    points: Sequence[Sequence[Sequence[float]]],
+    *,
+    tolerance: float = 1e-3,
+    degree_min: int = 3,
+    degree_max: int = 8,
+    smoothing: Optional[Tuple[float, float, float]] = None,
+    tag_prefix: Optional[str] = None,
+) -> Face:
+    """Fit a B-spline Face through a rectangular 3D point grid."""
+    try:
+        tolerance_value = float(tolerance)
+        if not np.isfinite(tolerance_value) or tolerance_value <= 0:
+            raise ValueError("tolerance must be a positive finite value")
+        degree_min_value, degree_max_value = int(degree_min), int(degree_max)
+        if degree_min_value < 1 or degree_max_value < degree_min_value:
+            raise ValueError("degree_max must be greater than or equal to degree_min")
+        smoothing_values = None if smoothing is None else tuple(float(v) for v in smoothing)
+        if smoothing_values is not None and (
+            len(smoothing_values) != 3
+            or any(not np.isfinite(v) or v < 0 for v in smoothing_values)
+        ):
+            raise ValueError("smoothing must contain three finite non-negative weights")
+        local_points = _surface_local_point_grid(points)
+        global_points = _surface_global_point_grid(local_points)
+        result = Face(
+            fit_point_grid_surface(
+                global_points,
+                tolerance=tolerance_value,
+                degree_min=degree_min_value,
+                degree_max=degree_max_value,
+                smoothing=smoothing_values,
+            )
+        )
+        result = cast(
+            Face,
+            _finalize_primitive_shape(
+                result,
+                op="fit_point_grid_rface",
+                params={
+                    "points": local_points,
+                    "tolerance": tolerance_value,
+                    "degree_min": degree_min_value,
+                    "degree_max": degree_max_value,
+                    "smoothing": smoothing_values,
+                    "tag_prefix": tag_prefix,
+                },
+                tags={"primitive", "surface", "face"},
+            ),
+        )
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="fit_point_grid_rface",
+            what_happened="Failed to fit a B-spline surface face.",
+            possible_causes=[
+                "The point grid or fitting controls are invalid.",
+                "The kernel fitting algorithm did not converge.",
+            ],
+            how_to_fix=[
+                "Pass a rectangular finite point grid and positive tolerance.",
+                "Keep degree_min <= degree_max and use non-negative smoothing weights.",
+            ],
+            error=e,
+        )
+
+
+def make_ruled_surface_rface(
+    edge_a: Edge, edge_b: Edge, *, tag_prefix: Optional[str] = None
+) -> Face:
+    """Create a ruled Face spanning two compatible edges."""
+    try:
+        if not isinstance(edge_a, Edge) or not isinstance(edge_b, Edge):
+            raise TypeError("make_ruled_surface_rface requires two Edge objects")
+        result = cast(Face, _finalize_derived_shape(
+            Face(make_ruled_face(edge_a.wrapped, edge_b.wrapped)),
+            op="make_ruled_surface_rface",
+            params={"tag_prefix": tag_prefix},
+            input_shapes=[edge_a, edge_b],
+            tags={"derived", "surface", "face"},
+        ))
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_ruled_surface_rface",
+            what_happened="Failed to create the ruled surface face.",
+            possible_causes=["The inputs are not edges.", "The two edges cannot define a ruled surface."],
+            how_to_fix=["Pass two valid Edge objects with compatible parameterization."],
+            error=e,
+        )
+
+
+def make_gordon_surface_rface(
+    profiles: Sequence[Edge],
+    guides: Sequence[Edge],
+    *,
+    tolerance: float = 1e-3,
+    tag_prefix: Optional[str] = None,
+) -> Face:
+    """Create a Gordon Face from intersecting profile and guide edge networks."""
+    try:
+        profile_list, guide_list = list(profiles), list(guides)
+        if len(profile_list) < 2 or len(guide_list) < 2:
+            raise ValueError("Gordon surfaces require at least two profiles and two guides")
+        if not all(isinstance(edge, Edge) for edge in [*profile_list, *guide_list]):
+            raise TypeError("Gordon profiles and guides must contain only Edge objects")
+        if not np.isfinite(float(tolerance)) or float(tolerance) <= 0:
+            raise ValueError("tolerance must be a positive finite value")
+        result = cast(Face, _finalize_derived_shape(
+            Face(make_gordon_surface(
+                [edge.wrapped for edge in profile_list],
+                [edge.wrapped for edge in guide_list],
+                tolerance=float(tolerance),
+            )),
+            op="make_gordon_surface_rface",
+            params={
+                "profile_count": len(profile_list),
+                "guide_count": len(guide_list),
+                "tolerance": float(tolerance),
+                "tag_prefix": tag_prefix,
+            },
+            input_shapes=[*profile_list, *guide_list],
+            tags={"derived", "surface", "face"},
+        ))
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_gordon_surface_rface",
+            what_happened="Failed to create the Gordon surface face.",
+            possible_causes=["The curve network is too small, non-intersecting, or inconsistent.", "The kernel Gordon interpolation failed."],
+            how_to_fix=["Pass at least two profiles and two guides whose endpoints form a compatible network.", "Increase tolerance only when the source curves are numerically noisy."],
+            error=e,
+        )
+
+
+def make_surface_patch_rface(
+    boundaries: Sequence[SurfaceBoundary],
+    *,
+    points: Sequence[Sequence[float]] = (),
+    settings: Optional[SurfaceFillingSettings] = None,
+    holes: Sequence[Wire] = (),
+    tag_prefix: Optional[str] = None,
+) -> Face:
+    """Fill a constrained boundary network into one Face, optionally with holes."""
+    try:
+        boundary_list = list(boundaries)
+        if not boundary_list or not all(isinstance(item, SurfaceBoundary) for item in boundary_list):
+            raise ValueError("boundaries must be a non-empty SurfaceBoundary sequence")
+        settings_value = settings or SurfaceFillingSettings()
+        if not isinstance(settings_value, SurfaceFillingSettings):
+            raise TypeError("settings must be SurfaceFillingSettings")
+        hole_list = list(holes)
+        if not all(isinstance(wire, Wire) for wire in hole_list):
+            raise TypeError("holes must contain only Wire objects")
+        support_shapes = [item.support for item in boundary_list if item.support is not None]
+        interleaved_inputs: List[AnyShape] = []
+        for item in boundary_list:
+            interleaved_inputs.append(item.edge)
+            if item.support is not None:
+                interleaved_inputs.append(item.support)
+        input_shapes: List[AnyShape] = [*interleaved_inputs, *hole_list]
+        local_points = [tuple(float(v) for v in point) for point in points]
+        global_points = _surface_global_points(local_points)
+        result = cast(
+            Face,
+            _finalize_derived_shape(
+                Face(
+                    make_filling_face(
+                        [
+                            (
+                                item.edge.wrapped,
+                                item.support.wrapped if item.support else None,
+                                str(item.continuity).upper(),
+                            )
+                            for item in boundary_list
+                        ],
+                        global_points,
+                        settings=settings_value.as_dict(),
+                        holes=[wire.wrapped for wire in hole_list],
+                    )
+                ),
+                op="make_surface_patch_rface",
+                params={
+                    "boundary_count": len(boundary_list),
+                    "support_count": len(support_shapes),
+                    "hole_count": len(hole_list),
+                    "boundaries": [item.as_dict() for item in boundary_list],
+                    "points": local_points,
+                    "settings": settings_value.as_dict(),
+                    "tag_prefix": tag_prefix,
+                },
+                input_shapes=input_shapes,
+                tags={"derived", "surface", "face"},
+            ),
+        )
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_surface_patch_rface",
+            what_happened="Failed to fill the constrained surface patch.",
+            possible_causes=[
+                "A boundary is invalid, open, or incompatible with its support face.",
+                "The filling controls are invalid or the kernel did not converge.",
+            ],
+            how_to_fix=[
+                "Pass non-empty SurfaceBoundary values with valid Edge objects.",
+                "Use C0/G1/G2 continuity and explicit positive filling tolerances.",
+            ],
+            error=e,
+        )
+def make_loft_rshell(
+    sections: Sequence[Union[Wire, Vertex]],
+    *,
+    ruled: bool = False,
+    tag_prefix: Optional[str] = None,
+) -> Shell:
+    """Create an open Shell loft through wire or vertex sections."""
+    try:
+        section_list = list(sections)
+        if len(section_list) < 2:
+            raise ValueError("surface loft requires at least two sections")
+        if not all(isinstance(section, (Wire, Vertex)) for section in section_list):
+            raise TypeError("surface loft sections must contain only Wire or Vertex objects")
+        result = cast(Shell, _finalize_derived_shape(
+            Shell(make_loft_shell([section.wrapped for section in section_list], ruled=bool(ruled))),
+            op="make_loft_rshell",
+            params={
+                "section_count": len(section_list),
+                "ruled": bool(ruled),
+                "tag_prefix": tag_prefix,
+            },
+            input_shapes=section_list,
+            tags={"derived", "surface", "shell"},
+        ))
+        return cast(Shell, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_loft_rshell",
+            what_happened="Failed to create the surface loft shell.",
+            possible_causes=["Sections are not connected or have incompatible topology.", "The kernel loft algorithm failed."],
+            how_to_fix=["Pass at least two Wire or Vertex sections in order along the loft."],
+            error=e,
+        )
+
+
+def sew_faces_rshell(
+    faces: Sequence[Face], *, tolerance: float = 1e-6, tag_prefix: Optional[str] = None
+) -> Shell:
+    """Sew faces into exactly one connected Shell."""
+    try:
+        face_list = list(faces)
+        if not face_list or not all(isinstance(face, Face) for face in face_list):
+            raise ValueError("sew_faces_rshell requires a non-empty Face sequence")
+        if not np.isfinite(float(tolerance)) or float(tolerance) <= 0:
+            raise ValueError("tolerance must be a positive finite value")
+        result = cast(Shell, _finalize_derived_shape(
+            Shell(sew_faces_ocp([face.wrapped for face in face_list], tolerance=float(tolerance))),
+            op="sew_faces_rshell",
+            params={
+                "face_count": len(face_list),
+                "tolerance": float(tolerance),
+                "tag_prefix": tag_prefix,
+            },
+            input_shapes=face_list,
+            tags={"derived", "surface", "shell"},
+        ))
+        return cast(Shell, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="sew_faces_rshell",
+            what_happened="Failed to sew faces into one shell.",
+            possible_causes=["Faces are disconnected or their gaps exceed tolerance.", "The sewing result contains multiple shell components."],
+            how_to_fix=["Pass connected Face objects and a positive sewing tolerance."],
+            error=e,
+        )
+
+
+def free_boundaries_rwirelist(
+    shell: Shell, *, tolerance: float = 1e-6
+) -> List[Wire]:
+    """Return unique closed and open free boundary wires of a Shell."""
+    try:
+        if not isinstance(shell, Shell):
+            raise TypeError("free_boundaries_rwirelist requires a Shell")
+        if not np.isfinite(float(tolerance)) or float(tolerance) <= 0:
+            raise ValueError("tolerance must be a positive finite value")
+        result = [
+            Wire(wire)
+            for wire in free_boundaries_ocp(shell.wrapped, tolerance=float(tolerance))
+        ]
+        record_operation_if_active(
+            op="free_boundaries_rwirelist",
+            params={"tolerance": float(tolerance)},
+            outputs=result,
+            input_shapes=[shell],
+            semantic_delta=_semantic_delta_for_output(
+                "free_boundaries_rwirelist",
+                output_count=len(result),
+                entity_type="Profile",
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="free_boundaries_rwirelist",
+            what_happened="Failed to extract free boundary wires.",
+            possible_causes=[
+                "The input is not a valid Shell.",
+                "The boundary analysis tolerance is invalid.",
+            ],
+            how_to_fix=["Pass a Shell and a positive finite tolerance."],
+            error=e,
+        )
+
+
+def fill_holes_rshell(
+    shell: Shell,
+    hole_indices: Optional[Sequence[int]] = None,
+    *,
+    tolerance: float = 1e-6,
+    settings: Optional[SurfaceFillingSettings] = None,
+    tag_prefix: Optional[str] = None,
+) -> Shell:
+    """Fill selected closed free boundaries and return a sewn Shell."""
+    try:
+        if not isinstance(shell, Shell):
+            raise TypeError("fill_holes_rshell requires a Shell")
+        if not np.isfinite(float(tolerance)) or float(tolerance) <= 0:
+            raise ValueError("tolerance must be a positive finite value")
+        settings_value = settings or SurfaceFillingSettings()
+        if not isinstance(settings_value, SurfaceFillingSettings):
+            raise TypeError("settings must be SurfaceFillingSettings")
+        indices = None if hole_indices is None else [int(index) for index in hole_indices]
+        result = cast(
+            Shell,
+            _finalize_derived_shape(
+                Shell(
+                    fill_shell_holes_ocp(
+                        shell.wrapped,
+                        hole_indices=indices,
+                        tolerance=float(tolerance),
+                        settings=settings_value.as_dict(),
+                    )
+                ),
+                op="fill_holes_rshell",
+                params={
+                    "hole_indices": indices,
+                    "tolerance": float(tolerance),
+                    "settings": settings_value.as_dict(),
+                    "tag_prefix": tag_prefix,
+                },
+                input_shapes=[shell],
+                tags={"derived", "surface", "shell"},
+            ),
+        )
+        return cast(Shell, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="fill_holes_rshell",
+            what_happened="Failed to fill selected shell holes.",
+            possible_causes=[
+                "A selected boundary is not a closed hole or the index is out of range.",
+                "The filling or sewing operation failed.",
+            ],
+            how_to_fix=[
+                "Use free_boundaries_rwirelist() to inspect valid boundary indices before filling."
+            ],
+            error=e,
+        )
 from .kernel.ocp_mesh import tessellate_face
 from .kernel.ocp_properties import bounding_box, distance as ocp_distance
 
@@ -197,6 +742,7 @@ _OP_MAKE_SELECT_RVERTEX = "make_select_rvertex"
 _OP_MAKE_SELECT_REDGE = "make_select_redge"
 _OP_MAKE_SELECT_RWIRE = "make_select_rwire"
 _OP_MAKE_SELECT_RFACE = "make_select_rface"
+_OP_MAKE_SELECT_RSHELL = "make_select_rshell"
 _OP_MAKE_SELECT_RSOLID = "make_select_rsolid"
 _OP_APPLY_TAG_RSELECTION = "apply_tag_rselection"
 _OP_MAKE_SKETCH_RSKETCH = "make_sketch_rsketch"
@@ -424,8 +970,8 @@ def _make_closed_profile_rwire(
     points: Sequence[Tuple[ScalarLike, ScalarLike, ScalarLike]],
 ) -> Wire:
     edges = [
-        make_line_redge(points[idx], points[(idx + 1) % len(points)])
-        for idx in range(len(points))
+        make_line_redge(points[index], points[(index + 1) % len(points)])
+        for index in range(len(points))
     ]
     return make_wire_from_edges_rwire(edges)
 
@@ -435,8 +981,7 @@ def _make_closed_profile_rface(
     *,
     normal: Tuple[float, float, float] = (0.0, 0.0, 1.0),
 ) -> Face:
-    wire = _make_closed_profile_rwire(points)
-    return make_face_from_wire_rface(wire, normal=normal)
+    return make_face_from_wire_rface(_make_closed_profile_rwire(points), normal=normal)
 
 
 def _wrap_public_api_error(
@@ -800,6 +1345,13 @@ def _make_selector_hint(shape: AnyShape) -> Dict[str, object]:
         hint["closed"] = bool(shape.is_closed())
     elif isinstance(shape, Vertex):
         hint["coordinates"] = tuple(float(v) for v in shape.get_coordinates())
+    elif isinstance(shape, Shell):
+        hint["face_count"] = len(shape.get_faces())
+        bb = bounding_box(shape.wrapped)
+        hint["bbox"] = {
+            "min": (float(bb.xmin), float(bb.ymin), float(bb.zmin)),
+            "max": (float(bb.xmax), float(bb.ymax), float(bb.zmax)),
+        }
     elif isinstance(shape, Solid):
         hint["volume"] = float(shape.get_volume())
         bb = bounding_box(shape.wrapped)
@@ -914,6 +1466,8 @@ def _shape_kind_token(shape: AnyShape) -> str:
         return "wire"
     if isinstance(shape, Face):
         return "face"
+    if isinstance(shape, Shell):
+        return "shell"
     if isinstance(shape, Solid):
         return "solid"
     if isinstance(shape, Compound):
@@ -930,6 +1484,8 @@ def _selection_op_for_shape(shape: AnyShape) -> Optional[str]:
         return _OP_MAKE_SELECT_RWIRE
     if isinstance(shape, Face):
         return _OP_MAKE_SELECT_RFACE
+    if isinstance(shape, Shell):
+        return _OP_MAKE_SELECT_RSHELL
     if isinstance(shape, Solid):
         return _OP_MAKE_SELECT_RSOLID
     return None
@@ -964,6 +1520,14 @@ def _candidate_shapes_for_selection(source: AnyShape, kind: str) -> List[AnyShap
                 if isinstance(child, Vertex)
             ]
         return [source] if isinstance(source, Vertex) else []
+    if kind == "shell":
+        if isinstance(source, Compound):
+            return [
+                cast(AnyShape, child)
+                for child in source.get_children()
+                if isinstance(child, Shell)
+            ]
+        return [source] if isinstance(source, Shell) else []
     if kind == "solid":
         if isinstance(source, Compound):
             return cast(List[AnyShape], source.get_solids())
@@ -1035,6 +1599,8 @@ def _make_geo_selector(
         selector["normal"] = [float(normal.x), float(normal.y), float(normal.z)]
         selector["edge_count"] = len(shape.get_edges())
         selector["inner_wire_count"] = len(shape.get_inner_wires())
+    elif isinstance(shape, Shell):
+        selector["face_count"] = len(shape.get_faces())
     elif isinstance(shape, Solid):
         selector["volume"] = float(shape.get_volume())
         center = shape.get_center() if hasattr(shape, "get_center") else None
@@ -1100,6 +1666,7 @@ _GEO_SELECT_OPS = {
     _OP_MAKE_SELECT_REDGE,
     _OP_MAKE_SELECT_RWIRE,
     _OP_MAKE_SELECT_RFACE,
+    _OP_MAKE_SELECT_RSHELL,
     _OP_MAKE_SELECT_RSOLID,
 }
 
@@ -1593,11 +2160,25 @@ def _finalize_derived_shape(
     tags: Optional[Set[str]] = None,
 ) -> AnyShape:
     _attach_track_summary(shape, op=op)
+    prepared_inputs = list(_ensure_geo_selection_input_nodes(input_shapes) or ())
+    recorded_params = dict(params)
+    if get_active_session() is not None and op in {
+        "make_ruled_surface_rface",
+        "make_gordon_surface_rface",
+        "make_surface_patch_rface",
+        "make_loft_rshell",
+        "sew_faces_rshell",
+        "fill_holes_rshell",
+    }:
+        input_refs = _serialize_shape_refs(prepared_inputs)
+        if len(input_refs) != len(prepared_inputs):
+            raise ValueError(f"{op} requires every ordered input to have a graph reference")
+        recorded_params["input_refs"] = input_refs
     record_operation_if_active(
         op=op,
-        params=params,
+        params=recorded_params,
         outputs=shape,
-        input_shapes=_ensure_geo_selection_input_nodes(input_shapes),
+        input_shapes=prepared_inputs,
         semantic_delta=_semantic_delta_for_output(op),
         context=_current_context_metadata(),
         tags=tags,
@@ -6002,8 +6583,8 @@ def _semantic_view_target(view: AnyShape, target: AnyShape) -> AnyShape:
     if not unique:
         raise ValueError("tag target does not belong to the assignment scope")
     if len(unique) != 1:
-        raise ValueError("tag target is ambiguous within the assignment scope")
-    return next(iter(unique.values()))
+        raise ValueError("tag target resolves ambiguously inside the assignment scope")
+    return cast(AnyShape, next(iter(unique.values())))
 
 
 def apply_tag_rselection(
@@ -6083,7 +6664,7 @@ def _apply_tag_rselection(
         if not target_shapes:
             raise ValueError("tag assignment targets cannot be empty")
         if not all(
-            isinstance(item, (Vertex, Edge, Wire, Face, Solid, Compound))
+            isinstance(item, (Vertex, Edge, Wire, Face, Shell, Solid, Compound))
             for item in target_shapes
         ):
             raise TypeError("tag assignment targets must contain only shapes")
@@ -8123,7 +8704,7 @@ def make_compound_from_assembly_rcompound(assembly: Assembly) -> Compound:
 # =============================================================================
 
 
-_EXPORTABLE_TYPES = (Compound, Solid, Face, Wire, Edge, Vertex)
+_EXPORTABLE_TYPES = (Compound, Solid, Shell, Face, Wire, Edge, Vertex)
 
 
 def _normalize_shape_input(
@@ -8141,7 +8722,7 @@ def _normalize_shape_input(
         return normalized
 
     raise ValueError(
-        "export 函数只支持 Compound、Solid、Face、Wire、Edge、Vertex 或其序列类型的输入"
+        "export functions accept Compound, Solid, Shell, Face, Wire, Edge, Vertex, or nested sequences of those types"
     )
 
 
@@ -8184,7 +8765,7 @@ def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> N
                 "The exporter rejected the provided geometry.",
             ],
             how_to_fix=[
-                "Pass Compound, Solid, Face, Wire, Edge, Vertex, or sequences of those types.",
+                "Pass Compound, Solid, Shell, Face, Wire, Edge, Vertex, or sequences of those types.",
                 "Use a writable file path ending in .step or .stp.",
                 "If export still fails, inspect each input shape individually.",
             ],
@@ -8221,9 +8802,9 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
         shape_list = _normalize_shape_input(shapes)
 
         for shape in shape_list:
-            if not isinstance(shape, (Compound, Solid, Face)):
+            if not isinstance(shape, (Compound, Solid, Shell, Face)):
                 raise ValueError(
-                    "export_stl函数只支持Compound、Solid和Face类型的几何体"
+                    "export_stl accepts only Compound, Solid, Shell, and Face geometry"
                 )
         export_stl_shape(
             make_compound([shape.wrapped for shape in shape_list]), filename
