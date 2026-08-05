@@ -10,6 +10,7 @@ from OCP.TopAbs import (
     TopAbs_COMPOUND,
     TopAbs_EDGE,
     TopAbs_FACE,
+    TopAbs_SHELL,
     TopAbs_SOLID,
     TopAbs_VERTEX,
     TopAbs_WIRE,
@@ -17,7 +18,7 @@ from OCP.TopAbs import (
 from OCP.TopoDS import TopoDS
 from OCP.gp import gp_Ax1, gp_Ax2, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
 
-from ..core import AnyShape, Compound, Edge, Face, Solid, Vertex, Wire
+from ..core import AnyShape, Compound, Edge, Face, Shell, Solid, Vertex, Wire
 
 
 def _shape_from_transformed(shape: AnyShape, transformed) -> AnyShape:
@@ -30,6 +31,8 @@ def _shape_from_transformed(shape: AnyShape, transformed) -> AnyShape:
         return Wire(TopoDS.Wire_s(transformed))
     if shape_type == TopAbs_FACE:
         return Face(TopoDS.Face_s(transformed))
+    if shape_type == TopAbs_SHELL:
+        return Shell(TopoDS.Shell_s(transformed))
     if shape_type == TopAbs_SOLID:
         return Solid(TopoDS.Solid_s(transformed))
     if shape_type == TopAbs_COMPOUND:

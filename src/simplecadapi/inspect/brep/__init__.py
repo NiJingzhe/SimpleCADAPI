@@ -53,6 +53,7 @@ from .queries import (
 from .render import (
     DEFAULT_VIEWS,
     inspect_step_components_rdescriptorlist,
+    render_entity_kind_maps_rpath,
     render_entity_map_rpath,
     render_region_rpath,
     render_shape_views_rpath,
@@ -109,7 +110,7 @@ __all__ = [
     "load_step_rbrepmodel",
     "load_step_rshape",
     "make_center_slice_specs_rslicespeclist",
-    "measure_entity_relation_rdescriptor",
+    "render_entity_kind_maps_rpath",
     "render_entity_map_rpath",
     "render_region_rpath",
     "render_shape_views_rpath",

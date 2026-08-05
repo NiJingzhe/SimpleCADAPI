@@ -75,11 +75,11 @@ SimpleCADAPI 的顶层 API 选择是正确的：它没有把用户拖进传统 C
 
 问题：
 
-- `GraphSession` 使用模块级 `_active_session` 和 `_recording_suspend_depth`。嵌套 session、并发 session、异步建模都会互相污染。参考：`src/simplecadapi/graph.py:40`、`src/simplecadapi/graph.py:69`、`src/simplecadapi/graph.py:91`。
-- `SimpleWorkplane` 使用模块级 `_current_cs` 栈，和 `GraphSession` 一样是隐式全局 effect。参考：`src/simplecadapi/core.py:276`、`src/simplecadapi/core.py:298`。
+- 已解决：`GraphSession` 的 active session 与 recording suspend depth 使用 `ContextVar`，嵌套和异步任务按执行上下文隔离。
+- 已解决：`SimpleWorkplane` 使用 `ContextVar` 帧栈；上下文退出通过 token 精确恢复父帧。
 - `attach_graph_node` 会把 graph node、node id、output slot、topo ref 写入 shape runtime/metadata。这个副作用是设计核心，但它破坏了“同样输入得到同样纯值”的直觉。参考：`src/simplecadapi/graph.py:231`、`src/simplecadapi/graph.py:247`、`src/simplecadapi/graph.py:259`。
 - tagging 已收敛到 `apply_tag(shape, tag)` / `list_tags(shape)` 的 functional public surface；底层仍然是对 shape tag store 的受控 mutation，需要在 docs 中明确这是 controlled tagging effect。
-- `GraphSession` 记录了 context/frame，但 replay 不使用 context 重建 workplane。这个会让“记录的是建模意图”的函数式承诺打折。参考：`src/simplecadapi/graph.py:132`、`src/simplecadapi/topology.py:338`、`src/simplecadapi/serializer.py:991`。
+- 已解决：`GraphSession` 节点记录完整合成的 `context`，replay 通过 `use_coordinate_system(node.context)` 恢复工作平面；嵌套 Workplane 与 sketch creation frame 已有 model JSON 回归。
 
 函数式层面的根本建议：把 `GraphSession`、workplane、tag/metadata/runtime 都明确视为 effect context，并用 `contextvars` 或显式 session 参数隔离；公开文档不要暗示全纯函数，而要说“functional surface with controlled recording/tagging effects”。
 
@@ -162,7 +162,7 @@ QL 是架构上最应该继续投资的部分。
 - primitive replay 使用 permissive defaults。缺少 `x` 就默认为 0，缺少 radius 就默认为 1。这会把坏 JSON 变成错误几何，而不是报错。参考：`src/simplecadapi/serializer.py:767`。
 - `OperationGraph.from_dict` 对 edges 和 inputs 的缺失引用采取静默跳过。对 interchange schema 来说这太软。参考：`src/simplecadapi/topology.py:692`、`src/simplecadapi/topology.py:701`。
 - graph schema version 是 `1.0`，model schema 是 `2.0-draft`，canonical contract 是 `2.0-final-state`。这三个版本信号混在一起，会让外部消费者不知道哪个才是稳定承诺。参考：`src/simplecadapi/topology.py:19`、`src/simplecadapi/serializer.py:221`、`src/simplecadapi/serializer.py:628`。
-- node.context 和 frame_graph 被记录，但 replay 不恢复 frame/workplane；所有 ops 按当前 ambient world context 执行。参考：`src/simplecadapi/graph.py:132`、`src/simplecadapi/serializer.py:991`。
+- 已解决：node replay 进入记录时的完整合成 `context`；`frame_graph` 保留相同的绝对帧快照供外部消费者使用。
 - `leaf_ids` 自动来自 graph leaves，而不是用户显式声明的 final outputs。debug/intermediate 独立节点会成为 replay 输出。参考：`src/simplecadapi/serializer.py:624`、`src/simplecadapi/topology.py:563`。
 - expression replay 是 numeric snapshot，不是 parametric replay。这个可以接受，但必须在 SDK 主文档里反复强调。参考：`test/test_serialization.py`。
 
@@ -270,13 +270,13 @@ tagging 的目标是对的，但现在新旧体系混在一起。
 
 - 一些断言是无效断言，如 `len(modified) >= 0`、`len(tagged) >= 0`，这永远成立。参考：`test/test_original_api_integration.py:23`、`test/test_original_api_integration.py:50`。
 - topology identity 测试只证明单个 box 内 shared edge occurrence，不证明跨 operation、跨 replay、跨 boolean 的 durable identity。参考：`tests/test_topology_identity.py:16`。
-- replay tests 多数验证 happy path volume，不够验证 malformed graph、missing inputs、schema rejection、workplane context、boolean params faithful、selection ambiguity。
+- replay 已覆盖 malformed graph、missing inputs、schema rejection、嵌套 workplane context 和 selection ambiguity；跨 translator 的 frame 语义仍需持续验证。
 - assembly tests没有证明 overconstraint/underconstraint、DOF、rotation frame export 的正确性。
 
 建议优先加这些测试：
 
-- GraphSession nested/concurrent isolation。
-- SimpleWorkplane 内记录后在 world context replay，结果必须一致。
+- [x] GraphSession active session、recording suspension 与嵌套恢复使用 context-local 状态。
+- [x] SimpleWorkplane 内记录后在 world context replay，结果一致，包括两层非共轴嵌套和退出上下文后的 sketch promotion。
 - replay missing param 必须报错，不允许默认生成几何。
 - replay missing input 必须报错。
 - union clean/glue/tol 参数 replay faithful。
@@ -306,10 +306,10 @@ P0：把 replay 变 strict。
 
 P0：修 GraphSession 和 workplane context。
 
-- `_active_session` 改成 `contextvars.ContextVar` 或 session stack。
-- `_recording_suspend_depth` 同样 context-local。
-- `_current_cs` 至少 context-local，最好 frame 显式进入 replay。
-- replay 必须使用 node.context 或 frame graph 重建坐标上下文。
+- `_active_session` 已改为 `ContextVar`，并用 token 恢复父 session。
+- `_recording_suspend_depth` 已改为 context-local 计数器。
+- `_current_cs` 已改为 `ContextVar` 栈，并在子 Workplane 创建时合成父帧。
+- replay 已使用 `node.context` 重建坐标上下文；`frame_graph` 保留供外部转译器消费。
 
 P0：把 QL/SelectionSpec 升为 canonical selection。
 

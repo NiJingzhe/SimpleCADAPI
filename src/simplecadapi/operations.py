@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from dataclasses import dataclass, asdict
 import math
 import numpy as np
 
@@ -15,7 +16,7 @@ suppress_vendor_deprecation_warnings()
 
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
-from OCP.gp import gp_Pnt
+from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
 from OCP.TopoDS import TopoDS
 
 from .core import (
@@ -23,11 +24,14 @@ from .core import (
     Edge,
     Wire,
     Face,
+    Shell,
     Solid,
     Compound,
     AnyShape,
+    WORLD_CS,
     clone_semantic_shape_view,
     get_current_cs,
+    use_coordinate_system,
 )
 from .autotag import apply_tracking_tags_to_delta
 from .expr import ScalarLike, evaluate_scalar, evaluate_value
@@ -153,6 +157,549 @@ from .kernel.ocp_export import (
     make_compound,
     make_compound_always,
 )
+from .kernel.ocp_surfaces import (
+    fill_shell_holes as fill_shell_holes_ocp,
+    fit_point_grid_surface,
+    free_boundaries as free_boundaries_ocp,
+    make_bezier_surface,
+    make_filling_face,
+    make_gordon_surface,
+    make_loft_shell,
+    make_ruled_face,
+    sew_faces as sew_faces_ocp,
+    shell_from_face,
+)
+
+
+@dataclass(frozen=True)
+class SurfaceBoundary:
+    """One edge constraint used by ``make_surface_patch_rface``."""
+
+    edge: Edge
+    continuity: str = "C0"
+    support: Optional[Face] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.edge, Edge):
+            raise TypeError("SurfaceBoundary.edge must be an Edge")
+        if self.support is not None and not isinstance(self.support, Face):
+            raise TypeError("SurfaceBoundary.support must be a Face or None")
+        if str(self.continuity).upper() not in {"C0", "G1", "G2"}:
+            raise ValueError("SurfaceBoundary.continuity must be C0, G1, or G2")
+
+    def as_dict(self) -> Dict[str, object]:
+        return {
+            "continuity": str(self.continuity).upper(),
+            "has_support": self.support is not None,
+        }
+
+
+@dataclass(frozen=True)
+class SurfaceFillingSettings:
+    """Explicit OCCT filling controls; units are model units and radians."""
+
+    degree: int = 3
+    points_per_curve: int = 15
+    iterations: int = 2
+    anisotropic: bool = False
+    tolerance_2d: float = 1e-5
+    tolerance_3d: float = 1e-4
+    angular_tolerance: float = 0.01
+    curvature_tolerance: float = 0.1
+    max_degree: int = 8
+    max_segments: int = 9
+
+    def __post_init__(self) -> None:
+        if self.degree < 1 or self.points_per_curve < 2 or self.iterations < 1:
+            raise ValueError("filling degree, points_per_curve, and iterations must be positive")
+        if self.max_degree < self.degree or self.max_segments < 1:
+            raise ValueError("max_degree must cover degree and max_segments must be positive")
+        for name in (
+            "tolerance_2d",
+            "tolerance_3d",
+            "angular_tolerance",
+            "curvature_tolerance",
+        ):
+            value = float(getattr(self, name))
+            if not np.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be a positive finite value")
+
+    def as_dict(self) -> Dict[str, object]:
+        return cast(Dict[str, object], asdict(self))
+
+
+def _surface_tag_output(shape: AnyShape, tag_prefix: Optional[str]) -> AnyShape:
+    if tag_prefix is None:
+        return shape
+    normalized = normalize_tag(tag_prefix, strict=True)
+    shape._apply_tag(f"{normalized}.{_shape_kind_token(shape)}", propagate=False)
+    return shape
+
+
+def _surface_point_grid(points: Sequence[Sequence[Sequence[float]]]) -> List[List[Tuple[float, float, float]]]:
+    rows = [
+        [tuple(float(component) for component in point) for point in row]
+        for row in points
+    ]
+    if len(rows) < 2 or any(len(row) < 2 for row in rows):
+        raise ValueError("surface point grids require at least 2 rows and 2 columns")
+    width = len(rows[0])
+    if any(len(row) != width for row in rows):
+        raise ValueError("surface point grids must be rectangular")
+    if any(len(point) != 3 for row in rows for point in row):
+        raise ValueError("surface points must contain exactly three coordinates")
+    if not all(np.isfinite(value) for row in rows for point in row for value in point):
+        raise ValueError("surface points must be finite")
+    return rows
+
+
+def _surface_global_point_grid(points: Sequence[Sequence[Sequence[float]]]) -> List[List[Tuple[float, float, float]]]:
+    cs = get_current_cs()
+    grid = _surface_point_grid(points)
+    return [
+        [tuple(float(value) for value in cs.transform_point(np.asarray(point))) for point in row]
+        for row in grid
+    ]
+
+
+def _surface_global_points(points: Sequence[Sequence[float]]) -> List[Tuple[float, float, float]]:
+    cs = get_current_cs()
+    result = []
+    for point in points:
+        values = tuple(float(value) for value in point)
+        if len(values) != 3 or not all(np.isfinite(value) for value in values):
+            raise ValueError("surface constraint points must be finite 3D points")
+        result.append(tuple(float(value) for value in cs.transform_point(np.asarray(values))))
+    return result
+
+
+def _surface_local_point_grid(points: Sequence[Sequence[Sequence[float]]]) -> List[List[Tuple[float, float, float]]]:
+    return _surface_point_grid(points)
+
+
+def make_bezier_surface_rface(
+    control_points: Sequence[Sequence[Sequence[float]]],
+    weights: Optional[Sequence[Sequence[float]]] = None,
+    *,
+    tag_prefix: Optional[str] = None,
+) -> Face:
+    """Create a trimmed Face carrying a tensor-product Bezier surface."""
+    try:
+        local_points = _surface_local_point_grid(control_points)
+        global_points = _surface_global_point_grid(local_points)
+        global_weights = None if weights is None else [list(map(float, row)) for row in weights]
+        if global_weights is not None:
+            if len(global_weights) != len(local_points) or any(
+                len(row) != len(local_points[0]) for row in global_weights
+            ):
+                raise ValueError("Bezier weights must match the control-point grid")
+            if any(
+                weight <= 0 or not np.isfinite(weight)
+                for row in global_weights
+                for weight in row
+            ):
+                raise ValueError("Bezier weights must be positive finite values")
+        result = Face(make_bezier_surface(global_points, global_weights))
+        result = cast(
+            Face,
+            _finalize_primitive_shape(
+                result,
+                op="make_bezier_surface_rface",
+                params={
+                    "control_points": local_points,
+                    "weights": global_weights,
+                    "tag_prefix": tag_prefix,
+                },
+                tags={"primitive", "surface", "face"},
+            ),
+        )
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_bezier_surface_rface",
+            what_happened="Failed to create the Bezier surface face.",
+            possible_causes=[
+                "The control-point grid is invalid or degenerate.",
+                "The kernel rejected the Bezier surface.",
+            ],
+            how_to_fix=[
+                "Pass a rectangular finite grid with at least two rows and columns.",
+                "Use positive finite weights with the same dimensions as the grid.",
+            ],
+            error=e,
+        )
+
+
+def fit_point_grid_rface(
+    points: Sequence[Sequence[Sequence[float]]],
+    *,
+    tolerance: float = 1e-3,
+    degree_min: int = 3,
+    degree_max: int = 8,
+    smoothing: Optional[Tuple[float, float, float]] = None,
+    tag_prefix: Optional[str] = None,
+) -> Face:
+    """Fit a B-spline Face through a rectangular 3D point grid."""
+    try:
+        tolerance_value = float(tolerance)
+        if not np.isfinite(tolerance_value) or tolerance_value <= 0:
+            raise ValueError("tolerance must be a positive finite value")
+        degree_min_value, degree_max_value = int(degree_min), int(degree_max)
+        if degree_min_value < 1 or degree_max_value < degree_min_value:
+            raise ValueError("degree_max must be greater than or equal to degree_min")
+        smoothing_values = None if smoothing is None else tuple(float(v) for v in smoothing)
+        if smoothing_values is not None and (
+            len(smoothing_values) != 3
+            or any(not np.isfinite(v) or v < 0 for v in smoothing_values)
+        ):
+            raise ValueError("smoothing must contain three finite non-negative weights")
+        local_points = _surface_local_point_grid(points)
+        global_points = _surface_global_point_grid(local_points)
+        result = Face(
+            fit_point_grid_surface(
+                global_points,
+                tolerance=tolerance_value,
+                degree_min=degree_min_value,
+                degree_max=degree_max_value,
+                smoothing=smoothing_values,
+            )
+        )
+        result = cast(
+            Face,
+            _finalize_primitive_shape(
+                result,
+                op="fit_point_grid_rface",
+                params={
+                    "points": local_points,
+                    "tolerance": tolerance_value,
+                    "degree_min": degree_min_value,
+                    "degree_max": degree_max_value,
+                    "smoothing": smoothing_values,
+                    "tag_prefix": tag_prefix,
+                },
+                tags={"primitive", "surface", "face"},
+            ),
+        )
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="fit_point_grid_rface",
+            what_happened="Failed to fit a B-spline surface face.",
+            possible_causes=[
+                "The point grid or fitting controls are invalid.",
+                "The kernel fitting algorithm did not converge.",
+            ],
+            how_to_fix=[
+                "Pass a rectangular finite point grid and positive tolerance.",
+                "Keep degree_min <= degree_max and use non-negative smoothing weights.",
+            ],
+            error=e,
+        )
+
+
+def make_ruled_surface_rface(
+    edge_a: Edge, edge_b: Edge, *, tag_prefix: Optional[str] = None
+) -> Face:
+    """Create a ruled Face spanning two compatible edges."""
+    try:
+        if not isinstance(edge_a, Edge) or not isinstance(edge_b, Edge):
+            raise TypeError("make_ruled_surface_rface requires two Edge objects")
+        result = cast(Face, _finalize_derived_shape(
+            Face(make_ruled_face(edge_a.wrapped, edge_b.wrapped)),
+            op="make_ruled_surface_rface",
+            params={"tag_prefix": tag_prefix},
+            input_shapes=[edge_a, edge_b],
+            tags={"derived", "surface", "face"},
+        ))
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_ruled_surface_rface",
+            what_happened="Failed to create the ruled surface face.",
+            possible_causes=["The inputs are not edges.", "The two edges cannot define a ruled surface."],
+            how_to_fix=["Pass two valid Edge objects with compatible parameterization."],
+            error=e,
+        )
+
+
+def make_gordon_surface_rface(
+    profiles: Sequence[Edge],
+    guides: Sequence[Edge],
+    *,
+    tolerance: float = 1e-3,
+    tag_prefix: Optional[str] = None,
+) -> Face:
+    """Create a Gordon Face from intersecting profile and guide edge networks."""
+    try:
+        profile_list, guide_list = list(profiles), list(guides)
+        if len(profile_list) < 2 or len(guide_list) < 2:
+            raise ValueError("Gordon surfaces require at least two profiles and two guides")
+        if not all(isinstance(edge, Edge) for edge in [*profile_list, *guide_list]):
+            raise TypeError("Gordon profiles and guides must contain only Edge objects")
+        if not np.isfinite(float(tolerance)) or float(tolerance) <= 0:
+            raise ValueError("tolerance must be a positive finite value")
+        result = cast(Face, _finalize_derived_shape(
+            Face(make_gordon_surface(
+                [edge.wrapped for edge in profile_list],
+                [edge.wrapped for edge in guide_list],
+                tolerance=float(tolerance),
+            )),
+            op="make_gordon_surface_rface",
+            params={
+                "profile_count": len(profile_list),
+                "guide_count": len(guide_list),
+                "tolerance": float(tolerance),
+                "tag_prefix": tag_prefix,
+            },
+            input_shapes=[*profile_list, *guide_list],
+            tags={"derived", "surface", "face"},
+        ))
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_gordon_surface_rface",
+            what_happened="Failed to create the Gordon surface face.",
+            possible_causes=["The curve network is too small, non-intersecting, or inconsistent.", "The kernel Gordon interpolation failed."],
+            how_to_fix=["Pass at least two profiles and two guides whose endpoints form a compatible network.", "Increase tolerance only when the source curves are numerically noisy."],
+            error=e,
+        )
+
+
+def make_surface_patch_rface(
+    boundaries: Sequence[SurfaceBoundary],
+    *,
+    points: Sequence[Sequence[float]] = (),
+    settings: Optional[SurfaceFillingSettings] = None,
+    holes: Sequence[Wire] = (),
+    tag_prefix: Optional[str] = None,
+) -> Face:
+    """Fill a constrained boundary network into one Face, optionally with holes."""
+    try:
+        boundary_list = list(boundaries)
+        if not boundary_list or not all(isinstance(item, SurfaceBoundary) for item in boundary_list):
+            raise ValueError("boundaries must be a non-empty SurfaceBoundary sequence")
+        settings_value = settings or SurfaceFillingSettings()
+        if not isinstance(settings_value, SurfaceFillingSettings):
+            raise TypeError("settings must be SurfaceFillingSettings")
+        hole_list = list(holes)
+        if not all(isinstance(wire, Wire) for wire in hole_list):
+            raise TypeError("holes must contain only Wire objects")
+        support_shapes = [item.support for item in boundary_list if item.support is not None]
+        interleaved_inputs: List[AnyShape] = []
+        for item in boundary_list:
+            interleaved_inputs.append(item.edge)
+            if item.support is not None:
+                interleaved_inputs.append(item.support)
+        input_shapes: List[AnyShape] = [*interleaved_inputs, *hole_list]
+        local_points = [tuple(float(v) for v in point) for point in points]
+        global_points = _surface_global_points(local_points)
+        result = cast(
+            Face,
+            _finalize_derived_shape(
+                Face(
+                    make_filling_face(
+                        [
+                            (
+                                item.edge.wrapped,
+                                item.support.wrapped if item.support else None,
+                                str(item.continuity).upper(),
+                            )
+                            for item in boundary_list
+                        ],
+                        global_points,
+                        settings=settings_value.as_dict(),
+                        holes=[wire.wrapped for wire in hole_list],
+                    )
+                ),
+                op="make_surface_patch_rface",
+                params={
+                    "boundary_count": len(boundary_list),
+                    "support_count": len(support_shapes),
+                    "hole_count": len(hole_list),
+                    "boundaries": [item.as_dict() for item in boundary_list],
+                    "points": local_points,
+                    "settings": settings_value.as_dict(),
+                    "tag_prefix": tag_prefix,
+                },
+                input_shapes=input_shapes,
+                tags={"derived", "surface", "face"},
+            ),
+        )
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_surface_patch_rface",
+            what_happened="Failed to fill the constrained surface patch.",
+            possible_causes=[
+                "A boundary is invalid, open, or incompatible with its support face.",
+                "The filling controls are invalid or the kernel did not converge.",
+            ],
+            how_to_fix=[
+                "Pass non-empty SurfaceBoundary values with valid Edge objects.",
+                "Use C0/G1/G2 continuity and explicit positive filling tolerances.",
+            ],
+            error=e,
+        )
+def make_loft_rshell(
+    sections: Sequence[Union[Wire, Vertex]],
+    *,
+    ruled: bool = False,
+    tag_prefix: Optional[str] = None,
+) -> Shell:
+    """Create an open Shell loft through wire or vertex sections."""
+    try:
+        section_list = list(sections)
+        if len(section_list) < 2:
+            raise ValueError("surface loft requires at least two sections")
+        if not all(isinstance(section, (Wire, Vertex)) for section in section_list):
+            raise TypeError("surface loft sections must contain only Wire or Vertex objects")
+        result = cast(Shell, _finalize_derived_shape(
+            Shell(make_loft_shell([section.wrapped for section in section_list], ruled=bool(ruled))),
+            op="make_loft_rshell",
+            params={
+                "section_count": len(section_list),
+                "ruled": bool(ruled),
+                "tag_prefix": tag_prefix,
+            },
+            input_shapes=section_list,
+            tags={"derived", "surface", "shell"},
+        ))
+        return cast(Shell, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_loft_rshell",
+            what_happened="Failed to create the surface loft shell.",
+            possible_causes=["Sections are not connected or have incompatible topology.", "The kernel loft algorithm failed."],
+            how_to_fix=["Pass at least two Wire or Vertex sections in order along the loft."],
+            error=e,
+        )
+
+
+def sew_faces_rshell(
+    faces: Sequence[Face], *, tolerance: float = 1e-6, tag_prefix: Optional[str] = None
+) -> Shell:
+    """Sew faces into exactly one connected Shell."""
+    try:
+        face_list = list(faces)
+        if not face_list or not all(isinstance(face, Face) for face in face_list):
+            raise ValueError("sew_faces_rshell requires a non-empty Face sequence")
+        if not np.isfinite(float(tolerance)) or float(tolerance) <= 0:
+            raise ValueError("tolerance must be a positive finite value")
+        result = cast(Shell, _finalize_derived_shape(
+            Shell(sew_faces_ocp([face.wrapped for face in face_list], tolerance=float(tolerance))),
+            op="sew_faces_rshell",
+            params={
+                "face_count": len(face_list),
+                "tolerance": float(tolerance),
+                "tag_prefix": tag_prefix,
+            },
+            input_shapes=face_list,
+            tags={"derived", "surface", "shell"},
+        ))
+        return cast(Shell, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="sew_faces_rshell",
+            what_happened="Failed to sew faces into one shell.",
+            possible_causes=["Faces are disconnected or their gaps exceed tolerance.", "The sewing result contains multiple shell components."],
+            how_to_fix=["Pass connected Face objects and a positive sewing tolerance."],
+            error=e,
+        )
+
+
+def free_boundaries_rwirelist(
+    shell: Shell, *, tolerance: float = 1e-6
+) -> List[Wire]:
+    """Return unique closed and open free boundary wires of a Shell."""
+    try:
+        if not isinstance(shell, Shell):
+            raise TypeError("free_boundaries_rwirelist requires a Shell")
+        if not np.isfinite(float(tolerance)) or float(tolerance) <= 0:
+            raise ValueError("tolerance must be a positive finite value")
+        result = [
+            Wire(wire)
+            for wire in free_boundaries_ocp(shell.wrapped, tolerance=float(tolerance))
+        ]
+        record_operation_if_active(
+            op="free_boundaries_rwirelist",
+            params={"tolerance": float(tolerance)},
+            outputs=result,
+            input_shapes=[shell],
+            semantic_delta=_semantic_delta_for_output(
+                "free_boundaries_rwirelist",
+                output_count=len(result),
+                entity_type="Profile",
+            ),
+            context=_current_context_metadata(),
+        )
+        return result
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="free_boundaries_rwirelist",
+            what_happened="Failed to extract free boundary wires.",
+            possible_causes=[
+                "The input is not a valid Shell.",
+                "The boundary analysis tolerance is invalid.",
+            ],
+            how_to_fix=["Pass a Shell and a positive finite tolerance."],
+            error=e,
+        )
+
+
+def fill_holes_rshell(
+    shell: Shell,
+    hole_indices: Optional[Sequence[int]] = None,
+    *,
+    tolerance: float = 1e-6,
+    settings: Optional[SurfaceFillingSettings] = None,
+    tag_prefix: Optional[str] = None,
+) -> Shell:
+    """Fill selected closed free boundaries and return a sewn Shell."""
+    try:
+        if not isinstance(shell, Shell):
+            raise TypeError("fill_holes_rshell requires a Shell")
+        if not np.isfinite(float(tolerance)) or float(tolerance) <= 0:
+            raise ValueError("tolerance must be a positive finite value")
+        settings_value = settings or SurfaceFillingSettings()
+        if not isinstance(settings_value, SurfaceFillingSettings):
+            raise TypeError("settings must be SurfaceFillingSettings")
+        indices = None if hole_indices is None else [int(index) for index in hole_indices]
+        result = cast(
+            Shell,
+            _finalize_derived_shape(
+                Shell(
+                    fill_shell_holes_ocp(
+                        shell.wrapped,
+                        hole_indices=indices,
+                        tolerance=float(tolerance),
+                        settings=settings_value.as_dict(),
+                    )
+                ),
+                op="fill_holes_rshell",
+                params={
+                    "hole_indices": indices,
+                    "tolerance": float(tolerance),
+                    "settings": settings_value.as_dict(),
+                    "tag_prefix": tag_prefix,
+                },
+                input_shapes=[shell],
+                tags={"derived", "surface", "shell"},
+            ),
+        )
+        return cast(Shell, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="fill_holes_rshell",
+            what_happened="Failed to fill selected shell holes.",
+            possible_causes=[
+                "A selected boundary is not a closed hole or the index is out of range.",
+                "The filling or sewing operation failed.",
+            ],
+            how_to_fix=[
+                "Use free_boundaries_rwirelist() to inspect valid boundary indices before filling."
+            ],
+            error=e,
+        )
 from .kernel.ocp_mesh import tessellate_face
 from .kernel.ocp_properties import bounding_box, distance as ocp_distance
 
@@ -195,6 +742,7 @@ _OP_MAKE_SELECT_RVERTEX = "make_select_rvertex"
 _OP_MAKE_SELECT_REDGE = "make_select_redge"
 _OP_MAKE_SELECT_RWIRE = "make_select_rwire"
 _OP_MAKE_SELECT_RFACE = "make_select_rface"
+_OP_MAKE_SELECT_RSHELL = "make_select_rshell"
 _OP_MAKE_SELECT_RSOLID = "make_select_rsolid"
 _OP_APPLY_TAG_RSELECTION = "apply_tag_rselection"
 _OP_MAKE_SKETCH_RSKETCH = "make_sketch_rsketch"
@@ -342,6 +890,50 @@ def _orthonormal_plane_axes(
     return z_axis, x_axis, y_axis
 
 
+def _default_plane_x_direction(normal: Sequence[float]) -> np.ndarray:
+    """Return OCP's canonical in-plane X axis for a local normal."""
+    normal_vec = np.asarray(normal, dtype=float)
+    axis = gp_Ax2(
+        gp_Pnt(0.0, 0.0, 0.0),
+        gp_Dir(float(normal_vec[0]), float(normal_vec[1]), float(normal_vec[2])),
+    )
+    direction = axis.XDirection()
+    return np.asarray(direction.Coord(), dtype=float)
+
+
+def _sketch_plane_in_current_coordinates(
+    plane: Any,
+) -> Dict[str, Tuple[float, float, float]]:
+    if isinstance(plane, str):
+        token = plane.upper()
+        frames = {
+            "XY": ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+            "XZ": ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+            "YZ": ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+        }
+        if token not in frames:
+            raise ValueError(
+                "Sketch plane must be 'XY', 'XZ', 'YZ', or a plane mapping"
+            )
+        origin, x_axis, y_axis = frames[token]
+    elif isinstance(plane, Mapping):
+        origin = tuple(plane.get("origin", (0.0, 0.0, 0.0)))
+        x_axis = tuple(plane.get("x_axis", (1.0, 0.0, 0.0)))
+        y_axis = tuple(plane.get("y_axis", (0.0, 1.0, 0.0)))
+    else:
+        raise ValueError("Sketch plane must be 'XY', 'XZ', 'YZ', or a plane mapping")
+
+    cs = get_current_cs()
+    global_origin = cs.transform_point(np.asarray(origin, dtype=float))
+    global_x_axis = cs.transform_vector(np.asarray(x_axis, dtype=float))
+    global_y_axis = cs.transform_vector(np.asarray(y_axis, dtype=float))
+    return {
+        "origin": tuple(float(value) for value in global_origin),
+        "x_axis": tuple(float(value) for value in global_x_axis),
+        "y_axis": tuple(float(value) for value in global_y_axis),
+    }
+
+
 def _pick_perpendicular_unit(axis: Tuple[float, float, float]) -> np.ndarray:
     axis_vec = np.array(axis, dtype=float)
     axis_norm = float(np.linalg.norm(axis_vec))
@@ -378,8 +970,8 @@ def _make_closed_profile_rwire(
     points: Sequence[Tuple[ScalarLike, ScalarLike, ScalarLike]],
 ) -> Wire:
     edges = [
-        make_line_redge(points[idx], points[(idx + 1) % len(points)])
-        for idx in range(len(points))
+        make_line_redge(points[index], points[(index + 1) % len(points)])
+        for index in range(len(points))
     ]
     return make_wire_from_edges_rwire(edges)
 
@@ -389,8 +981,7 @@ def _make_closed_profile_rface(
     *,
     normal: Tuple[float, float, float] = (0.0, 0.0, 1.0),
 ) -> Face:
-    wire = _make_closed_profile_rwire(points)
-    return make_face_from_wire_rface(wire, normal=normal)
+    return make_face_from_wire_rface(_make_closed_profile_rwire(points), normal=normal)
 
 
 def _wrap_public_api_error(
@@ -465,14 +1056,6 @@ def _semantic_modified(
 
 def _material_params(material: Material) -> Dict[str, object]:
     return material.to_dict()
-
-
-def _placement_params(placement: Placement) -> Dict[str, object]:
-    return {
-        "origin": placement.origin,
-        "x_axis": placement.x_axis,
-        "y_axis": placement.y_axis,
-    }
 
 
 def _part_params(part: Part) -> Dict[str, object]:
@@ -762,6 +1345,13 @@ def _make_selector_hint(shape: AnyShape) -> Dict[str, object]:
         hint["closed"] = bool(shape.is_closed())
     elif isinstance(shape, Vertex):
         hint["coordinates"] = tuple(float(v) for v in shape.get_coordinates())
+    elif isinstance(shape, Shell):
+        hint["face_count"] = len(shape.get_faces())
+        bb = bounding_box(shape.wrapped)
+        hint["bbox"] = {
+            "min": (float(bb.xmin), float(bb.ymin), float(bb.zmin)),
+            "max": (float(bb.xmax), float(bb.ymax), float(bb.zmax)),
+        }
     elif isinstance(shape, Solid):
         hint["volume"] = float(shape.get_volume())
         bb = bounding_box(shape.wrapped)
@@ -876,6 +1466,8 @@ def _shape_kind_token(shape: AnyShape) -> str:
         return "wire"
     if isinstance(shape, Face):
         return "face"
+    if isinstance(shape, Shell):
+        return "shell"
     if isinstance(shape, Solid):
         return "solid"
     if isinstance(shape, Compound):
@@ -892,6 +1484,8 @@ def _selection_op_for_shape(shape: AnyShape) -> Optional[str]:
         return _OP_MAKE_SELECT_RWIRE
     if isinstance(shape, Face):
         return _OP_MAKE_SELECT_RFACE
+    if isinstance(shape, Shell):
+        return _OP_MAKE_SELECT_RSHELL
     if isinstance(shape, Solid):
         return _OP_MAKE_SELECT_RSOLID
     return None
@@ -926,6 +1520,14 @@ def _candidate_shapes_for_selection(source: AnyShape, kind: str) -> List[AnyShap
                 if isinstance(child, Vertex)
             ]
         return [source] if isinstance(source, Vertex) else []
+    if kind == "shell":
+        if isinstance(source, Compound):
+            return [
+                cast(AnyShape, child)
+                for child in source.get_children()
+                if isinstance(child, Shell)
+            ]
+        return [source] if isinstance(source, Shell) else []
     if kind == "solid":
         if isinstance(source, Compound):
             return cast(List[AnyShape], source.get_solids())
@@ -997,6 +1599,8 @@ def _make_geo_selector(
         selector["normal"] = [float(normal.x), float(normal.y), float(normal.z)]
         selector["edge_count"] = len(shape.get_edges())
         selector["inner_wire_count"] = len(shape.get_inner_wires())
+    elif isinstance(shape, Shell):
+        selector["face_count"] = len(shape.get_faces())
     elif isinstance(shape, Solid):
         selector["volume"] = float(shape.get_volume())
         center = shape.get_center() if hasattr(shape, "get_center") else None
@@ -1062,6 +1666,7 @@ _GEO_SELECT_OPS = {
     _OP_MAKE_SELECT_REDGE,
     _OP_MAKE_SELECT_RWIRE,
     _OP_MAKE_SELECT_RFACE,
+    _OP_MAKE_SELECT_RSHELL,
     _OP_MAKE_SELECT_RSOLID,
 }
 
@@ -1555,11 +2160,25 @@ def _finalize_derived_shape(
     tags: Optional[Set[str]] = None,
 ) -> AnyShape:
     _attach_track_summary(shape, op=op)
+    prepared_inputs = list(_ensure_geo_selection_input_nodes(input_shapes) or ())
+    recorded_params = dict(params)
+    if get_active_session() is not None and op in {
+        "make_ruled_surface_rface",
+        "make_gordon_surface_rface",
+        "make_surface_patch_rface",
+        "make_loft_rshell",
+        "sew_faces_rshell",
+        "fill_holes_rshell",
+    }:
+        input_refs = _serialize_shape_refs(prepared_inputs)
+        if len(input_refs) != len(prepared_inputs):
+            raise ValueError(f"{op} requires every ordered input to have a graph reference")
+        recorded_params["input_refs"] = input_refs
     record_operation_if_active(
         op=op,
-        params=params,
+        params=recorded_params,
         outputs=shape,
-        input_shapes=_ensure_geo_selection_input_nodes(input_shapes),
+        input_shapes=prepared_inputs,
         semantic_delta=_semantic_delta_for_output(op),
         context=_current_context_metadata(),
         tags=tags,
@@ -1939,7 +2558,11 @@ def make_sketch_rsketch(
     build a sketch profile with constraints.
     """
     try:
-        sketch = Sketch(name=name, plane=plane, sketch_id=sketch_id)
+        sketch = Sketch(
+            name=name,
+            plane=_sketch_plane_in_current_coordinates(plane),
+            sketch_id=sketch_id,
+        )
         return cast(
             Sketch,
             _finalize_runtime_object(
@@ -2494,7 +3117,10 @@ def constrain_tangent_rsketch(
         [a, b],
         constraint_id=constraint_id,
         metadata={"at_a": at_a, "at_b": at_b, "mode": mode},
-        expected=[("line", "circle", "arc", "bspline"), ("line", "circle", "arc", "bspline")],
+        expected=[
+            ("line", "circle", "arc", "bspline"),
+            ("line", "circle", "arc", "bspline"),
+        ],
     )
 
 
@@ -2853,9 +3479,7 @@ def _sketch_promotion_map(
         ],
     ]
     for loop_profile, loop_payload, loop_role in loop_specs:
-        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(
-            sketch, loop_payload
-        )
+        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(sketch, loop_payload)
         loop_edges: List[Dict[str, Any]] = []
         for entity_id in loop_payload.get("entity_ids", []):
             entity_tag = _safe_semantic_tag("sketch_entity", entity_id)
@@ -2956,18 +3580,14 @@ def _apply_sketch_promotion_metadata(
 
     for wire in wires:
         matches = [
-            source
-            for source in source_wires
-            if source[3].wrapped.IsSame(wire.wrapped)
+            source for source in source_wires if source[3].wrapped.IsSame(wire.wrapped)
         ]
         if len(matches) != 1:
             raise ValueError(
                 "Sketch promotion cannot establish exact profile-to-wire correspondence"
             )
         loop_profile, loop_payload, _loop_role, _source_wire = matches[0]
-        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(
-            sketch, loop_payload
-        )
+        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(sketch, loop_payload)
         wire.set_metadata("source_sketch", source_sketch)
         wire.set_metadata("sketch_solve", solve_snapshot)
         wire.set_metadata("sketch_promotion", promotion_map)
@@ -2986,19 +3606,13 @@ def _apply_sketch_promotion_metadata(
         )
     ]
     for edge in cast(List[Edge], shape.get_edges()):
-        matches = [
-            source
-            for source in source_edges
-            if source[4].IsSame(edge.wrapped)
-        ]
+        matches = [source for source in source_edges if source[4].IsSame(edge.wrapped)]
         if len(matches) != 1:
             raise ValueError(
                 "Sketch promotion cannot establish exact entity-to-edge correspondence"
             )
         loop_profile, loop_payload, loop_role, entity_id, _source_edge = matches[0]
-        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(
-            sketch, loop_payload
-        )
+        loop_sketch_tag, loop_profile_tag = _sketch_promotion_tags(sketch, loop_payload)
         entity_tag = _safe_semantic_tag("sketch_entity", entity_id)
         edge.set_metadata(
             "sketch_ref",
@@ -3148,9 +3762,7 @@ def _apply_sketch_promotion_identity_tags(
         )
     ]
     for edge in cast(List[Edge], shape.get_edges()):
-        matches = [
-            source for source in source_edges if source[2].IsSame(edge.wrapped)
-        ]
+        matches = [source for source in source_edges if source[2].IsSame(edge.wrapped)]
         if len(matches) != 1:
             raise ValueError(
                 "Sketch promotion cannot establish exact entity-to-edge correspondence"
@@ -3212,7 +3824,7 @@ def _promote_sketch_profile(
         seen_profile_ids.add(inner_profile_id)
         inner_profile_payloads.append((inner_profile, inner_payload))
     solve_snapshot = _sketch_solve_snapshot(solve_result)
-    with suspend_graph_recording():
+    with suspend_graph_recording(), use_coordinate_system(WORLD_CS):
         outer_wire = sketch._wire_from_profile_payload(profile_payload)
         source_wires: List[Tuple[int | str, Dict[str, Any], str, Wire]] = [
             (profile, profile_payload, "outer", outer_wire)
@@ -3226,11 +3838,8 @@ def _promote_sketch_profile(
             for inner_profile, inner_payload in inner_profile_payloads:
                 inner_wire = sketch._wire_from_profile_payload(inner_payload)
                 inner_wires.append(inner_wire)
-                source_wires.append(
-                    (inner_profile, inner_payload, "inner", inner_wire)
-                )
-            local_normal = np.array(sketch._plane_normal_tuple(), dtype=float)
-            expected_normal = get_current_cs().transform_vector(local_normal)
+                source_wires.append((inner_profile, inner_payload, "inner", inner_wire))
+            expected_normal = np.array(sketch._plane_normal_tuple(), dtype=float)
             expected_normal = expected_normal / np.linalg.norm(expected_normal)
 
             def aligned_wire(wire: Wire):
@@ -3260,13 +3869,16 @@ def _promote_sketch_profile(
                 )
             face = Face(raw_face)
             actual_normal = face.get_normal_at()
-            if np.dot(
-                expected_normal,
-                np.array(
-                    [actual_normal.x, actual_normal.y, actual_normal.z],
-                    dtype=float,
-                ),
-            ) < 0.0:
+            if (
+                np.dot(
+                    expected_normal,
+                    np.array(
+                        [actual_normal.x, actual_normal.y, actual_normal.z],
+                        dtype=float,
+                    ),
+                )
+                < 0.0
+            ):
                 face = Face(TopoDS.Face_s(raw_face.Reversed()))
             shape = face
         else:
@@ -3530,9 +4142,17 @@ def make_circle_redge(
         center_value = cast(Tuple[float, float, float], evaluate_value(center))
         normal_value = cast(Tuple[float, float, float], evaluate_value(normal))
         center_global = cs.transform_point(np.array(center_value))
-        normal_global = cs.transform_point(np.array(normal_value)) - cs.origin
+        normal_global = cs.transform_vector(np.array(normal_value))
+        x_direction_global = cs.transform_vector(
+            _default_plane_x_direction(normal_value)
+        )
 
-        edge_shape = make_circle_edge(center_global, radius_value, normal_global)
+        edge_shape = make_circle_edge(
+            center_global,
+            radius_value,
+            normal_global,
+            x_direction=x_direction_global,
+        )
         edge = cast(
             Edge,
             _finalize_primitive_shape(
@@ -3752,23 +4372,15 @@ def make_rectangle_rwire(
         center_value = cast(Tuple[float, float, float], evaluate_value(center))
         normal_value = cast(Tuple[float, float, float], evaluate_value(normal))
         center_global = cs.transform_point(np.array(center_value))
-        normal_global = cs.transform_point(np.array(normal_value)) - cs.origin
+        normal_global = cs.transform_vector(np.array(normal_value))
 
-        # 标准化法向量
-        normal_vec = normal_global / np.linalg.norm(normal_global)
+        normal_norm = float(np.linalg.norm(normal_global))
+        if normal_norm <= 1e-15 or not np.isfinite(normal_norm):
+            raise ValueError("法向量不能是零向量")
 
-        # 创建本地坐标系
-        # 如果法向量接近Z轴，使用X轴作为参考
-        if abs(normal_vec[2]) > 0.9:
-            ref_vec = np.array([1.0, 0.0, 0.0])
-        else:
-            ref_vec = np.array([0.0, 0.0, 1.0])
-
-        # 计算本地坐标系的X和Y轴
-        local_x = np.cross(normal_vec, ref_vec)
-        local_x = local_x / np.linalg.norm(local_x)
-        local_y = np.cross(normal_vec, local_x)
-        local_y = local_y / np.linalg.norm(local_y)
+        _, local_x, local_y = _orthonormal_plane_axes(normal_value)
+        plane_x = cs.transform_vector(local_x)
+        plane_y = cs.transform_vector(local_y)
 
         # 创建矩形的四个顶点（在本地坐标系中）
         half_w, half_h = width_value / 2, height_value / 2
@@ -3784,7 +4396,7 @@ def make_rectangle_rwire(
         for local_point in local_points:
             # 在本地坐标系中的点
             point_3d = (
-                center_global + local_point[0] * local_x + local_point[1] * local_y
+                center_global + local_point[0] * plane_x + local_point[1] * plane_y
             )
             global_points.append(tuple(float(v) for v in point_3d))
 
@@ -3931,9 +4543,10 @@ def make_face_from_wire_rface(
         if not wire.is_closed():
             raise ValueError("Wire必须是封闭的才能创建面")
 
-        # 获取当前坐标系并转换法向量
+        # The wire is already global geometry; only the requested local normal
+        # is resolved through the active workplane chain.
         cs = get_current_cs()
-        global_normal = cs.transform_point(np.array(normal)) - cs.origin
+        global_normal = cs.transform_vector(np.array(normal))
 
         # 标准化法向量
         normal_vec = global_normal / np.linalg.norm(global_normal)
@@ -4021,7 +4634,7 @@ def make_face_from_wires_rface(
                 raise ValueError("inner wires must be closed")
 
         cs = get_current_cs()
-        global_normal = cs.transform_point(np.array(normal)) - cs.origin
+        global_normal = cs.transform_vector(np.array(normal))
         normal_norm = float(np.linalg.norm(global_normal))
         if normal_norm <= 1e-15 or not np.isfinite(normal_norm):
             raise ValueError("normal must be a non-zero finite vector")
@@ -4333,13 +4946,19 @@ def make_box_rsolid(
             Tuple[float, float, float], evaluate_value(bottom_face_center)
         )
         center_global = cs.transform_point(np.array(center_value))
-        pnt = center_global - np.array([width_value / 2, height_value / 2, 0])
-
+        corner_global = (
+            center_global
+            - np.asarray(cs.x_axis, dtype=float) * (width_value / 2.0)
+            - np.asarray(cs.y_axis, dtype=float) * (height_value / 2.0)
+        )
         tracked = tracked_box(
-            (float(pnt[0]), float(pnt[1]), float(pnt[2])),
+            tuple(float(value) for value in corner_global),
             width_value,
             height_value,
             depth_value,
+            x_axis=tuple(float(value) for value in cs.x_axis),
+            y_axis=tuple(float(value) for value in cs.y_axis),
+            z_axis=tuple(float(value) for value in cs.z_axis),
         )
         solid = cast(Solid, tracked.shape)
 
@@ -4825,50 +5444,10 @@ def make_angle_arc_redge(
         center_value = cast(Tuple[float, float, float], evaluate_value(center))
         normal_value = cast(Tuple[float, float, float], evaluate_value(normal))
         center_global = cs.transform_point(np.array(center_value))
-        normal_global = cs.transform_point(np.array(normal_value)) - cs.origin
-
-        # 标准化法向量
-        normal_vec = normal_global / np.linalg.norm(normal_global)
-
-        # 创建本地坐标系
-        # 如果法向量接近Z轴，使用X轴作为参考
-        if abs(normal_vec[2]) > 0.9:
-            ref_vec = np.array([1.0, 0.0, 0.0])
-        else:
-            ref_vec = np.array([0.0, 0.0, 1.0])
-
-        # 计算本地坐标系的X和Y轴
-        local_x = np.cross(normal_vec, ref_vec)
-        local_x = local_x / np.linalg.norm(local_x)
-        local_y = np.cross(normal_vec, local_x)
-        local_y = local_y / np.linalg.norm(local_y)
-
-        # 在本地坐标系中计算起始、结束和中间点
-        start_local = np.array(
-            [
-                radius_value * np.cos(start_angle_value),
-                radius_value * np.sin(start_angle_value),
-                0,
-            ]
+        normal_global = cs.transform_vector(np.array(normal_value))
+        x_direction_global = cs.transform_vector(
+            _default_plane_x_direction(normal_value)
         )
-        end_local = np.array(
-            [
-                radius_value * np.cos(end_angle_value),
-                radius_value * np.sin(end_angle_value),
-                0,
-            ]
-        )
-        mid_angle = (start_angle_value + end_angle_value) / 2
-        mid_local = np.array(
-            [radius_value * np.cos(mid_angle), radius_value * np.sin(mid_angle), 0]
-        )
-
-        # 转换到全局坐标系
-        start_global = (
-            center_global + start_local[0] * local_x + start_local[1] * local_y
-        )
-        end_global = center_global + end_local[0] * local_x + end_local[1] * local_y
-        mid_global = center_global + mid_local[0] * local_x + mid_local[1] * local_y
 
         edge_shape = make_arc_angle_edge(
             center_global,
@@ -4876,6 +5455,7 @@ def make_angle_arc_redge(
             start_angle_value,
             end_angle_value,
             normal_global,
+            x_direction=x_direction_global,
         )
         return cast(
             Edge,
@@ -5479,10 +6059,16 @@ def make_helix_redge(
         center_value = cast(Tuple[float, float, float], evaluate_value(center))
         dir_value = cast(Tuple[float, float, float], evaluate_value(dir))
         global_center = cs.transform_point(np.array(center_value))
-        global_dir = cs.transform_point(np.array(dir_value)) - cs.origin
+        global_dir = cs.transform_vector(np.array(dir_value))
+        global_x_direction = cs.transform_vector(_default_plane_x_direction(dir_value))
 
         wire_shape = make_helix_wire(
-            pitch_value, height_value, radius_value, global_center, global_dir
+            pitch_value,
+            height_value,
+            radius_value,
+            global_center,
+            global_dir,
+            x_direction=global_x_direction,
         )
         wire = Wire(wire_shape)
         edges = wire.get_edges()
@@ -5537,9 +6123,17 @@ def make_helix_rwire(
 
         cs = get_current_cs()
         global_center = cs.transform_point(np.array(center))
-        global_dir = cs.transform_point(np.array(dir)) - cs.origin
+        global_dir = cs.transform_vector(np.array(dir))
+        global_x_direction = cs.transform_vector(_default_plane_x_direction(dir))
 
-        wire_shape = make_helix_wire(pitch, height, radius, global_center, global_dir)
+        wire_shape = make_helix_wire(
+            pitch,
+            height,
+            radius,
+            global_center,
+            global_dir,
+            x_direction=global_x_direction,
+        )
         return cast(
             Wire,
             _finalize_primitive_shape(
@@ -5581,9 +6175,12 @@ def make_helix_rwire(
 def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyShape:
     """Translate a shape by an offset vector."""
     try:
+        cs = get_current_cs()
+        vector_value = cast(Tuple[float, float, float], evaluate_value(vector))
+        global_vector = cs.transform_vector(np.array(vector_value))
+        resolved_vector = tuple(float(value) for value in global_vector)
         if isinstance(shape, Solid):
-            vector_value = cast(Tuple[float, float, float], evaluate_value(vector))
-            tracked = tracked_translate(shape, vector_value)
+            tracked = tracked_translate(shape, resolved_vector)
             translated = cast(Solid, tracked.shape)
             translated._metadata = shape._metadata.copy()
             _attach_lineage_from_source(
@@ -5602,17 +6199,7 @@ def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyS
                 input_shapes=[shape],
             )
 
-        cs = get_current_cs()
-        vector_value = cast(Tuple[float, float, float], evaluate_value(vector))
-        global_vector = cs.transform_point(np.array(vector_value)) - cs.origin
-        new_shape = translate_shape_ocp(
-            shape,
-            (
-                float(global_vector[0]),
-                float(global_vector[1]),
-                float(global_vector[2]),
-            ),
-        )
+        new_shape = translate_shape_ocp(shape, resolved_vector)
 
         new_shape._metadata = shape._metadata.copy()
         _copy_runtime_state(shape, new_shape)
@@ -5661,11 +6248,19 @@ def rotate_shape(
         return shape
     else:
         try:
+            cs = get_current_cs()
+            axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
+            origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
+            global_axis = cs.transform_vector(np.array(axis_value))
+            global_origin = cs.transform_point(np.array(origin_value))
+            resolved_axis = tuple(float(value) for value in global_axis)
+            resolved_origin = tuple(float(value) for value in global_origin)
             if isinstance(shape, Solid):
-                axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
-                origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
                 tracked = tracked_rotate(
-                    shape, angle_value, axis=axis_value, origin=origin_value
+                    shape,
+                    angle_value,
+                    axis=resolved_axis,
+                    origin=resolved_origin,
                 )
                 rotated = cast(Solid, tracked.shape)
                 rotated._metadata = shape._metadata.copy()
@@ -5687,20 +6282,11 @@ def rotate_shape(
                     input_shapes=[shape],
                 )
 
-            cs = get_current_cs()
-            axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
-            origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
-            global_axis = cs.transform_point(np.array(axis_value)) - cs.origin
-            global_origin = cs.transform_point(np.array(origin_value))
             new_shape = rotate_shape_ocp(
                 shape,
                 angle_value,
-                (float(global_axis[0]), float(global_axis[1]), float(global_axis[2])),
-                (
-                    float(global_origin[0]),
-                    float(global_origin[1]),
-                    float(global_origin[2]),
-                ),
+                resolved_axis,
+                resolved_origin,
             )
 
             new_shape._metadata = shape._metadata.copy()
@@ -5773,7 +6359,7 @@ def extrude_rsolid(
 
         cs = get_current_cs()
         direction_value = cast(Tuple[float, float, float], evaluate_value(direction))
-        global_direction = cs.transform_point(np.array(direction_value)) - cs.origin
+        global_direction = cs.transform_vector(np.array(direction_value))
 
         direction_norm = float(np.linalg.norm(global_direction))
         if direction_norm <= 1e-15:
@@ -5890,7 +6476,7 @@ def revolve_rsolid(
         cs = get_current_cs()
         axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
         origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
-        global_axis = cs.transform_point(np.array(axis_value)) - cs.origin
+        global_axis = cs.transform_vector(np.array(axis_value))
         global_origin = cs.transform_point(np.array(origin_value))
 
         # 获取轮廓对应的面
@@ -5997,8 +6583,8 @@ def _semantic_view_target(view: AnyShape, target: AnyShape) -> AnyShape:
     if not unique:
         raise ValueError("tag target does not belong to the assignment scope")
     if len(unique) != 1:
-        raise ValueError("tag target is ambiguous within the assignment scope")
-    return next(iter(unique.values()))
+        raise ValueError("tag target resolves ambiguously inside the assignment scope")
+    return cast(AnyShape, next(iter(unique.values())))
 
 
 def apply_tag_rselection(
@@ -6078,7 +6664,7 @@ def _apply_tag_rselection(
         if not target_shapes:
             raise ValueError("tag assignment targets cannot be empty")
         if not all(
-            isinstance(item, (Vertex, Edge, Wire, Face, Solid, Compound))
+            isinstance(item, (Vertex, Edge, Wire, Face, Shell, Solid, Compound))
             for item in target_shapes
         ):
             raise TypeError("tag assignment targets must contain only shapes")
@@ -6398,11 +6984,9 @@ def union_rsolid(
                     "the inputs likely meet only along an edge, vertex, tangent point, "
                     "or tangent curve, which is not one manifold solid"
                 )
-        fused_solid = _require_single_boolean_solid(
-            result_shapes,
-            operation="union_rsolid",
-            failure_reason=failure_reason,
-        )
+        if len(result_shapes) != 1:
+            raise ValueError(failure_reason)
+        fused_solid = Solid(result_shapes[0])
 
         all_metadata = {}
         for solid in remaining:
@@ -6463,7 +7047,11 @@ def union_rsolid(
     except Exception as e:
         _wrap_public_api_error(
             operation="union_rsolid",
-            what_happened="Failed to compute the boolean union.",
+            what_happened=(
+                str(e)
+                if isinstance(e, ValueError) and str(e).startswith("union produced ")
+                else "Failed to compute the boolean union."
+            ),
             possible_causes=[
                 "One or more inputs are not Solid objects.",
                 "At least one input solid is null or invalid.",
@@ -6972,17 +7560,21 @@ def make_placement_rplacement(
     x_axis: Tuple[float, float, float] = (1.0, 0.0, 0.0),
     y_axis: Tuple[float, float, float] = (0.0, 1.0, 0.0),
 ) -> Placement:
-    """Create a canonical right-handed component placement.
-
-    The placement maps child-local coordinates into parent assembly coordinates
-    using one representation only: origin plus child x/y axes in parent space.
-    """
+    """Create a canonical right-handed placement in the active workplane."""
 
     try:
-        placement = Placement(origin, x_axis=x_axis, y_axis=y_axis)
+        cs = get_current_cs()
+        origin_global = cs.transform_point(np.asarray(origin, dtype=float))
+        x_axis_global = cs.transform_vector(np.asarray(x_axis, dtype=float))
+        y_axis_global = cs.transform_vector(np.asarray(y_axis, dtype=float))
+        placement = Placement(
+            tuple(float(value) for value in origin_global),
+            x_axis=tuple(float(value) for value in x_axis_global),
+            y_axis=tuple(float(value) for value in y_axis_global),
+        )
         record_operation_if_active(
             _OP_MAKE_PLACEMENT_RPLACEMENT,
-            _placement_params(placement),
+            {"origin": origin, "x_axis": x_axis, "y_axis": y_axis},
             outputs=placement,
             context=_current_context_metadata(),
         )
@@ -7006,13 +7598,18 @@ def make_placement_rplacement(
 
 
 def identity_placement_rplacement() -> Placement:
-    """Create an identity placement."""
+    """Create the identity placement of the active workplane."""
 
     try:
-        placement = identity_placement()
+        cs = get_current_cs()
+        placement = Placement(
+            tuple(float(value) for value in cs.origin),
+            x_axis=tuple(float(value) for value in cs.x_axis),
+            y_axis=tuple(float(value) for value in cs.y_axis),
+        )
         record_operation_if_active(
             _OP_MAKE_IDENTITY_PLACEMENT_RPLACEMENT,
-            _placement_params(placement),
+            {},
             outputs=placement,
             context=_current_context_metadata(),
         )
@@ -8107,7 +8704,7 @@ def make_compound_from_assembly_rcompound(assembly: Assembly) -> Compound:
 # =============================================================================
 
 
-_EXPORTABLE_TYPES = (Compound, Solid, Face, Wire, Edge, Vertex)
+_EXPORTABLE_TYPES = (Compound, Solid, Shell, Face, Wire, Edge, Vertex)
 
 
 def _normalize_shape_input(
@@ -8125,7 +8722,7 @@ def _normalize_shape_input(
         return normalized
 
     raise ValueError(
-        "export 函数只支持 Compound、Solid、Face、Wire、Edge、Vertex 或其序列类型的输入"
+        "export functions accept Compound, Solid, Shell, Face, Wire, Edge, Vertex, or nested sequences of those types"
     )
 
 
@@ -8168,7 +8765,7 @@ def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> N
                 "The exporter rejected the provided geometry.",
             ],
             how_to_fix=[
-                "Pass Compound, Solid, Face, Wire, Edge, Vertex, or sequences of those types.",
+                "Pass Compound, Solid, Shell, Face, Wire, Edge, Vertex, or sequences of those types.",
                 "Use a writable file path ending in .step or .stp.",
                 "If export still fails, inspect each input shape individually.",
             ],
@@ -8205,9 +8802,9 @@ def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> No
         shape_list = _normalize_shape_input(shapes)
 
         for shape in shape_list:
-            if not isinstance(shape, (Compound, Solid, Face)):
+            if not isinstance(shape, (Compound, Solid, Shell, Face)):
                 raise ValueError(
-                    "export_stl函数只支持Compound、Solid和Face类型的几何体"
+                    "export_stl accepts only Compound, Solid, Shell, and Face geometry"
                 )
         export_stl_shape(
             make_compound([shape.wrapped for shape in shape_list]), filename
@@ -8864,17 +9461,17 @@ def linear_pattern_rsolidlist(
         if spacing <= 0:
             raise ValueError("阵列间距必须大于0")
 
-        cs = get_current_cs()
-        global_direction = cs.transform_point(np.array(direction)) - cs.origin
-        direction_norm = float(np.linalg.norm(global_direction))
-        if direction_norm <= 1e-15:
+        direction_value = cast(Tuple[float, float, float], evaluate_value(direction))
+        direction_array = np.asarray(direction_value, dtype=float)
+        direction_norm = float(np.linalg.norm(direction_array))
+        if direction_norm <= 1e-15 or not np.isfinite(direction_norm):
             raise ValueError("阵列方向不能是零向量")
-        direction_vec = global_direction / direction_norm
+        local_direction = direction_array / direction_norm
 
         if get_active_session() is not None:
             rv: List[Solid] = []
             for i in range(count):
-                offset = direction_vec * (spacing * i)
+                offset = local_direction * (spacing * i)
                 translated_shape = translate_shape(
                     shape, (float(offset[0]), float(offset[1]), float(offset[2]))
                 )
@@ -8889,7 +9486,7 @@ def linear_pattern_rsolidlist(
         shapes = []
         with suspend_graph_recording():
             for i in range(count):
-                offset = direction_vec * (spacing * i)
+                offset = local_direction * (spacing * i)
                 translated_shape = translate_shape(
                     shape, (float(offset[0]), float(offset[1]), float(offset[2]))
                 )
@@ -9154,7 +9751,8 @@ def helical_sweep_rsolid(
 
         cs = get_current_cs()
         global_center = cs.transform_point(np.array(center))
-        global_dir = cs.transform_point(np.array(dir)) - cs.origin
+        global_dir = cs.transform_vector(np.array(dir))
+        global_x_direction = cs.transform_vector(_default_plane_x_direction(dir))
 
         result_shape = make_helical_sweep_solid(
             profile.wrapped,
@@ -9163,6 +9761,7 @@ def helical_sweep_rsolid(
             radius,
             global_center,
             global_dir,
+            x_direction=global_x_direction,
         )
         result = Solid(result_shape)
 

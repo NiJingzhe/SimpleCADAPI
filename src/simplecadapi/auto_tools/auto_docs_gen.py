@@ -347,6 +347,8 @@ class APIDocumentGenerator:
                 "SlicePanelResult",
                 "SliceSpec",
             }
+        if name in exported_names:
+            return True
         if module_name not in EXPORTED_CALLABLE_MODULES:
             return False
         if not exported_names:

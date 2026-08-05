@@ -340,6 +340,41 @@ def fit_cubic_bspline_control_points(sample_points, *, tolerance=1e-3):
                 readme,
             )
 
+    def test_generate_markdown_includes_top_level_exported_operations_class(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            (tmp_path / "__init__.py").write_text(
+                "__all__ = ['SurfaceSettings']\n", encoding="utf-8"
+            )
+            source_file = tmp_path / "operations.py"
+            source_file.write_text(
+                '''
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class SurfaceSettings:
+    """Surface construction settings."""
+
+    degree: int = 3
+'''.strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            output_dir = tmp_path / "docs/api"
+
+            generator = auto_docs_gen.APIDocumentGenerator(
+                source_files=[source_file], output_dirs=[output_dir], quiet=True
+            )
+            generator.extract_apis()
+            generator.generate_markdown_docs()
+
+            readme = (output_dir / "README.md").read_text(encoding="utf-8")
+            page = (output_dir / "SurfaceSettings.md").read_text(encoding="utf-8")
+            self.assertIn("[SurfaceSettings](SurfaceSettings.md)", readme)
+            self.assertIn("class SurfaceSettings(degree: int = 3)", page)
+            self.assertIn("from simplecadapi import SurfaceSettings", page)
+
     def test_generate_markdown_includes_physical_units_category(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)

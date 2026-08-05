@@ -38,8 +38,18 @@ def make_line_edge(start: Sequence[float], end: Sequence[float]):
     return BRepBuilderAPI_MakeEdge(_pnt(start), _pnt(end)).Edge()
 
 
-def make_circle_edge(center: Sequence[float], radius: float, normal: Sequence[float]):
-    geom = GC_MakeCircle(gp_Ax2(_pnt(center), _dir(normal)), float(radius)).Value()
+def make_circle_edge(
+    center: Sequence[float],
+    radius: float,
+    normal: Sequence[float],
+    x_direction: Optional[Sequence[float]] = None,
+):
+    axis = (
+        gp_Ax2(_pnt(center), _dir(normal), _dir(x_direction))
+        if x_direction is not None
+        else gp_Ax2(_pnt(center), _dir(normal))
+    )
+    geom = GC_MakeCircle(axis, float(radius)).Value()
     return BRepBuilderAPI_MakeEdge(geom).Edge()
 
 
@@ -56,8 +66,14 @@ def make_arc_angle_edge(
     start_angle: float,
     end_angle: float,
     normal: Sequence[float],
+    x_direction: Optional[Sequence[float]] = None,
 ):
-    circ = gp_Circ(gp_Ax2(_pnt(center), _dir(normal)), float(radius))
+    axis = (
+        gp_Ax2(_pnt(center), _dir(normal), _dir(x_direction))
+        if x_direction is not None
+        else gp_Ax2(_pnt(center), _dir(normal))
+    )
+    circ = gp_Circ(axis, float(radius))
     geom = GC_MakeArcOfCircle(circ, float(start_angle), float(end_angle), True).Value()
     return BRepBuilderAPI_MakeEdge(geom).Edge()
 
@@ -152,10 +168,14 @@ def make_helix_wire(
     radius: float,
     center: Sequence[float],
     direction: Sequence[float],
+    x_direction: Optional[Sequence[float]] = None,
 ):
-    geom_surf = Geom_CylindricalSurface(
-        gp_Ax3(_pnt(center), _dir(direction)), float(radius)
+    axis = (
+        gp_Ax3(_pnt(center), _dir(direction), _dir(x_direction))
+        if x_direction is not None
+        else gp_Ax3(_pnt(center), _dir(direction))
     )
+    geom_surf = Geom_CylindricalSurface(axis, float(radius))
     geom_line = Geom2d_Line(gp_Pnt2d(0.0, 0.0), gp_Dir2d(2 * math.pi, float(pitch)))
     n_turns = float(height) / float(pitch)
     u_start = geom_line.Value(0.0)
