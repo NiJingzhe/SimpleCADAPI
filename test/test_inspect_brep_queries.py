@@ -29,9 +29,11 @@ from simplecadapi.inspect.brep.queries import (
 )
 from simplecadapi.inspect.brep.render import (
     _edge_polydata,
+    _entity_map_legend,
     _load_step_xcaf,
     _mesh_polydata,
     inspect_step_components_rdescriptorlist,
+    render_entity_kind_maps_rpath,
     render_entity_map_rpath,
     render_region_rpath,
     render_step_components_colored_rpath,
@@ -543,11 +545,33 @@ def test_render_entity_map_writes_multicolor_annotated_image(tmp_path):
         views=((28.0, -45.0, "isometric"),),
         image_size=(4.0, 3.0),
         dpi=80,
+        label_mode="legend",
     )
 
     assert result == output
     assert output.is_file()
     assert output.stat().st_size > 0
+
+def test_render_entity_map_uses_external_key_for_large_selection(tmp_path):
+    model = _model()
+    output = tmp_path / "entity-key.png"
+    ids = [f"face:{index}" for index in range(6)]
+
+    assert render_entity_map_rpath(
+        model,
+        ids,
+        output,
+        max_callouts=4,
+        label_mode="auto",
+        legend_columns=2,
+        image_size=(5.0, 3.0),
+        dpi=80,
+    ) == output
+    assert output.stat().st_size > 0
+    colors = [(float(index), 0.0, 0.0) for index in range(6)]
+    assert [label for label, _ in _entity_map_legend(
+        [(ids[index], "PLANE", colors[index]) for index in range(6)], columns=2
+    )] == [f"face:{index} · PLANE" for index in range(6)]
 
 def test_render_entity_map_preserves_opaque_context_and_true_edges(tmp_path):
     model = _model()
@@ -561,6 +585,21 @@ def test_render_entity_map_preserves_opaque_context_and_true_edges(tmp_path):
         dpi=80,
     ) == output
     assert output.stat().st_size > 0
+
+def test_render_entity_kind_maps_splits_geometry_kinds(tmp_path):
+    model = _model()
+    outputs = render_entity_kind_maps_rpath(
+        model,
+        ["face:0", "edge:0", "vertex:0"],
+        tmp_path / "split",
+        views=((28.0, -45.0, "isometric"),),
+        image_size=(4.0, 3.0),
+        dpi=80,
+        highlight_edge_width=8.0,
+        highlight_point_size=22.0,
+    )
+    assert set(outputs) == {"face", "edge", "vertex"}
+    assert all(path.is_file() and path.stat().st_size > 0 for path in outputs.values())
 
 
 def test_render_entity_map_rejects_empty_duplicate_and_invalid_options(tmp_path):
@@ -580,6 +619,22 @@ def test_render_entity_map_rejects_empty_duplicate_and_invalid_options(tmp_path)
             ["face:0"],
             tmp_path / "opacity.png",
             context_opacity=1.1,
+        )
+    with pytest.raises(ValueError, match="label_mode"):
+        render_entity_map_rpath(
+            model,
+            ["face:0"],
+            tmp_path / "label-mode.png",
+            label_mode="invalid",
+        )
+
+    with pytest.raises(ValueError, match="highlight_edge_width"):
+        render_entity_map_rpath(
+            model, ["edge:0"], tmp_path / "edge-width.png", highlight_edge_width=0.0
+        )
+    with pytest.raises(ValueError, match="highlight_point_size"):
+        render_entity_map_rpath(
+            model, ["vertex:0"], tmp_path / "point-size.png", highlight_point_size=0.0
         )
 
 

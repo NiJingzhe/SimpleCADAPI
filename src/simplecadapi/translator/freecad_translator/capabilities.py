@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Dict
+from ...serializer import CANONICAL_OP_SET
 
 from ..types import (
     BackendCapabilities,
@@ -112,8 +113,14 @@ _CANONICAL_OPS = (
 )
 
 OP_SUPPORT: Dict[str, OperationCapability] = {
-    op: OperationCapability(SupportLevel.NATIVE) for op in _CANONICAL_OPS
+    op: OperationCapability(
+        SupportLevel.UNSUPPORTED,
+        reason="The FreeCAD runtime has no implementation for this canonical operation.",
+    )
+    for op in CANONICAL_OP_SET
 }
+for _op in _CANONICAL_OPS:
+    OP_SUPPORT[_op] = OperationCapability(SupportLevel.NATIVE)
 OP_SUPPORT["make_point_rvertex"] = OperationCapability(
     SupportLevel.UNSUPPORTED,
     reason="The FreeCAD point emitter has not been implemented yet.",
