@@ -24,9 +24,8 @@ operating modes, limitations, and verification coverage.
   <h2>CADDesigner Research Artifact</h2>
   <p>This repository is an artifact of</p>
   <p>
-    <strong><a href="https://562590763.github.io/CADDesigner/">CADDesigner: Conceptual CAD Model Generation with a General-Purpose Agent</a></strong>
+    <strong><a href="https://arxiv.org/abs/2608.00891">CADIR: A Cross-Backend Editable Intermediate Representation for Agentic CAD Generation</a></strong>
   </p>
-  <p><strong>Accepted by <em>Computer-Aided Design</em>, 2026</strong></p>
 </div>
 
 ---
