@@ -37,7 +37,6 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_interpolated_spline_redge](make_interpolated_spline_redge.md) *(from operations.py)* `top-level`
 - [make_interpolated_spline_rwire](make_interpolated_spline_rwire.md) *(from operations.py)* `top-level`
 - [make_line_redge](make_line_redge.md) *(from operations.py)* `top-level`
-- [make_loft_rshell](make_loft_rshell.md) *(from operations.py)* `top-level`
 - [make_material_rmaterial](make_material_rmaterial.md) *(from operations.py)* `top-level`
 - [make_part_rpart](make_part_rpart.md) *(from operations.py)* `top-level`
 - [make_periodic_spline_rwire](make_periodic_spline_rwire.md) *(from operations.py)* `top-level`
@@ -71,6 +70,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 ## 3D Operations
 
 - [extrude_rsolid](extrude_rsolid.md) *(from operations.py)* `top-level`
+- [loft_rshell](loft_rshell.md) *(from operations.py)* `top-level`
 - [loft_rsolid](loft_rsolid.md) *(from operations.py)* `top-level`
 - [revolve_rsolid](revolve_rsolid.md) *(from operations.py)* `top-level`
 - [sweep_rsolid](sweep_rsolid.md) *(from operations.py)* `top-level`
