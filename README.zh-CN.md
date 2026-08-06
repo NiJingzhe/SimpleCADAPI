@@ -18,7 +18,7 @@ SimpleCADAPI 2.0.4b2 新增面向 Agent 的 STEP/BREP 逆向工作流，包括�
 ---
 
 <div align="center">
-  <h2>CADDesigner 论文成果</h2>
+  <h2>SimpleCADAPI 论文成果</h2>
   <p>本仓库是以下论文工作的项目产物：</p>
   <p>
     <strong><a href="https://arxiv.org/abs/2608.00891">CADIR: A Cross-Backend Editable Intermediate Representation for Agentic CAD Generation</a></strong>

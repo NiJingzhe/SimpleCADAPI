@@ -21,7 +21,7 @@ operating modes, limitations, and verification coverage.
 ---
 
 <div align="center">
-  <h2>CADDesigner Research Artifact</h2>
+  <h2>SimpleCADAPI Research Artifact</h2>
   <p>This repository is an artifact of</p>
   <p>
     <strong><a href="https://arxiv.org/abs/2608.00891">CADIR: A Cross-Backend Editable Intermediate Representation for Agentic CAD Generation</a></strong>
