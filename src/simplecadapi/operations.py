@@ -30,6 +30,7 @@ from .core import (
     AnyShape,
     WORLD_CS,
     clone_semantic_shape_view,
+    _same_semantic_topology,
     get_current_cs,
     use_coordinate_system,
 )
@@ -87,6 +88,7 @@ from .topology import (
     SemanticDelta,
     SemanticRef,
     TopoDelta,
+    TopoRoleEntry,
     TopoEntry,
     TopoKind,
     TopoRef,
@@ -540,37 +542,228 @@ def make_surface_patch_rface(
             ],
             error=e,
         )
-def make_loft_rshell(
+def _validated_loft_sections(
+    sections: Sequence[Union[Wire, Vertex]], *, operation: str
+) -> List[Union[Wire, Vertex]]:
+    section_list = list(sections)
+    if len(section_list) < 2:
+        raise ValueError(f"{operation} requires at least two sections")
+    if not all(isinstance(section, (Wire, Vertex)) for section in section_list):
+        raise TypeError(f"{operation} sections must contain only Wire or Vertex objects")
+    if not any(isinstance(section, Wire) for section in section_list):
+        raise ValueError(f"{operation} requires at least one Wire section")
+    if any(isinstance(section, Vertex) for section in section_list[1:-1]):
+        raise ValueError(f"{operation} allows Vertex sections only at the start or end")
+    return section_list
+
+
+def _pending_loft_role(shape: AnyShape, role: str, method: str) -> TopoRoleEntry:
+    return TopoRoleEntry(
+        ref=TopoRef(
+            "pending",
+            "pending",
+            0,
+            {
+                "wire": TopoKind.WIRE,
+                "face": TopoKind.FACE,
+            }[_shape_kind_token(shape)],
+            _topo_id(shape.wrapped),
+        ),
+        role=role,
+        metadata={
+            "coverage": "complete",
+            "status": "proven",
+            "evidence_kind": "kernel_operation_role",
+            "evidence_method": method,
+        },
+    )
+
+
+def _matching_shell_boundary(shell: Shell, profile: Wire) -> Wire:
+    profile_edges = list(profile.get_edges())
+    matches = [
+        boundary
+        for boundary in shell.get_wires()
+        if len(boundary.get_edges()) == len(profile_edges)
+        and all(
+            any(edge.wrapped.IsSame(profile_edge.wrapped) for edge in boundary.get_edges())
+            for profile_edge in profile_edges
+        )
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"loft endpoint profile must match exactly one result boundary, got {len(matches)}"
+        )
+    return matches[0]
+
+
+def _apply_loft_role_metadata(shape: AnyShape, delta: TopoDelta, *, op: str) -> AnyShape:
+    candidates: Dict[Tuple[TopoKind, str], AnyShape] = {}
+    for kind, members in (
+        (TopoKind.FACE, shape.get_faces() if hasattr(shape, "get_faces") else []),
+        (TopoKind.WIRE, shape.get_wires() if hasattr(shape, "get_wires") else []),
+    ):
+        for member in members:
+            candidates[(kind, _topo_id(member.wrapped))] = member
+    for entry in delta.roles:
+        member = candidates.get((entry.ref.kind, entry.ref.topo_id))
+        if member is None:
+            continue
+        track = dict(member.get_metadata("track", {}))
+        roles = sorted({*track.get("result_roles", ()), entry.role})
+        track.update(
+            {
+                "op": op,
+                "topo_id": entry.ref.topo_id,
+                "kind": entry.ref.kind.name,
+                "coverage": "complete",
+                "status": "proven",
+                "result_roles": roles,
+            }
+        )
+        member.set_metadata("track", track)
+    return shape
+
+
+def _apply_shell_loft_tag_prefix(
+    shell: Shell, *, tag_prefix: Optional[str], has_start: bool, has_end: bool
+) -> Shell:
+    if tag_prefix is None:
+        return shell
+    prefix = normalize_tag(tag_prefix, strict=True)
+    result: AnyShape = _apply_topology_identity_tag(
+        shell,
+        ShapeSelector("shell").exactly(1),
+        f"{prefix}.shell",
+        kind="shell",
+        local_name="shell",
+        authoring_source="simplecadapi.loft_rshell.tag_prefix",
+    )
+    for present, role, local_name in (
+        (has_start, "loft.start_wire", "start"),
+        (has_end, "loft.end_wire", "end"),
+    ):
+        if not present:
+            continue
+        result = _apply_topology_identity_tag(
+            cast(Shell, result),
+            ShapeSelector("wire").where(output_role(role)).exactly(1),
+            f"{prefix}.wire.{local_name}",
+            kind="wire",
+            local_name=local_name,
+            authoring_source="simplecadapi.loft_rshell.tag_prefix",
+        )
+    result = _apply_topology_identity_tag(
+        cast(Shell, result),
+        ShapeSelector("face").where(output_role("loft.side")).at_least(1),
+        f"{prefix}.face.side",
+        kind="face",
+        local_name="side",
+        authoring_source="simplecadapi.loft_rshell.tag_prefix",
+    )
+    return cast(Shell, result)
+
+
+def loft_rshell(
     sections: Sequence[Union[Wire, Vertex]],
     *,
     ruled: bool = False,
     tag_prefix: Optional[str] = None,
+    result_tag: Optional[str] = None,
+    start_wire_tag: Optional[str] = None,
+    end_wire_tag: Optional[str] = None,
+    side_faces_tag: Optional[str] = None,
 ) -> Shell:
-    """Create an open Shell loft through wire or vertex sections."""
+    """Create an open loft Shell with endpoint-Wire and side-Face naming."""
     try:
-        section_list = list(sections)
-        if len(section_list) < 2:
-            raise ValueError("surface loft requires at least two sections")
-        if not all(isinstance(section, (Wire, Vertex)) for section in section_list):
-            raise TypeError("surface loft sections must contain only Wire or Vertex objects")
-        result = cast(Shell, _finalize_derived_shape(
-            Shell(make_loft_shell([section.wrapped for section in section_list], ruled=bool(ruled))),
-            op="make_loft_rshell",
-            params={
-                "section_count": len(section_list),
-                "ruled": bool(ruled),
-                "tag_prefix": tag_prefix,
-            },
-            input_shapes=section_list,
-            tags={"derived", "surface", "shell"},
-        ))
-        return cast(Shell, _surface_tag_output(result, tag_prefix))
+        section_list = _validated_loft_sections(sections, operation="loft_rshell")
+        start_is_wire = isinstance(section_list[0], Wire)
+        end_is_wire = isinstance(section_list[-1], Wire)
+        if start_wire_tag is not None and not start_is_wire:
+            raise ValueError("start_wire_tag requires a Wire start section")
+        if end_wire_tag is not None and not end_is_wire:
+            raise ValueError("end_wire_tag requires a Wire end section")
+        assignments = _normalize_operation_role_tags(
+            "make_loft_rshell",
+            (
+                ("loft.start_wire", start_wire_tag),
+                ("loft.end_wire", end_wire_tag),
+                ("loft.side", side_faces_tag),
+            ),
+        )
+        normalized_result_tag = (
+            normalize_tag(result_tag, strict=True) if result_tag is not None else None
+        )
+        result = Shell(
+            make_loft_shell(
+                [section.wrapped for section in section_list], ruled=bool(ruled)
+            )
+        )
+        roles = [
+            _pending_loft_role(face, "loft.side", "ResultSideFace")
+            for face in result.get_faces()
+        ]
+        if start_is_wire:
+            roles.append(
+                _pending_loft_role(
+                    _matching_shell_boundary(result, cast(Wire, section_list[0])),
+                    "loft.start_wire",
+                    "EndpointBoundary",
+                )
+            )
+        if end_is_wire:
+            roles.append(
+                _pending_loft_role(
+                    _matching_shell_boundary(result, cast(Wire, section_list[-1])),
+                    "loft.end_wire",
+                    "EndpointBoundary",
+                )
+            )
+        delta = TopoDelta(roles=tuple(roles))
+        _apply_loft_role_metadata(result, delta, op="make_loft_rshell")
+        finalized = cast(
+            Shell,
+            _finalize_derived_shape(
+                result,
+                op="make_loft_rshell",
+                params={
+                    "section_count": len(section_list),
+                    "ruled": bool(ruled),
+                    "tag_prefix": tag_prefix,
+                },
+                input_shapes=section_list,
+                tags={"derived", "surface", "shell"},
+                topo_delta=delta,
+            ),
+        )
+        target_kinds = _validate_operation_output_roles(delta, assignments)
+        tagged = cast(
+            Shell,
+            _apply_operation_role_tags(
+                finalized,
+                op="make_loft_rshell",
+                assignments=assignments,
+                target_kinds=target_kinds,
+                result_tag=normalized_result_tag,
+            ),
+        )
+        return _apply_shell_loft_tag_prefix(
+            tagged,
+            tag_prefix=tag_prefix,
+            has_start=start_is_wire,
+            has_end=end_is_wire,
+        )
     except Exception as e:
         _wrap_public_api_error(
-            operation="make_loft_rshell",
+            operation="loft_rshell",
             what_happened="Failed to create the surface loft shell.",
-            possible_causes=["Sections are not connected or have incompatible topology.", "The kernel loft algorithm failed."],
-            how_to_fix=["Pass at least two Wire or Vertex sections in order along the loft."],
+            possible_causes=[
+                "Sections are incompatible or a Vertex was used away from an endpoint.",
+                "The kernel loft algorithm failed.",
+            ],
+            how_to_fix=[
+                "Pass at least two Wire or endpoint Vertex sections in loft order."
+            ],
             error=e,
         )
 
@@ -834,6 +1027,11 @@ _OPERATION_OUTPUT_ROLE_CARDINALITY: Dict[str, Tuple[Tuple[str, str], ...]] = {
         ("sweep.start", "one"),
         ("sweep.end", "one"),
         ("sweep.side", "many"),
+    ),
+    "make_loft_rshell": (
+        ("loft.start_wire", "one"),
+        ("loft.end_wire", "one"),
+        ("loft.side", "many"),
     ),
     _OP_MAKE_TWISTED_SWEEP_RSOLID: (
         ("twisted_sweep.start", "one"),
@@ -2158,6 +2356,7 @@ def _finalize_derived_shape(
     params: Dict[str, object],
     input_shapes: Sequence[AnyShape],
     tags: Optional[Set[str]] = None,
+    topo_delta: Optional[TopoDelta] = None,
 ) -> AnyShape:
     _attach_track_summary(shape, op=op)
     prepared_inputs = list(_ensure_geo_selection_input_nodes(input_shapes) or ())
@@ -2180,6 +2379,7 @@ def _finalize_derived_shape(
         outputs=shape,
         input_shapes=prepared_inputs,
         semantic_delta=_semantic_delta_for_output(op),
+        topo_delta=topo_delta,
         context=_current_context_metadata(),
         tags=tags,
     )
@@ -2309,19 +2509,19 @@ def _validate_operation_output_roles(
 
 
 def _apply_operation_role_tags(
-    solid: Solid,
+    shape: AnyShape,
     *,
     op: str,
     assignments: Sequence[Tuple[str, str, str]],
     target_kinds: Mapping[str, str],
     result_tag: Optional[str] = None,
-) -> Solid:
+) -> AnyShape:
     if not assignments and result_tag is None:
-        return solid
+        return shape
 
-    role_source_node = _active_graph_node_for_shape(solid)
-    role_source_slot = int(solid._get_runtime("graph.output_slot", 0))
-    result: AnyShape = solid
+    role_source_node = _active_graph_node_for_shape(shape)
+    role_source_slot = int(shape._get_runtime("graph.output_slot", 0))
+    result: AnyShape = shape
     for role, cardinality, tag in assignments:
         selector = ShapeSelector(target_kinds[role]).where(output_role(role))
         selector = selector.exactly(1) if cardinality == "one" else selector.at_least(1)
@@ -2349,7 +2549,7 @@ def _apply_operation_role_tags(
     if result_tag is not None:
         result = _apply_tag_rselection(
             result,
-            ShapeSelector("solid").exactly(1),
+            ShapeSelector(_shape_kind_token(shape)).exactly(1),
             result_tag,
             TopologyPropagation.LOCAL,
             LineagePolicy.CONTINUATION_FRAGMENT,
@@ -2366,7 +2566,7 @@ def _apply_operation_role_tags(
                 }
             },
         )
-    return cast(Solid, result)
+    return result
 
 
 def _topology_identity_local_name(shape: AnyShape) -> Optional[str]:
@@ -6575,7 +6775,11 @@ def _semantic_view_target(view: AnyShape, target: AnyShape) -> AnyShape:
     matches = []
     for candidate in candidates:
         try:
-            if candidate.wrapped.IsSame(target.wrapped):
+            if _same_semantic_topology(
+                target._entity.kind,
+                candidate.wrapped,
+                target.wrapped,
+            ):
                 matches.append(candidate)
         except Exception:
             continue
@@ -9136,7 +9340,7 @@ def shell_rsolid(
 
 
 def loft_rsolid(
-    profiles: List[Wire],
+    profiles: Sequence[Union[Wire, Vertex]],
     ruled: bool = False,
     *,
     tracking_policy: TrackingPolicy | str = TrackingPolicy.FULL,
@@ -9148,6 +9352,11 @@ def loft_rsolid(
 ) -> Solid:
     """Create a lofted solid, with optional kernel-role-based tags."""
     try:
+        profile_list = _validated_loft_sections(profiles, operation="loft_rsolid")
+        if start_face_tag is not None and isinstance(profile_list[0], Vertex):
+            raise ValueError("start_face_tag requires a Wire start section")
+        if end_face_tag is not None and isinstance(profile_list[-1], Vertex):
+            raise ValueError("end_face_tag requires a Wire end section")
         policy = (
             TrackingPolicy.GRAPH
             if current_tracking_policy() == TrackingPolicy.GRAPH
@@ -9164,8 +9373,7 @@ def loft_rsolid(
         normalized_result_tag = (
             normalize_tag(result_tag, strict=True) if result_tag is not None else None
         )
-        if len(profiles) < 2:
-            raise ValueError("放样至少需要2个轮廓")
+        profiles = profile_list
 
         if policy == TrackingPolicy.GRAPH and (assignments or tag_prefix is not None):
             raise ValueError(
@@ -9233,8 +9441,8 @@ def loft_rsolid(
             tag_prefix=tag_prefix,
             op=_OP_MAKE_LOFT_RSOLID,
             delta=tracked.delta,
-            start_role="loft.start",
-            end_role="loft.end",
+            start_role=("loft.start" if isinstance(profiles[0], Wire) else None),
+            end_role=("loft.end" if isinstance(profiles[-1], Wire) else None),
             side_role="loft.side",
             source_shapes=profiles,
         )
@@ -9243,14 +9451,15 @@ def loft_rsolid(
             operation="loft_rsolid",
             what_happened="Failed to loft the input profiles into a solid.",
             possible_causes=[
-                "Fewer than two profiles were provided.",
-                "One or more profiles are invalid or incompatible.",
+                "Fewer than two sections were provided.",
+                "A Vertex section was used away from the start or end.",
+                "One or more Wire/Vertex sections are invalid or incompatible.",
                 "The kernel rejected the loft because the section geometry is inconsistent.",
             ],
             how_to_fix=[
-                "Pass at least two valid Wire profiles.",
-                "Keep the profile topology compatible across sections.",
-                "If loft fails, inspect each profile individually and simplify the section geometry.",
+                "Pass at least two Wire or endpoint Vertex sections.",
+                "Keep Wire topology compatible across sections.",
+                "If loft fails, inspect each section individually and simplify its geometry.",
             ],
             error=e,
         )

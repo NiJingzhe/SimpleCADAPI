@@ -427,7 +427,7 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "status": "replayable",
         "op": "make_surface_patch_rface",
     },
-    "make_loft_rshell": {"status": "replayable", "op": "make_loft_rshell"},
+    "loft_rshell": {"status": "replayable", "op": "make_loft_rshell"},
     "sew_faces_rshell": {"status": "replayable", "op": "sew_faces_rshell"},
     "free_boundaries_rwirelist": {
         "status": "replayable",
@@ -2039,13 +2039,15 @@ def _validate_replayed_topology_roles(
 
     runtime: Dict[str, set[Tuple[str, str, int, str, str]]] = {}
     for output in result_list:
-        if not isinstance(output, (Solid, Compound, Face)):
+        if not isinstance(output, (Solid, Compound, Face, Shell)):
             continue
         candidates: List[AnyShape] = []
         if hasattr(output, "get_faces"):
             candidates.extend(output.get_faces())
         if hasattr(output, "get_edges"):
             candidates.extend(output.get_edges())
+        if hasattr(output, "get_wires"):
+            candidates.extend(output.get_wires())
         for candidate in candidates:
             track = candidate.get_metadata("track")
             if not isinstance(track, dict):
@@ -3078,7 +3080,7 @@ def _execute_graph(
                             ctx.fail(
                                 f"Graph node '{node.node_id}' ({op_name}) section inputs do not match section_count"
                             )
-                        result = ops.make_loft_rshell(
+                        result = ops.loft_rshell(
                             cast(Sequence[Wire | Vertex], ordered),
                             ruled=bool(params["ruled"]),
                             tag_prefix=cast(Optional[str], params.get("tag_prefix")),
