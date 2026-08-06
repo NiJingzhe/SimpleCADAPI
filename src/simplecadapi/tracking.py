@@ -76,7 +76,7 @@ from OCP.TopAbs import (
 )
 from OCP.TopoDS import TopoDS
 
-from .core import Solid, Face, Edge, Vertex
+from .core import Solid, Face, Edge, Vertex, Wire
 from .kernel.ocp_booleans import fuse_shapes_with_history, solids_of
 from .kernel.ocp_builders import (
     build_box_primitive,
@@ -1689,8 +1689,8 @@ def tracked_shell(
     )
 
 
-def tracked_loft(profiles: List[Wire], ruled: bool = False) -> TrackedResult:
-    """Loft profile wires into a solid with wire-level history tracking."""
+def tracked_loft(profiles: List[Wire | Vertex], ruled: bool = False) -> TrackedResult:
+    """Loft wire/vertex profiles into a solid with topology history tracking."""
 
     graph_id = _make_id("g")
     node_id = _make_id("n")
@@ -1698,7 +1698,10 @@ def tracked_loft(profiles: List[Wire], ruled: bool = False) -> TrackedResult:
     loft_op = BRepOffsetAPI_ThruSections(True, bool(ruled))
     loft_op.CheckCompatibility(True)
     for profile in profiles:
-        loft_op.AddWire(profile.wrapped)
+        if isinstance(profile, Vertex):
+            loft_op.AddVertex(profile.wrapped)
+        else:
+            loft_op.AddWire(profile.wrapped)
     loft_op.Build()
 
     if not loft_op.IsDone():
@@ -1713,6 +1716,8 @@ def tracked_loft(profiles: List[Wire], ruled: bool = False) -> TrackedResult:
     history_entries: List[Dict[str, Any]] = []
 
     for idx, profile in enumerate(profiles):
+        if isinstance(profile, Vertex):
+            continue
         pres, mod, gen, del_, profile_entries = _query_history(
             loft_op,
             profile.wrapped,
@@ -1732,20 +1737,57 @@ def tracked_loft(profiles: List[Wire], ruled: bool = False) -> TrackedResult:
         history_entries.extend(profile_entries)
 
     roles = _roles_from_history(history_entries, evidence_method="Generated")
-    for candidate, role, method in (
-        (loft_op.FirstShape(), "loft.start", "FirstShape"),
-        (loft_op.LastShape(), "loft.end", "LastShape"),
-    ):
-        role_entry = _operation_role(
-            candidate,
-            result_shape=result_solid.wrapped,
-            graph_id=graph_id,
-            node_id=node_id,
-            role=role,
-            evidence_method=method,
-        )
-        if role_entry is not None:
-            roles.append(role_entry)
+    if isinstance(profiles[0], Wire) and isinstance(profiles[-1], Wire):
+        for candidate, role, method in (
+            (loft_op.FirstShape(), "loft.start", "FirstShape"),
+            (loft_op.LastShape(), "loft.end", "LastShape"),
+        ):
+            role_entry = _operation_role(
+                candidate,
+                result_shape=result_solid.wrapped,
+                graph_id=graph_id,
+                node_id=node_id,
+                role=role,
+                evidence_method=method,
+            )
+            if role_entry is not None:
+                roles.append(role_entry)
+    else:
+        side_face_ids = {
+            str(entry["topo_id"])
+            for entry in roles
+            if entry.get("role") == "loft.side"
+            and str(entry.get("kind", "")).upper() == TopoKind.FACE.name
+        }
+        cap_faces = [
+            face
+            for face in result_solid.get_faces()
+            if _topo_id(face.wrapped) not in side_face_ids
+        ]
+        wire_endpoint_roles = [
+            (profiles[0], "loft.start"),
+            (profiles[-1], "loft.end"),
+        ]
+        wire_endpoint_roles = [
+            (profile, role)
+            for profile, role in wire_endpoint_roles
+            if isinstance(profile, Wire)
+        ]
+        if len(cap_faces) != len(wire_endpoint_roles):
+            raise ValueError(
+                "Loft point-profile topology did not produce the expected endpoint caps"
+            )
+        for face, (_profile, role) in zip(cap_faces, wire_endpoint_roles):
+            role_entry = _operation_role(
+                face.wrapped,
+                result_shape=result_solid.wrapped,
+                graph_id=graph_id,
+                node_id=node_id,
+                role=role,
+                evidence_method="NonSideEndpointCap",
+            )
+            if role_entry is not None:
+                roles.append(role_entry)
 
     delta = TopoDelta(
         preserved=tuple(preserved),
