@@ -83,19 +83,46 @@ class TestSurfaceApi(unittest.TestCase):
         self.assertEqual(len(replayed[1].get_edges()), 4)
         self.assertIn("patch.face", scad.list_tags(replayed[1]))
 
-    def test_shell_builders_ql_and_replay(self):
+    def test_shell_loft_roles_names_point_profiles_and_replay(self):
         with scad.GraphSession() as session:
-            lower = scad.make_circle_rwire((0, 0, 0), 1.0)
+            lower = scad.make_circle_rwire((0, 0, 0), 2.0)
             upper = scad.make_circle_rwire((0, 0, 2), 1.0)
-            open_shell = scad.make_loft_rshell([lower, upper])
-            self.assertEqual(len(scad.ql.shells().exactly(1).resolve(open_shell)), 1)
-            closed_shell = scad.fill_holes_rshell(open_shell, tag_prefix="closed")
+            open_shell = scad.loft_rshell(
+                [lower, upper],
+                tag_prefix="skin",
+                result_tag="part.skin",
+                start_wire_tag="anchor.inlet",
+                end_wire_tag="anchor.outlet",
+                side_faces_tag="group.side",
+            )
+            scad.capture_result(value=open_shell)
 
-        replayed = scad.replay_model_json(scad.export_model_json(session))[0]
+        replayed = scad.replay_model_json(scad.export_model_json(session), strict=True)[0]
         self.assertIsInstance(replayed, scad.Shell)
-        self.assertTrue(replayed.is_closed())
-        self.assertEqual(len(replayed.get_faces()), 3)
-        self.assertIn("closed.shell", scad.list_tags(replayed))
+        self.assertFalse(replayed.is_closed())
+        self.assertEqual(len(replayed.get_wires()), 2)
+        self.assertEqual(
+            len(scad.ql.wires().where(scad.ql.tag("anchor.inlet")).resolve(replayed)),
+            1,
+        )
+        self.assertEqual(
+            len(scad.ql.wires().where(scad.ql.tag("anchor.outlet")).resolve(replayed)),
+            1,
+        )
+        self.assertEqual(
+            len(scad.ql.faces().where(scad.ql.tag("group.side")).resolve(replayed)),
+            1,
+        )
+        self.assertIn("part.skin", scad.list_tags(replayed))
+        self.assertIn("skin.shell", scad.list_tags(replayed))
+
+        point = scad.make_point_rvertex(0, 0, 4)
+        pointed = scad.loft_rshell([upper, point], start_wire_tag="anchor.base")
+        self.assertEqual(len(pointed.get_wires()), 1)
+        self.assertEqual(
+            len(scad.ql.wires().where(scad.ql.tag("anchor.base")).resolve(pointed)),
+            1,
+        )
 
     def test_sew_and_free_boundary_multi_output_replay(self):
         with scad.GraphSession() as session:
@@ -117,7 +144,7 @@ class TestSurfaceApi(unittest.TestCase):
         with scad.GraphSession() as session:
             lower = scad.make_circle_rwire((0, 0, 0), 1.0)
             upper = scad.make_circle_rwire((0, 0, 2), 1.0)
-            closed_shell = scad.fill_holes_rshell(scad.make_loft_rshell([lower, upper]))
+            closed_shell = scad.fill_holes_rshell(scad.loft_rshell([lower, upper]))
             boundaries = scad.free_boundaries_rwirelist(closed_shell)
 
         node = session.graph.leaf_nodes()[0]
@@ -125,6 +152,18 @@ class TestSurfaceApi(unittest.TestCase):
         self.assertEqual(node.op, "free_boundaries_rwirelist")
         self.assertEqual(node.output_count, 0)
         self.assertEqual(scad.replay_model_json(scad.export_model_json(session)), [])
+
+    def test_loft_rejects_middle_points_and_missing_endpoint_topology(self):
+        lower = scad.make_circle_rwire((0, 0, 0), 2.0)
+        middle = scad.make_point_rvertex(0, 0, 2)
+        upper = scad.make_circle_rwire((0, 0, 4), 1.0)
+
+        with self.assertRaisesRegex(scad.SimpleCADError, "only at the start or end"):
+            scad.loft_rshell([lower, middle, upper])
+        with self.assertRaisesRegex(scad.SimpleCADError, "end_wire_tag requires"):
+            scad.loft_rshell([lower, middle], end_wire_tag="anchor.end")
+        with self.assertRaisesRegex(scad.SimpleCADError, "end_face_tag requires"):
+            scad.loft_rsolid([lower, middle], end_face_tag="anchor.end")
 
     def test_strict_replay_rejects_ordered_input_ref_tampering(self):
         with scad.GraphSession() as session:

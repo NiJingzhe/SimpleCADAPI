@@ -162,6 +162,7 @@ class TestCoverageMatrix(unittest.TestCase):
             "extrude_rsolid",
             "revolve_rsolid",
             "loft_rsolid",
+            "loft_rshell",
             "sweep_rsolid",
             "twisted_sweep_rsolid",
             "helical_sweep_rsolid",

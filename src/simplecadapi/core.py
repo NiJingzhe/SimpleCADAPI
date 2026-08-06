@@ -51,6 +51,7 @@ from .kernel.ocp_topology import (
     vertex_point,
     vertices_of,
 )
+from .kernel.ocp_surfaces import free_boundaries
 from .tagging import (
     LineagePolicy,
     TagAttachment,
@@ -1285,6 +1286,8 @@ class Shell(TaggedMixin, TopoMixein):
             TopoMixein.__init__(self, level=4, self_shape_ref=self)
             for face in faces_of(self.wrapped):
                 self.add_child(Face(face, cache=self._topology_cache))
+            for wire in free_boundaries(self.wrapped, tolerance=1e-7):
+                self.add_child(Wire(wire, cache=self._topology_cache))
         except Exception as e:
             raise ValueError(
                 f"Failed to initialize Shell: {e}. Expected one connected OCP shell."
@@ -1305,6 +1308,19 @@ class Shell(TaggedMixin, TopoMixein):
             face for face in cast(List[Face], self.get_children()) if isinstance(face, Face)
         ]
         result = cast(List[Face], _selection_list(self, "face", faces))
+        if index is None:
+            return result
+        return result[index]
+
+    def get_wires(self, index: Optional[int] = None) -> Union[List[Wire], Wire]:
+        """Return the Shell's free boundary wires."""
+
+        wires = [
+            wire
+            for wire in cast(List[Wire], self.get_children())
+            if isinstance(wire, Wire)
+        ]
+        result = cast(List[Wire], _selection_list(self, "wire", wires))
         if index is None:
             return result
         return result[index]
@@ -1563,6 +1579,24 @@ class Compound(TaggedMixin, TopoMixein):
 AnyShape = Union[Vertex, Edge, Wire, Face, Shell, Solid, Compound]
 
 
+def _same_semantic_topology(kind: str, left: Any, right: Any) -> bool:
+    try:
+        if left.IsSame(right):
+            return True
+    except Exception:
+        return False
+    if kind != "wire":
+        return False
+    left_edges = edges_of(left)
+    right_edges = edges_of(right)
+    if len(left_edges) != len(right_edges):
+        return False
+    return all(
+        any(left_edge.IsSame(right_edge) for right_edge in right_edges)
+        for left_edge in left_edges
+    )
+
+
 def clone_semantic_shape_view(shape: AnyShape) -> AnyShape:
     """Create an independent semantic view over the same kernel geometry."""
 
@@ -1578,7 +1612,11 @@ def clone_semantic_shape_view(shape: AnyShape) -> AnyShape:
             if source_entity.kind != target_entity.kind:
                 continue
             try:
-                if source_entity.representative.IsSame(target_entity.representative):
+                if _same_semantic_topology(
+                    source_entity.kind,
+                    source_entity.representative,
+                    target_entity.representative,
+                ):
                     matches.append(source_entity)
             except Exception:
                 continue

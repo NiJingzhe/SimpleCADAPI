@@ -94,6 +94,35 @@ class TestRearchitecture20CoreOps(unittest.TestCase):
             1,
         )
 
+    def test_point_profile_loft_replays_with_existing_endpoint_roles(self):
+        with GraphSession() as session:
+            base = scad.make_circle_rwire((0.0, 0.0, 0.0), 2.0)
+            tip = scad.make_point_rvertex(0.0, 0.0, 5.0)
+            solid = scad.loft_rsolid(
+                [base, tip],
+                tag_prefix="cone",
+                start_face_tag="anchor.base",
+                side_faces_tag="group.side",
+            )
+            session.capture_result(value=solid)
+
+        replayed = scad.replay_model_json(scad.export_model_json(session), strict=True)[0]
+        self.assertIsInstance(replayed, scad.Solid)
+        self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=6)
+        self.assertEqual(
+            len(scad.ql.faces().where(scad.ql.tag("anchor.base")).resolve(replayed)),
+            1,
+        )
+        self.assertEqual(
+            len(scad.ql.faces().where(scad.ql.tag("group.side")).resolve(replayed)),
+            1,
+        )
+        self.assertEqual(
+            len(scad.ql.faces().where(scad.ql.tag("cone.face.start")).resolve(replayed)),
+            1,
+        )
+
+
     def test_loft_graph_tracking_records_replayable_node_without_topology_delta(self):
         with GraphSession() as session:
             a = scad.make_rectangle_rwire(2.0, 2.0, center=(0.0, 0.0, 0.0))
