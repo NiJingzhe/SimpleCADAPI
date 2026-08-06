@@ -6,6 +6,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_Transform
 from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell, BRepOffsetAPI_ThruSections
+from OCP.TopAbs import TopAbs_VERTEX, TopAbs_WIRE
 from OCP.gp import gp_Trsf, gp_Vec
 from OCP.TopoDS import TopoDS
 
@@ -30,15 +31,21 @@ def make_face_from_wires(outer_wire, inner_wires: Sequence[Any]):
     return builder.Face()
 
 
-def make_loft_solid(wires: Iterable[Any], ruled: bool = False):
+def make_loft_solid(sections: Iterable[Any], ruled: bool = False):
     builder = BRepOffsetAPI_ThruSections(True, bool(ruled))
     builder.CheckCompatibility(True)
-    for wire in wires:
-        builder.AddWire(wire)
+    for section in sections:
+        if section.ShapeType() == TopAbs_VERTEX:
+            builder.AddVertex(TopoDS.Vertex_s(section))
+        elif section.ShapeType() == TopAbs_WIRE:
+            builder.AddWire(TopoDS.Wire_s(section))
+        else:
+            raise TypeError("loft sections must contain only vertices or wires")
     builder.Build()
     if not builder.IsDone():
         raise ValueError("OCP loft builder failed")
     return builder.Shape()
+
 
 
 def make_sweep_solid(profile_wire, path_wire, is_frenet: bool = False):

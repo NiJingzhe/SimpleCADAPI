@@ -7,6 +7,7 @@
 ## Topology and Properties
 
 - `get_faces(index=None)` returns all faces or one indexed face.
+- `get_wires(index=None)` returns the Shell's free boundary wires.
 - `get_edges(index=None)` returns unique edges across the shell faces.
 - `get_area()` returns total face area.
 - `is_closed()` reports whether the shell has no free boundary.
@@ -17,7 +18,7 @@
 
 Use the public surface operations rather than constructing `Shell` from an OCP object directly:
 
-- [`make_loft_rshell`](../api/make_loft_rshell.md) lofts through wire or vertex sections.
+- [`loft_rshell`](../api/loft_rshell.md) lofts through Wire sections with optional Vertex endpoints and can name the start/end boundary Wires and side Faces.
 - [`sew_faces_rshell`](../api/sew_faces_rshell.md) sews connected faces into one shell.
 - [`fill_holes_rshell`](../api/fill_holes_rshell.md) fills every free boundary loop.
 
@@ -27,9 +28,15 @@ import simplecadapi as scad
 lower = scad.make_circle_rwire((0, 0, 0), 2.0)
 upper = scad.make_circle_rwire((0, 0, 5), 1.0)
 
-open_shell = scad.make_loft_rshell([lower, upper])
+open_shell = scad.loft_rshell(
+    [lower, upper],
+    start_wire_tag="anchor.inlet",
+    end_wire_tag="anchor.outlet",
+    side_faces_tag="group.skin",
+)
 assert not open_shell.is_closed()
-assert len(scad.free_boundaries_rwirelist(open_shell)) == 2
+assert len(open_shell.get_wires()) == 2
+assert len(scad.ql.wires().where(scad.ql.tag("anchor.inlet")).resolve(open_shell)) == 1
 
 closed_shell = scad.fill_holes_rshell(open_shell)
 assert closed_shell.is_closed()

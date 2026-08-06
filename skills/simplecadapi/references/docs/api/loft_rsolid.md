@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def loft_rsolid(profiles: List[Wire], ruled: bool = False, *, tracking_policy: TrackingPolicy | str = TrackingPolicy.FULL, tag_prefix: Optional[str] = None, result_tag: Optional[str] = None, start_face_tag: Optional[str] = None, end_face_tag: Optional[str] = None, side_faces_tag: Optional[str] = None) -> Solid
+def loft_rsolid(profiles: Sequence[Union[Wire, Vertex]], ruled: bool = False, *, tracking_policy: TrackingPolicy | str = TrackingPolicy.FULL, tag_prefix: Optional[str] = None, result_tag: Optional[str] = None, start_face_tag: Optional[str] = None, end_face_tag: Optional[str] = None, side_faces_tag: Optional[str] = None) -> Solid
 ```
 
 *Source: operations.py*
