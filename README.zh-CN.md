@@ -6,7 +6,7 @@
 
 [English](README.md)
 
-## 更新日志（2.0.4b2 开发中）
+## 更新日志（2.0.4b2）
 
 > **Beta 版本：** 用于生产前，请检查逆向得到的几何以及生成的 CAD 文档。
 
@@ -30,8 +30,8 @@ SimpleCADAPI 2.0.4b2 新增面向 Agent 的 STEP/BREP 逆向工作流，包括�
 
 SimpleCADAPI 是一个基于 OCP 的 Python CAD SDK，提供清晰的函数式建模操作和可重放的模型图。它在 OpenCascade 几何内核之上提供精简的公共 API，可用于创建实体、应用特征、添加语义标签、查询拓扑、导出制造文件，以及将记录的模型转换为 FreeCAD 工作流。
 
-当前已发布 Beta 版本：`simplecadapi==2.0.4b1`。2.0.4b2 更新说明描述的是正在验证的
-下一版 Beta。
+当前已发布 Beta 版本：`simplecadapi==2.0.4b2`。发布详情见
+[2.0.4b2 更新说明](docs/updates/2.0.4b2.zh-CN.md)。
 
 ## 核心能力
 
