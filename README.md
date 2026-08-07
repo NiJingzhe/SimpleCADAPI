@@ -6,7 +6,7 @@
 
 [中文说明](README.zh-CN.md)
 
-## Update Notes (2.0.4b2 development)
+## Update Notes (2.0.4b2)
 
 > **Beta release:** Review reconstructed geometry and generated CAD documents
 > before using this version in production.
@@ -36,8 +36,8 @@ in a compact public API for creating solids, applying features, tagging semantic
 intent, querying topology, exporting manufacturing files, and translating recorded
 models into FreeCAD workflows.
 
-Current published beta release: `simplecadapi==2.0.4b1`. The 2.0.4b2 notes
-describe the next beta while it is under validation.
+Current published beta release: `simplecadapi==2.0.4b2`. See the
+[2.0.4b2 update notes](docs/updates/2.0.4b2.md) for release details.
 
 ## What It Provides
 

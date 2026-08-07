@@ -78,6 +78,11 @@ jobs:
 
       - name: Verify distributions
         run: uv run twine check dist/*
+      - name: Build and verify Agent Skill archive
+        run: |
+          uv run skill-pack --refresh-docs --archive
+          uv run pytest test/test_skill_pack.py -q
+
 
       - name: Create GitHub release
         env:
@@ -87,7 +92,7 @@ jobs:
           if [[ "$RELEASE_TAG" =~ (a|b|rc)[0-9]+$ ]]; then
             release_flags+=(--prerelease --latest=false)
           fi
-          gh release create "$RELEASE_TAG" dist/* \
+          gh release create "$RELEASE_TAG" dist/* skills/simplecadapi.tar.gz \
             --verify-tag \
             --generate-notes \
             --title "$RELEASE_TAG" \
