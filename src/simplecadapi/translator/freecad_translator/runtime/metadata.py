@@ -32,6 +32,11 @@ def _ensure_link_property(obj, prop_name, group="SimpleCAD"):
         obj.addProperty("App::PropertyLink", prop_name, group)
 
 
+def _ensure_link_list_property(obj, prop_name, group="SimpleCAD"):
+    if prop_name not in list(getattr(obj, "PropertiesList", []) or []):
+        obj.addProperty("App::PropertyLinkList", prop_name, group)
+
+
 def _ensure_placement_property(obj, prop_name="Placement", group="SimpleCAD"):
     if prop_name not in list(getattr(obj, "PropertiesList", []) or []):
         obj.addProperty("App::PropertyPlacement", prop_name, group)
@@ -114,6 +119,20 @@ def _mark_emulated_translation(obj, *, node_id, op, reason):
         "reason": str(reason),
     }
     return obj
+
+
+def _mark_graph_outputs_emulated(*, node_id, op, reason):
+    outputs = list(GRAPH_OUTPUTS.get(str(node_id), []) or [])
+    if not outputs:
+        GRAPH_TRANSLATION_LIMITATIONS[str(node_id)] = {
+            "op": str(op),
+            "support": "emulated",
+            "reason": str(reason),
+        }
+        return None
+    for obj in outputs:
+        _mark_emulated_translation(obj, node_id=node_id, op=op, reason=reason)
+    return outputs[0]
 
 
 def _simplecad_slug(value, prefix="obj"):

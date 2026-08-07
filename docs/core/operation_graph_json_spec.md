@@ -998,9 +998,11 @@ New canonical profile nodes use the `make_*_r*` names listed in `canonical_contr
 - `make_wire_from_edges_rwire`
 - `make_face_from_wire_rface`
 - `make_sketch_rsketch`
-- `make_add_point_rsketch`
-- `make_add_line_rsketch`
-- `make_add_circle_rsketch`
+- `add_point_rsketch`
+- `add_line_rsketch`
+- `add_circle_rsketch`
+- `add_arc_rsketch`
+- `add_bspline_rsketch`
 - `make_constrain_coincident_rsketch`
 - `make_constrain_point_on_rsketch`
 - `make_constrain_horizontal_rsketch`
@@ -1255,26 +1257,37 @@ Notes:
 - Outputs: 1 `Sketch`
 - Params: `name`, `plane`, `sketch_id`
 
-#### `make_add_point_rsketch`
+#### `add_point_rsketch`
 
 - Inputs: 1 `Sketch`
 - Outputs: 1 updated `Sketch`
 - Params: `sketch_id`, `point_id`, `x`, `y`
 
-#### `make_add_line_rsketch`
+#### `add_line_rsketch`
 
 - Inputs: 1 `Sketch`
 - Outputs: 1 updated `Sketch`
 - Params: `sketch_id`, `entity_id`, `start`, `end`, `construction`
 - `start` and `end` are stable point target ids such as `p0`, `p1`, or endpoint paths such as `line.start`.
 
-#### `make_add_circle_rsketch`
+#### `add_circle_rsketch`
 
 - Inputs: 1 `Sketch`
 - Outputs: 1 updated `Sketch`
 - Params: `sketch_id`, `entity_id`, `center`, `radius`, `construction`
 - `center` is a stable point target id.
 
+#### `add_arc_rsketch`
+
+- Inputs: 1 `Sketch`
+- Outputs: 1 updated `Sketch`
+- Params: `sketch_id`, `entity_id`, `start`, `end`, `center`, `construction`
+
+#### `add_bspline_rsketch`
+
+- Inputs: 1 `Sketch`
+- Outputs: 1 updated `Sketch`
+- Params: `sketch_id`, `entity_id`, `start`, `end`, `control_points`, `degree`, `knots`, `multiplicities`, `weights`, `periodic`, `construction`
 #### `make_constrain_*_rsketch`
 
 - Inputs: 1 `Sketch`

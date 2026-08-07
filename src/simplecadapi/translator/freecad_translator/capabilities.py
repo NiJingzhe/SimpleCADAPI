@@ -23,16 +23,25 @@ _CANONICAL_OPS = (
     "make_angle_arc_redge",
     "make_spline_redge",
     "make_interpolated_spline_redge",
+    "make_bezier_surface_rface",
+    "fit_point_grid_rface",
+    "make_ruled_surface_rface",
+    "make_gordon_surface_rface",
+    "make_surface_patch_rface",
+    "make_loft_rshell",
+    "sew_faces_rshell",
+    "free_boundaries_rwirelist",
+    "fill_holes_rshell",
     "make_helix_redge",
     "make_wire_from_edges_rwire",
     "make_face_from_wire_rface",
     "make_face_from_wires_rface",
     "make_sketch_rsketch",
-    "make_add_point_rsketch",
-    "make_add_line_rsketch",
-    "make_add_circle_rsketch",
-    "make_add_arc_rsketch",
-    "make_add_bspline_rsketch",
+    "add_point_rsketch",
+    "add_line_rsketch",
+    "add_circle_rsketch",
+    "add_arc_rsketch",
+    "add_bspline_rsketch",
     "make_constrain_coincident_rsketch",
     "make_constrain_point_on_rsketch",
     "make_constrain_horizontal_rsketch",
@@ -108,6 +117,7 @@ _CANONICAL_OPS = (
     "make_select_redge",
     "make_select_rwire",
     "make_select_rface",
+    "make_select_rshell",
     "make_select_rsolid",
     "apply_tag_rselection",
 )
@@ -125,10 +135,27 @@ OP_SUPPORT["make_point_rvertex"] = OperationCapability(
     SupportLevel.UNSUPPORTED,
     reason="The FreeCAD point emitter has not been implemented yet.",
 )
-OP_SUPPORT["make_interpolated_spline_redge"] = OperationCapability(
-    SupportLevel.UNSUPPORTED,
-    reason="The FreeCAD interpolated B-spline emitter has not been implemented yet.",
-)
+for _op, _reason in {
+    "fit_point_grid_rface": (
+        "FreeCAD approximates the point grid with its native BSplineSurface fitter; "
+        "small rejected grids fall back to exact grid interpolation."
+    ),
+    "make_gordon_surface_rface": (
+        "FreeCAD interpolates a BSpline surface through the profile-guide "
+        "intersection grid because it has no native Gordon network builder."
+    ),
+    "make_surface_patch_rface": (
+        "FreeCAD fills and trims the boundary because it cannot map the full "
+        "support continuity and interior constraint contract parametrically."
+    ),
+    "free_boundaries_rwirelist": (
+        "FreeCAD reconstructs free boundaries from shell edges referenced by one face."
+    ),
+    "fill_holes_rshell": (
+        "FreeCAD fills selected closed boundary wires and sews them back to the shell."
+    ),
+}.items():
+    OP_SUPPORT[_op] = OperationCapability(SupportLevel.EMULATED, reason=_reason)
 OP_SUPPORT["make_twisted_sweep_rsolid"] = OperationCapability(
     SupportLevel.EMULATED,
     reason=(
@@ -138,11 +165,11 @@ OP_SUPPORT["make_twisted_sweep_rsolid"] = OperationCapability(
 )
 for _op in (
     "make_sketch_rsketch",
-    "make_add_point_rsketch",
-    "make_add_line_rsketch",
-    "make_add_circle_rsketch",
-    "make_add_arc_rsketch",
-    "make_add_bspline_rsketch",
+    "add_point_rsketch",
+    "add_line_rsketch",
+    "add_circle_rsketch",
+    "add_arc_rsketch",
+    "add_bspline_rsketch",
     "make_constrain_coincident_rsketch",
     "make_constrain_point_on_rsketch",
     "make_constrain_horizontal_rsketch",
