@@ -589,7 +589,6 @@ def make_surface_patch_rface(
             error=e,
         )
 
-
 def _validated_loft_sections(
     sections: Sequence[Union[Wire, Vertex]], *, operation: str
 ) -> List[Union[Wire, Vertex]]:
