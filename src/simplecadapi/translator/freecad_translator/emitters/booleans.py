@@ -64,10 +64,14 @@ class BooleanEmitterMixin:
                 for index, tool_node_id in enumerate(inputs[1:], start=1):
                     is_last = index == len(inputs) - 1
                     step_var = var_name if is_last else f"{var_name}_step_{index}"
-                    step_name = object_name if is_last else _safe_name(
-                        f"{object_name}_step_{index}", prefix="step"
+                    step_name = (
+                        object_name
+                        if is_last
+                        else _safe_name(f"{object_name}_step_{index}", prefix="step")
                     )
-                    tool_name = _safe_name(f"{object_name}_tool_{index}", prefix="operand")
+                    tool_name = _safe_name(
+                        f"{object_name}_tool_{index}", prefix="operand"
+                    )
                     lines.extend(
                         [
                             f"{step_var} = doc.addObject('Part::Cut', {_json_ascii(step_name)})",
@@ -115,7 +119,11 @@ class BooleanEmitterMixin:
                 ]
             lines.extend(finish())
             return lines
-        if node.op in {"make_2d_cut_rface", "make_2d_union_rface", "make_2d_intersect_rface"} and len(inputs) >= 2:
+        if (
+            node.op
+            in {"make_2d_cut_rface", "make_2d_union_rface", "make_2d_intersect_rface"}
+            and len(inputs) >= 2
+        ):
             lines = [
                 "doc.recompute()",
                 f"{var_name} = _make_feature({_json_ascii(object_name)}, _face_boolean_shape({_json_ascii(node.op)}, GRAPH_NODES[{_json_ascii(inputs[0])}], GRAPH_NODES[{_json_ascii(inputs[1])}]), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
@@ -149,7 +157,9 @@ class BooleanEmitterMixin:
             lines.append(
                 f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
             )
-            if node.params.get("selected_face_indices") or node.params.get("selected_face_node_ids"):
+            if node.params.get("selected_face_indices") or node.params.get(
+                "selected_face_node_ids"
+            ):
                 face_name_expr = f"['Face' + str(int(i) + 1) for i in _selected_indices_from_nodes({rp}.get('selected_face_node_ids', []), {rp}.get('selected_face_indices', []), _shape_from_graph_node({_json_ascii(inputs[0])}), 'face')]"
                 lines.append(
                     f"{var_name}.Faces = (GRAPH_NODES[{_json_ascii(inputs[0])}], {face_name_expr})"

@@ -242,11 +242,11 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_face_from_wire_rface",
             "make_face_from_wires_rface",
             "make_sketch_rsketch",
-            "make_add_point_rsketch",
-            "make_add_line_rsketch",
-            "make_add_circle_rsketch",
-            "make_add_arc_rsketch",
-            "make_add_bspline_rsketch",
+            "add_point_rsketch",
+            "add_line_rsketch",
+            "add_circle_rsketch",
+            "add_arc_rsketch",
+            "add_bspline_rsketch",
             "make_constrain_coincident_rsketch",
             "make_constrain_point_on_rsketch",
             "make_constrain_horizontal_rsketch",
@@ -740,13 +740,9 @@ class TestReplay(unittest.TestCase):
         with scad.GraphSession() as session:
             sketch = scad.make_sketch_rsketch("serialized_ring", plane="YZ")
             sketch = scad.add_point_rsketch(sketch, "outer_center", 0.0, 0.0)
-            sketch = scad.add_circle_rsketch(
-                sketch, "outer", "outer_center", 5.0
-            )
+            sketch = scad.add_circle_rsketch(sketch, "outer", "outer_center", 5.0)
             sketch = scad.add_point_rsketch(sketch, "inner_center", 0.0, 0.0)
-            sketch = scad.add_circle_rsketch(
-                sketch, "inner", "inner_center", 2.0
-            )
+            sketch = scad.add_circle_rsketch(sketch, "inner", "inner_center", 2.0)
             face = scad.make_face_from_sketch_rface(
                 sketch,
                 profile="outer",

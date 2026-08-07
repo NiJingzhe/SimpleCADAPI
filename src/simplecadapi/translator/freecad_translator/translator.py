@@ -42,6 +42,7 @@ from .emitters import (
     ProductEmitterMixin,
     SelectionEmitterMixin,
     SketchEmitterMixin,
+    SurfaceEmitterMixin,
     TransformEmitterMixin,
     emit_native_node,
 )
@@ -67,12 +68,72 @@ def _curve_params_with_kernel_axes(params: Dict[str, Any]) -> Dict[str, Any]:
     return enriched
 
 
+def _interpolated_curve_params(
+    params: Dict[str, Any], context: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Freeze the source OCC interpolation result for exact FreeCAD reconstruction."""
+
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+
+    from ...kernel.ocp_curves import make_interpolated_bspline_edge
+
+    context = dict(context or {})
+    origin = context.get("origin", (0.0, 0.0, 0.0))
+    x_axis = context.get("x_axis", (1.0, 0.0, 0.0))
+    y_axis = context.get("y_axis", (0.0, 1.0, 0.0))
+    z_axis = context.get("z_axis", (0.0, 0.0, 1.0))
+
+    def world_point(point: Any) -> List[float]:
+        values = [float(value) for value in point]
+        if len(values) == 2:
+            values.append(0.0)
+        return [
+            float(origin[index])
+            + values[0] * float(x_axis[index])
+            + values[1] * float(y_axis[index])
+            + values[2] * float(z_axis[index])
+            for index in range(3)
+        ]
+
+    global_points = [world_point(point) for point in params.get("points", ())]
+    edge = make_interpolated_bspline_edge(
+        global_points,
+        periodic=bool(params.get("periodic", False)),
+        tolerance=float(params.get("tolerance", 1.0e-6)),
+    )
+    curve = BRepAdaptor_Curve(edge).BSpline()
+    enriched = dict(params)
+    enriched["_freecad_exact_bspline"] = {
+        "control_points": [
+            [
+                float(curve.Pole(index).X()),
+                float(curve.Pole(index).Y()),
+                float(curve.Pole(index).Z()),
+            ]
+            for index in range(1, curve.NbPoles() + 1)
+        ],
+        "degree": int(curve.Degree()),
+        "knots": [float(curve.Knot(index)) for index in range(1, curve.NbKnots() + 1)],
+        "multiplicities": [
+            int(curve.Multiplicity(index)) for index in range(1, curve.NbKnots() + 1)
+        ],
+        "weights": (
+            [float(curve.Weight(index)) for index in range(1, curve.NbPoles() + 1)]
+            if curve.IsRational()
+            else None
+        ),
+        "periodic": bool(curve.IsPeriodic()),
+    }
+    return enriched
+
+
 class _FreeCADCompiler(
     PrimitiveEmitterMixin,
     ProductEmitterMixin,
     SelectionEmitterMixin,
     SketchEmitterMixin,
     GeometryEmitterMixin,
+    SurfaceEmitterMixin,
     FeatureEmitterMixin,
     BooleanEmitterMixin,
     TransformEmitterMixin,
@@ -86,6 +147,8 @@ class _FreeCADCompiler(
     - Preserve `expression_graph` as explicit translator metadata
     - Preserve dimension tolerances and tolerance-chain requirements as metadata
     - Preserve exported assembly constraints as document metadata objects
+    - Prefer native FreeCAD Boolean features so translated history remains editable
+      and recomputable; accept OCCT-version drift until a concrete operation fails
     - Present geometry as variable-named semantic design history instead of a
       flat node-id tree, while retaining the original graph objects internally
     - Keep assembly metadata from the full model payload alongside the IR-driven
@@ -503,6 +566,8 @@ class _FreeCADCompiler(
         params = dict(node.params)
         if node.op in {"make_angle_arc_redge", "make_circle_redge"}:
             params = _curve_params_with_kernel_axes(params)
+        if node.op == "make_interpolated_spline_redge":
+            params = _interpolated_curve_params(params, node.context)
         params_literal = _py_literal(params)
         inputs_literal = _py_literal([inp.node_id for inp in node.inputs])
         tags_literal = _py_literal(sorted(node.tags))

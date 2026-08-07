@@ -165,29 +165,34 @@ def _local_angle_arc(
     return Part.Arc(start_local, mid_local, end_local)
 
 
-def _bspline_curve_from_params(params, transform_point=None):
-    poles = []
-    for point in params.get('control_points') or []:
+def _bspline_curve_from_params(params, transform_point=None, context=None):
+    exact_params = params.get('_freecad_exact_bspline')
+    source = exact_params or params
+
+    def mapped_point(point):
         point3 = tuple(point) + (0.0,) if len(tuple(point)) == 2 else tuple(point)
-        pole = transform_point(point3) if transform_point is not None else _vec(point3)
-        poles.append(pole)
-    if not poles and params.get('points'):
-        for point in params.get('points') or []:
-            point3 = tuple(point) + (0.0,) if len(tuple(point)) == 2 else tuple(point)
-            pole = transform_point(point3) if transform_point is not None else _vec(point3)
-            poles.append(pole)
+        world = _vec(point3) if exact_params is not None else _surface_context_point(point3, context)
+        return transform_point(world) if transform_point is not None else world
+
+    poles = [mapped_point(point) for point in source.get('control_points') or []]
+    if not poles and source.get('points'):
+        poles = [mapped_point(point) for point in source.get('points') or []]
         if len(poles) < 2:
             raise RuntimeError('B-spline has fewer than two points')
         curve = Part.BSplineCurve()
-        curve.interpolate(poles)
+        curve.interpolate(
+            Points=poles,
+            PeriodicFlag=bool(source.get('periodic', False)),
+            Tolerance=float(source.get('tolerance', 1.0e-6)),
+        )
         return curve
     if not poles:
         raise RuntimeError('B-spline has no control points')
-    mults = tuple(int(value) for value in (params.get('multiplicities') or []))
-    knots = tuple(float(value) for value in (params.get('knots') or []))
-    degree = int(params.get('degree', 3))
-    periodic = bool(params.get('periodic', False))
-    weights = params.get('weights')
+    mults = tuple(int(value) for value in (source.get('multiplicities') or []))
+    knots = tuple(float(value) for value in (source.get('knots') or []))
+    degree = int(source.get('degree', 3))
+    periodic = bool(source.get('periodic', False))
+    weights = source.get('weights')
     curve = Part.BSplineCurve()
     if weights is None:
         curve.buildFromPolesMultsKnots(poles, mults, knots, periodic, degree)

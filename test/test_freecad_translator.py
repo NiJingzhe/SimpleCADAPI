@@ -2899,6 +2899,53 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(result["sweep_solid_count"], 1)
         self.assertGreater(result["sweep_volume"], 0.0)
 
+    def test_translate_model_json_bezier_surface_extrudes_with_history(self):
+        with GraphSession() as session:
+            profile = scad.make_bezier_surface_rface(
+                control_points=[
+                    [(0.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
+                    [(1.0, 0.0, 0.0), (1.0, 1.0, 0.0)],
+                ]
+            )
+            scad.extrude_rsolid(profile, (0.0, 0.0, 1.0), 2.0)
+
+        payload = scad.export_model_json(session)
+        script = freecad_translator.translate_model_json_to_freecad_script(payload)
+        self.assertIn("Part::Extrusion", script)
+        self.assertNotIn("Unsupported graph operation: make_extrude_rsolid", script)
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+profile = next(
+    obj for obj in doc.Objects
+    if getattr(obj, 'SimpleCADOp', '') == 'make_bezier_surface_rface'
+)
+extrusion = next(
+    obj for obj in doc.Objects
+    if getattr(obj, 'SimpleCADOp', '') == 'make_extrude_rsolid'
+)
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({
+        'profile_type': profile.Shape.ShapeType,
+        'extrusion_type_id': extrusion.TypeId,
+        'base_name': extrusion.Base.Name,
+        'solid_count': len(extrusion.Shape.Solids),
+        'valid': extrusion.Shape.isValid(),
+        'volume': float(extrusion.Shape.Volume),
+    }, fh)
+"""
+        result = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(result["profile_type"], "Face")
+        self.assertEqual(result["extrusion_type_id"], "Part::Extrusion")
+        self.assertTrue(result["base_name"])
+        self.assertEqual(result["solid_count"], 1)
+        self.assertTrue(result["valid"])
+        self.assertAlmostEqual(result["volume"], 2.0, places=6)
+
     def test_translate_model_json_uses_single_result_union_helper(self):
         graph = OperationGraph(graph_id="graph_union_single")
         a = graph.add_node(
@@ -3114,6 +3161,338 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(result["face_wire_count"], 2)
         self.assertEqual(result["solid_count"], 1)
         self.assertAlmostEqual(result["volume"], math.pi * (25.0 - 4.0) * 3.0, places=2)
+
+    def test_sketch_bspline_boolean_remains_native_part_cut(self):
+        plane = {
+            "origin": (0.0, 0.0, -1.0),
+            "x_axis": (1.0, 0.0, 0.0),
+            "y_axis": (0.0, 1.0, 0.0),
+        }
+        with GraphSession(graph_id="freecad_native_sketch_bspline_cut") as session:
+            base = scad.make_box_rsolid(12.0, 10.0, 4.0)
+            sketch = scad.make_sketch_rsketch("bspline_cut_tool", plane=plane)
+            for point_id, x_value, y_value in (
+                ("p0", -3.0, -1.0),
+                ("p1", 3.0, -1.0),
+                ("p2", 3.0, 1.0),
+                ("p3", -3.0, 1.0),
+            ):
+                sketch = scad.add_point_rsketch(sketch, point_id, x_value, y_value)
+            sketch = scad.add_bspline_rsketch(
+                sketch,
+                "lower",
+                "p0",
+                "p1",
+                control_points=[
+                    (-3.0, -1.0),
+                    (-1.0, -1.5),
+                    (1.0, -1.5),
+                    (3.0, -1.0),
+                ],
+                degree=3,
+                knots=(0.0, 1.0),
+                multiplicities=(4, 4),
+            )
+            sketch = scad.add_line_rsketch(sketch, "right", "p1", "p2")
+            sketch = scad.add_line_rsketch(sketch, "top", "p2", "p3")
+            sketch = scad.add_line_rsketch(sketch, "left", "p3", "p0")
+            face = scad.make_face_from_sketch_rface(sketch, profile="lower")
+            tool = scad.extrude_rsolid(face, (0.0, 0.0, 1.0), 6.0)
+            result_solid = scad.cut_rsolid(base, tool, skip_non_intersecting=False)
+
+        payload = scad.export_model_json(session)
+        result_node_id = result_solid.get_metadata("graph")["node_id"]
+        script = freecad_translator.translate_model_json_to_freecad_script(payload)
+
+        self.assertIn(" = doc.addObject('Part::Cut'", script)
+        self.assertNotIn(" = _make_baked_exact_boolean(", script)
+        probe = f"""
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+result = next(
+    obj for obj in doc.Objects
+    if getattr(obj, 'SimpleCADNodeId', '') == {result_node_id!r}
+)
+shape = result.Shape
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({{
+        'type_id': str(result.TypeId),
+        'valid': shape.isValid(),
+        'solid_count': len(shape.Solids),
+        'face_count': len(shape.Faces),
+        'volume': float(shape.Volume),
+        'base_type': str(result.Base.TypeId),
+        'tool_type': str(result.Tool.TypeId),
+    }}, fh)
+"""
+        inspected = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(inspected["type_id"], "Part::Cut")
+        self.assertTrue(inspected["valid"])
+        self.assertEqual(inspected["solid_count"], 1)
+        self.assertEqual(inspected["face_count"], len(result_solid.get_faces()))
+        self.assertAlmostEqual(inspected["volume"], result_solid.get_volume(), places=7)
+        self.assertEqual(inspected["base_type"], "Part::Box")
+        self.assertEqual(inspected["tool_type"], "Part::Extrusion")
+
+    def test_surface_dependent_boolean_uses_native_part_cut_in_fcstd(self):
+        with GraphSession(graph_id="freecad_native_surface_cut") as session:
+            base = scad.make_box_rsolid(12.0, 10.0, 4.0)
+            lower = scad.make_interpolated_spline_redge(
+                points=[
+                    (-3.0, -1.0, -1.0),
+                    (0.0, -1.5, -1.0),
+                    (3.0, -1.0, -1.0),
+                ],
+                tolerance=1.0e-6,
+            )
+            upper = scad.make_interpolated_spline_redge(
+                points=[
+                    (3.0, 1.0, -1.0),
+                    (0.0, 1.5, -1.0),
+                    (-3.0, 1.0, -1.0),
+                ],
+                tolerance=1.0e-6,
+            )
+            wire = scad.make_wire_from_edges_rwire(
+                edges=[
+                    lower,
+                    scad.make_line_redge((3.0, -1.0, -1.0), (3.0, 1.0, -1.0)),
+                    upper,
+                    scad.make_line_redge((-3.0, 1.0, -1.0), (-3.0, -1.0, -1.0)),
+                ]
+            )
+            face = scad.make_face_from_wire_rface(wire)
+            tool = scad.extrude_rsolid(face, (0.0, 0.0, 1.0), 6.0)
+            result_solid = scad.cut_rsolid(base, tool, skip_non_intersecting=False)
+
+        payload = scad.export_model_json(session)
+        result_node_id = result_solid.get_metadata("graph")["node_id"]
+        script = freecad_translator.translate_model_json_to_freecad_script(payload)
+
+        self.assertIn(" = doc.addObject('Part::Cut'", script)
+        self.assertNotIn("_make_baked_exact_boolean", script)
+        compile(script, "<native-surface-cut-freecad-script>", "exec")
+        probe = f"""
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+result = next(
+    obj for obj in doc.Objects
+    if getattr(obj, 'SimpleCADNodeId', '') == {result_node_id!r}
+)
+shape = result.Shape
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({{
+        'type_id': str(result.TypeId),
+        'valid': shape.isValid(),
+        'solid_count': len(shape.Solids),
+        'face_count': len(shape.Faces),
+        'volume': float(shape.Volume),
+        'base_type': str(result.Base.TypeId),
+        'tool_type': str(result.Tool.TypeId),
+    }}, fh)
+"""
+        inspected = self._inspect_fcstd_json(payload, probe)
+
+        self.assertEqual(inspected["type_id"], "Part::Cut")
+        self.assertTrue(inspected["valid"])
+        self.assertEqual(inspected["solid_count"], 1)
+        self.assertEqual(inspected["face_count"], len(result_solid.get_faces()))
+        self.assertAlmostEqual(
+            inspected["volume"], result_solid.get_volume(), delta=1.0e-3
+        )
+        self.assertEqual(inspected["base_type"], "Part::Box")
+        self.assertEqual(inspected["tool_type"], "Part::Extrusion")
+
+    def test_surface_face_emitters_build_valid_fcstd(self):
+        with GraphSession(graph_id="freecad_surface_faces") as session:
+            bezier = scad.make_bezier_surface_rface(
+                [[(0, 0, 0), (0, 2, 0)], [(2, 0, 0), (2, 2, 0.5)]]
+            )
+            fitted = scad.fit_point_grid_rface(
+                [[(4, 0, 0), (4, 2, 0)], [(6, 0, 0), (6, 2, 0.5)]],
+                degree_min=1,
+                degree_max=3,
+            )
+            ruled = scad.make_ruled_surface_rface(
+                scad.make_line_redge((8, 0, 0), (10, 0, 0)),
+                scad.make_line_redge((8, 2, 1), (10, 2, 1)),
+            )
+            gordon = scad.make_gordon_surface_rface(
+                [
+                    scad.make_line_redge((12, 0, 0), (14, 0, 0)),
+                    scad.make_line_redge((12, 2, 1), (14, 2, 1)),
+                ],
+                [
+                    scad.make_line_redge((12, 0, 0), (12, 2, 1)),
+                    scad.make_line_redge((14, 0, 0), (14, 2, 1)),
+                ],
+            )
+            patch_points = [(16, 0, 0), (18, 0, 0), (18, 2, 0), (16, 2, 0)]
+            patch_edges = [
+                scad.make_line_redge(patch_points[index], patch_points[(index + 1) % 4])
+                for index in range(4)
+            ]
+            patch = scad.make_surface_patch_rface(
+                [scad.SurfaceBoundary(edge) for edge in patch_edges]
+            )
+            scad.capture_result(value=[bezier, fitted, ruled, gordon, patch])
+
+        probe = """
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+ops = [
+    'make_bezier_surface_rface',
+    'fit_point_grid_rface',
+    'make_ruled_surface_rface',
+    'make_gordon_surface_rface',
+    'make_surface_patch_rface',
+]
+rows = {}
+for op in ops:
+    obj = next(obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == op)
+    rows[op] = {
+        'shape_type': obj.Shape.ShapeType,
+        'valid': obj.Shape.isValid(),
+        'face_count': len(obj.Shape.Faces),
+        'area': float(obj.Shape.Area),
+        'support': str(getattr(obj, 'SimpleCADTranslationSupport', '')),
+    }
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump(rows, fh)
+"""
+        inspected = self._inspect_fcstd_json(scad.export_model_json(session), probe)
+
+        self.assertEqual(
+            set(inspected),
+            {
+                "make_bezier_surface_rface",
+                "fit_point_grid_rface",
+                "make_ruled_surface_rface",
+                "make_gordon_surface_rface",
+                "make_surface_patch_rface",
+            },
+        )
+        for row in inspected.values():
+            self.assertEqual(row["shape_type"], "Face")
+            self.assertTrue(row["valid"])
+            self.assertEqual(row["face_count"], 1)
+            self.assertGreater(row["area"], 0.0)
+        self.assertEqual(inspected["make_bezier_surface_rface"]["support"], "")
+        self.assertEqual(inspected["make_ruled_surface_rface"]["support"], "")
+        for op in (
+            "fit_point_grid_rface",
+            "make_gordon_surface_rface",
+            "make_surface_patch_rface",
+        ):
+            self.assertEqual(inspected[op]["support"], "emulated")
+        self.assertAlmostEqual(
+            inspected["make_surface_patch_rface"]["area"], 4.0, places=7
+        )
+
+    def test_loft_free_boundaries_preserve_output_slots_fcstd(self):
+        with GraphSession(graph_id="freecad_open_shell_boundaries") as session:
+            lower = scad.make_circle_rwire(center=(0, 0, 0), radius=2.0)
+            upper = scad.make_circle_rwire(center=(0, 0, 3), radius=1.0)
+            shell = scad.loft_rshell([lower, upper])
+            boundaries = scad.free_boundaries_rwirelist(shell)
+            scad.capture_result(value=[shell, *boundaries])
+
+        boundary_node_id = next(
+            node.node_id
+            for node in session.graph.nodes
+            if node.op == "free_boundaries_rwirelist"
+        )
+        probe = f"""
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+shell = next(obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_loft_rshell')
+boundaries = [
+    obj for obj in doc.Objects
+    if getattr(obj, 'SimpleCADNodeId', '') == {boundary_node_id!r}
+]
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({{
+        'shell_type': shell.Shape.ShapeType,
+        'shell_valid': shell.Shape.isValid(),
+        'shell_closed': shell.Shape.isClosed(),
+        'boundary_count': len(boundaries),
+        'slots': sorted(str(obj.SimpleCADOutputSlot) for obj in boundaries),
+        'types': [obj.Shape.ShapeType for obj in boundaries],
+        'valid': [obj.Shape.isValid() for obj in boundaries],
+        'closed': [obj.Shape.isClosed() for obj in boundaries],
+        'support': [str(obj.SimpleCADTranslationSupport) for obj in boundaries],
+    }}, fh)
+"""
+        inspected = self._inspect_fcstd_json(scad.export_model_json(session), probe)
+
+        self.assertEqual(inspected["shell_type"], "Shell")
+        self.assertTrue(inspected["shell_valid"])
+        self.assertFalse(inspected["shell_closed"])
+        self.assertEqual(inspected["boundary_count"], 2)
+        self.assertEqual(inspected["slots"], ["0", "1"])
+        self.assertEqual(inspected["types"], ["Wire", "Wire"])
+        self.assertEqual(inspected["valid"], [True, True])
+        self.assertEqual(inspected["closed"], [True, True])
+        self.assertEqual(inspected["support"], ["emulated", "emulated"])
+
+    def test_fill_holes_and_zero_boundaries_preserve_limitation_fcstd(self):
+        with GraphSession(graph_id="freecad_closed_shell_boundaries") as session:
+            lower = scad.make_circle_rwire(center=(0, 0, 0), radius=1.0)
+            upper = scad.make_circle_rwire(center=(0, 0, 2), radius=1.0)
+            open_shell = scad.loft_rshell([lower, upper])
+            filled = scad.fill_holes_rshell(open_shell)
+            boundaries = scad.free_boundaries_rwirelist(filled)
+            scad.capture_result(value=[filled, *boundaries])
+
+        boundary_node_id = next(
+            node.node_id
+            for node in session.graph.nodes
+            if node.op == "free_boundaries_rwirelist"
+        )
+        probe = f"""
+import json
+import FreeCAD as App
+
+doc = App.openDocument(FCSTD_PATH)
+filled = next(obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'fill_holes_rshell')
+free_objects = [
+    obj for obj in doc.Objects
+    if getattr(obj, 'SimpleCADNodeId', '') == {boundary_node_id!r}
+]
+note = doc.getObject('simplecad_translation_limitations')
+limitations = json.loads(note.Payload)
+with open(OUT_PATH, 'w', encoding='utf-8') as fh:
+    json.dump({{
+        'shape_type': filled.Shape.ShapeType,
+        'valid': filled.Shape.isValid(),
+        'closed': filled.Shape.isClosed(),
+        'face_count': len(filled.Shape.Faces),
+        'support': str(filled.SimpleCADTranslationSupport),
+        'free_object_count': len(free_objects),
+        'free_limitation': limitations.get({boundary_node_id!r}),
+    }}, fh)
+"""
+        inspected = self._inspect_fcstd_json(scad.export_model_json(session), probe)
+
+        self.assertEqual(inspected["shape_type"], "Shell")
+        self.assertTrue(inspected["valid"])
+        self.assertTrue(inspected["closed"])
+        self.assertEqual(inspected["face_count"], 3)
+        self.assertEqual(inspected["support"], "emulated")
+        self.assertEqual(inspected["free_object_count"], 0)
+        self.assertEqual(inspected["free_limitation"]["support"], "emulated")
+        self.assertEqual(
+            inspected["free_limitation"]["op"], "free_boundaries_rwirelist"
+        )
 
     def test_translate_model_json_multi_tool_cut_affects_fcstd_result(self):
         with GraphSession() as session:
@@ -4177,7 +4556,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
 
         self.assertIn("_make_sketch_promotion_object", script)
         self.assertIn("make_face_from_sketch_rface", script)
-        self.assertIn("make_add_point_rsketch", script)
+        self.assertIn("add_point_rsketch", script)
         self.assertIn("make_constrain_distance_rsketch", script)
         self.assertIn("SimpleCADSketchSolve", script)
         self.assertIn("SimpleCADSketchConstraints", script)
