@@ -282,9 +282,15 @@ def _select_call(
 def _call_ordinal(frame: Any, line: int) -> Optional[int]:
     current_offset = int(frame.f_lasti)
     call_offsets = _call_offsets_by_line(frame.f_code).get(line, ())
-    if current_offset not in call_offsets:
+    if current_offset in call_offsets:
+        return call_offsets.index(current_offset) + 1
+
+    # CPython 3.11 and 3.12 leave f_lasti at an inline CACHE entry after
+    # CALL, while dis.get_instructions() hides CACHE entries by default.
+    completed_offsets = [offset for offset in call_offsets if offset < current_offset]
+    if not completed_offsets:
         return None
-    return call_offsets.index(current_offset) + 1
+    return call_offsets.index(completed_offsets[-1]) + 1
 
 
 @lru_cache(maxsize=128)
