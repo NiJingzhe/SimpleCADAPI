@@ -95,59 +95,49 @@ class TestSketchApi(unittest.TestCase):
 
     def test_constrained_sketch_promotion_has_topology_identity_tags(self):
         sketch = self._make_constrained_rectangle()
-        face = scad.make_face_from_sketch_rface(
-            sketch, require_fully_constrained=True
-        )
+        face = scad.make_face_from_sketch_rface(sketch, require_fully_constrained=True)
 
         self.assertEqual(
             len(Q.faces().where(Q.tag("sketch.rect.profile.bottom")).resolve(face)),
             1,
         )
         for entity_id in ("bottom", "right", "top", "left"):
-            edges = Q.edges().where(
-                Q.tag(f"sketch.rect.entity.{entity_id}")
-            ).resolve(face)
+            edges = (
+                Q.edges().where(Q.tag(f"sketch.rect.entity.{entity_id}")).resolve(face)
+            )
             self.assertEqual(len(edges), 1)
             evidence = scad.explain_tag(
                 edges[0], f"sketch.rect.entity.{entity_id}", scope="local"
             )[0]["binding"]["evidence"]
             self.assertEqual(evidence["evidence_method"], "SketchPromotionMap")
-            self.assertEqual(
-                evidence["sketch_promotion"]["entity_id"], entity_id
-            )
+            self.assertEqual(evidence["sketch_promotion"]["entity_id"], entity_id)
             self.assertEqual(evidence["topology_name"]["kind"], "edge")
 
     def test_constrained_sketch_wire_promotion_has_topology_identity_tags(self):
         sketch = self._make_constrained_rectangle()
-        wire = scad.make_wire_from_sketch_rwire(
-            sketch, require_fully_constrained=True
-        )
+        wire = scad.make_wire_from_sketch_rwire(sketch, require_fully_constrained=True)
 
         self.assertEqual(
             len(Q.wires().where(Q.tag("sketch.rect.profile.bottom")).resolve(wire)),
             1,
         )
         for entity_id in ("bottom", "right", "top", "left"):
-            edges = Q.edges().where(
-                Q.tag(f"sketch.rect.entity.{entity_id}")
-            ).resolve(wire)
+            edges = (
+                Q.edges().where(Q.tag(f"sketch.rect.entity.{entity_id}")).resolve(wire)
+            )
             self.assertEqual(len(edges), 1)
             evidence = scad.explain_tag(
                 edges[0], f"sketch.rect.entity.{entity_id}", scope="local"
             )[0]["binding"]["evidence"]
             self.assertEqual(evidence["evidence_method"], "SketchPromotionMap")
-            self.assertEqual(
-                evidence["sketch_promotion"]["entity_id"], entity_id
-            )
+            self.assertEqual(evidence["sketch_promotion"]["entity_id"], entity_id)
             self.assertEqual(evidence["topology_name"]["kind"], "edge")
 
     def test_constrained_sketch_topology_tags_project_and_replay(self):
         with scad.GraphSession() as session:
             sketch = self._make_constrained_rectangle()
             profile = scad.make_face_from_sketch_rface(sketch)
-            body = scad.extrude_rsolid(
-                profile, (0, 0, 1), 2.0, tag_prefix="body"
-            )
+            body = scad.extrude_rsolid(profile, (0, 0, 1), 2.0, tag_prefix="body")
 
         expected_tags = {
             "body.face.side.bottom",
@@ -213,7 +203,9 @@ class TestSketchApi(unittest.TestCase):
         bad = scad.constrain_fix_rsketch(bad, "a")
         bad_result = scad.inspect_sketch_rsketchresult(bad, strict=False)
         self.assertEqual(bad_result.status, "conflicting")
-        self.assertTrue(any(diag.code == "residual_too_large" for diag in bad_result.diagnostics))
+        self.assertTrue(
+            any(diag.code == "residual_too_large" for diag in bad_result.diagnostics)
+        )
 
     def test_sketch_refs_are_scoped_to_their_sketch(self):
         first = scad.make_sketch_rsketch("first")
@@ -226,6 +218,46 @@ class TestSketchApi(unittest.TestCase):
         with self.assertRaises(Exception):
             scad.add_line_rsketch(first, "bad", p0, p1)
 
+    def test_sketch_add_apis_record_verb_noun_result_ops(self):
+        with scad.GraphSession() as session:
+            sketch = scad.make_sketch_rsketch("canonical_add_ops")
+            for point_id, x_value, y_value in (
+                ("p0", 0.0, 0.0),
+                ("p1", 4.0, 0.0),
+                ("center", 2.0, 0.0),
+                ("arc_start", 3.0, 0.0),
+                ("arc_end", 2.0, 1.0),
+            ):
+                sketch = scad.add_point_rsketch(sketch, point_id, x_value, y_value)
+            sketch = scad.add_line_rsketch(sketch, "line", "p0", "p1")
+            sketch = scad.add_circle_rsketch(sketch, "circle", "center", 1.0)
+            sketch = scad.add_arc_rsketch(
+                sketch, "arc", "arc_start", "arc_end", "center"
+            )
+            scad.add_bspline_rsketch(
+                sketch,
+                "spline",
+                "p0",
+                "p1",
+                control_points=[(0.0, 0.0), (1.0, 1.0), (3.0, 1.0), (4.0, 0.0)],
+                degree=3,
+                knots=(0.0, 1.0),
+                multiplicities=(4, 4),
+            )
+
+        ops = {node.op for node in session.graph.nodes}
+        expected = {
+            "add_point_rsketch",
+            "add_line_rsketch",
+            "add_circle_rsketch",
+            "add_arc_rsketch",
+            "add_bspline_rsketch",
+        }
+        self.assertTrue(expected.issubset(ops))
+        self.assertFalse(
+            any(op.startswith("make_add_") and op.endswith("_rsketch") for op in ops)
+        )
+
     def test_graph_replay_preserves_sketch_to_face_result(self):
         with scad.GraphSession() as session:
             sketch = self._make_constrained_rectangle()
@@ -233,7 +265,7 @@ class TestSketchApi(unittest.TestCase):
 
         ops = [node.op for node in session.graph.nodes]
         self.assertIn("make_sketch_rsketch", ops)
-        self.assertIn("make_add_point_rsketch", ops)
+        self.assertIn("add_point_rsketch", ops)
         self.assertIn("make_constrain_parallel_rsketch", ops)
         self.assertIn("make_face_from_sketch_rface", ops)
         self.assertNotIn("make_sketch_point_rsketchref", ops)
@@ -241,7 +273,9 @@ class TestSketchApi(unittest.TestCase):
 
         payload = json.loads(scad.export_model_json(session))
         promotion = next(
-            node for node in payload["graph"]["nodes"] if node["op"] == "make_face_from_sketch_rface"
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_face_from_sketch_rface"
         )
         self.assertEqual(promotion["params"]["solve_snapshot"]["status"], "solved")
         self.assertIn("promotion_map", promotion["params"])
@@ -274,7 +308,9 @@ class TestSketchApi(unittest.TestCase):
 
         payload = json.loads(scad.export_model_json(session))
         spline_node = next(
-            node for node in payload["graph"]["nodes"] if node["op"] == "make_add_bspline_rsketch"
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "add_bspline_rsketch"
         )
         self.assertEqual(len(spline_node["params"]["control_points"]), 4)
         self.assertEqual(spline_node["params"]["knots"], [0.0, 1.0])
@@ -301,9 +337,7 @@ class TestSketchApi(unittest.TestCase):
             ("center", 0.0, 0.0),
         ):
             sketch = scad.add_point_rsketch(sketch, point_id, x, y)
-        sketch = scad.add_arc_rsketch(
-            sketch, "upper", "right", "left", "center"
-        )
+        sketch = scad.add_arc_rsketch(sketch, "upper", "right", "left", "center")
         sketch = scad.add_bspline_rsketch(
             sketch,
             "lower",
@@ -331,9 +365,7 @@ class TestSketchApi(unittest.TestCase):
         sketch = scad.add_point_rsketch(sketch, "start", 2.0, 0.0)
         sketch = scad.add_point_rsketch(sketch, "end", 0.0, 2.0)
         sketch = scad.add_point_rsketch(sketch, "center", 0.0, 0.0)
-        sketch = scad.add_arc_rsketch(
-            sketch, "arc", "start", "end", "center"
-        )
+        sketch = scad.add_arc_rsketch(sketch, "arc", "start", "end", "center")
         sketch = scad.constrain_fix_rsketch(sketch, "center")
         sketch = scad.constrain_radius_rsketch(sketch, "arc", 2.0)
         sketch = scad.constrain_point_on_rsketch(sketch, "end", "arc")
@@ -341,7 +373,11 @@ class TestSketchApi(unittest.TestCase):
         result = scad.inspect_sketch_rsketchresult(sketch, strict=False)
         self.assertNotEqual(result.status, "conflicting")
         self.assertAlmostEqual(
-            ((result.solved_points["start"][0]) ** 2 + (result.solved_points["start"][1]) ** 2) ** 0.5,
+            (
+                (result.solved_points["start"][0]) ** 2
+                + (result.solved_points["start"][1]) ** 2
+            )
+            ** 0.5,
             2.0,
             places=6,
         )
@@ -349,15 +385,11 @@ class TestSketchApi(unittest.TestCase):
     def test_sketch_face_can_promote_explicit_hole_profiles(self):
         sketch = scad.make_sketch_rsketch("plate")
         sketch = scad.add_point_rsketch(sketch, "outer_center", 0.0, 0.0)
-        sketch = scad.add_circle_rsketch(
-            sketch, "outer", "outer_center", 5.0
-        )
+        sketch = scad.add_circle_rsketch(sketch, "outer", "outer_center", 5.0)
         sketch = scad.add_point_rsketch(sketch, "left_center", -2.0, 0.0)
         sketch = scad.add_circle_rsketch(sketch, "left_hole", "left_center", 1.0)
         sketch = scad.add_point_rsketch(sketch, "right_center", 2.0, 0.0)
-        sketch = scad.add_circle_rsketch(
-            sketch, "right_hole", "right_center", 1.0
-        )
+        sketch = scad.add_circle_rsketch(sketch, "right_hole", "right_center", 1.0)
 
         face = scad.make_face_from_sketch_rface(
             sketch,
@@ -384,9 +416,7 @@ class TestSketchApi(unittest.TestCase):
     def test_sketch_face_rejects_invalid_explicit_hole(self):
         sketch = scad.make_sketch_rsketch("invalid_hole")
         sketch = scad.add_point_rsketch(sketch, "outer_center", 0.0, 0.0)
-        sketch = scad.add_circle_rsketch(
-            sketch, "outer", "outer_center", 2.0
-        )
+        sketch = scad.add_circle_rsketch(sketch, "outer", "outer_center", 2.0)
         sketch = scad.add_point_rsketch(sketch, "hole_center", 5.0, 0.0)
         sketch = scad.add_circle_rsketch(sketch, "hole", "hole_center", 1.0)
 
@@ -414,9 +444,7 @@ class TestSketchApi(unittest.TestCase):
             ("bottom", "p3", "p0"),
         ):
             sketch = scad.add_line_rsketch(sketch, entity_id, start, end)
-        sketch = scad.add_circle_rsketch(
-            sketch, "hole", "hole_center", 1.0
-        )
+        sketch = scad.add_circle_rsketch(sketch, "hole", "hole_center", 1.0)
 
         face = scad.make_face_from_sketch_rface(
             sketch,
@@ -445,13 +473,9 @@ class TestSketchApi(unittest.TestCase):
         ):
             sketch = scad.make_sketch_rsketch("workplane_ring")
             sketch = scad.add_point_rsketch(sketch, "outer_center", 0.0, 0.0)
-            sketch = scad.add_circle_rsketch(
-                sketch, "outer", "outer_center", 2.0
-            )
+            sketch = scad.add_circle_rsketch(sketch, "outer", "outer_center", 2.0)
             sketch = scad.add_point_rsketch(sketch, "inner_center", 0.0, 0.0)
-            sketch = scad.add_circle_rsketch(
-                sketch, "inner", "inner_center", 1.0
-            )
+            sketch = scad.add_circle_rsketch(sketch, "inner", "inner_center", 1.0)
             face = scad.make_face_from_sketch_rface(
                 sketch,
                 profile="outer",
@@ -474,7 +498,9 @@ class TestSketchApi(unittest.TestCase):
 
         payload = json.loads(scad.export_model_json(session))
         promotion = next(
-            node for node in payload["graph"]["nodes"] if node["op"] == "make_face_from_sketch_rface"
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_face_from_sketch_rface"
         )
         del promotion["params"]["solve_snapshot"]
 
@@ -570,7 +596,6 @@ class TestSketchApi(unittest.TestCase):
         self.assertEqual(result.status, "solved")
         self.assertEqual(result.solved_scalars["constraint:measured:value"], 5.0)
 
-
     def test_arc_and_bspline_solve_results_cover_non_point_entities(self):
         sketch = scad.make_sketch_rsketch("curves")
         for point_id, point in {
@@ -596,7 +621,9 @@ class TestSketchApi(unittest.TestCase):
         self.assertEqual(result.solved_entities["arc"]["kind"], "arc")
         self.assertAlmostEqual(result.solved_entities["arc"]["radius"], 1.0)
         self.assertEqual(result.solved_entities["spline"]["kind"], "bspline")
-        self.assertEqual(result.solved_entities["spline"]["solver_representation"], "cubic_bezier")
+        self.assertEqual(
+            result.solved_entities["spline"]["solver_representation"], "cubic_bezier"
+        )
         self.assertEqual(len(result.solved_entities["spline"]["control_points"]), 4)
 
     def test_tangent_modes_and_curve_endpoint_selectors_are_serializable(self):
@@ -647,7 +674,9 @@ class TestSketchApi(unittest.TestCase):
         sketch = scad.constrain_length_rsketch(
             sketch, "curve", 0.0, driving=False, constraint_id="curve_length"
         )
-        result = scad.inspect_sketch_rsketchresult(sketch, require_fully_constrained=True)
+        result = scad.inspect_sketch_rsketchresult(
+            sketch, require_fully_constrained=True
+        )
 
         self.assertGreater(result.solved_scalars["constraint:curve_length:value"], 3.0)
 
@@ -661,7 +690,9 @@ class TestSketchApi(unittest.TestCase):
         sketch = scad.constrain_length_rsketch(
             sketch, "arc", 0.0, driving=False, constraint_id="arc_length"
         )
-        result = scad.inspect_sketch_rsketchresult(sketch, require_fully_constrained=True)
+        result = scad.inspect_sketch_rsketchresult(
+            sketch, require_fully_constrained=True
+        )
 
         self.assertAlmostEqual(
             result.solved_scalars["constraint:arc_length:value"],
@@ -676,7 +707,9 @@ class TestSketchApi(unittest.TestCase):
         sketch = scad.add_arc_rsketch(sketch, "arc", "start", "end", "center")
         sketch = scad.constrain_length_rsketch(sketch, "arc", 2.0)
 
-        with self.assertRaisesRegex(ValueError, "Driving length constraints.*only for lines"):
+        with self.assertRaisesRegex(
+            ValueError, "Driving length constraints.*only for lines"
+        ):
             scad.inspect_sketch_rsketchresult(sketch)
 
     def test_reference_rational_bspline_length_uses_weights(self):
@@ -698,13 +731,16 @@ class TestSketchApi(unittest.TestCase):
         sketch = scad.constrain_length_rsketch(
             sketch, "curve", 0.0, driving=False, constraint_id="curve_length"
         )
-        result = scad.inspect_sketch_rsketchresult(sketch, require_fully_constrained=True)
+        result = scad.inspect_sketch_rsketchresult(
+            sketch, require_fully_constrained=True
+        )
 
         self.assertAlmostEqual(
             result.solved_scalars["constraint:curve_length:value"],
             0.5 * 3.141592653589793,
             places=3,
         )
+
 
 if __name__ == "__main__":
     unittest.main()

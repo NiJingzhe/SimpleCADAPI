@@ -11,6 +11,7 @@ _FRAGMENT_NAMES = (
     "geometry.py",
     "selections.py",
     "curves.py",
+    "surfaces.py",
     "sketches.py",
     "expressions.py",
     "occurrences.py",

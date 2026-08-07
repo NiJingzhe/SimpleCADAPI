@@ -15,10 +15,11 @@ def translate_model_json_to_freecad_script(
 ) -> str:
     """Translate exported model JSON into a FreeCAD Python script.
 
-    Geometry is emitted as native FreeCAD occurrence trees. Serialized source
-    assignment targets name native design objects, shared DAG inputs are copied
-    per consuming result, and FreeCAD feature links preserve recomputing
-    dependencies. Stable node ids remain available as internal metadata.
+    Geometry is emitted as FreeCAD occurrence trees. Serialized source assignment
+    targets name native design objects, shared DAG inputs are copied per consuming
+    result, and feature links preserve dependencies. Booleans are emitted as native
+    recomputable `Part::Cut`, `Part::Fuse`, and `Part::Common` features. Stable node
+    ids remain available as internal metadata.
     `apply_tag_rselection` nodes do not create FreeCAD features. Their canonical
     bindings and source node ids are attached to traceable geometry and visible
     result objects as `SimpleCADAppliedTags`, `SimpleCADTagBindings`, and
@@ -48,10 +49,12 @@ def translate_model_json_to_fcstd(
     Safe single-use profile transforms such as section rotate/translate chains are
     folded into the section object's placement so downstream `Part::Loft` receives
     already-positioned sections instead of placement-bearing `App::Link` proxies.
-    Geometry results use native FreeCAD objects directly: assignment targets name
-    design objects, shared inputs receive independent occurrences per consumer,
-    and native feature links preserve recomputing dependencies. No presentation
-    proxy, duplicate history tree, or hidden graph-object archive is created.
+    Geometry results use FreeCAD objects directly: assignment targets name design
+    objects and shared inputs receive independent occurrences per consumer. Native
+    features preserve recomputing dependencies, including surface-dependent
+    Booleans. Their classifications may vary across FreeCAD/OCCT versions. No
+    presentation proxy, duplicate history tree, or hidden graph-object archive is
+    created.
     `apply_tag_rselection` remains graph metadata rather than a FreeCAD feature;
     traceable geometry and visible result objects expose `SimpleCADAppliedTags`,
     `SimpleCADTagBindings`, and `SimpleCADTagNodeIds`.

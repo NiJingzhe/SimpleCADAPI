@@ -112,11 +112,11 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "op": "make_wire_from_edges_rwire",
     },
     "make_sketch_rsketch": {"status": "replayable", "op": "make_sketch_rsketch"},
-    "add_point_rsketch": {"status": "replayable", "op": "make_add_point_rsketch"},
-    "add_line_rsketch": {"status": "replayable", "op": "make_add_line_rsketch"},
-    "add_circle_rsketch": {"status": "replayable", "op": "make_add_circle_rsketch"},
-    "add_arc_rsketch": {"status": "replayable", "op": "make_add_arc_rsketch"},
-    "add_bspline_rsketch": {"status": "replayable", "op": "make_add_bspline_rsketch"},
+    "add_point_rsketch": {"status": "replayable", "op": "add_point_rsketch"},
+    "add_line_rsketch": {"status": "replayable", "op": "add_line_rsketch"},
+    "add_circle_rsketch": {"status": "replayable", "op": "add_circle_rsketch"},
+    "add_arc_rsketch": {"status": "replayable", "op": "add_arc_rsketch"},
+    "add_bspline_rsketch": {"status": "replayable", "op": "add_bspline_rsketch"},
     "constrain_coincident_rsketch": {
         "status": "replayable",
         "op": "make_constrain_coincident_rsketch",
@@ -485,11 +485,11 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_face_from_wire_rface",
     "make_face_from_wires_rface",
     "make_sketch_rsketch",
-    "make_add_point_rsketch",
-    "make_add_line_rsketch",
-    "make_add_circle_rsketch",
-    "make_add_arc_rsketch",
-    "make_add_bspline_rsketch",
+    "add_point_rsketch",
+    "add_line_rsketch",
+    "add_circle_rsketch",
+    "add_arc_rsketch",
+    "add_bspline_rsketch",
     "make_constrain_coincident_rsketch",
     "make_constrain_point_on_rsketch",
     "make_constrain_horizontal_rsketch",
@@ -1180,7 +1180,10 @@ def _replay_primitive_or_simple(
         )
     if op_name == "make_spline_redge":
         ctx.require_params(
-            node_id, op_name, params, ("control_points", "degree", "knots", "multiplicities")
+            node_id,
+            op_name,
+            params,
+            ("control_points", "degree", "knots", "multiplicities"),
         )
         return ops.make_spline_redge(
             control_points=params["control_points"],
@@ -1191,17 +1194,24 @@ def _replay_primitive_or_simple(
             periodic=bool(params.get("periodic", False)),
         )
     if op_name == "make_interpolated_spline_redge":
-        ctx.require_params(node_id, op_name, params, ("points", "periodic", "tolerance"))
+        ctx.require_params(
+            node_id, op_name, params, ("points", "periodic", "tolerance")
+        )
         return ops.make_interpolated_spline_redge(
             points=params["points"],
             periodic=bool(params["periodic"]),
             tolerance=params["tolerance"],
         )
     if op_name == "make_helix_redge":
-        ctx.require_params(node_id, op_name, params, ("pitch", "height", "radius", "center", "dir"))
+        ctx.require_params(
+            node_id, op_name, params, ("pitch", "height", "radius", "center", "dir")
+        )
         return ops.make_helix_redge(
-            params["pitch"], params["height"], params["radius"],
-            center=tuple(params["center"]), dir=tuple(params["dir"]),
+            params["pitch"],
+            params["height"],
+            params["radius"],
+            center=tuple(params["center"]),
+            dir=tuple(params["dir"]),
         )
     if op_name == "make_bezier_surface_rface":
         ctx.require_params(node_id, op_name, params, ("control_points",))
@@ -1211,33 +1221,55 @@ def _replay_primitive_or_simple(
             tag_prefix=cast(Optional[str], params.get("tag_prefix")),
         )
     if op_name == "fit_point_grid_rface":
-        ctx.require_params(node_id, op_name, params, ("points", "tolerance", "degree_min", "degree_max"))
+        ctx.require_params(
+            node_id,
+            op_name,
+            params,
+            ("points", "tolerance", "degree_min", "degree_max"),
+        )
         return ops.fit_point_grid_rface(
             params["points"],
             tolerance=params["tolerance"],
             degree_min=int(params["degree_min"]),
             degree_max=int(params["degree_max"]),
-            smoothing=cast(Optional[Tuple[float, float, float]], params.get("smoothing")),
+            smoothing=cast(
+                Optional[Tuple[float, float, float]], params.get("smoothing")
+            ),
             tag_prefix=cast(Optional[str], params.get("tag_prefix")),
         )
     if op_name == "make_box_rsolid":
-        ctx.require_params(node_id, op_name, params, ("width", "height", "depth", "bottom_face_center"))
+        ctx.require_params(
+            node_id, op_name, params, ("width", "height", "depth", "bottom_face_center")
+        )
         return ops.make_box_rsolid(
-            params["width"], params["height"], params["depth"],
+            params["width"],
+            params["height"],
+            params["depth"],
             bottom_face_center=tuple(params["bottom_face_center"]),
         )
     if op_name == "make_cylinder_rsolid":
-        ctx.require_params(node_id, op_name, params, ("radius", "height", "bottom_face_center", "axis"))
+        ctx.require_params(
+            node_id, op_name, params, ("radius", "height", "bottom_face_center", "axis")
+        )
         return ops.make_cylinder_rsolid(
-            params["radius"], params["height"],
+            params["radius"],
+            params["height"],
             bottom_face_center=tuple(params["bottom_face_center"]),
             axis=tuple(params["axis"]),
         )
     if op_name == "make_cone_rsolid":
-        ctx.require_params(node_id, op_name, params, ("bottom_radius", "top_radius", "height", "bottom_face_center", "axis"))
+        ctx.require_params(
+            node_id,
+            op_name,
+            params,
+            ("bottom_radius", "top_radius", "height", "bottom_face_center", "axis"),
+        )
         return ops.make_cone_rsolid(
-            params["bottom_radius"], params["height"], top_radius=params["top_radius"],
-            bottom_face_center=tuple(params["bottom_face_center"]), axis=tuple(params["axis"]),
+            params["bottom_radius"],
+            params["height"],
+            top_radius=params["top_radius"],
+            bottom_face_center=tuple(params["bottom_face_center"]),
+            axis=tuple(params["axis"]),
         )
     if op_name == "make_sphere_rsolid":
         ctx.require_params(node_id, op_name, params, ("radius", "center"))
@@ -1441,32 +1473,46 @@ def _geo_selector_score(
             score += 1e6
 
     if isinstance(shape, Vertex):
-        score += _distance3(
-            cast(Tuple[float, float, float], tuple(shape.get_coordinates())),
-            _tuple3_from_any(selector.get("coordinates")),
-        ) * 10.0
+        score += (
+            _distance3(
+                cast(Tuple[float, float, float], tuple(shape.get_coordinates())),
+                _tuple3_from_any(selector.get("coordinates")),
+            )
+            * 10.0
+        )
     elif isinstance(shape, Edge):
         if "length" in selector:
             score += abs(float(shape.get_length()) - float(selector["length"])) * 10.0
         center = shape.get_center()
-        score += _distance3(
-            (float(center.x), float(center.y), float(center.z)),
-            _tuple3_from_any(selector.get("center")),
-        ) * 10.0
+        score += (
+            _distance3(
+                (float(center.x), float(center.y), float(center.z)),
+                _tuple3_from_any(selector.get("center")),
+            )
+            * 10.0
+        )
         try:
             start = cast(
                 Tuple[float, float, float],
-                tuple(float(value) for value in shape.get_start_vertex().get_coordinates()),
+                tuple(
+                    float(value) for value in shape.get_start_vertex().get_coordinates()
+                ),
             )
             end = cast(
                 Tuple[float, float, float],
-                tuple(float(value) for value in shape.get_end_vertex().get_coordinates()),
+                tuple(
+                    float(value) for value in shape.get_end_vertex().get_coordinates()
+                ),
             )
             expected_start = _tuple3_from_any(selector.get("start"))
             expected_end = _tuple3_from_any(selector.get("end"))
             if expected_start is not None and expected_end is not None:
-                direct = _distance3(start, expected_start) + _distance3(end, expected_end)
-                reverse = _distance3(start, expected_end) + _distance3(end, expected_start)
+                direct = _distance3(start, expected_start) + _distance3(
+                    end, expected_end
+                )
+                reverse = _distance3(start, expected_end) + _distance3(
+                    end, expected_start
+                )
                 score += min(direct, reverse)
         except Exception:
             pass
@@ -1479,21 +1525,28 @@ def _geo_selector_score(
         if "area" in selector:
             score += abs(float(shape.get_area()) - float(selector["area"]))
         center = shape.get_center()
-        score += _distance3(
-            (float(center.x), float(center.y), float(center.z)),
-            _tuple3_from_any(selector.get("center")),
-        ) * 10.0
+        score += (
+            _distance3(
+                (float(center.x), float(center.y), float(center.z)),
+                _tuple3_from_any(selector.get("center")),
+            )
+            * 10.0
+        )
         normal = shape.get_normal_at()
-        score += _distance3(
-            (float(normal.x), float(normal.y), float(normal.z)),
-            _tuple3_from_any(selector.get("normal")),
-        ) * 5.0
+        score += (
+            _distance3(
+                (float(normal.x), float(normal.y), float(normal.z)),
+                _tuple3_from_any(selector.get("normal")),
+            )
+            * 5.0
+        )
         if "edge_count" in selector:
             score += abs(len(shape.get_edges()) - int(selector["edge_count"])) * 10.0
         if "inner_wire_count" in selector:
-            score += abs(
-                len(shape.get_inner_wires()) - int(selector["inner_wire_count"])
-            ) * 10.0
+            score += (
+                abs(len(shape.get_inner_wires()) - int(selector["inner_wire_count"]))
+                * 10.0
+            )
     elif isinstance(shape, Shell):
         if "face_count" in selector:
             score += abs(len(shape.get_faces()) - int(selector["face_count"])) * 10.0
@@ -1501,7 +1554,6 @@ def _geo_selector_score(
         if "volume" in selector:
             score += abs(float(shape.get_volume()) - float(selector["volume"]))
     return score
-
 
 
 def _resolve_shape_from_geo_selector(
@@ -2262,7 +2314,7 @@ def _execute_graph(
                         _store_semantic_outputs(node, result)
                         continue
 
-                    if op_name == "make_add_point_rsketch":
+                    if op_name == "add_point_rsketch":
                         ctx.require_params(
                             node.node_id, op_name, params, ("point_id", "x", "y")
                         )
@@ -2277,7 +2329,7 @@ def _execute_graph(
                             _store_outputs(node, result)
                         continue
 
-                    if op_name == "make_add_line_rsketch":
+                    if op_name == "add_line_rsketch":
                         ctx.require_params(
                             node.node_id, op_name, params, ("entity_id", "start", "end")
                         )
@@ -2293,7 +2345,7 @@ def _execute_graph(
                             _store_outputs(node, result)
                         continue
 
-                    if op_name == "make_add_circle_rsketch":
+                    if op_name == "add_circle_rsketch":
                         ctx.require_params(
                             node.node_id,
                             op_name,
@@ -2312,7 +2364,7 @@ def _execute_graph(
                             _store_outputs(node, result)
                         continue
 
-                    if op_name == "make_add_arc_rsketch":
+                    if op_name == "add_arc_rsketch":
                         ctx.require_params(
                             node.node_id,
                             op_name,
@@ -2332,7 +2384,7 @@ def _execute_graph(
                             _store_outputs(node, result)
                         continue
 
-                    if op_name == "make_add_bspline_rsketch":
+                    if op_name == "add_bspline_rsketch":
                         ctx.require_params(
                             node.node_id,
                             op_name,
@@ -2414,7 +2466,9 @@ def _execute_graph(
                                     Sequence[int | str],
                                     params.get("inner_profiles", ()),
                                 ),
-                                require_fully_constrained=bool(params.get("require_fully_constrained", False)),
+                                require_fully_constrained=bool(
+                                    params.get("require_fully_constrained", False)
+                                ),
                                 strict=bool(params.get("strict", True)),
                                 tolerance=float(params.get("tolerance", 1e-7)),
                                 max_iterations=int(params.get("max_iterations", 80)),
@@ -2970,8 +3024,12 @@ def _execute_graph(
                         continue
 
                     if op_name == "make_ruled_surface_rface":
-                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
-                        if len(ordered) != 2 or not all(isinstance(item, Edge) for item in ordered):
+                        ordered = _ordered_input_shapes(
+                            ctx, graph, outputs, node, params
+                        )
+                        if len(ordered) != 2 or not all(
+                            isinstance(item, Edge) for item in ordered
+                        ):
                             ctx.fail(
                                 f"Graph node '{node.node_id}' ({op_name}) requires exactly two Edge inputs"
                             )
@@ -2990,7 +3048,9 @@ def _execute_graph(
                             params,
                             ("profile_count", "guide_count", "tolerance"),
                         )
-                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        ordered = _ordered_input_shapes(
+                            ctx, graph, outputs, node, params
+                        )
                         profile_count = int(params["profile_count"])
                         guide_count = int(params["guide_count"])
                         if len(ordered) != profile_count + guide_count or not all(
@@ -3013,13 +3073,24 @@ def _execute_graph(
                             node.node_id,
                             op_name,
                             params,
-                            ("boundary_count", "hole_count", "boundaries", "points", "settings"),
+                            (
+                                "boundary_count",
+                                "hole_count",
+                                "boundaries",
+                                "points",
+                                "settings",
+                            ),
                         )
-                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        ordered = _ordered_input_shapes(
+                            ctx, graph, outputs, node, params
+                        )
                         raw_boundaries = params["boundaries"]
                         boundary_count = int(params["boundary_count"])
                         hole_count = int(params["hole_count"])
-                        if not isinstance(raw_boundaries, list) or len(raw_boundaries) != boundary_count:
+                        if (
+                            not isinstance(raw_boundaries, list)
+                            or len(raw_boundaries) != boundary_count
+                        ):
                             ctx.fail(
                                 f"Graph node '{node.node_id}' ({op_name}) boundary metadata count does not match"
                             )
@@ -3030,7 +3101,9 @@ def _execute_graph(
                                 ctx.fail(
                                     f"Graph node '{node.node_id}' ({op_name}) boundaries[{boundary_index}] must be an object"
                                 )
-                            if cursor >= len(ordered) or not isinstance(ordered[cursor], Edge):
+                            if cursor >= len(ordered) or not isinstance(
+                                ordered[cursor], Edge
+                            ):
                                 ctx.fail(
                                     f"Graph node '{node.node_id}' ({op_name}) boundary edge input is missing or invalid"
                                 )
@@ -3038,7 +3111,9 @@ def _execute_graph(
                             cursor += 1
                             support: Optional[Face] = None
                             if bool(raw_boundary.get("has_support", False)):
-                                if cursor >= len(ordered) or not isinstance(ordered[cursor], Face):
+                                if cursor >= len(ordered) or not isinstance(
+                                    ordered[cursor], Face
+                                ):
                                     ctx.fail(
                                         f"Graph node '{node.node_id}' ({op_name}) boundary support input is missing or invalid"
                                     )
@@ -3047,12 +3122,16 @@ def _execute_graph(
                             boundaries.append(
                                 ops.SurfaceBoundary(
                                     edge=edge,
-                                    continuity=str(raw_boundary.get("continuity", "C0")),
+                                    continuity=str(
+                                        raw_boundary.get("continuity", "C0")
+                                    ),
                                     support=support,
                                 )
                             )
                         holes = ordered[cursor:]
-                        if len(holes) != hole_count or not all(isinstance(item, Wire) for item in holes):
+                        if len(holes) != hole_count or not all(
+                            isinstance(item, Wire) for item in holes
+                        ):
                             ctx.fail(
                                 f"Graph node '{node.node_id}' ({op_name}) hole inputs do not match hole_count"
                             )
@@ -3072,8 +3151,12 @@ def _execute_graph(
                         continue
 
                     if op_name == "make_loft_rshell":
-                        ctx.require_params(node.node_id, op_name, params, ("section_count", "ruled"))
-                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        ctx.require_params(
+                            node.node_id, op_name, params, ("section_count", "ruled")
+                        )
+                        ordered = _ordered_input_shapes(
+                            ctx, graph, outputs, node, params
+                        )
                         if len(ordered) != int(params["section_count"]) or not all(
                             isinstance(item, (Wire, Vertex)) for item in ordered
                         ):
@@ -3089,8 +3172,12 @@ def _execute_graph(
                         continue
 
                     if op_name == "sew_faces_rshell":
-                        ctx.require_params(node.node_id, op_name, params, ("face_count", "tolerance"))
-                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        ctx.require_params(
+                            node.node_id, op_name, params, ("face_count", "tolerance")
+                        )
+                        ordered = _ordered_input_shapes(
+                            ctx, graph, outputs, node, params
+                        )
                         if len(ordered) != int(params["face_count"]) or not all(
                             isinstance(item, Face) for item in ordered
                         ):
@@ -3106,9 +3193,13 @@ def _execute_graph(
                         continue
 
                     if op_name == "free_boundaries_rwirelist":
-                        ctx.require_params(node.node_id, op_name, params, ("tolerance",))
+                        ctx.require_params(
+                            node.node_id, op_name, params, ("tolerance",)
+                        )
                         shell_outputs = _input_outputs(ctx, outputs, node, 0)
-                        if len(shell_outputs) != 1 or not isinstance(shell_outputs[0], Shell):
+                        if len(shell_outputs) != 1 or not isinstance(
+                            shell_outputs[0], Shell
+                        ):
                             ctx.fail(
                                 f"Graph node '{node.node_id}' ({op_name}) requires exactly one Shell input"
                             )
@@ -3124,8 +3215,12 @@ def _execute_graph(
                         continue
 
                     if op_name == "fill_holes_rshell":
-                        ctx.require_params(node.node_id, op_name, params, ("tolerance", "settings"))
-                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        ctx.require_params(
+                            node.node_id, op_name, params, ("tolerance", "settings")
+                        )
+                        ordered = _ordered_input_shapes(
+                            ctx, graph, outputs, node, params
+                        )
                         if len(ordered) != 1 or not isinstance(ordered[0], Shell):
                             ctx.fail(
                                 f"Graph node '{node.node_id}' ({op_name}) requires exactly one Shell input"
@@ -3141,7 +3236,10 @@ def _execute_graph(
                             hole_indices=(
                                 None
                                 if raw_indices is None
-                                else [int(index) for index in cast(Sequence[int], raw_indices)]
+                                else [
+                                    int(index)
+                                    for index in cast(Sequence[int], raw_indices)
+                                ]
                             ),
                             tolerance=float(params["tolerance"]),
                             settings=ops.SurfaceFillingSettings(**settings_payload),

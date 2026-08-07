@@ -77,9 +77,9 @@ class GeometryEmitterMixin:
                 f"{var_name} = _register_graph_value({arc_expr}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
             return lines
-        if node.op == "make_spline_redge":
+        if node.op in {"make_spline_redge", "make_interpolated_spline_redge"}:
             lines = [
-                f"{var_name} = _register_graph_value(_bspline_curve_from_params({rp}).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+                f"{var_name} = _register_graph_value(_bspline_curve_from_params({rp}, context={context_literal}).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
             return lines
         if node.op == "make_wire_from_edges_rwire":
@@ -97,6 +97,7 @@ class GeometryEmitterMixin:
                     "make_angle_arc_redge",
                     "make_three_point_arc_redge",
                     "make_spline_redge",
+                    "make_interpolated_spline_redge",
                 }
                 for inp in input_nodes
             ):
@@ -136,7 +137,7 @@ class GeometryEmitterMixin:
                         point_exprs.append(f"_edge_start_point({edge_obj_expr})")
                         point_exprs.append(f"_edge_mid_point({edge_obj_expr})")
                         point_exprs.append(f"_edge_end_point({edge_obj_expr})")
-                    elif input_node.op == "make_spline_redge":
+                    elif input_node.op in {"make_spline_redge", "make_interpolated_spline_redge"}:
                         point_exprs.append(f"_edge_start_point({edge_obj_expr})")
                         point_exprs.append(f"_edge_mid_point({edge_obj_expr})")
                         point_exprs.append(f"_edge_end_point({edge_obj_expr})")
@@ -307,9 +308,9 @@ class GeometryEmitterMixin:
                         lines.append(
                             f"{var_name}_constraint_bindings.append((f'Constraints[{{{var_name}_angle_constraint_{geom_index}}}]', {_json_ascii(arc_span_formula) if arc_span_formula is not None else 'None'}))"
                         )
-                    elif input_node.op == "make_spline_redge":
+                    elif input_node.op in {"make_spline_redge", "make_interpolated_spline_redge"}:
                         lines.append(
-                            f"{var_name}.addGeometry(_bspline_curve_from_params({edge_var}_params, transform_point=lambda point: _local_point_on_frame(point, {var_name}_origin, {var_name}_xaxis, {var_name}_yaxis)), False)"
+                            f"{var_name}.addGeometry(_bspline_curve_from_params({edge_var}_params, transform_point=lambda point: _local_point_on_frame(point, {var_name}_origin, {var_name}_xaxis, {var_name}_yaxis), context={_py_literal(input_node.context or {})}), False)"
                         )
                     elif input_node.op == "make_three_point_arc_redge":
                         lines.append(

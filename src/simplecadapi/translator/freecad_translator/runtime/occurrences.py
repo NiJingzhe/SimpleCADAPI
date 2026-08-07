@@ -231,7 +231,7 @@ def _copy_occurrence(source, *, root_token, path, labels):
         attributes = attributes + ("LinkedObject",)
     for attribute in attributes:
         _occurrence_copy_link(source, clone, attribute, root_token, path, labels)
-    for attribute in ("Sections", "Shapes", "Sources"):
+    for attribute in ("Sections", "Shapes", "Sources", "Tools"):
         _occurrence_copy_link_list(source, clone, attribute, root_token, path, labels)
     _occurrence_copy_faces(source, clone, root_token, path, labels)
     _occurrence_copy_support(source, clone, root_token, path, labels)

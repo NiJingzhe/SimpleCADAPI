@@ -49,11 +49,11 @@ class SketchEmitterMixin:
 
         if node.op in {
             "make_sketch_rsketch",
-            "make_add_point_rsketch",
-            "make_add_line_rsketch",
-            "make_add_circle_rsketch",
-            "make_add_arc_rsketch",
-            "make_add_bspline_rsketch",
+            "add_point_rsketch",
+            "add_line_rsketch",
+            "add_circle_rsketch",
+            "add_arc_rsketch",
+            "add_bspline_rsketch",
             "make_constrain_coincident_rsketch",
             "make_constrain_point_on_rsketch",
             "make_constrain_horizontal_rsketch",
