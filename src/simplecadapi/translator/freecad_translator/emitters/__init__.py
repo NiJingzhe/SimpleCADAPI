@@ -5,6 +5,7 @@ from .products import ProductEmitterMixin
 from .selections import SelectionEmitterMixin
 from .sketches import SketchEmitterMixin
 from .geometry import GeometryEmitterMixin
+from .surfaces import SurfaceEmitterMixin
 from .features import FeatureEmitterMixin
 from .booleans import BooleanEmitterMixin
 from .transforms import TransformEmitterMixin
@@ -17,6 +18,7 @@ __all__ = [
     "SketchEmitterMixin",
     "GeometryEmitterMixin",
     "FeatureEmitterMixin",
+    "SurfaceEmitterMixin",
     "BooleanEmitterMixin",
     "TransformEmitterMixin",
     "EMITTER_METHOD_BY_OP",

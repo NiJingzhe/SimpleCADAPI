@@ -54,6 +54,7 @@ class SelectionEmitterMixin:
                 "make_select_redge",
                 "make_select_rwire",
                 "make_select_rface",
+                "make_select_rshell",
                 "make_select_rsolid",
             }
             and len(inputs) == 1

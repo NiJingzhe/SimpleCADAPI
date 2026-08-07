@@ -98,6 +98,7 @@ class FeatureEmitterMixin:
                 "make_2d_cut_rface",
                 "make_2d_union_rface",
                 "make_2d_intersect_rface",
+                "make_bezier_surface_rface",
             }:
                 sketch_node = base_node
                 if base_node.op == "make_face_from_wire_rface" and base_node.inputs:
@@ -128,7 +129,8 @@ class FeatureEmitterMixin:
                 lines.extend(finish())
                 return lines
         if node.op == "make_revolve_rsolid" and len(inputs) == 1:
-            base_node = graph.get_node(inputs[0])
+            direct_base_node = graph.get_node(inputs[0])
+            base_node = unwrap_transparent_geometry_node(graph, direct_base_node)
             if base_node is not None and base_node.op in {
                 "make_face_from_wire_rface",
                 "make_wire_from_edges_rwire",
