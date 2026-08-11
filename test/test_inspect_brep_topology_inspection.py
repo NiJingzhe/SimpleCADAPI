@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import pytest
+from OCP.BRep import BRep_Builder
+from OCP.BRepBuilderAPI import (
+    BRepBuilderAPI_MakeEdge,
+    BRepBuilderAPI_MakeFace,
+    BRepBuilderAPI_MakeWire,
+)
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+from OCP.TopAbs import TopAbs_VERTEX
+from OCP.TopExp import TopExp
+from OCP.TopTools import TopTools_IndexedMapOfShape
+from OCP.TopoDS import TopoDS, TopoDS_Compound
+from OCP.gp import gp_Pnt
+
+from simplecadapi.inspect import brep
+
+
+def _triangle(shared, first, second):
+    wire = BRepBuilderAPI_MakeWire()
+    wire.Add(shared)
+    wire.Add(BRepBuilderAPI_MakeEdge(first, second).Edge())
+    wire.Add(BRepBuilderAPI_MakeEdge(second, gp_Pnt(0.0, 0.0, 0.0)).Edge())
+    return BRepBuilderAPI_MakeFace(wire.Wire(), True).Face()
+
+
+def _three_faces_sharing_one_edge():
+    start = gp_Pnt(0.0, 0.0, 0.0)
+    end = gp_Pnt(1.0, 0.0, 0.0)
+    shared = BRepBuilderAPI_MakeEdge(start, end).Edge()
+    faces = [
+        _triangle(shared, end, gp_Pnt(0.0, 1.0, 0.0)),
+        _triangle(shared, end, gp_Pnt(0.0, -1.0, 0.0)),
+        _triangle(shared, end, gp_Pnt(0.0, 0.0, 1.0)),
+    ]
+    compound = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(compound)
+    for face in faces:
+        builder.Add(compound, face)
+    return compound
+
+
+def test_inspect_topology_distinguishes_validity_from_closed_manifoldness():
+    box = brep.inspect_topology_rdescriptor(
+        BRepPrimAPI_MakeBox(2.0, 3.0, 4.0).Shape()
+    )
+    wire = BRepBuilderAPI_MakeWire()
+    corners = (
+        gp_Pnt(0.0, 0.0, 0.0),
+        gp_Pnt(2.0, 0.0, 0.0),
+        gp_Pnt(2.0, 1.0, 0.0),
+        gp_Pnt(0.0, 1.0, 0.0),
+    )
+    for start, end in zip(corners, (*corners[1:], corners[0])):
+        wire.Add(BRepBuilderAPI_MakeEdge(start, end).Edge())
+    face = brep.inspect_topology_rdescriptor(
+        BRepBuilderAPI_MakeFace(wire.Wire(), True).Face()
+    )
+
+    assert box["valid"] is True
+    assert box["closed_manifold"] is True
+    assert box["edge_classification_counts"] == {
+        "degenerate": 0,
+        "free": 0,
+        "manifold": 12,
+        "non_manifold": 0,
+        "orientation_defect": 0,
+        "orphan": 0,
+        "seam": 0,
+    }
+    assert box["shells"] == [
+        {
+            "shell_index": 0,
+            "closed": True,
+            "closure_status": "BRepCheck_NoError",
+            "orientation_status": "BRepCheck_NoError",
+        }
+    ]
+
+    assert face["valid"] is True
+    assert face["closed_manifold"] is False
+    assert face["edge_classification_counts"]["free"] == 4
+    assert face["edge_use_histogram"] == {"1": 4}
+
+
+def test_inspect_topology_reports_non_manifold_edge_uses():
+    report = brep.inspect_topology_rdescriptor(_three_faces_sharing_one_edge())
+
+    assert report["closed_manifold"] is False
+    assert report["edge_classification_counts"]["non_manifold"] == 1
+    problem = next(
+        item
+        for item in report["problem_edges"]
+        if item["classification"] == "non_manifold"
+    )
+    assert problem["use_count"] == 3
+    assert problem["unique_face_count"] == 3
+    assert problem["face_ids"] == ["face:0", "face:1", "face:2"]
+
+
+def test_inspect_topology_reports_wire_closure_orientations_and_small_faces():
+    wire = BRepBuilderAPI_MakeWire()
+    corners = (
+        gp_Pnt(0.0, 0.0, 0.0),
+        gp_Pnt(1.0e-3, 0.0, 0.0),
+        gp_Pnt(1.0e-3, 1.0e-3, 0.0),
+        gp_Pnt(0.0, 1.0e-3, 0.0),
+    )
+    for start, end in zip(corners, (*corners[1:], corners[0])):
+        wire.Add(BRepBuilderAPI_MakeEdge(start, end).Edge())
+    face = BRepBuilderAPI_MakeFace(wire.Wire(), True).Face()
+
+    report = brep.inspect_topology_rdescriptor(
+        face, small_face_area_threshold=1.0e-5
+    )
+
+    assert report["wire_counts"] == {"closed": 1, "open": 0}
+    assert report["face_orientation_counts"] == {"forward": 1}
+    assert report["small_face_count"] == 1
+    assert report["small_faces"][0]["face_id"] == "face:0"
+    assert report["small_faces"][0]["area"] == pytest.approx(1.0e-6)
+
+
+def test_inspect_topology_keeps_validity_independent_from_closed_manifoldness():
+    shape = BRepPrimAPI_MakeBox(1.0, 1.0, 1.0).Shape()
+    vertices = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(shape, TopAbs_VERTEX, vertices)
+    vertex = TopoDS.Vertex_s(vertices.FindKey(1))
+    BRep_Builder().UpdateVertex(vertex, gp_Pnt(0.2, 0.2, 0.2), 1.0e-7)
+
+    report = brep.inspect_topology_rdescriptor(shape)
+
+    assert report["valid"] is False
+    assert report["closed_manifold"] is True
+    assert report["edge_classification_counts"]["manifold"] == 12
