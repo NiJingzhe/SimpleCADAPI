@@ -16,10 +16,11 @@ def translate_model_json_to_freecad_script(json_str: str, document_name: str = '
 
 Translate exported model JSON into a FreeCAD Python script.
 
-Geometry is emitted as native FreeCAD occurrence trees. Serialized source
-assignment targets name native design objects, shared DAG inputs are copied
-per consuming result, and FreeCAD feature links preserve recomputing
-dependencies. Stable node ids remain available as internal metadata.
+Geometry is emitted as FreeCAD occurrence trees. Serialized source assignment
+targets name native design objects, shared DAG inputs are copied per consuming
+result, and feature links preserve dependencies. Booleans are emitted as native
+recomputable `Part::Cut`, `Part::Fuse`, and `Part::Common` features. Stable node
+ids remain available as internal metadata.
 `apply_tag_rselection` nodes do not create FreeCAD features. Their canonical
 bindings and source node ids are attached to traceable geometry and visible
 result objects as `SimpleCADAppliedTags`, `SimpleCADTagBindings`, and

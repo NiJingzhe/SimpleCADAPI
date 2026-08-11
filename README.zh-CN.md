@@ -6,14 +6,13 @@
 
 [English](README.md)
 
-## 更新日志（2.0.4b2 开发中）
+## 更新日志（2.0.4b3 开发中）
 
-> **Beta 版本：** 用于生产前，请检查逆向得到的几何以及生成的 CAD 文档。
+> **Beta 版本：** 用于生产前，请验证生成的定义、装配约束和制造几何。
 
-SimpleCADAPI 2.0.4b2 新增面向 Agent 的 STEP/BREP 逆向工作流，包括稳定实体 ID、
-17 个经过 Schema 校验的检查和诊断工具、聚焦材料/边界/拓扑的验收门槛，以及可回放
-的插值 B 样条轮廓。具体实现、运行模式、限制和验证范围请阅读
-[完整中文更新说明](docs/updates/2.0.4b2.zh-CN.md)。
+SimpleCADAPI 2.0.4b3 新增可复现的 `@part`/`@assemble` 产品边界、增量装配求解，
+以及整零件的持久化崩溃安全缓存。契约、cache mode、诊断、限制和验证范围见
+[完整中文更新说明](docs/updates/2.0.4b3.zh-CN.md)。
 
 ---
 
@@ -30,8 +29,7 @@ SimpleCADAPI 2.0.4b2 新增面向 Agent 的 STEP/BREP 逆向工作流，包括�
 
 SimpleCADAPI 是一个基于 OCP 的 Python CAD SDK，提供清晰的函数式建模操作和可重放的模型图。它在 OpenCascade 几何内核之上提供精简的公共 API，可用于创建实体、应用特征、添加语义标签、查询拓扑、导出制造文件，以及将记录的模型转换为 FreeCAD 工作流。
 
-当前已发布 Beta 版本：`simplecadapi==2.0.4b1`。2.0.4b2 更新说明描述的是正在验证的
-下一版 Beta。
+当前开发 Beta：`simplecadapi==2.0.4b3`。
 
 ## 核心能力
 
@@ -45,6 +43,8 @@ SimpleCADAPI 是一个基于 OCP 的 Python CAD SDK，提供清晰的函数式�
 - 面向 Agent 的 STEP/BREP 逆向能力，提供稳定实体 ID、局部诊断、区域高亮截图和
   可测量的验收门槛。
 - 可回放的开放/周期插值 B 样条 Edge 和 Wire，可用于自由轮廓与 Loft 截面。
+- 持久 `@part`/`@assemble` 定义、增量装配求解，以及具备损坏隔离和 JSON 诊断的
+  content-addressed cache。
 
 ## 安装
 
@@ -129,6 +129,33 @@ Viewer 所需的 GLB/entity 资源。自动导出不会在旁边生成 model/ses
 STEP、STL 或 FCStd；这些格式仍可通过显式导出 API 生成。文件路径为
 `result.artifact_paths["scene"]`。省略 `export_dir` 时不会写文件。
 
+## 持久产品构建与缓存
+
+一个物理单实体零件使用 `@scad.part`；具有显式外部定义的装配使用
+`@scad.assemble`。同 build key 的 PRT 在进程内直接复用，持久 part bundle 则跨运行复用未变 PRT。
+
+```python
+@scad.part(id="mounting_plate", cache="auto")
+def build_plate(width: float = 30.0) -> scad.Part:
+    body = scad.make_box_rsolid(width=width, height=20.0, depth=3.0)
+    return scad.make_part_rpart(part_id="mounting_plate", body=body)
+
+cold = build_plate()
+warm = build_plate()
+print(cold.cache_report.hit, warm.cache_report.hit)
+```
+
+缓存检查和维护命令输出稳定 JSON：
+
+```bash
+simplecad-cache status
+simplecad-cache verify
+simplecad-cache prune
+```
+
+cache mode、配置优先级、PRT 复用、增量失效、损坏修复和破坏性命令确认见
+[持久缓存与产品构建工作流](docs/guides/cache-build-workflow.md)。
+
 ## STEP/BREP Agent 逆向
 
 需要生成同步 STEP 视图或局部高亮截图时，请安装渲染依赖：
@@ -189,11 +216,13 @@ scad.translator.freecad_translator.translate_model_json_to_fcstd(model_json, "br
 
 ## 文档
 
-- 2.0.4b2 更新说明：[`docs/updates/2.0.4b2.zh-CN.md`](docs/updates/2.0.4b2.zh-CN.md)
+- 2.0.4b3 更新说明：[`docs/updates/2.0.4b3.zh-CN.md`](docs/updates/2.0.4b3.zh-CN.md)
 - Reconstruction Agent 测试规范：
   [`docs/guides/reconstruction-agent-test-prompt.md`](docs/guides/reconstruction-agent-test-prompt.md)
 - STEP BREP 逆向工程指南：
   [`docs/guides/step-brep-reverse-engineering.md`](docs/guides/step-brep-reverse-engineering.md)
+- 持久缓存与产品构建工作流：
+  [`docs/guides/cache-build-workflow.md`](docs/guides/cache-build-workflow.md)
 - 公共 API 参考：[`docs/api/`](docs/api/)
 - 核心类型与建模说明：[`docs/core/`](docs/core/)
 - 序列化与重放：[`docs/core/serialization/README.md`](docs/core/serialization/README.md)

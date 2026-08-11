@@ -6,17 +6,15 @@
 
 [中文说明](README.zh-CN.md)
 
-## Update Notes (2.0.4b2 development)
+## Update Notes (2.0.4b3 development)
 
-> **Beta release:** Review reconstructed geometry and generated CAD documents
-> before using this version in production.
+> **Beta release:** Validate generated definitions, assembly constraints, and
+> manufacturing geometry before production use.
 
-SimpleCADAPI 2.0.4b2 adds an Agent-oriented STEP/BREP reconstruction workflow
-with stable entity IDs, 17 schema-validated inspection and diagnostic tools,
-focused material/boundary/topology acceptance gates, and replayable
-interpolated B-spline profiles. See the
-[full English update notes](docs/updates/2.0.4b2.md) for implementation details,
-operating modes, limitations, and verification coverage.
+SimpleCADAPI 2.0.4b3 adds reproducible `@part`/`@assemble` product boundaries,
+incremental assembly solves, and a persistent crash-safe cache for whole parts.
+See the [full English update notes](docs/updates/2.0.4b3.md) for contracts,
+cache modes, diagnostics, limitations, and verification coverage.
 
 ---
 
@@ -36,8 +34,7 @@ in a compact public API for creating solids, applying features, tagging semantic
 intent, querying topology, exporting manufacturing files, and translating recorded
 models into FreeCAD workflows.
 
-Current published beta release: `simplecadapi==2.0.4b1`. The 2.0.4b2 notes
-describe the next beta while it is under validation.
+Current development beta: `simplecadapi==2.0.4b3`.
 
 ## What It Provides
 
@@ -58,6 +55,8 @@ describe the next beta while it is under validation.
   diagnostics, highlighted region renders, and measured acceptance gates.
 - Replayable open and periodic interpolated B-spline Edges/Wires for freeform
   profiles and Loft sections.
+- Durable `@part`/`@assemble` definitions, incremental assembly solving, and a
+  persistent content-addressed cache with corruption quarantine and JSON diagnostics.
 
 ## Install
 
@@ -160,6 +159,36 @@ by the Viewer. Automatic export does not write adjacent model/session JSON,
 STEP, STL, or FCStd files; those explicit export APIs remain available. The
 package path is `result.artifact_paths["scene"]`. Without `export_dir`, model
 execution remains in memory.
+
+## Persistent Product Builds And Cache
+
+Use `@scad.part` for one physical single-solid part and `@scad.assemble` for an
+assembly with explicit external definitions. Both use the unified `CachePolicy`;
+same-key part calls reuse the runtime PRT in process, while durable part bundles
+persist unchanged PRTs across later runs.
+
+```python
+@scad.part(id="mounting_plate", cache="auto")
+def build_plate(width: float = 30.0) -> scad.Part:
+    body = scad.make_box_rsolid(width=width, height=20.0, depth=3.0)
+    return scad.make_part_rpart(part_id="mounting_plate", body=body)
+
+cold = build_plate()
+warm = build_plate()
+print(cold.cache_report.hit, warm.cache_report.hit)
+```
+
+Inspect or maintain the cache with stable JSON output:
+
+```bash
+simplecad-cache status
+simplecad-cache verify
+simplecad-cache prune
+```
+
+See the [persistent cache and product build workflow](docs/guides/cache-build-workflow.md)
+for cache modes, configuration precedence, PRT reuse, incremental invalidation,
+corruption repair, and destructive-command confirmation.
 
 ## STEP/BREP Inspection
 
@@ -282,18 +311,20 @@ Run examples from the source checkout:
 uv run python examples/04_dimension_tolerance_chain.py
 uv run python examples/08_constrained_sketch.py
 uv run python examples/09_naca0016_blade_freecad.py
-uv run python examples/10_part_assembly.py
+uv run python examples/11_external_reference_gear_train.py
 uv run python examples/16_compact_two_stage_planetary_reducer/main.py
 uv run python examples/20_integrated_bldc_joint_actuator/main.py
 ```
 
 ## Documentation
 
-- 2.0.4b2 update notes: [`docs/updates/2.0.4b2.md`](docs/updates/2.0.4b2.md)
+- 2.0.4b3 update notes: [`docs/updates/2.0.4b3.md`](docs/updates/2.0.4b3.md)
 - Reconstruction Agent test specification:
   [`docs/guides/reconstruction-agent-test-prompt.md`](docs/guides/reconstruction-agent-test-prompt.md)
 - STEP BREP reverse-engineering guide:
   [`docs/guides/step-brep-reverse-engineering.md`](docs/guides/step-brep-reverse-engineering.md)
+- Persistent cache and product build workflow:
+  [`docs/guides/cache-build-workflow.md`](docs/guides/cache-build-workflow.md)
 - Public API reference: [`docs/api/`](docs/api/)
 - Core type and modeling notes: [`docs/core/`](docs/core/)
 - Serialization and replay details:

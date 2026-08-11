@@ -73,8 +73,8 @@ Many user-facing functions are convenience APIs. During an active `GraphSession`
 
 ## Examples
 
-The retained examples use the same model/session contract. See
+The retained examples use the current replay and durable product contracts. See
 [`../../../examples/08_constrained_sketch.py`](../../../examples/08_constrained_sketch.py)
 for sketch promotion and replay, and
-[`../../../examples/10_part_assembly.py`](../../../examples/10_part_assembly.py)
-for product hierarchy and automatic artifact export.
+[`../../../examples/11_external_reference_gear_train.py`](../../../examples/11_external_reference_gear_train.py)
+for cached parts, explicit external definitions, repeated/nested assemblies, and independent definition export.

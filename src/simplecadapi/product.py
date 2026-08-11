@@ -16,6 +16,7 @@ _AXIS_TOLERANCE = 1e-9
 _ORTHOGONAL_TOLERANCE = 1e-7
 _PLACEMENT_TOLERANCE = 1e-7
 _ANGLE_TOLERANCE_DEGREES = 1e-6
+_AUTHORED_PLACEMENTS_RUNTIME_KEY = "assembly.authored_component_placements"
 
 
 class SemanticValueMixin:
@@ -35,6 +36,12 @@ class SemanticValueMixin:
 
     def _get_runtime(self, key: str, default: Any = None) -> Any:
         return self._runtime.get(str(key), default)
+
+def _assembly_authored_runtime(value: SemanticValueMixin) -> Dict[str, Any]:
+    authored = value._get_runtime(_AUTHORED_PLACEMENTS_RUNTIME_KEY)
+    if authored is None:
+        return {}
+    return {_AUTHORED_PLACEMENTS_RUNTIME_KEY: authored}
 
 
 def _validate_identifier(value: str, *, field_name: str) -> str:
@@ -841,6 +848,7 @@ class Assembly(SemanticValueMixin):
             constraints=self.constraints,
             grounded_component_ids=self.grounded_component_ids,
             _metadata=dict(self._metadata),
+            _runtime={},
         )
 
     def with_component_placement(
@@ -874,6 +882,7 @@ class Assembly(SemanticValueMixin):
             constraints=self.constraints,
             grounded_component_ids=self.grounded_component_ids,
             _metadata=dict(self._metadata),
+            _runtime={},
         )
 
     def connector_ids(self) -> Tuple[str, ...]:
@@ -900,6 +909,7 @@ class Assembly(SemanticValueMixin):
             constraints=self.constraints,
             grounded_component_ids=self.grounded_component_ids,
             _metadata=dict(self._metadata),
+            _runtime=_assembly_authored_runtime(self),
         )
 
     def constraint_ids(self) -> Tuple[str, ...]:
@@ -926,6 +936,7 @@ class Assembly(SemanticValueMixin):
             constraints=(*self.constraints, constraint),
             grounded_component_ids=self.grounded_component_ids,
             _metadata=dict(self._metadata),
+            _runtime=_assembly_authored_runtime(self),
         )
 
     def with_grounded_component(self, component_id: str) -> "Assembly":
@@ -941,6 +952,7 @@ class Assembly(SemanticValueMixin):
             constraints=self.constraints,
             grounded_component_ids=(*self.grounded_component_ids, target),
             _metadata=dict(self._metadata),
+            _runtime=_assembly_authored_runtime(self),
         )
 
     def without_grounded_component(self, component_id: str) -> "Assembly":
@@ -957,6 +969,7 @@ class Assembly(SemanticValueMixin):
             constraints=self.constraints,
             grounded_component_ids=grounded,
             _metadata=dict(self._metadata),
+            _runtime=_assembly_authored_runtime(self),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -1012,6 +1025,19 @@ def translate_z_placement(distance: float) -> Placement:
 def solve_assembly_constraints(assembly: Assembly, strict: bool = True) -> Assembly:
     if not isinstance(assembly, Assembly):
         raise TypeError("assembly must be an Assembly")
+    definition_runtime = {
+        key: value
+        for key, value in assembly._runtime.items()
+        if key.startswith("definition.")
+    }
+    authored_component_placements = assembly._get_runtime(
+        _AUTHORED_PLACEMENTS_RUNTIME_KEY
+    )
+    if authored_component_placements is None:
+        authored_component_placements = {
+            component.component_id: component.placement.to_dict()
+            for component in assembly.components
+        }
     if not assembly.constraints:
         return assembly
     if not assembly.grounded_component_ids:
@@ -1146,6 +1172,12 @@ def solve_assembly_constraints(assembly: Assembly, strict: bool = True) -> Assem
                 "constraint residual exceeds tolerance: " + ", ".join(failed)
             )
     result._set_runtime("constraint_report", report.to_dict())
+    result._set_runtime(
+        _AUTHORED_PLACEMENTS_RUNTIME_KEY,
+        authored_component_placements,
+    )
+    for key, value in definition_runtime.items():
+        result._set_runtime(key, value)
     return result
 
 

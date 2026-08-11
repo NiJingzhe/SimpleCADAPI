@@ -46,11 +46,11 @@ from simplecadapi import ql
 OUT_DIR = Path(__file__).resolve().parent / "out" / "7ep_caplcd_enclosure"
 
 # --- module datums -----------------------------------------------------------
-GLASS_Z = 4.6          # touch glass top
+GLASS_Z = 4.6  # touch glass top
 FRAME_BOTTOM_Z = -2.4  # display frame bottom (support datum)
 PANEL_INNER_Z = -10.5  # tray panel inner face
 PANEL_OUTER_Z = -13.0
-RIM_Z = 0.0            # tray rim / parting line
+RIM_Z = 0.0  # tray rim / parting line
 
 TRAY_X = 56.0
 TRAY_Y = 89.2
@@ -66,23 +66,49 @@ WINDOW_X = 49.25
 WINDOW_Y = 80.0
 
 
-@scad.model(graph_id="caplcd_enclosure_7ep", export_dir=OUT_DIR)
+@scad.part(
+    id="caplcd_enclosure_7ep",
+    revision="1.0.0",
+    export_dir=OUT_DIR,
+)
 def build_enclosure():
-    @scad.requires_session
-    def _build():
-        tray = _build_tray()
-        tray = scad.apply_tag(shape=tray, tag="role.enclosure.tray")
-        scad.capture_result(value=(tray,))
+    tray = _build_tray()
+    tray = scad.apply_tag(shape=tray, tag="role.enclosure.tray")
 
-        # incremental grounding
-        print("tray volume", round(tray.get_volume(), 1))
-        print("tray faces", len(ql.faces().resolve(tray)))
-        print("tags", scad.list_tags(shape=tray))
-        OUT_DIR.mkdir(parents=True, exist_ok=True)
-        scad.export_step(shapes=tray, filename=str(OUT_DIR / "back_panel.step"))
-        return tray
+    part = scad.make_part_rpart(
+        part_id="caplcd_enclosure_7ep",
+        body=tray,
+        name="7EP-CAPLCD rear enclosure tray",
+    )
+    material = scad.make_material_rmaterial(
+        material_id="abs_black",
+        name="Black ABS",
+        density=1.04e-6,
+        density_unit="kg/mm^3",
+        color=(0.06, 0.06, 0.06),
+    )
+    part = scad.assign_material_rpart(part=part, material=material)
+    datums = (
+        ("screen_center", (0.0, 0.0, GLASS_Z), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+        ("connector_access", (0.0, 81.45, -6.2), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+        ("rear_mount", (0.0, 0.0, PANEL_OUTER_Z), (1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
+    )
+    for connector_id, origin, x_axis, y_axis in datums:
+        placement = scad.make_placement_rplacement(
+            origin=origin,
+            x_axis=x_axis,
+            y_axis=y_axis,
+        )
+        connector = scad.make_placement_connector_rconnector(
+            connector_id=connector_id,
+            placement=placement,
+        )
+        part = scad.add_connector_rpart(part=part, connector=connector)
 
-    return _build()
+    print("tray volume", round(tray.get_volume(), 1))
+    print("tray faces", len(ql.faces().resolve(tray)))
+    print("part connectors", part.connector_ids())
+    return part
 
 
 def _box(width, height, depth, bottom_face_center, **kwargs):
@@ -107,16 +133,28 @@ def _cyl(radius, height, bottom_face_center, **kwargs):
 def _build_tray():
     parts = []
     # base panel
-    parts.append(
-        _box(2 * TRAY_X, 2 * TRAY_Y, 2.5, (0, 0, PANEL_OUTER_Z))
-    )
+    parts.append(_box(2 * TRAY_X, 2 * TRAY_Y, 2.5, (0, 0, PANEL_OUTER_Z)))
     # walls to the glass plane (rim at Z 4.4, glass top at 4.6): the module
     # frame is the finished front face, the walls are the side guard rim
     WALL_H = 4.4 - PANEL_INNER_Z
     for sx in (-1, 1):
-        parts.append(_box(WALL_T, 2 * TRAY_Y, WALL_H, (sx * (TRAY_X - WALL_T / 2), 0, PANEL_INNER_Z)))
+        parts.append(
+            _box(
+                WALL_T,
+                2 * TRAY_Y,
+                WALL_H,
+                (sx * (TRAY_X - WALL_T / 2), 0, PANEL_INNER_Z),
+            )
+        )
     for sy in (-1, 1):
-        parts.append(_box(2 * TRAY_X, WALL_T, WALL_H, (0, sy * (TRAY_Y - WALL_T / 2), PANEL_INNER_Z)))
+        parts.append(
+            _box(
+                2 * TRAY_X,
+                WALL_T,
+                WALL_H,
+                (0, sy * (TRAY_Y - WALL_T / 2), PANEL_INNER_Z),
+            )
+        )
 
     # support pads under the module's 8 M2.5 standoff feet (Z -7.7). The
     # frame bottom face (-2.4) is not loadable: the PCB (Z -3.7..-2.12, 99.5 x
@@ -147,9 +185,15 @@ def _build_tray():
     # jack mouth (79.9) sits 0.3 mm behind the recessed wall's inner face;
     # USB-C / 47151 mouths (53.4 / 54.0) are reached through the open space
     # below the PCB. Raised shelves align the plug axes with the mouths.
-    parts.append(_box(62.8, 2.5, 8.0, (-7.2, 81.45, -10.5)))   # recessed wall Y 80.2..82.7, Z -10.5..-2.5
-    parts.append(_box(32.3, 28.6, 2.2, (-12.15, 65.9, -10.5)))  # USB shelf X -28.3..4.0, Y 51.6..80.2, Z -10.5..-8.3
-    parts.append(_box(20.2, 26.2, 2.2, (14.1, 67.1, -10.5)))    # 47151 shelf X 4.0..24.2, Y 54.0..80.2, Z -10.5..-8.3
+    parts.append(
+        _box(62.8, 2.5, 8.0, (-7.2, 81.45, -10.5))
+    )  # recessed wall Y 80.2..82.7, Z -10.5..-2.5
+    parts.append(
+        _box(32.3, 28.6, 2.2, (-12.15, 65.9, -10.5))
+    )  # USB shelf X -28.3..4.0, Y 51.6..80.2, Z -10.5..-8.3
+    parts.append(
+        _box(20.2, 26.2, 2.2, (14.1, 67.1, -10.5))
+    )  # 47151 shelf X 4.0..24.2, Y 54.0..80.2, Z -10.5..-8.3
     # left side: the 3-pin socket faces -X at X -45.4; the wall is opened
     # at the socket band (Y 18.76..29.56) forming an open bay for the plug.
 
@@ -169,22 +213,30 @@ def _build_tray():
     PANEL_CUT = 4.0
     # remove the original wall's lower band at the connector side (the recess
     # void) and open the access holes through the recessed wall at the mouths
-    tools.append(_box(62.8, 3.5, 8.0, (-7.2, TRAY_Y - WALL_T / 2, -10.5)))  # void Y 86.2..89.7, Z -10.5..-2.5
-    tools.append(_box(9.2, 3.1, 5.0, (-33.3, 81.45, -8.4)))    # jack mouth hole
-    tools.append(_box(10.0, 3.1, 5.0, (-20.8, 81.45, -7.8)))   # usb1 hole
-    tools.append(_box(10.0, 3.1, 5.0, (-6.8, 81.45, -7.8)))    # usb2 hole
-    tools.append(_box(10.0, 3.1, 2.2, (12.5, 81.45, -6.0)))    # 47151 hole
+    tools.append(
+        _box(62.8, 3.5, 8.0, (-7.2, TRAY_Y - WALL_T / 2, -10.5))
+    )  # void Y 86.2..89.7, Z -10.5..-2.5
+    tools.append(_box(9.2, 3.1, 5.0, (-33.3, 81.45, -8.4)))  # jack mouth hole
+    tools.append(_box(10.0, 3.1, 5.0, (-20.8, 81.45, -7.8)))  # usb1 hole
+    tools.append(_box(10.0, 3.1, 5.0, (-6.8, 81.45, -7.8)))  # usb2 hole
+    tools.append(_box(10.0, 3.1, 2.2, (12.5, 81.45, -6.0)))  # 47151 hole
     # left notch: open the left wall at the 3-pin socket band
-    tools.append(_box(3.0, 10.8, 6.4, (-(TRAY_X - WALL_T / 2), 24.16, -10.3)))  # Y 18.76..29.56, Z -10.3..-3.9
+    tools.append(
+        _box(3.0, 10.8, 6.4, (-(TRAY_X - WALL_T / 2), 24.16, -10.3))
+    )  # Y 18.76..29.56, Z -10.3..-3.9
     # M2.5 countersunk mounting holes -> the module's 8 threaded standoffs
     for sx in (-1, 1):
         for sy in (-1, 1):
-            tools.append(_cyl(1.4, 6.0, (sx * 45.75, sy * 73.75, -13.5)))   # through pad+base
+            tools.append(
+                _cyl(1.4, 6.0, (sx * 45.75, sy * 73.75, -13.5))
+            )  # through pad+base
         tools.append(_cyl(1.4, 6.0, (sx * 18.0, 36.26, -13.5)))
         tools.append(_cyl(1.4, 6.0, (sx * 18.0, -21.74, -13.5)))
     for sx in (-1, 1):
         for sy in (-1, 1):
-            tools.append(_cyl(2.6, 1.5, (sx * 45.75, sy * 73.75, -13.2)))   # 90-deg countersink
+            tools.append(
+                _cyl(2.6, 1.5, (sx * 45.75, sy * 73.75, -13.2))
+            )  # 90-deg countersink
         tools.append(_cyl(2.6, 1.5, (sx * 18.0, 36.26, -13.2)))
         tools.append(_cyl(2.6, 1.5, (sx * 18.0, -21.74, -13.2)))
     # 3-pin notch is cut above (left wall, open bay); 4-pin 1.25 x2 (vertical,
@@ -197,7 +249,12 @@ def _build_tray():
     for zone_center_y in (35.75, -41.24):
         for k in range(-5, 7):
             tools.append(
-                _box(18.0, 1.6, PANEL_CUT, (37.7, zone_center_y + 4.4 * (k - 0.5), PANEL_OUTER_Z))
+                _box(
+                    18.0,
+                    1.6,
+                    PANEL_CUT,
+                    (37.7, zone_center_y + 4.4 * (k - 0.5), PANEL_OUTER_Z),
+                )
             )
     # MCU cooling vents
     for vx, vy in ((-14.0, 6.5), (-9.5, 6.5), (-14.0, 10.5), (-9.5, 10.5)):
@@ -217,6 +274,10 @@ def _build_tray():
 
 if __name__ == "__main__":
     result = build_enclosure()
-    tray = result.value
     print("replay count", len(result.replay()))
-    print("tray volume", round(tray.get_volume(), 1))
+    print("tray volume", round(result.value.body.get_volume(), 1))
+    print("geometry interface", result.definition.interface_hashes.geometry)
+    print(
+        "interface diff",
+        result.interface_diff.to_dict() if result.interface_diff is not None else None,
+    )

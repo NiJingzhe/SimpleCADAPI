@@ -1,12 +1,22 @@
 """Shared construction, tagging, connector, and grounding helpers."""
 
-from __future__ import annotations
-
 import math
 from collections.abc import Iterable
+from pathlib import Path
 
 import simplecadapi as scad
 from simplecadapi import ql
+
+
+CACHE = scad.CachePolicy(root=Path("examples/out/.cache"))
+PART_INPUTS = tuple(
+    scad.file_input(path)
+    for path in (
+        "examples/20_integrated_bldc_joint_actuator/common.py",
+        "examples/20_integrated_bldc_joint_actuator/dimensions.py",
+        "examples/20_integrated_bldc_joint_actuator/materials.py",
+    )
+)
 
 
 @scad.requires_session
@@ -74,12 +84,13 @@ def make_axis_part_rpart(
         part = scad.add_connector_rpart(part=part, connector=connector)
         connector_count += 1
     ground_solid(label=part_id, solid=body)
-    print(f"part_{part_id}: connectors={connector_count} material={material.material_id}")
+    print(
+        f"part_{part_id}: connectors={connector_count} material={material.material_id}"
+    )
     return part
 
 
-@scad.requires_session
-def make_z_rotation_rplacement(
+def z_rotation_placement(
     *,
     origin: tuple[float, float, float],
     angle_degrees: float,
@@ -92,6 +103,17 @@ def make_z_rotation_rplacement(
         x_axis=(math.cos(angle), math.sin(angle), 0.0),
         y_axis=(-math.sin(angle), math.cos(angle), 0.0),
     )
+
+
+@scad.requires_session
+def make_z_rotation_rplacement(
+    *,
+    origin: tuple[float, float, float],
+    angle_degrees: float,
+) -> scad.Placement:
+    """Build a replayable Z rotation in the caller's graph session."""
+
+    return z_rotation_placement(origin=origin, angle_degrees=angle_degrees)
 
 
 def radial_centers(*, count: int, radius: float, angle_offset: float = 0.0):
@@ -159,7 +181,6 @@ def ground_compound(*, label: str, compound: scad.Compound) -> None:
     print(f"{label}: solids={len(solids)} faces={faces} volume={volume:.3f}")
 
 
-@scad.requires_session
 def connector_ref(*, component_id: str, connector_id: str) -> scad.ConnectorRef:
     """Create a component-scoped connector reference."""
 
@@ -173,8 +194,12 @@ def ground_constraint_report(*, label: str, assembly: scad.Assembly) -> None:
     """Print solved state and only non-zero residual facts."""
 
     report = scad.inspect_assembly_constraints_rconstraintreport(assembly=assembly)
-    worst_translation = max((item.translation_error for item in report.residuals), default=0.0)
-    worst_angle = max((item.angular_error_degrees for item in report.residuals), default=0.0)
+    worst_translation = max(
+        (item.translation_error for item in report.residuals), default=0.0
+    )
+    worst_angle = max(
+        (item.angular_error_degrees for item in report.residuals), default=0.0
+    )
     print(
         f"{label}_constraints: solved={report.solved} components={len(assembly.component_ids())} "
         f"constraints={len(assembly.constraint_ids())} unsolved={len(report.unsolved_component_ids)} "

@@ -1,6 +1,6 @@
 # SimpleCAD API Index
 
-This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, inspection tools, expressions, QL, and export helpers.
+This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, durable product builds, persistent cache controls, inspection tools, expressions, QL, and export helpers.
 
 ## Import Surfaces
 
@@ -231,6 +231,26 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [render_step_components_rpath](render_step_components_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_views_rpath](render_step_views_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [select_region_entities_rdescriptor](select_region_entities_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
+
+## Product Build and Cache
+
+- [AssemblyBuildResult](AssemblyBuildResult.md) *(from build/results.py)* `top-level`
+- [AssemblySolveReport](AssemblySolveReport.md) *(from build/incremental_solver.py)* `top-level`
+- [CacheEntry](CacheEntry.md) *(from cache/store.py)* `top-level`
+- [CacheLockTimeout](CacheLockTimeout.md) *(from cache/store.py)* `top-level`
+- [CacheMode](CacheMode.md) *(from cache/policy.py)* `top-level`
+- [CachePolicy](CachePolicy.md) *(from cache/policy.py)* `top-level`
+- [CacheRecord](CacheRecord.md) *(from cache/records.py)* `top-level`
+- [CacheReport](CacheReport.md) *(from build/results.py)* `top-level`
+- [CacheStats](CacheStats.md) *(from cache/store.py)* `top-level`
+- [ComponentSolveResult](ComponentSolveResult.md) *(from build/incremental_solver.py)* `top-level`
+- [ContentAddressedStore](ContentAddressedStore.md) *(from cache/store.py)* `top-level`
+- [FileInput](FileInput.md) *(from build/dependencies.py)* `top-level`
+- [PartBuildResult](PartBuildResult.md) *(from build/results.py)* `top-level`
+- [assemble](assemble.md) *(from build/assembly_builder.py)* `top-level`
+- [file_input](file_input.md) *(from build/dependencies.py)* `top-level`
+- [part](part_function.md) *(from build/part_builder.py)* `top-level`
+- [resolve_cache_policy](resolve_cache_policy.md) *(from cache/policy.py)* `top-level`
 
 ## Other
 

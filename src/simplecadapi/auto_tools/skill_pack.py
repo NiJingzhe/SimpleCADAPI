@@ -244,6 +244,7 @@ def _ignore_common_noise(_: str, names: list[str]) -> list[str]:
             "rearchitecture_2_0.md",
             "rearchitecture_2_0_requirements.md",
             "operation_graph_json_spec.md",
+            "part_assembly_development_plan.md",
         }:
             ignored.append(name)
             continue
@@ -411,7 +412,9 @@ class SkillPackager:
             self._build_sdk_package_summary(),
             encoding="utf-8",
         )
-        inspection_reference = self.source_docs / "guides" / "step-brep-reverse-engineering.md"
+        inspection_reference = (
+            self.source_docs / "guides" / "step-brep-reverse-engineering.md"
+        )
         destination = self.references_dir / "inspect" / "brep-reverse-engineering.md"
         destination.parent.mkdir(parents=True, exist_ok=True)
         if inspection_reference.exists():
@@ -503,6 +506,7 @@ class SkillPackager:
               - `<skill_root>/references/SDK_SURFACES.md`
               - `<skill_root>/references/MODELING_WORKFLOWS.md`
               - `<skill_root>/references/inspect/brep-reverse-engineering.md`
+              - `<skill_root>/references/docs/guides/cache-build-workflow.md`
 
             ## MUST Requirements
             1. Read `SKILL.md`, `references/docs/api/README.md`, and `references/docs/stdlib/README.md` before choosing APIs.
@@ -511,7 +515,7 @@ class SkillPackager:
             4. Prefer the standard parts library for standard parts before hand-modeling with core geometry APIs.
             5. Follow the documented API signatures exactly.
             6. When calling any SimpleCAD public API or standard-library function, use keyword arguments for every documented parameter; do not use positional arguments.
-            7. Use one `@model` entry point for replayable tasks, `@requires_session` for child builders, `capture_result(...)` for explicit outputs, and the returned `ModelResult` for model/session JSON and replay.
+            7. Use `@part` for one physical single-solid product, `@assemble` for an assembly with explicit durable definitions, and `@model` only for replayable geometry flows that are not durable product boundaries. Use `@requires_session` for child graph builders and `capture_result(...)` for explicit `@model` outputs.
             8. Use geometry APIs for integrated parts: profiles, features, booleans, transforms, tagging, QL inspection, serialization, and exports.
             9. Use tags consistently through `apply_tag(shape=..., tag=...)` and `list_tags(shape=...)`; do not call shape member tag mutators.
             10. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
@@ -525,6 +529,7 @@ class SkillPackager:
             18. For STEP/BREP inspection or target/candidate comparison, read `references/inspect/brep-reverse-engineering.md` completely.
             19. Use `simplecadapi.inspect.brep` only outside `GraphSession` and `@model`; inspection functions are diagnostic tools, not modeling operations.
             20. Reverse engineering is case-by-case: the built-in inspection primitives are tools, not a pipeline — write ad hoc inspection code for the specific model when built-ins do not answer the question. Acceptance hierarchy: BREP topology identity is the best endpoint (complete reverse engineering); identical structure with minor float-level parameter drift from export is acceptable; a visually-close but structurally different result is a valid stop only when no better feature operation order/combination exists or the SDK lacks the required operation type.
+            21. Before configuring persistent cache, writing a durable product build, or running cache maintenance, read `references/docs/guides/cache-build-workflow.md` completely. Cache mutation requires explicit repair, apply, or clear confirmation.
 
             ## Coding Standard (MUST)
             This file/parameter standard applies to every modeling task. It is mandatory; deviation requires explicit user approval.
@@ -554,7 +559,8 @@ class SkillPackager:
             - Build from lower-dimensional geometry to higher-dimensional geometry: `Vertex` / `Edge` / `Wire` / `Face` profiles first, then `Solid` features such as extrude, revolve, loft, and sweep.
             - Keep modeling operations functional. Create new values from public functions such as `make_circle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolid(...)`, and `fillet_rsolid(...)`.
             - Use keyword arguments for all SimpleCAD function calls, for example `make_box_rsolid(width=10.0, height=20.0, depth=3.0)` instead of positional arguments.
-            - Use `@model` when the top-level model should be replayable, inspectable, exported as model JSON, or translated to another CAD system. It owns one `GraphSession`; reusable graph-producing builders use `@requires_session`.
+            - Use `@model` when a non-product geometry flow should be replayable, inspectable, exported as model JSON, or translated to another CAD system. It owns one `GraphSession`; reusable graph-producing builders use `@requires_session`.
+            - Use `@part` when the result is one physical single-solid product and needs a durable definition or whole-part cache. Use `@assemble` for explicit part/nested-assembly definitions and incremental constraint solving; do not wrap either product boundary in `@model`.
             - Treat model JSON as the interchange boundary. Prefer `ModelResult.model_json` and `ModelResult.replay()` for top-level models; use `export_model_json(session=...)` for lower-level direct sessions and `replay_model_json(json_str=...)` for standalone payloads.
             - Use QL for precise grounding. Query faces, edges, centers, normals, areas, lengths, curve types, and tags; print only the facts needed to validate the current step.
             - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` when an indexed topology pick is intentional; these picks are preserved as geo select nodes in replayable graph workflows.
@@ -581,6 +587,7 @@ class SkillPackager:
             - Use `references/SDK_SURFACES.md` for the main public surfaces.
             - Use `references/MODELING_WORKFLOWS.md` for graph/model-oriented patterns.
             - Use `references/inspect/brep-reverse-engineering.md` for case-specific STEP/BREP evidence gathering and acceptance.
+            - Use `references/docs/guides/cache-build-workflow.md` for durable product boundaries, cache policy, PRT reuse, incremental invalidation, and maintenance.
 
             ## Example SDK usage
 
@@ -612,6 +619,7 @@ class SkillPackager:
             - `references/SDK_SURFACES.md`
             - `references/MODELING_WORKFLOWS.md`
             - `references/inspect/brep-reverse-engineering.md`
+            - `references/docs/guides/cache-build-workflow.md`
             - `references/SDK_PACKAGE_SUMMARY.md`
             - `references/docs/api/`
             - `references/docs/stdlib/`
@@ -757,12 +765,13 @@ class SkillPackager:
             - Use the standard parts library first when a requested standard component is available and does not need complex custom geometry changes.
             - Start from profiles and reference geometry, then create solids with features such as extrude, revolve, loft, and sweep.
             - Use booleans and detail features after the base form is clear: cut openings, union intended merged bodies, then apply fillets, chamfers, or shell operations.
-            - Use `@scad.model` for a top-level replayable entry point. It owns one `GraphSession` and returns a `ModelResult`; use `@scad.requires_session` for child builders.
+            - Use `@scad.part` for one physical single-solid product, `@scad.assemble` for explicit durable assembly definitions, and `@scad.model` only for replayable geometry flows that are not product build boundaries. `@scad.model` owns one `GraphSession`; use `@scad.requires_session` for child graph builders.
             - Use QL for grounding and selection. Query the facts you need, such as face normals, centers, areas, edge lengths, curve types, and tags.
             - Use indexed child-geometry getters such as `get_edges(index)` and `get_faces(index)` when an indexed topology pick is intentional.
             - Use semantic tags for design intent and anchors. Keep numeric measurements and geometry facts in metadata or model JSON payloads.
             - Treat `ModelResult.model_json` as the interchange boundary for new model entry points. Use `export_model_json(session=...)` for lower-level direct sessions.
             - Validate incrementally: after each major step, print small QL-derived facts such as selected face count, top face center, edge count, volume, or replay result count.
+            - Read `references/docs/guides/cache-build-workflow.md` before configuring persistent cache or using `@scad.part`/`@scad.assemble`.
 
             ## 1) Capture a replayable modeling flow
 
@@ -780,19 +789,36 @@ class SkillPackager:
             rebuilt = result.replay()
             ```
 
-            ## 2) Import and use in Python
+            ## 2) Build a durable cached part
+
+            ```python
+            import simplecadapi as scad
+
+            @scad.part(id="bracket", cache="auto")
+            def build_part() -> scad.Part:
+                body = scad.make_box_rsolid(width=20.0, height=10.0, depth=3.0)
+                return scad.make_part_rpart(part_id="bracket", body=body)
+
+            cold = build_part()
+            warm = build_part()
+            print(cold.cache_report.hit, warm.cache_report.hit)
+            ```
+
+            Use `@scad.assemble(definitions=(...))` in the single assembly file. Pass immutable `PartBuildResult` or `AssemblyBuildResult` definitions explicitly; inspect `solve_report.component_hits`, `component_misses`, dirty instances, and residual verification evidence.
+
+            ## 3) Import and use in Python
 
             ```python
             import simplecadapi as scad
             ```
 
-            ## 3) Keep replay payloads as the interchange boundary
+            ## 4) Keep replay payloads as the interchange boundary
 
             - Prefer `export_model_json()` output instead of hand-written payloads.
             - Use `ModelResult.replay()` for a model invocation, or `replay_model_json(json_str=...)` when consuming standalone model JSON.
             - Use `import_model_json()` when consuming previously exported payloads.
 
-            ## 4) Use standard parts when they fit
+            ## 5) Use standard parts when they fit
 
             ```python
             import simplecadapi as scad
@@ -815,7 +841,7 @@ class SkillPackager:
             - Use `references/docs/stdlib/<function_name>.md` for exact standard-library signatures.
             - Continue with core geometry APIs when the standard part requires substantial custom geometry beyond the provided parameters.
 
-            ## 5) QL-grounded feature workflow
+            ## 6) QL-grounded feature workflow
 
             ```python
             import simplecadapi as scad
@@ -848,7 +874,7 @@ class SkillPackager:
             print("rebuilt", len(rebuilt))
             ```
 
-            ## 6) Selection and tag discipline
+            ## 7) Selection and tag discipline
 
             - Prefer QL selectors for semantic/geometric feature input selection.
             - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` for intentional indexed picks in examples.
@@ -857,7 +883,7 @@ class SkillPackager:
             - Store dimensions, positions, measured geometry, and descriptive payloads in metadata or model JSON, not in tags.
             - Keep QL result prints concise: selected count, centers, normals, areas, lengths, or tags.
 
-            ## 7) Boolean and body discipline
+            ## 8) Boolean and body discipline
 
             - Use `union_rsolid(...)` when multiple solids should become one integrated body.
             - Ensure bodies that should union into one solid have real geometric overlap or embedding.

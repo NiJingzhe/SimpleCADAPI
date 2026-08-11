@@ -133,6 +133,17 @@
         "source_files": ["embedded_artifact_uri", "embedded_artifact_byte_length"]
       }
     },
+    "productPackageSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "definition_id", "revision", "artifact_hash"],
+      "properties": {
+        "kind": {"enum": ["part_package", "assembly_package"]},
+        "definition_id": {"$ref": "#/$defs/productId"},
+        "revision": {"$ref": "#/$defs/hash"},
+        "artifact_hash": {"$ref": "#/$defs/hash"}
+      }
+    },
     "sourceFile": {
       "type": "object",
       "additionalProperties": false,
@@ -167,7 +178,7 @@
       "required": ["kind", "source_id"],
       "properties": {"kind": {"const": "manual"}, "source_id": {"$ref": "#/$defs/logicalId"}}
     },
-    "sceneSource": {"oneOf": [{"$ref": "#/$defs/modelSource"}, {"$ref": "#/$defs/importedSource"}, {"$ref": "#/$defs/manualSource"}]},
+    "sceneSource": {"oneOf": [{"$ref": "#/$defs/modelSource"}, {"$ref": "#/$defs/productPackageSource"}, {"$ref": "#/$defs/importedSource"}, {"$ref": "#/$defs/manualSource"}]},
     "presentationSource": {
       "type": "object",
       "additionalProperties": false,
@@ -218,6 +229,15 @@
         "semantic_type": {"enum": ["Part", "Assembly"]}, "semantic_id": {"$ref": "#/$defs/productId"}
       }
     },
+    "productPackageDefinitionSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "root_id", "semantic_type", "semantic_id", "package_kind", "package_revision"],
+      "properties": {
+        "kind": {"const": "product_package"}, "root_id": {"$ref": "#/$defs/logicalId"},
+        "semantic_type": {"enum": ["Part", "Assembly"]}, "semantic_id": {"$ref": "#/$defs/productId"},
+        "package_kind": {"enum": ["part_package", "assembly_package"]}, "package_revision": {"$ref": "#/$defs/hash"}
+      }
+    },
     "modelOutputSource": {
       "type": "object", "additionalProperties": false,
       "required": ["kind", "root_id", "graph_id", "node_id", "output_slot"],
@@ -237,7 +257,7 @@
       "properties": {"kind": {"const": "manual"}, "root_id": {"$ref": "#/$defs/logicalId"}, "source_id": {"$ref": "#/$defs/logicalId"}}
     },
     "definitionSource": {"oneOf": [
-      {"$ref": "#/$defs/productModelSource"}, {"$ref": "#/$defs/productManualSource"},
+      {"$ref": "#/$defs/productModelSource"}, {"$ref": "#/$defs/productManualSource"}, {"$ref": "#/$defs/productPackageDefinitionSource"},
       {"$ref": "#/$defs/modelOutputSource"}, {"$ref": "#/$defs/importedDefinitionSource"}, {"$ref": "#/$defs/manualDefinitionSource"}
     ]},
     "definition": {
@@ -337,6 +357,14 @@
       "type": "object", "additionalProperties": false, "required": ["kind", "source_id"],
       "properties": {"kind": {"const": "manual"}, "source_id": {"$ref": "#/$defs/logicalId"}}
     },
+    "productPackageConnectorSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "package_kind", "package_revision", "definition_id"],
+      "properties": {
+        "kind": {"const": "product_package"}, "package_kind": {"enum": ["part_package", "assembly_package"]},
+        "package_revision": {"$ref": "#/$defs/hash"}, "definition_id": {"$ref": "#/$defs/productId"}
+      }
+    },
     "connectorTarget": {
       "type": "object", "additionalProperties": false, "required": ["entity_asset_id", "entity_id"],
       "properties": {"entity_asset_id": {"$ref": "#/$defs/hash"}, "entity_id": {"type": "string", "pattern": "^entity/(face|edge|vertex)/(0|[1-9][0-9]*)$"}}
@@ -357,7 +385,7 @@
         "connector_snapshot_id": {"$ref": "#/$defs/structuralId"}, "owner_definition_id": {"$ref": "#/$defs/structuralId"},
         "connector_id": {"$ref": "#/$defs/productId"}, "name": {"type": ["string", "null"]}, "anchor_kind": {"enum": ["geometry", "placement", "forwarded"]},
         "local_transform": {"$ref": "#/$defs/transform"}, "target": {"$ref": "#/$defs/connectorTarget"}, "forwarded_from": {"$ref": "#/$defs/forwardedFrom"},
-        "source": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/modelOperationSource"}, {"$ref": "#/$defs/manualConnectorSource"}]},
+        "source": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/modelOperationSource"}, {"$ref": "#/$defs/manualConnectorSource"}, {"$ref": "#/$defs/productPackageConnectorSource"}]},
         "sdk_metadata": {"type": "object", "maxProperties": 0}
       },
       "allOf": [

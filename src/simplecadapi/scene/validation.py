@@ -734,8 +734,8 @@ def _scene_semantic_issues(scene: Mapping[str, Any]) -> list[SceneValidationIssu
     if isinstance(options, dict) and isinstance(source, dict):
         embed_source = options.get("embed_source")
         embedded = "embedded_artifact_uri" in source
-        if source_kind == "manual" and (embed_source or embedded):
-            issues.append(_issue("source_matrix_invalid", "/source", "manual source cannot be embedded"))
+        if source_kind in {"manual", "part_package", "assembly_package"} and (embed_source or embedded):
+            issues.append(_issue("source_matrix_invalid", "/source", f"{source_kind} source cannot be embedded"))
         elif source_kind in {"model", "imported"} and embed_source != embedded:
             issues.append(_issue("source_matrix_invalid", "/source", "embed_source does not match source embedding fields"))
         source_files = source.get("source_files", [])
@@ -789,6 +789,8 @@ def _scene_semantic_issues(scene: Mapping[str, Any]) -> list[SceneValidationIssu
         valid_source = {
             "model": {"part": "product_model", "assembly": "product_model", "shape": "model_output"},
             "manual": {"part": "product_manual", "assembly": "product_manual", "shape": "manual"},
+            "part_package": {"part": "product_package"},
+            "assembly_package": {"part": "product_package", "assembly": "product_package"},
             "imported": {"shape": "imported"},
         }.get(source_kind, {}).get(kind)
         if nested_kind != valid_source:
@@ -797,10 +799,15 @@ def _scene_semantic_issues(scene: Mapping[str, Any]) -> list[SceneValidationIssu
             issues.append(_issue("source_matrix_invalid", path + "/source/graph_id", "definition graph_id differs from scene graph_id"))
         if nested_kind == "manual" and nested.get("source_id") != source_id:
             issues.append(_issue("source_matrix_invalid", path + "/source/source_id", "definition manual source_id differs from scene source_id"))
-        if nested_kind in {"product_model", "product_manual"}:
+        if nested_kind in {"product_model", "product_manual", "product_package"}:
             expected_semantic = "Part" if kind == "part" else "Assembly"
             if nested.get("semantic_type") != expected_semantic:
                 issues.append(_issue("source_matrix_invalid", path + "/source/semantic_type", "semantic_type differs from definition kind"))
+            if nested_kind == "product_package" and (
+                nested.get("package_kind") != source_kind
+                or nested.get("package_revision") != source.get("revision")
+            ):
+                issues.append(_issue("source_matrix_invalid", path + "/source", "definition package provenance differs from scene source"))
             expected_id = f"definition/{root_id}/{kind}/{_encode_segment(str(nested.get('semantic_id', '')))}"
         elif nested_kind == "model_output":
             expected_id = f"definition/{root_id}/shape/model/{_encode_segment(str(nested.get('graph_id', '')))}/{_encode_segment(str(nested.get('node_id', '')))}/{nested.get('output_slot')}"
@@ -931,7 +938,7 @@ def _scene_semantic_issues(scene: Mapping[str, Any]) -> list[SceneValidationIssu
             issues.append(_issue("source_matrix_invalid", path + "/appearance_id", "appearance_id does not match content-derived identity"))
         appearance_source = appearance.get("source")
         if isinstance(appearance_source, dict):
-            if appearance_source.get("kind") == "product_material" and source_kind not in {"model", "manual"}:
+            if appearance_source.get("kind") == "product_material" and source_kind not in {"model", "manual", "part_package", "assembly_package"}:
                 issues.append(_issue("source_matrix_invalid", path + "/source", "product material source is incompatible with scene source"))
             if appearance_source.get("kind") == "product_material":
                 matching_definitions = (
@@ -990,6 +997,15 @@ def _scene_semantic_issues(scene: Mapping[str, Any]) -> list[SceneValidationIssu
         elif source_kind == "manual":
             if not isinstance(connector_source, dict) or connector_source != {"kind": "manual", "source_id": source_id}:
                 issues.append(_issue("connector_invalid", path + "/source", "manual connector source must equal the top-level source_id"))
+        elif source_kind in {"part_package", "assembly_package"}:
+            if (
+                not isinstance(connector_source, dict)
+                or connector_source.get("kind") != "product_package"
+                or connector_source.get("package_kind") != source_kind
+                or connector_source.get("package_revision") != source.get("revision")
+                or connector_source.get("definition_id") != owner_semantic
+            ):
+                issues.append(_issue("connector_invalid", path + "/source", "connector package provenance differs from owning definition"))
         transform_issue = _transform_issue(connector.get("local_transform"), path + "/local_transform")
         if transform_issue:
             issues.append(transform_issue)
@@ -2001,6 +2017,8 @@ def validate_scene_package(
             scene_source_kind = parsed.get("source", {}).get("kind")
             allowed_entity_sources = {
                 "model": {"model_output", "model_topology"},
+                "part_package": {"package_geometry"},
+                "assembly_package": {"package_geometry"},
                 "imported": {"imported_primitive", "unbound"},
                 "manual": {"unbound"},
             }.get(scene_source_kind, set())
@@ -2018,6 +2036,18 @@ def validate_scene_package(
                         for field in ("graph_id", "node_id", "output_slot")
                     ):
                         issues.append(_issue("source_matrix_invalid", entity_path + "/source", "entity model source differs from owning definition output"))
+                elif scene_source_kind in {"part_package", "assembly_package"}:
+                    definition_source = definition.get("source", {})
+                    scene_source = parsed.get("source", {})
+                    if any(
+                        entity_source.get(field) != expected
+                        for field, expected in (
+                            ("package_kind", scene_source_kind),
+                            ("package_revision", scene_source.get("revision")),
+                            ("definition_id", definition_source.get("semantic_id")),
+                        )
+                    ):
+                        issues.append(_issue("source_matrix_invalid", entity_path + "/source", "entity package source differs from owning definition"))
                 if entity.get("kind") == "solid":
                     expected_status = "not_applicable"
                 elif definition.get("kind") != "part":

@@ -5,9 +5,9 @@ license: AGPL-3.0
 compatibility: Documentation/reference bundle for current SimpleCADAPI surfaces.
 metadata:
   project: simplecadapi
-  version: 2.0.4b1
+  version: 2.0.4b3
   package-name: simplecadapi
-  package-version: 2.0.4b1
+  package-version: 2.0.4b3
 ---
 
 # SimpleCAD SDK Skill
@@ -30,6 +30,7 @@ metadata:
   - `<skill_root>/references/SDK_SURFACES.md`
   - `<skill_root>/references/MODELING_WORKFLOWS.md`
   - `<skill_root>/references/inspect/brep-reverse-engineering.md`
+  - `<skill_root>/references/docs/guides/cache-build-workflow.md`
 
 ## MUST Requirements
 1. Read `SKILL.md`, `references/docs/api/README.md`, and `references/docs/stdlib/README.md` before choosing APIs.
@@ -38,7 +39,7 @@ metadata:
 4. Prefer the standard parts library for standard parts before hand-modeling with core geometry APIs.
 5. Follow the documented API signatures exactly.
 6. When calling any SimpleCAD public API or standard-library function, use keyword arguments for every documented parameter; do not use positional arguments.
-7. Use one `@model` entry point for replayable tasks, `@requires_session` for child builders, `capture_result(...)` for explicit outputs, and the returned `ModelResult` for model/session JSON and replay.
+7. Use `@part` for one physical single-solid product, `@assemble` for an assembly with explicit durable definitions, and `@model` only for replayable geometry flows that are not durable product boundaries. Use `@requires_session` for child graph builders and `capture_result(...)` for explicit `@model` outputs.
 8. Use geometry APIs for integrated parts: profiles, features, booleans, transforms, tagging, QL inspection, serialization, and exports.
 9. Use tags consistently through `apply_tag(shape=..., tag=...)` and `list_tags(shape=...)`; do not call shape member tag mutators.
 10. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
@@ -52,6 +53,7 @@ metadata:
 18. For STEP/BREP inspection or target/candidate comparison, read `references/inspect/brep-reverse-engineering.md` completely.
 19. Use `simplecadapi.inspect.brep` only outside `GraphSession` and `@model`; inspection functions are diagnostic tools, not modeling operations.
 20. Reverse engineering is case-by-case: the built-in inspection primitives are tools, not a pipeline — write ad hoc inspection code for the specific model when built-ins do not answer the question. Acceptance hierarchy: BREP topology identity is the best endpoint (complete reverse engineering); identical structure with minor float-level parameter drift from export is acceptable; a visually-close but structurally different result is a valid stop only when no better feature operation order/combination exists or the SDK lacks the required operation type.
+21. Before configuring persistent cache, writing a durable product build, or running cache maintenance, read `references/docs/guides/cache-build-workflow.md` completely. Cache mutation requires explicit repair, apply, or clear confirmation.
 
 ## Coding Standard (MUST)
 This file/parameter standard applies to every modeling task. It is mandatory; deviation requires explicit user approval.
@@ -81,7 +83,8 @@ This file/parameter standard applies to every modeling task. It is mandatory; de
 - Build from lower-dimensional geometry to higher-dimensional geometry: `Vertex` / `Edge` / `Wire` / `Face` profiles first, then `Solid` features such as extrude, revolve, loft, and sweep.
 - Keep modeling operations functional. Create new values from public functions such as `make_circle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolid(...)`, and `fillet_rsolid(...)`.
 - Use keyword arguments for all SimpleCAD function calls, for example `make_box_rsolid(width=10.0, height=20.0, depth=3.0)` instead of positional arguments.
-- Use `@model` when the top-level model should be replayable, inspectable, exported as model JSON, or translated to another CAD system. It owns one `GraphSession`; reusable graph-producing builders use `@requires_session`.
+- Use `@model` when a non-product geometry flow should be replayable, inspectable, exported as model JSON, or translated to another CAD system. It owns one `GraphSession`; reusable graph-producing builders use `@requires_session`.
+- Use `@part` when the result is one physical single-solid product and needs a durable definition or whole-part cache. Use `@assemble` for explicit part/nested-assembly definitions and incremental constraint solving; do not wrap either product boundary in `@model`.
 - Treat model JSON as the interchange boundary. Prefer `ModelResult.model_json` and `ModelResult.replay()` for top-level models; use `export_model_json(session=...)` for lower-level direct sessions and `replay_model_json(json_str=...)` for standalone payloads.
 - Use QL for precise grounding. Query faces, edges, centers, normals, areas, lengths, curve types, and tags; print only the facts needed to validate the current step.
 - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` when an indexed topology pick is intentional; these picks are preserved as geo select nodes in replayable graph workflows.
@@ -108,6 +111,7 @@ This file/parameter standard applies to every modeling task. It is mandatory; de
 - Use `references/SDK_SURFACES.md` for the main public surfaces.
 - Use `references/MODELING_WORKFLOWS.md` for graph/model-oriented patterns.
 - Use `references/inspect/brep-reverse-engineering.md` for case-specific STEP/BREP evidence gathering and acceptance.
+- Use `references/docs/guides/cache-build-workflow.md` for durable product boundaries, cache policy, PRT reuse, incremental invalidation, and maintenance.
 
 ## Example SDK usage
 
@@ -139,6 +143,7 @@ Use the graph/model JSON workflow when the task needs reproducibility, interchan
 - `references/SDK_SURFACES.md`
 - `references/MODELING_WORKFLOWS.md`
 - `references/inspect/brep-reverse-engineering.md`
+- `references/docs/guides/cache-build-workflow.md`
 - `references/SDK_PACKAGE_SUMMARY.md`
 - `references/docs/api/`
 - `references/docs/stdlib/`

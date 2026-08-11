@@ -102,6 +102,8 @@ class SceneSource:
     graph_id: str | None = None
     artifact_hash: str | None = None
     format: str | None = None
+    definition_id: str | None = None
+    revision: str | None = None
     artifact_bytes: bytes | None = None
     _graph: OperationGraph | None = field(default=None, compare=False, repr=False)
     _source_files: tuple["_EmbeddedSourceFile", ...] = field(
@@ -109,14 +111,23 @@ class SceneSource:
     )
 
     def __post_init__(self) -> None:
-        if self.kind not in {"manual", "model", "imported"}:
-            raise ValueError("SceneSource.kind must be manual, model, or imported")
+        supported = {"manual", "model", "imported", "part_package", "assembly_package"}
+        if self.kind not in supported:
+            raise ValueError(f"SceneSource.kind must be one of: {', '.join(sorted(supported))}")
         if self.kind == "manual" and not self.source_id:
             raise ValueError("manual SceneSource requires source_id")
         if self.kind == "model" and (not self.graph_id or not self.artifact_hash):
             raise ValueError("model SceneSource requires graph_id and artifact_hash")
         if self.kind == "imported" and not self.format:
             raise ValueError("imported SceneSource requires format")
+        if self.kind in {"part_package", "assembly_package"} and (
+            not self.definition_id or not self.revision or not self.artifact_hash
+        ):
+            raise ValueError(
+                "product package SceneSource requires definition_id, revision, and artifact_hash"
+            )
+        if self.kind in {"part_package", "assembly_package"} and self.artifact_bytes is not None:
+            raise ValueError("product package SceneSource cannot embed the upstream package")
         if self._graph is not None and self._graph.graph_id != self.graph_id:
             raise ValueError("SceneSource graph evidence must match graph_id")
 
@@ -455,6 +466,8 @@ def _coerce_source(
             graph_id=source.graph_id,
             artifact_hash=source.artifact_hash,
             format=source.format,
+            definition_id=source.definition_id,
+            revision=source.revision,
             _graph=source._graph,
         )
     if isinstance(source, ModelResult):
@@ -486,23 +499,41 @@ def _scene_source_record(source: SceneSource) -> dict[str, Any]:
     if source.kind == "manual":
         return {"kind": "manual", "source_id": source.source_id}
     if source.kind == "imported":
-        return {"kind": "imported", "format": source.format, "artifact_hash": source.artifact_hash}
-    record = {"kind": "model", "graph_id": source.graph_id, "model_schema_version": "2.0", "artifact_hash": source.artifact_hash}
+        return {
+            "kind": "imported",
+            "format": source.format,
+            "artifact_hash": source.artifact_hash,
+        }
+    if source.kind in {"part_package", "assembly_package"}:
+        return {
+            "kind": source.kind,
+            "definition_id": source.definition_id,
+            "revision": source.revision,
+            "artifact_hash": source.artifact_hash,
+        }
+    record = {
+        "kind": "model",
+        "graph_id": source.graph_id,
+        "model_schema_version": "2.0",
+        "artifact_hash": source.artifact_hash,
+    }
     if source.artifact_bytes is not None:
-        record.update({
-            "embedded_artifact_uri": "model/model.json",
-            "embedded_artifact_byte_length": len(source.artifact_bytes),
-            "source_files": [
-                {
-                    "path": source_file.path,
-                    "uri": source_file.uri,
-                    "media_type": "text/x-python; charset=utf-8",
-                    "byte_length": len(source_file.content),
-                    "content_hash": source_file.content_hash,
-                }
-                for source_file in source._source_files
-            ],
-        })
+        record.update(
+            {
+                "embedded_artifact_uri": "model/model.json",
+                "embedded_artifact_byte_length": len(source.artifact_bytes),
+                "source_files": [
+                    {
+                        "path": source_file.path,
+                        "uri": source_file.uri,
+                        "media_type": "text/x-python; charset=utf-8",
+                        "byte_length": len(source_file.content),
+                        "content_hash": source_file.content_hash,
+                    }
+                    for source_file in source._source_files
+                ],
+            }
+        )
     return record
 
 
@@ -593,8 +624,9 @@ def _product_definition_source(root_id: str, value: Part | Assembly, source: Sce
     if source.kind == "model":
         node_id, output_slot = _graph_output_ref(value, source=source)
         return {"kind": "product_model", "root_id": root_id, "semantic_type": semantic_type, "semantic_id": semantic_id, "graph_id": source.graph_id, "node_id": node_id, "output_slot": output_slot}
+    if source.kind in {"part_package", "assembly_package"}:
+        return {"kind": "product_package", "root_id": root_id, "semantic_type": semantic_type, "semantic_id": semantic_id, "package_kind": source.kind, "package_revision": source.revision}
     return {"kind": "product_manual", "root_id": root_id, "semantic_type": semantic_type, "semantic_id": semantic_id}
-
 
 def _shape_definition_source(root_id: str, value: Solid | Compound, source: SceneSource) -> dict[str, Any]:
     if source.kind == "model":
@@ -612,6 +644,8 @@ def _definition_id_for_shape(root_id: str, definition_source: Mapping[str, Any])
 def _entity_source(source: SceneSource, definition_source: Mapping[str, Any]) -> dict[str, Any]:
     if source.kind == "model":
         return {"kind": "model_output", "graph_id": definition_source["graph_id"], "node_id": definition_source["node_id"], "output_slot": definition_source["output_slot"]}
+    if source.kind in {"part_package", "assembly_package"}:
+        return {"kind": "package_geometry", "package_kind": source.kind, "package_revision": source.revision, "definition_id": definition_source["semantic_id"]}
     return {"kind": "unbound"}
 
 
@@ -767,6 +801,14 @@ def _connector_source(
         return {"kind": "manual", "source_id": source.source_id}
     if source.kind == "imported":
         return None
+    if source.kind in {"part_package", "assembly_package"}:
+        semantic_id = owner.assembly_id if isinstance(owner, Assembly) else owner.part_id
+        return {
+            "kind": "product_package",
+            "package_kind": source.kind,
+            "package_revision": source.revision,
+            "definition_id": semantic_id,
+        }
     graph = source._graph
     if graph is None:
         raise ValueError("model connector source requires ModelResult graph evidence")

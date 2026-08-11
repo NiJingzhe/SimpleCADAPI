@@ -6,6 +6,8 @@ import simplecadapi as scad
 
 try:
     from .common import (
+        PART_INPUTS,
+        CACHE,
         apply_tags,
         connector_ref,
         ground_constraint_report,
@@ -14,6 +16,7 @@ try:
         make_z_rotation_rplacement,
         radial_centers,
     )
+    from .materials import make_actuator_material_rmaterial
     from .dimensions import (
         ADDENDUM_FACTOR,
         BACKLASH,
@@ -41,6 +44,8 @@ try:
     )
 except ImportError:  # Support direct execution from this example directory.
     from common import (
+        PART_INPUTS,
+        CACHE,
         apply_tags,
         connector_ref,
         ground_constraint_report,
@@ -49,30 +54,31 @@ except ImportError:  # Support direct execution from this example directory.
         make_z_rotation_rplacement,
         radial_centers,
     )
+    from materials import make_actuator_material_rmaterial
     from dimensions import (
-    ADDENDUM_FACTOR,
-    BACKLASH,
-    CLEARANCE_FACTOR,
-    GEAR_HEIGHT,
-    HELIX_ANGLE,
-    MOTOR_MAGNET_OUTER_RADIUS,
-    MOTOR_MAGNET_TANGENTIAL_WIDTH,
-    MOTOR_POLE_COUNT,
-    MOTOR_ROTOR_BACKIRON_RADIUS,
-    MOTOR_ROTOR_BOTTOM_Z,
-    MOTOR_ROTOR_TOP_Z,
-    MOTOR_SHAFT_RADIUS,
-    MOTOR_SHELL_INNER_RADIUS,
-    MOTOR_SLOT_COUNT,
-    MOTOR_STATOR_BOTTOM_Z,
-    MOTOR_STATOR_OUTER_RADIUS,
-    MOTOR_STATOR_TOOTH_INNER_RADIUS,
-    MOTOR_STATOR_TOOTH_WIDTH,
-    MOTOR_STATOR_TOP_Z,
-    MOTOR_STATOR_YOKE_INNER_RADIUS,
-    PRESSURE_ANGLE,
-    REAR_BEARING_CENTER_Z,
-    STAGE_1,
+        ADDENDUM_FACTOR,
+        BACKLASH,
+        CLEARANCE_FACTOR,
+        GEAR_HEIGHT,
+        HELIX_ANGLE,
+        MOTOR_MAGNET_OUTER_RADIUS,
+        MOTOR_MAGNET_TANGENTIAL_WIDTH,
+        MOTOR_POLE_COUNT,
+        MOTOR_ROTOR_BACKIRON_RADIUS,
+        MOTOR_ROTOR_BOTTOM_Z,
+        MOTOR_ROTOR_TOP_Z,
+        MOTOR_SHAFT_RADIUS,
+        MOTOR_SHELL_INNER_RADIUS,
+        MOTOR_SLOT_COUNT,
+        MOTOR_STATOR_BOTTOM_Z,
+        MOTOR_STATOR_OUTER_RADIUS,
+        MOTOR_STATOR_TOOTH_INNER_RADIUS,
+        MOTOR_STATOR_TOOTH_WIDTH,
+        MOTOR_STATOR_TOP_Z,
+        MOTOR_STATOR_YOKE_INNER_RADIUS,
+        PRESSURE_ANGLE,
+        REAR_BEARING_CENTER_Z,
+        STAGE_1,
     )
 
 
@@ -97,7 +103,9 @@ def make_bldc_stator_rassembly(
         placement=scad.identity_placement_rplacement(),
         name="Laminated stator core",
     )
-    stator = scad.ground_component_rassembly(assembly=stator, component_id="stator_core")
+    stator = scad.ground_component_rassembly(
+        assembly=stator, component_id="stator_core"
+    )
     for index, angle, _center in radial_centers(
         count=MOTOR_SLOT_COUNT,
         radius=0.0,
@@ -108,14 +116,20 @@ def make_bldc_stator_rassembly(
             assembly=stator,
             item=winding,
             component_id=component_id,
-            placement=make_z_rotation_rplacement(origin=(0.0, 0.0, 0.0), angle_degrees=angle),
+            placement=make_z_rotation_rplacement(
+                origin=(0.0, 0.0, 0.0), angle_degrees=angle
+            ),
             name=f"Slot winding pack {index + 1}",
         )
         stator = scad.add_fixed_constraint_rassembly(
             assembly=stator,
             constraint_id=f"{component_id}_potted_to_core",
-            connector_a=connector_ref(component_id="stator_core", connector_id=component_id),
-            connector_b=connector_ref(component_id=component_id, connector_id="mount_axis"),
+            connector_a=connector_ref(
+                component_id="stator_core", connector_id=component_id
+            ),
+            connector_b=connector_ref(
+                component_id=component_id, connector_id="mount_axis"
+            ),
             name=f"Winding {index + 1} varnish and potting retention",
         )
     stator = scad.forward_connector_rassembly(
@@ -152,21 +166,29 @@ def make_bldc_rotor_rassembly(
         placement=scad.identity_placement_rplacement(),
         name="Rotor back iron, shaft, and stage-1 sun",
     )
-    rotor = scad.ground_component_rassembly(assembly=rotor, component_id="rotor_core_shaft_sun")
+    rotor = scad.ground_component_rassembly(
+        assembly=rotor, component_id="rotor_core_shaft_sun"
+    )
     for index, angle, _center in radial_centers(count=MOTOR_POLE_COUNT, radius=0.0):
         component_id = f"magnet_{index + 1:02d}"
         rotor = scad.add_component_rassembly(
             assembly=rotor,
             item=magnet,
             component_id=component_id,
-            placement=make_z_rotation_rplacement(origin=(0.0, 0.0, 0.0), angle_degrees=angle),
+            placement=make_z_rotation_rplacement(
+                origin=(0.0, 0.0, 0.0), angle_degrees=angle
+            ),
             name=f"Bonded rotor magnet {index + 1}",
         )
         rotor = scad.add_fixed_constraint_rassembly(
             assembly=rotor,
             constraint_id=f"{component_id}_bonded_to_rotor",
-            connector_a=connector_ref(component_id="rotor_core_shaft_sun", connector_id=component_id),
-            connector_b=connector_ref(component_id=component_id, connector_id="bond_axis"),
+            connector_a=connector_ref(
+                component_id="rotor_core_shaft_sun", connector_id=component_id
+            ),
+            connector_b=connector_ref(
+                component_id=component_id, connector_id="bond_axis"
+            ),
             name=f"Magnet {index + 1} adhesive and sleeve retention",
         )
     for connector_id in (
@@ -202,7 +224,9 @@ def _make_stator_core_rpart(*, material: scad.Material) -> scad.Part:
         tag_prefix="motor.stator.back.iron",
         tags=("role.stator_back_iron",),
     )
-    tooth_length = MOTOR_STATOR_YOKE_INNER_RADIUS - MOTOR_STATOR_TOOTH_INNER_RADIUS + 0.40
+    tooth_length = (
+        MOTOR_STATOR_YOKE_INNER_RADIUS - MOTOR_STATOR_TOOTH_INNER_RADIUS + 0.40
+    )
     tooth_center_radius = MOTOR_STATOR_TOOTH_INNER_RADIUS + tooth_length / 2.0
     teeth = []
     for index, angle, _center in radial_centers(count=MOTOR_SLOT_COUNT, radius=0.0):
@@ -246,7 +270,9 @@ def _make_stator_core_rpart(*, material: scad.Material) -> scad.Part:
         radius=0.0,
         angle_offset=0.0,
     ):
-        rotation = make_z_rotation_rplacement(origin=(0.0, 0.0, 0.0), angle_degrees=angle)
+        rotation = make_z_rotation_rplacement(
+            origin=(0.0, 0.0, 0.0), angle_degrees=angle
+        )
         connector = scad.make_placement_connector_rconnector(
             connector_id=f"winding_{index + 1:02d}",
             placement=rotation,
@@ -354,7 +380,12 @@ def _make_rotor_shaft_sun_rpart(*, material: scad.Material) -> scad.Part:
     rotor = scad.union_rsolid(shaft, back_iron, sun, glue=False)
     rotor = apply_tags(
         shape=rotor,
-        tags=("role.rotor_back_iron", "role.direct_drive_shaft", "role.stage1.sun_gear", "group.bldc_motor"),
+        tags=(
+            "role.rotor_back_iron",
+            "role.direct_drive_shaft",
+            "role.stage1.sun_gear",
+            "group.bldc_motor",
+        ),
     )
     part = make_axis_part_rpart(
         part_id="rotor_core_shaft_sun",
@@ -363,15 +394,25 @@ def _make_rotor_shaft_sun_rpart(*, material: scad.Material) -> scad.Part:
         material=material,
         connectors=(
             ("rotor_axis", (0.0, 0.0, -2.5), "Motor rotation axis"),
-            ("rear_bearing_axis", (0.0, 0.0, REAR_BEARING_CENTER_Z), "Rear motor bearing shaft seat"),
+            (
+                "rear_bearing_axis",
+                (0.0, 0.0, REAR_BEARING_CENTER_Z),
+                "Rear motor bearing shaft seat",
+            ),
             ("front_bearing_axis", (0.0, 0.0, -2.5), "Front motor bearing shaft seat"),
-            ("stage1_sun_axis", (0.0, 0.0, STAGE_1.mid_z), "Integrated stage-1 sun axis"),
+            (
+                "stage1_sun_axis",
+                (0.0, 0.0, STAGE_1.mid_z),
+                "Integrated stage-1 sun axis",
+            ),
         ),
     )
     for index, angle, _center in radial_centers(count=MOTOR_POLE_COUNT, radius=0.0):
         connector = scad.make_placement_connector_rconnector(
             connector_id=f"magnet_{index + 1:02d}",
-            placement=make_z_rotation_rplacement(origin=(0.0, 0.0, 0.0), angle_degrees=angle),
+            placement=make_z_rotation_rplacement(
+                origin=(0.0, 0.0, 0.0), angle_degrees=angle
+            ),
             name=f"Magnet {index + 1} bond datum",
         )
         part = scad.add_connector_rpart(part=part, connector=connector)
@@ -402,4 +443,36 @@ def _make_rotor_magnet_rpart(*, material: scad.Material) -> scad.Part:
         name="Reusable bonded NdFeB rotor magnet",
         material=material,
         connectors=(("bond_axis", (0.0, 0.0, 0.0), "Rotor bond datum"),),
+    )
+
+
+@scad.part(id="stator_core", inputs=PART_INPUTS, cache=CACHE)
+def build_stator_core_part() -> scad.Part:
+    return _make_stator_core_rpart(
+        material=make_actuator_material_rmaterial(key="electrical_steel")
+    )
+
+
+@scad.part(id="reusable_slot_winding", inputs=PART_INPUTS, cache=CACHE)
+def build_slot_winding_part() -> scad.Part:
+    return _make_winding_pack_rpart(
+        material=make_actuator_material_rmaterial(key="copper")
+    )
+
+
+@scad.part(
+    id="rotor_core_shaft_sun",
+    inputs=PART_INPUTS,
+    cache=CACHE,
+)
+def build_rotor_core_part() -> scad.Part:
+    return _make_rotor_shaft_sun_rpart(
+        material=make_actuator_material_rmaterial(key="gear")
+    )
+
+
+@scad.part(id="reusable_rotor_magnet", inputs=PART_INPUTS, cache=CACHE)
+def build_rotor_magnet_part() -> scad.Part:
+    return _make_rotor_magnet_rpart(
+        material=make_actuator_material_rmaterial(key="magnet")
     )
