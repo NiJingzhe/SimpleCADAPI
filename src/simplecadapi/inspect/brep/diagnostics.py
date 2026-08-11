@@ -6,6 +6,8 @@ from collections import Counter, defaultdict, deque
 import json
 import math
 from pathlib import Path
+import shutil
+import tempfile
 from typing import Any, Mapping, Sequence
 
 import numpy as np
@@ -16,6 +18,7 @@ from OCP.BRepBuilderAPI import (
 )
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
 from OCP.GeomAPI import GeomAPI_ProjectPointOnSurf
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID
 from OCP.TopExp import TopExp
@@ -53,6 +56,8 @@ def _model(value: ModelInput) -> BRepModel:
 
 
 def _require_positive(value: float, name: str) -> None:
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite and greater than zero")
     if value <= 0.0:
         raise ValueError(f"{name} must be greater than zero")
 
@@ -781,6 +786,213 @@ def compare_material_rdescriptor(
     }
 
 
+def compare_material_region_rdescriptor(
+    target: ModelInput,
+    current: ModelInput,
+    *,
+    region_min: Sequence[float],
+    region_max: Sequence[float],
+    boolean_tolerance: float | None = None,
+    output_directory: str | Path | None = None,
+    max_components: int = 100,
+) -> dict[str, Any]:
+    """Compute directional material differences inside one axis-aligned ROI."""
+
+    if len(region_min) != 3 or len(region_max) != 3:
+        raise ValueError("region_min and region_max must contain three coordinates")
+    minimum = np.asarray(region_min, dtype=float)
+    maximum = np.asarray(region_max, dtype=float)
+    if not np.all(np.isfinite(minimum)) or not np.all(np.isfinite(maximum)):
+        raise ValueError("region bounds must be finite")
+    if np.any(maximum <= minimum):
+        raise ValueError("region_max must exceed region_min on every axis")
+    if boolean_tolerance is not None:
+        _require_positive(boolean_tolerance, "boolean_tolerance")
+    if max_components < 1:
+        raise ValueError("max_components must be at least one")
+
+    target_model = _model(target)
+    current_model = _model(current)
+    for name, model in (("target", target_model), ("current", current_model)):
+        if (
+            len(model.bodies) != 1
+            or not BRepCheck_Analyzer(model.bodies[0]).IsValid()
+            or _material_volume(model.bodies[0], f"{name} material") <= 0.0
+        ):
+            raise ValueError(f"{name} must contain valid positive-volume solid material")
+    output = Path(output_directory).expanduser().resolve() if output_directory else None
+    staging: Path | None = None
+    if output is not None:
+        protected = {
+            Path(source).expanduser().resolve()
+            for source in (target_model.source, current_model.source)
+            if source is not None
+        }
+        for filename in ("missing_material.step", "excess_material.step"):
+            if output / filename in protected:
+                raise ValueError("localized material export would overwrite an input STEP")
+        output.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=".localized-material-", dir=output))
+    target_material = _material_shape(target_model)
+    current_material = _material_shape(current_model)
+    roi = BRepPrimAPI_MakeBox(gp_Pnt(*minimum), gp_Pnt(*maximum)).Shape()
+    target_local = _common_shape(target_material, roi, boolean_tolerance)
+    current_local = _common_shape(current_material, roi, boolean_tolerance)
+    local_target_volume = _material_volume(target_local, "Localized target material")
+    local_current_volume = _material_volume(current_local, "Localized current material")
+    target_has_material = bool(index_shape_rbrepmodel(target_local).bodies)
+    current_has_material = bool(index_shape_rbrepmodel(current_local).bodies)
+    if not target_has_material and not current_has_material:
+        difference = {
+            "missing_material": {"volume": 0.0, "component_count": 0, "components": []},
+            "excess_material": {"volume": 0.0, "component_count": 0, "components": []},
+            "boolean_result_valid": True,
+            "strict_equality_supported": boolean_tolerance is None,
+            "volume_balance": {
+                "expected_target_minus_current": 0.0,
+                "observed_missing_minus_excess": 0.0,
+                "absolute_error": 0.0,
+                "tolerance": 1.0e-9,
+                "valid": True,
+            },
+            "exported_files": {},
+        }
+    elif not target_has_material or not current_has_material:
+        missing_shape = target_local if not current_has_material else None
+        excess_shape = current_local if not target_has_material else None
+
+        def summaries(shape: TopoDS_Shape | None, category: str):
+            if shape is None:
+                return []
+            return [
+                _component_summary(
+                    TopoDS.Solid_s(solid),
+                    f"{category}:{index}",
+                    category,
+                )
+                for index, solid in enumerate(_mapped_shapes(shape, TopAbs_SOLID))
+            ]
+
+        missing_components = summaries(missing_shape, "missing_material")
+        excess_components = summaries(excess_shape, "excess_material")
+        difference = {
+            "missing_material": {
+                "volume": local_target_volume if missing_shape is not None else 0.0,
+                "component_count": len(missing_components),
+                "components": missing_components,
+            },
+            "excess_material": {
+                "volume": local_current_volume if excess_shape is not None else 0.0,
+                "component_count": len(excess_components),
+                "components": excess_components,
+            },
+            "boolean_result_valid": True,
+            "strict_equality_supported": boolean_tolerance is None,
+            "volume_balance": {
+                "expected_target_minus_current": local_target_volume
+                - local_current_volume,
+                "observed_missing_minus_excess": local_target_volume
+                - local_current_volume,
+                "absolute_error": 0.0,
+                "tolerance": max(local_target_volume, local_current_volume, 1.0)
+                * 1.0e-9,
+                "valid": True,
+            },
+            "exported_files": {},
+        }
+        if staging is not None:
+            if missing_shape is not None:
+                path = staging / "missing_material.step"
+                export_step_shapes([missing_shape], str(path))
+                difference["exported_files"]["missing_material"] = str(
+                    output / "missing_material.step"
+                )
+            if excess_shape is not None:
+                path = staging / "excess_material.step"
+                export_step_shapes([excess_shape], str(path))
+                difference["exported_files"]["excess_material"] = str(
+                    output / "excess_material.step"
+                )
+    else:
+        difference = compare_material_rdescriptor(
+            target_local,
+            current_local,
+            boolean_tolerance=boolean_tolerance,
+            output_directory=staging,
+            include_components=True,
+        )
+    missing_volume = float(difference["missing_material"]["volume"])
+    excess_volume = float(difference["excess_material"]["volume"])
+    locally_equal = missing_volume == 0.0 and excess_volume == 0.0
+
+    def touches_boundary(component: Mapping[str, Any]) -> bool:
+        bounds = component["bounding_box"]
+        return any(
+            abs(float(bounds[side][axis]) - float(limit[axis])) <= 1.0e-7
+            for side, limit in (("min", minimum), ("max", maximum))
+            for axis in range(3)
+        )
+
+    for category in ("missing_material", "excess_material"):
+        components = difference[category]["components"] or []
+        decorated = [
+            {**component, "touches_region_boundary": touches_boundary(component)}
+            for component in components
+        ]
+        difference[category]["components_truncated"] = len(decorated) > max_components
+        difference[category]["components"] = decorated[:max_components]
+    if output is not None and staging is not None:
+        publications = (
+            ("missing_material", "missing_material.step"),
+            ("excess_material", "excess_material.step"),
+        )
+        backups: dict[str, Path] = {}
+        published: list[Path] = []
+        try:
+            for _, filename in publications:
+                destination = output / filename
+                if destination.exists():
+                    backup = staging / f"previous-{filename}"
+                    destination.replace(backup)
+                    backups[filename] = backup
+            for category, filename in publications:
+                staged = staging / filename
+                destination = output / filename
+                if staged.exists():
+                    staged.replace(destination)
+                    published.append(destination)
+                    difference["exported_files"][category] = str(destination)
+            for backup in backups.values():
+                backup.unlink()
+        except Exception:
+            for destination in published:
+                if destination.exists():
+                    destination.unlink()
+            for filename, backup in backups.items():
+                if backup.exists():
+                    backup.replace(output / filename)
+            raise
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+    return {
+        "report_version": 1,
+        "tool": "compare_material_region_rdescriptor",
+        "target_model_path": target_model.source,
+        "current_model_path": current_model.source,
+        "region": {"min": minimum.tolist(), "max": maximum.tolist()},
+        "localized_target_volume": local_target_volume,
+        "localized_current_volume": local_current_volume,
+        "missing_material": difference["missing_material"],
+        "excess_material": difference["excess_material"],
+        "boolean_result_valid": difference["boolean_result_valid"],
+        "locally_equal": locally_equal,
+        "local_equality_supported": bool(difference["strict_equality_supported"]),
+        "global_equality_supported": False,
+        "volume_balance": difference["volume_balance"],
+        "exported_files": difference["exported_files"],
+    }
+
+
 def _section_shape(
     model: BRepModel,
     origin: Sequence[float],
@@ -868,6 +1080,27 @@ def compare_sections_rdescriptor(
     target_points = _flatten_section_samples(target_section)
     current_points = _flatten_section_samples(current_section)
 
+    def plane_may_cross(model: BRepModel) -> bool:
+        box = model.summary()["bounding_box"]
+        corners = np.asarray(
+            [
+                (x_value, y_value, z_value)
+                for x_value in (box["min"][0], box["max"][0])
+                for y_value in (box["min"][1], box["max"][1])
+                for z_value in (box["min"][2], box["max"][2])
+            ],
+            dtype=float,
+        )
+        origin = np.asarray(plane_origin, dtype=float)
+        normal = np.asarray(plane_normal, dtype=float)
+        normal /= np.linalg.norm(normal)
+        distances = (corners - origin) @ normal
+        return float(np.min(distances)) <= tolerance and float(np.max(distances)) >= -tolerance
+
+    target_unresolved = not target_section["edge_count"] and plane_may_cross(target_model)
+    current_unresolved = not current_section["edge_count"] and plane_may_cross(current_model)
+    section_generation_unresolved = target_unresolved or current_unresolved
+
     if target_section["edge_count"] and current_section["edge_count"]:
         target_to_current = _directed_section_distance(
             target_points,
@@ -881,7 +1114,11 @@ def compare_sections_rdescriptor(
             target_to_current["statistics"]["maximum"],
             current_to_target["statistics"]["maximum"],
         )
-    elif not target_section["edge_count"] and not current_section["edge_count"]:
+    elif (
+        not target_section["edge_count"]
+        and not current_section["edge_count"]
+        and not section_generation_unresolved
+    ):
         target_to_current = current_to_target = {
             "available": True,
             "statistics": _distance_statistics(np.empty(0)),
@@ -943,6 +1180,131 @@ def compare_sections_rdescriptor(
                     or not current_section["edge_count"]
                 )
             ),
+            "section_generation_unresolved": section_generation_unresolved,
+        },
+    }
+
+
+def compare_sections_batch_rdescriptor(
+    target: ModelInput,
+    current: ModelInput,
+    *,
+    sections: Sequence[Mapping[str, Any]],
+    tolerance: float = 1.0e-7,
+    samples_per_edge: int = 32,
+) -> dict[str, Any]:
+    """Compare an ordered batch of sections after loading each model once."""
+
+    if not sections:
+        raise ValueError("sections must not be empty")
+    _require_positive(tolerance, "tolerance")
+    if samples_per_edge < 4:
+        raise ValueError("samples_per_edge must be at least four")
+    target_model = _model(target)
+    current_model = _model(current)
+    ids = []
+    normalized = []
+    for index, section in enumerate(sections):
+        section_id = str(section.get("section_id", "")).strip()
+        if not section_id:
+            raise ValueError(f"sections[{index}].section_id must not be empty")
+        if len(section_id) > 128:
+            raise ValueError("section_id must contain at most 128 characters")
+        if section_id in ids:
+            raise ValueError("section_id values must be unique")
+        ids.append(section_id)
+        origin = np.asarray(section.get("origin"), dtype=float)
+        normal = np.asarray(section.get("normal"), dtype=float)
+        if origin.shape != (3,) or normal.shape != (3,):
+            raise ValueError("section origin and normal must contain three coordinates")
+        if not np.all(np.isfinite(origin)) or not np.all(np.isfinite(normal)):
+            raise ValueError("section origin and normal must be finite")
+        norm = float(np.linalg.norm(normal))
+        if norm <= 1.0e-12:
+            raise ValueError("section normal must be non-zero")
+        normalized.append((section_id, origin.tolist(), (normal / norm).tolist()))
+
+    results = []
+    for section_id, origin, normal in normalized:
+        report = compare_sections_rdescriptor(
+            target_model,
+            current_model,
+            origin,
+            normal,
+            tolerance=tolerance,
+            samples_per_edge=samples_per_edge,
+        )
+        target_area = float(report["target"]["material_area"])
+        area_delta = float(report["comparison"]["area_delta"])
+        relative_area_delta = (
+            area_delta / target_area if abs(target_area) > 1.0e-12 else None
+        )
+        results.append(
+            {
+                "section_id": section_id,
+                "plane": report["plane"],
+                "target": {
+                    key: report["target"][key]
+                    for key in (
+                        "edge_count",
+                        "closed_contour_count",
+                        "material_area",
+                        "perimeter",
+                    )
+                },
+                "current": {
+                    key: report["current"][key]
+                    for key in (
+                        "edge_count",
+                        "closed_contour_count",
+                        "material_area",
+                        "perimeter",
+                    )
+                },
+                "comparison": {
+                    **report["comparison"],
+                    "relative_area_delta": relative_area_delta,
+                },
+            }
+        )
+
+    def hausdorff(item: Mapping[str, Any]) -> float:
+        if (
+            item["comparison"]["empty_section_mismatch"]
+            or item["comparison"]["section_generation_unresolved"]
+        ):
+            return math.inf
+        value = item["comparison"]["hausdorff_approximation"]
+        return float(value) if value is not None else 0.0
+
+    worst = max(results, key=hausdorff)
+    worst_area = max(results, key=lambda item: abs(item["comparison"]["area_delta"]))
+    empty_mismatches = [
+        item["section_id"]
+        for item in results
+        if item["comparison"]["empty_section_mismatch"]
+    ]
+    return {
+        "report_version": 1,
+        "tool": "compare_sections_batch_rdescriptor",
+        "target_model_path": target_model.source,
+        "current_model_path": current_model.source,
+        "section_count": len(results),
+        "sections": results,
+        "aggregate": {
+            "max_hausdorff": (
+                None
+                if worst["comparison"]["empty_section_mismatch"]
+                or worst["comparison"]["section_generation_unresolved"]
+                else hausdorff(worst)
+            ),
+            "worst_hausdorff_section_id": worst["section_id"],
+            "max_absolute_area_delta": abs(
+                float(worst_area["comparison"]["area_delta"])
+            ),
+            "worst_area_section_id": worst_area["section_id"],
+            "empty_section_mismatch_count": len(empty_mismatches),
+            "empty_section_mismatch_ids": empty_mismatches,
         },
     }
 
@@ -1208,8 +1570,6 @@ def inspect_difference_regions_rdescriptor(
 
 
 def _query_shape_from_region(region: Mapping[str, Any]) -> tuple[TopoDS_Shape, dict]:
-    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
-
     if "bounding_box" in region:
         box = region["bounding_box"]
     elif "centroid" in region:
@@ -1542,7 +1902,9 @@ __all__ = [
     "compare_boundary_distance_rdescriptor",
     "compare_entities_rdescriptor",
     "compare_global_properties_rdescriptor",
+    "compare_material_region_rdescriptor",
     "compare_sections_rdescriptor",
+    "compare_sections_batch_rdescriptor",
     "compare_material_rdescriptor",
     "evaluate_reconstruction_rdescriptor",
     "inspect_nearby_entities_rdescriptor",

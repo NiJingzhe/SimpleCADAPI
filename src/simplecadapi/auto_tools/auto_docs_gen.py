@@ -35,9 +35,11 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "inspect/brep/io.py",
     "inspect/brep/model.py",
     "inspect/brep/parity.py",
+    "inspect/brep/persistence.py",
     "inspect/brep/queries.py",
     "inspect/brep/render.py",
     "inspect/brep/slices.py",
+    "inspect/brep/topology_inspection.py",
 )
 
 DEFAULT_STDLIB_SOURCE_FILENAMES: tuple[str, ...] = (
@@ -69,9 +71,11 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "inspect/brep/io.py",
         "inspect/brep/model.py",
         "inspect/brep/parity.py",
+        "inspect/brep/persistence.py",
         "inspect/brep/queries.py",
         "inspect/brep/render.py",
         "inspect/brep/slices.py",
+        "inspect/brep/topology_inspection.py",
     }
 )
 
