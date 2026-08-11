@@ -13,6 +13,7 @@ from ..product import (
     ConnectorAnchor,
     ConnectorRef,
     Constraint,
+    GeometryRef,
     Material,
     Part,
     Placement,
@@ -23,7 +24,11 @@ from ..product import (
     solve_assembly_constraints,
 )
 from ..scene.archive import canonical_zip_bytes, preflight_zip_bytes
-from .assembly_definition import AssemblyDefinition
+from .assembly_definition import (
+    AssemblyDefinition,
+    assembly_definition_is_validated,
+    mark_assembly_definition_validated,
+)
 from .brep import read_brep_solid
 from .canonical import (
     ArtifactLimits,
@@ -31,10 +36,17 @@ from .canonical import (
     DEFAULT_ARTIFACT_LIMITS,
     parse_canonical_json,
 )
-from .part_definition import PartDefinition
+from .part_definition import (
+    PartDefinition,
+    mark_part_definition_validated,
+    take_validated_part_body,
+)
 from .part_io import encode_part_definition, load_part_definition
 from .references import ConnectorInterface, PartRef
-from .topology_snapshot import restore_topology_snapshot
+from .topology_snapshot import (
+    restore_topology_snapshot,
+    validate_connector_entity_bindings,
+)
 from .validation import parse_artifact_json, validate_artifact_blobs
 
 _ASSEMBLY_DEFINITION_MANIFEST = "assembly-definition.json"
@@ -59,7 +71,11 @@ def encode_assembly_definition(definition: AssemblyDefinition) -> bytes:
 
     if not isinstance(definition, AssemblyDefinition):
         raise TypeError("definition must be an AssemblyDefinition")
-    validate_artifact_blobs(definition.to_dict(), definition.blobs)
+    if not assembly_definition_is_validated(
+        definition,
+        DEFAULT_ARTIFACT_LIMITS,
+    ):
+        validate_artifact_blobs(definition.to_dict(), definition.blobs)
     members: dict[str, bytes] = {
         _ASSEMBLY_DEFINITION_MANIFEST: definition.canonical_bytes,
     }
@@ -96,10 +112,7 @@ def decode_assembly_definition(
             "/blobs",
             "archive member set differs from definition references",
         )
-    blobs = {
-        path: archive.members[_BLOB_PREFIX + path]
-        for path in expected_paths
-    }
+    blobs = {path: archive.members[_BLOB_PREFIX + path] for path in expected_paths}
     definition = AssemblyDefinition.from_dict(manifest, blobs=blobs)
     validate_artifact_blobs(definition.to_dict(), definition.blobs)
     return definition
@@ -186,6 +199,7 @@ def validate_assembly_definition_graph(
     identities: dict[str, tuple[str, str]] = {}
     visited: set[tuple[str, str]] = set()
     active: list[tuple[str, str]] = []
+    validated_nodes: list[AssemblyDefinition] = []
 
     def visit(node: AssemblyDefinition, trace: tuple[str, ...]) -> None:
         if len(trace) > limits.max_nested_depth:
@@ -321,6 +335,7 @@ def validate_assembly_definition_graph(
                         )
                     visit(child, child_trace)
             visited.add(node_key)
+            validated_nodes.append(node)
         finally:
             active.pop()
 
@@ -329,6 +344,32 @@ def validate_assembly_definition_graph(
         definition.content_hash,
     )
     visit(definition, ())
+
+    for node in validated_nodes:
+        mark_assembly_definition_validated(node, limits)
+
+
+def assembly_definition_graph_is_validated(
+    definition: AssemblyDefinition,
+    *,
+    limits: ArtifactLimits = DEFAULT_ARTIFACT_LIMITS,
+) -> bool:
+    visited: set[tuple[str, str]] = set()
+    pending = [definition]
+    while pending:
+        node = pending.pop()
+        key = (node.definition_id, node.content_hash)
+        if key in visited:
+            continue
+        if not assembly_definition_is_validated(node, limits):
+            return False
+        visited.add(key)
+        pending.extend(
+            child
+            for child in node.resolved_definitions.values()
+            if isinstance(child, AssemblyDefinition)
+        )
+    return True
 
 
 def load_assembly_definition(
@@ -347,7 +388,9 @@ def load_assembly_definition(
     else:
         root_path = None
         raw = bytes(data)
-        root_dir = Path(base_dir).expanduser().resolve() if base_dir is not None else None
+        root_dir = (
+            Path(base_dir).expanduser().resolve() if base_dir is not None else None
+        )
     root = decode_assembly_definition(raw)
     if root.definition_refs and root_dir is None:
         raise ArtifactValidationError(
@@ -494,15 +537,30 @@ def export_assembly_definition(
 
 
 def _runtime_connector(interface: ConnectorInterface) -> Connector:
-    """Materialize a part connector from its frozen local datum frame."""
+    """Materialize a part connector without losing its authored anchor kind."""
 
-    return Connector(
-        interface.connector_id,
-        name=interface.name,
-        anchor=ConnectorAnchor(
-            "placement",
-            placement=Placement(**dict(interface.local_frame)),
-        ),
+    if interface.anchor_kind == "geometry":
+        binding = dict(interface.binding or {})
+        geometry_ref = GeometryRef(
+            kind=str(binding["kind"]),
+            source_node_id=binding.get("source_node_id"),
+            geo_selector=dict(binding["geo_selector"]),
+            flip=bool(binding.get("flip", False)),
+        )
+        return Connector(interface.connector_id, geometry_ref, name=interface.name)
+    if interface.anchor_kind == "placement":
+        return Connector(
+            interface.connector_id,
+            name=interface.name,
+            anchor=ConnectorAnchor(
+                "placement",
+                placement=Placement(**dict(interface.local_frame)),
+            ),
+        )
+    raise ArtifactValidationError(
+        "connector_invalid",
+        "/connectors",
+        "part connector cannot use a forwarded anchor",
     )
 
 
@@ -522,11 +580,7 @@ def _material_from_definition(definition: PartDefinition) -> Material | None:
         name=payload.get("name"),
         density=payload.get("density"),
         density_unit=payload.get("density_unit"),
-        color=(
-            tuple(payload["color"])
-            if payload.get("color") is not None
-            else None
-        ),
+        color=(tuple(payload["color"]) if payload.get("color") is not None else None),
     )
 
 
@@ -597,6 +651,10 @@ def materialize_definition(
     definition: PartDefinition | AssemblyDefinition,
 ) -> Part | Assembly:
     """Materialize a validated product definition without replaying Python source."""
+    if isinstance(
+        definition, AssemblyDefinition
+    ) and not assembly_definition_graph_is_validated(definition):
+        validate_assembly_definition_graph(definition)
 
     cache: dict[tuple[str, str], Part | Assembly] = {}
 
@@ -606,14 +664,19 @@ def materialize_definition(
         if existing is not None:
             return existing
         if isinstance(node, PartDefinition):
-            validate_artifact_blobs(node.to_dict(), node.blobs)
-            body = read_brep_solid(node.blobs[node.solid_cache_ref.path])
-            restore_topology_snapshot(
-                body,
-                node.blobs[node.topology_snapshot_ref.path],
-            )
+            body = take_validated_part_body(node)
+            if body is None:
+                validate_artifact_blobs(node.to_dict(), node.blobs)
+                body = read_brep_solid(node.blobs[node.solid_cache_ref.path])
+                restore_topology_snapshot(
+                    body,
+                    node.blobs[node.topology_snapshot_ref.path],
+                )
+                validate_connector_entity_bindings(body, node.connectors)
+                mark_part_definition_validated(node)
             value: Part | Assembly = Part(
                 part_id=node.definition_id,
+                name=node.metadata.get("name"),
                 body=body,
                 material=_material_from_definition(node),
                 connectors=tuple(_runtime_connector(item) for item in node.connectors),
@@ -623,13 +686,14 @@ def materialize_definition(
             cache[key] = value
             return value
 
-        validate_assembly_definition_graph(node)
+        # The complete assembly DAG was validated once at the public boundary.
         direct = {
             definition_id: materialize(child)
             for definition_id, child in node.resolved_definitions.items()
         }
         authored = Assembly(
             assembly_id=node.definition_id,
+            name=node.metadata.get("name"),
             components=tuple(
                 Component(
                     component_id=item.instance_id,
@@ -649,7 +713,9 @@ def materialize_definition(
             connector_id = str(source["connector_id"])
             component = authored.get_component(component_id)
             source_connector = component.item.get_connector(connector_id)
-            source_owner = component.item if isinstance(component.item, Assembly) else None
+            source_owner = (
+                component.item if isinstance(component.item, Assembly) else None
+            )
             source_frame = component.placement.compose(
                 resolve_connector_placement(
                     source_connector,
@@ -672,6 +738,7 @@ def materialize_definition(
             )
         authored = Assembly(
             assembly_id=authored.assembly_id,
+            name=authored.name,
             components=authored.components,
             connectors=tuple(connectors),
             constraints=authored.constraints,

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplecad.dev/schemas/product-package-1.schema.json",
+  "title": "SimpleCAD Product Package 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifact_kind", "root", "objects", "content_hash"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "artifact_kind": {"const": "product_package"},
+    "root": {"$ref": "#/$defs/path"},
+    "objects": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 25000,
+      "items": {"$ref": "#/$defs/object"}
+    },
+    "content_hash": {"$ref": "#/$defs/hash"}
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"
+    },
+    "revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+    },
+    "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "definition_kind",
+        "definition_id",
+        "revision",
+        "content_hash",
+        "sha256",
+        "byte_length"
+      ],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "definition_kind": {"enum": ["single_solid", "assembly"]},
+        "definition_id": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "content_hash": {"$ref": "#/$defs/hash"},
+        "sha256": {"$ref": "#/$defs/hash"},
+        "byte_length": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}
+      }
+    }
+  }
+}

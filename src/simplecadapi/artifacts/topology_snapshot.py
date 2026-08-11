@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Mapping
 
 from ..core import Solid
-from ..tagging import TagBinding, TagLineageWitness
+from ..tagging import TagBinding, TagLineageWitness, normalize_tag
 from .geometry_interface import (
     geometry_interface_fingerprint,
     stable_topology_entity_hash,
@@ -20,7 +20,7 @@ from .canonical import (
     validate_json_value,
 )
 
-_SNAPSHOT_VERSION = "2.0"
+_SNAPSHOT_VERSION = "3.0"
 _METADATA_EXCLUDED = {
     "graph",
     "topo_ref",
@@ -103,6 +103,144 @@ def _entity_key(entity: Any) -> tuple[str, str]:
 def _entity_key_map(entities: list[Any]) -> dict[int, tuple[str, str]]:
     return {id(entity): _entity_key(entity) for entity in entities}
 
+def topology_entity_ref(solid: Solid, topo_id: str) -> dict[str, str]:
+    """Return the immutable package reference for one topology entity."""
+
+    if not isinstance(solid, Solid):
+        raise TypeError("solid must be a Solid")
+    entity = solid._topology_cache._entities_by_id.get(str(topo_id))
+    if entity is None:
+        raise ArtifactValidationError(
+            "reference_missing",
+            "/topo_id",
+            f"topology entity {topo_id!r} does not exist",
+        )
+    kind, geometry_hash = _entity_key(entity)
+    return {
+        "kind": kind,
+        "topo_id": entity.topo_id,
+        "geometry_hash": geometry_hash,
+    }
+
+
+def resolve_geometry_entity_ref(
+    solid: Solid,
+    geometry_ref: Any,
+) -> dict[str, str]:
+    """Resolve one GeometryRef against a final part body without ambiguity."""
+
+    from ..serializer import (
+        _candidate_shapes_for_geo_selection,
+        _geo_selector_score,
+    )
+
+    kind = str(geometry_ref.kind)
+    candidates = _candidate_shapes_for_geo_selection(solid, kind)
+    ranked = sorted(
+        (
+            (_geo_selector_score(candidate, geometry_ref.geo_selector), candidate)
+            for candidate in candidates
+        ),
+        key=lambda item: (item[0], item[1].topo_id.encode("utf-8")),
+    )
+    if not ranked or ranked[0][0] > 1.0e-4:
+        raise ArtifactValidationError(
+            "connector_binding_invalid",
+            "/connectors/binding",
+            f"geometry connector did not resolve to a {kind} on the final body",
+        )
+    if len(ranked) > 1 and ranked[1][0] <= 1.0e-4:
+        raise ArtifactValidationError(
+            "connector_binding_ambiguous",
+            "/connectors/binding",
+            f"geometry connector resolves to multiple {kind} entities",
+        )
+    return topology_entity_ref(solid, ranked[0][1].topo_id)
+
+
+def _name_index_from_records(
+    entities: list[Mapping[str, Any]],
+) -> dict[str, list[dict[str, str]]]:
+    index: dict[str, list[dict[str, str]]] = {}
+    for entity in entities:
+        reference = {
+            "kind": str(entity["kind"]),
+            "topo_id": str(entity["topo_id"]),
+            "geometry_hash": str(entity["geometry_hash"]),
+        }
+        for tag in entity["tags"]:
+            name = str(tag)
+            if name.startswith("interface."):
+                index.setdefault(name, []).append(reference)
+    result: dict[str, list[dict[str, str]]] = {}
+    for name in sorted(index, key=lambda value: value.encode("utf-8")):
+        references = sorted(
+            index[name],
+            key=lambda item: (
+                item["kind"].encode("utf-8"),
+                item["geometry_hash"].encode("utf-8"),
+                item["topo_id"].encode("utf-8"),
+            ),
+        )
+        kinds = {item["kind"] for item in references}
+        if len(kinds) != 1:
+            raise ArtifactValidationError(
+                "geometry_name_invalid",
+                f"/name_index/{name}",
+                "one public geometry name cannot span multiple entity kinds",
+            )
+        result[name] = references
+    return result
+
+
+def validate_connector_entity_bindings(
+    solid: Solid,
+    connectors: Any,
+) -> None:
+    """Validate every frozen geometry connector against the restored body."""
+
+    for index, connector in enumerate(connectors):
+        if connector.anchor_kind != "geometry":
+            continue
+        path = f"/connectors/{index}/binding"
+        binding = connector.binding
+        if not isinstance(binding, Mapping) or set(binding) != {
+            "kind",
+            "source_node_id",
+            "geo_selector",
+            "flip",
+            "resolved_entities",
+        }:
+            raise ArtifactValidationError(
+                "connector_binding_invalid",
+                path,
+                "geometry binding fields are not closed",
+            )
+        references = binding["resolved_entities"]
+        if not isinstance(references, list) or len(references) != 1:
+            raise ArtifactValidationError(
+                "connector_binding_invalid",
+                path + "/resolved_entities",
+                "geometry connector must resolve to exactly one entity",
+            )
+        reference = references[0]
+        if not isinstance(reference, Mapping) or set(reference) != {
+            "kind",
+            "topo_id",
+            "geometry_hash",
+        }:
+            raise ArtifactValidationError(
+                "connector_binding_invalid",
+                path + "/resolved_entities/0",
+                "invalid entity reference",
+            )
+        actual = topology_entity_ref(solid, str(reference["topo_id"]))
+        if dict(reference) != actual or binding["kind"] != actual["kind"]:
+            raise ArtifactValidationError(
+                "connector_binding_invalid",
+                path + "/resolved_entities/0",
+                "entity reference differs from the restored body",
+            )
 
 def _current_match_key(
     entity: Any,
@@ -255,6 +393,7 @@ def capture_topology_snapshot(solid: Solid) -> dict[str, Any]:
         "topology_hash": topology_hash,
         "entity_count": len(entities),
         "entities": entities,
+        "name_index": _name_index_from_records(entities),
     }
 
 
@@ -270,6 +409,7 @@ def _validate_snapshot(snapshot: Mapping[str, Any]) -> None:
         "topology_hash",
         "entity_count",
         "entities",
+        "name_index",
     }
     if set(snapshot) != required:
         raise ArtifactValidationError(
@@ -315,6 +455,74 @@ def _validate_snapshot(snapshot: Mapping[str, Any]) -> None:
             )
         seen_ids.add(topo_id)
         validate_json_value(entity["metadata"], f"/entities/{index}/metadata")
+    name_index = snapshot["name_index"]
+    if not isinstance(name_index, Mapping):
+        raise ArtifactValidationError(
+            "topology_snapshot_invalid", "/name_index", "must be an object"
+        )
+    entities_by_id = {str(item["topo_id"]): item for item in entities}
+    for raw_name, references in name_index.items():
+        try:
+            name = normalize_tag(str(raw_name), strict=True)
+        except (TypeError, ValueError) as exc:
+            raise ArtifactValidationError(
+                "geometry_name_invalid", f"/name_index/{raw_name}", str(exc)
+            ) from exc
+        if name != raw_name or not name.startswith("interface."):
+            raise ArtifactValidationError(
+                "geometry_name_invalid",
+                f"/name_index/{raw_name}",
+                "public geometry names must use the interface.* namespace",
+            )
+        if not isinstance(references, list) or not references:
+            raise ArtifactValidationError(
+                "geometry_name_invalid",
+                f"/name_index/{name}",
+                "geometry name must reference at least one entity",
+            )
+        seen: set[tuple[str, str, str]] = set()
+        kinds: set[str] = set()
+        for ref_index, reference in enumerate(references):
+            ref_path = f"/name_index/{name}/{ref_index}"
+            if not isinstance(reference, Mapping) or set(reference) != {
+                "kind",
+                "topo_id",
+                "geometry_hash",
+            }:
+                raise ArtifactValidationError(
+                    "geometry_name_invalid", ref_path, "invalid entity reference"
+                )
+            key = (
+                str(reference["kind"]),
+                str(reference["topo_id"]),
+                str(reference["geometry_hash"]),
+            )
+            if key in seen:
+                raise ArtifactValidationError(
+                    "geometry_name_invalid", ref_path, "duplicate entity reference"
+                )
+            seen.add(key)
+            kinds.add(key[0])
+            entity = entities_by_id.get(key[1])
+            if entity is None or key[0] != entity["kind"] or key[2] != entity["geometry_hash"]:
+                raise ArtifactValidationError(
+                    "geometry_name_invalid",
+                    ref_path,
+                    "entity reference does not match the topology snapshot",
+                )
+        if len(kinds) != 1:
+            raise ArtifactValidationError(
+                "geometry_name_invalid",
+                f"/name_index/{name}",
+                "one public geometry name cannot span multiple entity kinds",
+            )
+    expected_names = _name_index_from_records(entities)
+    if dict(name_index) != expected_names:
+        raise ArtifactValidationError(
+            "geometry_name_invalid",
+            "/name_index",
+            "name index differs from interface.* entity tags",
+        )
 
 
 def restore_topology_snapshot(
@@ -439,7 +647,10 @@ __all__ = [
     "capture_topology_snapshot",
     "encode_topology_snapshot",
     "geometry_fingerprint",
+    "resolve_geometry_entity_ref",
     "restore_topology_snapshot",
     "topology_descriptor",
+    "topology_entity_ref",
     "topology_fingerprint",
+    "validate_connector_entity_bindings",
 ]

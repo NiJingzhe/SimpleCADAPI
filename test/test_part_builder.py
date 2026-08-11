@@ -312,9 +312,12 @@ def test_part_default_export_is_product_package(tmp_path: Path) -> None:
 
     result = build()
 
-    assert set(result.artifact_paths) == {"part"}
-    assert result.artifact_paths["part"].name == "exported.prt.zip"
-    assert scad.load_part_package(result.artifact_paths["part"]).part_id == "exported"
+    assert set(result.artifact_paths) == {"product"}
+    assert result.artifact_paths["product"].name == "exported.scadpkg"
+    assert (
+        scad.load_product_package(result.artifact_paths["product"]).definition_id
+        == "exported"
+    )
 
 
 def test_part_definition_archive_round_trip_and_reexport(tmp_path: Path) -> None:

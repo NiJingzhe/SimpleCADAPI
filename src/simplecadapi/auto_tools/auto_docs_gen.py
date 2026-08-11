@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
-
 DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "operations.py",
     "evolve.py",
@@ -28,6 +27,7 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "graph.py",
     "sketch.py",
     "errors.py",
+    "product_packages.py",
     "topology.py",
     "build/assembly_builder.py",
     "build/dependencies.py",
@@ -71,6 +71,7 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "tolerance.py",
         "units.py",
         "errors.py",
+        "product_packages.py",
         "build/assembly_builder.py",
         "build/dependencies.py",
         "build/part_builder.py",

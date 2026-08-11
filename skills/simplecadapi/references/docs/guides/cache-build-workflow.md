@@ -117,4 +117,27 @@ other namespaces. Full clearing requires `--yes` and removes the cache root.
 Writers use per-key atomic locks, stale-lock recovery, atomic replacement, and
 content-addressed object deduplication. Treat `.simplecad` as generated state:
 do not commit it and do not use its internal files as a public interchange
-format. Export `PartDefinition` or `AssemblyDefinition` artifacts instead.
+format.
+
+## Product package export
+
+`PartBuildResult` and `AssemblyBuildResult` export one public product format:
+the canonical self-contained `.scadpkg` archive. It contains a thin
+`package.json` manifest plus the complete content-addressed closure of canonical
+`PartDefinition` and `AssemblyDefinition` archives. Repeated definitions are
+stored once; assembly instances and relations remain in the ASM definitions.
+
+```python
+part_package = warm.export_artifacts(output_dir="out")
+assembly_package = fixture.export_artifacts(output_dir="out")
+
+root = scad.load_product_package(assembly_package.artifact_paths["product"])
+rebuilt = scad.materialize_definition(root)
+```
+
+Use `build_product_package(...)`, `export_product_package(...)`,
+`read_product_package(...)`, and `load_product_package(...)` for explicit
+package handling. `validate_product_package(...)` verifies every object hash and
+size, the complete recursive definition graph, cycle/depth limits, and rejects
+missing or unreferenced objects. Keep `export_definition(...)` only for low-level
+definition exchange or inspection; it is not the product delivery format.

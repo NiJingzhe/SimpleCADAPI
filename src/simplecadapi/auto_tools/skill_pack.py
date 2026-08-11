@@ -472,8 +472,7 @@ class SkillPackager:
 
     def _build_skill_markdown(self) -> str:
         package_spec = self._package_spec()
-        body = textwrap.dedent(
-            f"""\
+        body = textwrap.dedent(f"""\
             ---
             name: {self.skill_name}
             description: Thin SimpleCAD SDK reference skill focused on the public API surface, core types, and current modeling workflows.
@@ -515,7 +514,7 @@ class SkillPackager:
             4. Prefer the standard parts library for standard parts before hand-modeling with core geometry APIs.
             5. Follow the documented API signatures exactly.
             6. When calling any SimpleCAD public API or standard-library function, use keyword arguments for every documented parameter; do not use positional arguments.
-            7. Use `@part` for one physical single-solid product, `@assemble` for an assembly with explicit durable definitions, and `@model` only for replayable geometry flows that are not durable product boundaries. Use `@requires_session` for child graph builders and `capture_result(...)` for explicit `@model` outputs.
+            7. Use `@part` for one physical single-solid product, `@assemble` for an assembly with explicit durable definitions, and `@model` only for replayable geometry flows that are not durable product boundaries. Use `@requires_session` for child graph builders and `capture_result(...)` for explicit `@model` outputs. Export `PartBuildResult` and `AssemblyBuildResult` with `export_artifacts(output_dir=...)`; both produce the same canonical self-contained `.scadpkg` product format.
             8. Use geometry APIs for integrated parts: profiles, features, booleans, transforms, tagging, QL inspection, serialization, and exports.
             9. Use tags consistently through `apply_tag(shape=..., tag=...)` and `list_tags(shape=...)`; do not call shape member tag mutators.
             10. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
@@ -561,7 +560,8 @@ class SkillPackager:
             - Use keyword arguments for all SimpleCAD function calls, for example `make_box_rsolid(width=10.0, height=20.0, depth=3.0)` instead of positional arguments.
             - Use `@model` when a non-product geometry flow should be replayable, inspectable, exported as model JSON, or translated to another CAD system. It owns one `GraphSession`; reusable graph-producing builders use `@requires_session`.
             - Use `@part` when the result is one physical single-solid product and needs a durable definition or whole-part cache. Use `@assemble` for explicit part/nested-assembly definitions and incremental constraint solving; do not wrap either product boundary in `@model`.
-            - Treat model JSON as the interchange boundary. Prefer `ModelResult.model_json` and `ModelResult.replay()` for top-level models; use `export_model_json(session=...)` for lower-level direct sessions and `replay_model_json(json_str=...)` for standalone payloads.
+            - Export either build result with `export_artifacts(output_dir=...)`. The only product format is `"product"`, written as a canonical self-contained `.scadpkg` whose content-addressed closure preserves PRT/ASM definitions, instances, relations, stable topology naming, and resolved connector geometry bindings. Use `export_definition(...)` only for low-level definition exchange or inspection.
+            - Treat model JSON as the interchange boundary for non-product `@model` flows. Prefer `ModelResult.model_json` and `ModelResult.replay()` for top-level models; use `export_model_json(session=...)` for lower-level direct sessions and `replay_model_json(json_str=...)` for standalone payloads.
             - Use QL for precise grounding. Query faces, edges, centers, normals, areas, lengths, curve types, and tags; print only the facts needed to validate the current step.
             - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` when an indexed topology pick is intentional; these picks are preserved as geo select nodes in replayable graph workflows.
             - Use tags for semantic intent and selection anchors, such as `role.mounting_surface`, `anchor.datum.primary`, `face.top`, or `group.fasteners`.
@@ -624,8 +624,7 @@ class SkillPackager:
             - `references/docs/api/`
             - `references/docs/stdlib/`
             - `references/docs/core/`
-            """
-        )
+            """)
         return body.rstrip() + "\n"
 
     def _build_project_overview(self) -> str:
@@ -668,8 +667,7 @@ class SkillPackager:
         return "\n".join(lines).rstrip() + "\n"
 
     def _build_runtime_install_reference(self) -> str:
-        body = textwrap.dedent(
-            f"""\
+        body = textwrap.dedent(f"""\
             # SDK Surfaces
 
             ## Public API groups
@@ -749,13 +747,11 @@ class SkillPackager:
             rebuilt = model.replay()
             print(len(rebuilt))
             ```
-            """
-        )
+            """)
         return body.rstrip() + "\n"
 
     def _build_evolve_workflow_reference(self) -> str:
-        body = textwrap.dedent(
-            f"""\
+        body = textwrap.dedent(f"""\
             # Modeling Workflows
 
             ## Modeling Mental Model
@@ -889,8 +885,7 @@ class SkillPackager:
             - Ensure bodies that should union into one solid have real geometric overlap or embedding.
             - Use `cut_rsolid(...)` for subtractive features and `intersect_rsolid(...)` for common-volume workflows.
             - Validate body count and volume after major boolean operations.
-            """
-        )
+            """)
         return body.rstrip() + "\n"
 
     def _build_sdk_package_summary(self) -> str:
@@ -901,8 +896,7 @@ class SkillPackager:
         ]
         excerpt = "\n".join(excerpt_lines[:6])
 
-        body = textwrap.dedent(
-            f"""\
+        body = textwrap.dedent(f"""\
             # SDK Package Summary
 
             - Project: `{self.metadata.name}`
@@ -924,8 +918,7 @@ class SkillPackager:
             - `references/SDK_OVERVIEW.md`
             - `references/SDK_SURFACES.md`
             - `references/MODELING_WORKFLOWS.md`
-            """
-        )
+            """)
 
         if excerpt:
             body += "\n## Package excerpt\n\n" + excerpt + "\n"

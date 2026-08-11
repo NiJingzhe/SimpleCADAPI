@@ -975,7 +975,6 @@ def fill_holes_rshell(
 from .kernel.ocp_mesh import tessellate_face
 from .kernel.ocp_properties import bounding_box, distance as ocp_distance
 
-
 _DEFAULT_UNION_GLUE = False
 _DEFAULT_UNION_TOL_FACTOR = 1e-7
 _DEFAULT_UNION_TOL_MIN = 1e-7
@@ -2880,10 +2879,16 @@ def make_sketch_rsketch(
     build a sketch profile with constraints.
     """
     try:
+        session = get_active_session()
+        resolved_sketch_id = (
+            sketch_id
+            if sketch_id is not None or session is None
+            else session.allocate_object_id("sketch")
+        )
         sketch = Sketch(
             name=name,
             plane=_sketch_plane_in_current_coordinates(plane),
-            sketch_id=sketch_id,
+            sketch_id=resolved_sketch_id,
         )
         return cast(
             Sketch,
@@ -7025,7 +7030,9 @@ def _apply_tag_rselection(
         ]
 
     assignment_node_id = (
-        f"n_{uuid.uuid4().hex[:8]}" if source_node is not None else None
+        session.graph.allocate_node_id("n")
+        if source_node is not None and session is not None
+        else None
     )
     evidence_data = {
         "authoring_source": authoring_source,
@@ -7045,6 +7052,11 @@ def _apply_tag_rselection(
         evidence=TagEvidence("query_execution", evidence_data),
         certainty=TagCertainty.ASSERTED,
         lifecycle=TagLifecycle.ASSERTION,
+        binding_id=(
+            f"tag_binding_{uuid.uuid5(uuid.NAMESPACE_URL, f'simplecad:user-tag:{session.graph.graph_id}:{assignment_node_id}:{normalized_tag}').hex}"
+            if assignment_node_id is not None and session is not None
+            else f"tag_binding_{uuid.uuid4().hex}"
+        ),
     )
 
     for selected_shape in selected:

@@ -92,17 +92,23 @@ def export_translator_artifacts() -> tuple[Path, Path, Path]:
 
 
 def main() -> None:
-    """Generate and verify the durable product definition and STEP output."""
+    """Generate and verify the self-contained product package and STEP output."""
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    definition_path = OUT_DIR / "integrated_bldc_joint_actuator.assembly-definition.zip"
+    package_path = OUT_DIR / "integrated_bldc_joint_actuator.scadpkg"
     step_path = OUT_DIR / "integrated_bldc_joint_actuator.step"
     product_result = build_integrated_bldc_joint_actuator()
     assembly = product_result.value
-    product_result.export_definition(path=definition_path)
-    rebuilt = product_result.replay()
+    scad.export_product_package(
+        scad.build_product_package(product_result),
+        package_path,
+    )
+    packaged_definition = scad.load_product_package(package_path)
+    rebuilt = scad.materialize_definition(packaged_definition)
+    if not isinstance(rebuilt, scad.Assembly):
+        raise RuntimeError("product package root did not materialize as an assembly")
     if rebuilt.assembly_id != assembly.assembly_id:
-        raise RuntimeError("durable assembly replay changed the assembly identity")
+        raise RuntimeError("product package replay changed the assembly identity")
     preview = scad.make_compound_from_assembly_rcompound(assembly=assembly)
     ground_compound(label="durable_actuator_preview", compound=preview)
     scad.export_step(shapes=preview, filename=str(step_path))
@@ -117,7 +123,7 @@ def main() -> None:
     print(f"constraints={len(assembly.constraint_ids())}")
     print(f"preview_solids={len(preview.get_solids())}")
     print(f"preview_volume={preview.get_volume():.3f}")
-    print(f"definition={definition_path}")
+    print(f"product_package={package_path}")
     print(f"step={step_path}")
 
 
