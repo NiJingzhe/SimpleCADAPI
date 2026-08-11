@@ -29,6 +29,14 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "sketch.py",
     "errors.py",
     "topology.py",
+    "build/assembly_builder.py",
+    "build/dependencies.py",
+    "build/incremental_solver.py",
+    "build/part_builder.py",
+    "build/results.py",
+    "cache/policy.py",
+    "cache/records.py",
+    "cache/store.py",
     "inspect/brep/compare.py",
     "inspect/brep/diagnostics.py",
     "inspect/brep/inspect.py",
@@ -63,6 +71,10 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "tolerance.py",
         "units.py",
         "errors.py",
+        "build/assembly_builder.py",
+        "build/dependencies.py",
+        "build/part_builder.py",
+        "cache/policy.py",
         "inspect/brep/compare.py",
         "inspect/brep/diagnostics.py",
         "inspect/brep/inspect.py",
@@ -76,7 +88,17 @@ EXPORTED_FUNCTION_MODULES = frozenset(
 )
 
 EXPORTED_CALLABLE_MODULES = frozenset(
-    {"expr.py", "tolerance.py", "units.py", "graph.py", "sketch.py", "errors.py", "topology.py", "math.py", "product.py"}
+    {
+        "expr.py",
+        "tolerance.py",
+        "units.py",
+        "graph.py",
+        "sketch.py",
+        "errors.py",
+        "topology.py",
+        "math.py",
+        "product.py",
+    }
 )
 
 MISSING = object()
@@ -102,9 +124,7 @@ def _default_source_files(package_root: Path) -> List[Path]:
     source_files = [package_root / name for name in DEFAULT_SOURCE_FILENAMES]
     translator_root = package_root / "translator"
     for backend_dir in sorted(translator_root.glob("*_translator")):
-        source_files.extend(
-            [backend_dir / "api.py", backend_dir / "translator.py"]
-        )
+        source_files.extend([backend_dir / "api.py", backend_dir / "translator.py"])
     return source_files
 
 
@@ -549,6 +569,7 @@ class APIDocumentGenerator:
             "Advanced Features": [],
             "Evolve": [],
             "STEP/BREP Inspection": [],
+            "Product Build and Cache": [],
             "Other": [],
         }
 
@@ -557,6 +578,9 @@ class APIDocumentGenerator:
 
             if api.source_file.startswith("inspect/brep/"):
                 categories["STEP/BREP Inspection"].append(api)
+                continue
+            if api.source_file.startswith(("build/", "cache/")):
+                categories["Product Build and Cache"].append(api)
                 continue
 
             if api.source_file == "evolve.py":
@@ -609,7 +633,7 @@ class APIDocumentGenerator:
         md_lines: List[str] = [
             "# SimpleCAD API Index",
             "",
-            "This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, inspection tools, expressions, QL, and export helpers.",
+            "This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, durable product builds, persistent cache controls, inspection tools, expressions, QL, and export helpers.",
             "",
             "## Import Surfaces",
             "",
@@ -963,12 +987,16 @@ class APIDocumentGenerator:
         constructor signature.
         """
         is_dataclass = any(
-            isinstance(dec, ast.Name) and dec.id == "dataclass"
-            or isinstance(dec, ast.Attribute) and dec.attr == "dataclass"
+            isinstance(dec, ast.Name)
+            and dec.id == "dataclass"
+            or isinstance(dec, ast.Attribute)
+            and dec.attr == "dataclass"
             or isinstance(dec, ast.Call)
             and (
                 (isinstance(dec.func, ast.Name) and dec.func.id == "dataclass")
-                or (isinstance(dec.func, ast.Attribute) and dec.func.attr == "dataclass")
+                or (
+                    isinstance(dec.func, ast.Attribute) and dec.func.attr == "dataclass"
+                )
             )
             for dec in node.decorator_list
         )

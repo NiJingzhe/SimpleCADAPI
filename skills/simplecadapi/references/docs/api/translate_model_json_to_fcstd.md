@@ -22,10 +22,12 @@ exported to FreeCAD using `Part.BSplineCurve().buildFromPolesMultsKnots(...)`.
 Safe single-use profile transforms such as section rotate/translate chains are
 folded into the section object's placement so downstream `Part::Loft` receives
 already-positioned sections instead of placement-bearing `App::Link` proxies.
-Geometry results use native FreeCAD objects directly: assignment targets name
-design objects, shared inputs receive independent occurrences per consumer,
-and native feature links preserve recomputing dependencies. No presentation
-proxy, duplicate history tree, or hidden graph-object archive is created.
+Geometry results use FreeCAD objects directly: assignment targets name design
+objects and shared inputs receive independent occurrences per consumer. Native
+features preserve recomputing dependencies, including surface-dependent
+Booleans. Their classifications may vary across FreeCAD/OCCT versions. No
+presentation proxy, duplicate history tree, or hidden graph-object archive is
+created.
 `apply_tag_rselection` remains graph metadata rather than a FreeCAD feature;
 traceable geometry and visible result objects expose `SimpleCADAppliedTags`,
 `SimpleCADTagBindings`, and `SimpleCADTagNodeIds`.

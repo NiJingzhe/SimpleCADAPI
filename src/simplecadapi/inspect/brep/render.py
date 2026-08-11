@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import colorsys
+import json
 import math
 from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+import tempfile
+from threading import RLock
 from typing import Any, Literal, Mapping, Sequence
 
 import numpy as np
@@ -60,24 +67,142 @@ def _vtk_modules():
     return vtk, numpy_to_vtk, numpy_to_vtkIdTypeArray
 
 _OFFSCREEN_WINDOW: Any | None = None
+_OFFSCREEN_RENDER_LOCK = RLock()
+
+
+def _detach_offscreen_renderers() -> None:
+    if _OFFSCREEN_WINDOW is None:
+        return
+    collection = _OFFSCREEN_WINDOW.GetRenderers()
+    collection.InitTraversal()
+    renderers = []
+    while True:
+        renderer = collection.GetNextItem()
+        if renderer is None:
+            break
+        renderers.append(renderer)
+    for renderer in renderers:
+        renderer.ReleaseGraphicsResources(_OFFSCREEN_WINDOW)
+        _OFFSCREEN_WINDOW.RemoveRenderer(renderer)
+
+
+def _finalize_offscreen_window() -> None:
+    global _OFFSCREEN_WINDOW
+    if _OFFSCREEN_WINDOW is None:
+        return
+    _detach_offscreen_renderers()
+    _OFFSCREEN_WINDOW.Finalize()
+    _OFFSCREEN_WINDOW = None
 
 
 def _offscreen_window(width: int, height: int):
-    """Reuse one native offscreen context across renders.
-
-    VTK's macOS backend can segfault when several windows are finalized in one
-    Python process. Renderers are removed before each use; the process owns the
-    single native window until exit.
-    """
     global _OFFSCREEN_WINDOW
     vtk, _, _ = _vtk_modules()
     if _OFFSCREEN_WINDOW is None:
         _OFFSCREEN_WINDOW = vtk.vtkRenderWindow()
         _OFFSCREEN_WINDOW.SetOffScreenRendering(1)
         _OFFSCREEN_WINDOW.SetMultiSamples(0)
-    _OFFSCREEN_WINDOW.GetRenderers().RemoveAllItems()
+    _detach_offscreen_renderers()
     _OFFSCREEN_WINDOW.SetSize(width, height)
     return _OFFSCREEN_WINDOW
+
+
+def _write_polydata(path: Path, polydata: Any) -> None:
+    vtk, _, _ = _vtk_modules()
+    writer = vtk.vtkXMLPolyDataWriter()
+    writer.SetFileName(str(path))
+    writer.SetInputData(polydata)
+    writer.SetDataModeToBinary()
+    if writer.Write() != 1:
+        raise RuntimeError(f"Could not write VTK render input {path}")
+
+
+def _validate_render_output_path(output_path: str | Path) -> Path:
+    output = Path(output_path)
+    if output.suffix.lower() not in {".png", ".jpg", ".jpeg", ".tif", ".tiff"}:
+        raise ValueError("render output must be PNG, JPEG, or TIFF")
+    return output
+
+
+def _run_render_worker(
+    *,
+    mode: str,
+    output_path: str | Path,
+    datasets: Mapping[str, Any],
+    options: Mapping[str, Any],
+) -> Path:
+    output = _validate_render_output_path(output_path)
+    with tempfile.TemporaryDirectory(prefix="simplecad-render-") as temp_name:
+        root = Path(temp_name)
+        members: dict[str, str | None] = {}
+        for name, polydata in datasets.items():
+            if polydata is None:
+                members[name] = None
+                continue
+            member = root / f"{name}.vtp"
+            _write_polydata(member, polydata)
+            members[name] = member.name
+        worker_output = root / f"result{output.suffix.lower()}"
+        completion_marker = root / "render.complete"
+        manifest = root / "render.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "mode": mode,
+                    "output_path": str(worker_output),
+                    "completion_path": str(completion_marker),
+                    "datasets": members,
+                    "options": options,
+                },
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        completed = None
+        for attempt in range(3):
+            worker_output.unlink(missing_ok=True)
+            completion_marker.unlink(missing_ok=True)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "simplecadapi.inspect.brep.render_worker",
+                    str(manifest),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=180.0,
+                check=False,
+            )
+            if completion_marker.is_file() and (
+                worker_output.is_file() and worker_output.stat().st_size > 0
+            ):
+                break
+            if attempt < 2:
+                time.sleep(0.15 * (attempt + 1))
+        if not completion_marker.is_file() or (
+            not worker_output.is_file() or worker_output.stat().st_size == 0
+        ):
+            assert completed is not None
+            detail = completed.stderr.strip() or completed.stdout.strip()
+            raise RuntimeError(
+                f"VTK render worker failed with exit code {completed.returncode}"
+                + (f": {detail}" if detail else "")
+            )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(worker_output, output)
+    return output
+
+
+def _render_in_process(function, *args, **kwargs):
+    with _OFFSCREEN_RENDER_LOCK:
+        try:
+            return function(*args, **kwargs)
+        finally:
+            _detach_offscreen_renderers()
 
 
 def _compound(shapes: Sequence[TopoDS_Shape]) -> TopoDS_Shape:
@@ -444,6 +569,70 @@ def _screenshot_view_angles(
     return float(view[0]), float(view[1])
 
 
+def _render_sdk_polydata_in_process(
+    datasets: Mapping[str, Any],
+    output_path: str | Path,
+    options: Mapping[str, Any],
+) -> Path:
+    vtk, _, _ = _vtk_modules()
+    width, height = (int(value) for value in options["image_size"])
+    renderer = vtk.vtkRenderer()
+    renderer.SetBackground(0.067, 0.067, 0.067)
+    renderer.SetUseFXAA(True)
+    window = _offscreen_window(width, height)
+    window.AddRenderer(renderer)
+    base = datasets.get("base")
+    if base is not None:
+        renderer.AddActor(_surface_actor(base, (0.6, 0.62, 0.64), 1.0))
+    for item in options.get("surface_groups", []):
+        polydata = datasets.get(str(item["dataset"]))
+        if polydata is not None:
+            renderer.AddActor(_surface_actor(polydata, tuple(item["color"]), 1.0))
+    edges = datasets.get("edges")
+    if edges is not None:
+        renderer.AddActor(_line_actor(edges, (0.78, 0.80, 0.84), 1.0))
+
+    bounds = renderer.ComputeVisiblePropBounds()
+    spans = (bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
+    elevation, azimuth = _screenshot_view_angles(options["view"], spans)
+    _set_camera(renderer, elevation, azimuth)
+    renderer.GetActiveCamera().Zoom(float(options["zoom"]) / 4.0)
+    renderer.ResetCameraClippingRange()
+
+    if options.get("show_axes"):
+        axis_length = max(max(spans) * 0.3, 1.0)
+        axes = vtk.vtkAxesActor()
+        axes.SetTotalLength(axis_length, axis_length, axis_length)
+        axes.SetShaftTypeToCylinder()
+        renderer.AddActor(axes)
+        renderer.ResetCameraClippingRange()
+    for index, item in enumerate(options.get("legend_items", [])):
+        actor = vtk.vtkTextActor()
+        actor.SetInput(f"■ {item['label']}")
+        actor.SetPosition(18, height - 28 - index * 24)
+        prop = actor.GetTextProperty()
+        prop.SetColor(*item["color"])
+        prop.SetFontSize(16)
+        prop.SetBold(True)
+        renderer.AddViewProp(actor)
+    for item in options.get("callouts", []):
+        callout = vtk.vtkBillboardTextActor3D()
+        callout.SetInput(str(item["label"]))
+        callout.SetPosition(*item["point"])
+        prop = callout.GetTextProperty()
+        prop.SetColor(1.0, 0.82, 0.48)
+        prop.SetBackgroundColor(0.067, 0.067, 0.067)
+        prop.SetBackgroundOpacity(0.9)
+        prop.SetFontSize(18)
+        renderer.AddViewProp(callout)
+
+    window.Render()
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _write_window(window, output)
+    return output
+
+
 def _render_sdk_screenshot_rpath(
     solids: Sequence[Any],
     output_path: str | Path,
@@ -459,25 +648,18 @@ def _render_sdk_screenshot_rpath(
     linear_deflection: float = 0.35,
     angular_deflection: float = 0.22,
 ) -> Path:
-    """Render SDK Solid tags through the shared OCCT/VTK pipeline."""
+    """Render SDK solids in an isolated VTK worker on macOS."""
     if not solids:
         raise ValueError("At least one Solid is required")
     if image_size[0] < 1 or image_size[1] < 1:
         raise ValueError("image_size values must be greater than zero")
     if zoom <= 0.0:
         raise ValueError("zoom must be greater than zero")
-
     tags = tuple(str(tag) for tag in highlight_tags)
     labels = dict(tag_labels or {})
     palette = (
-        "#f39c12",
-        "#9b59b6",
-        "#f1c40f",
-        "#1abc9c",
-        "#e67e22",
-        "#e84393",
-        "#16a085",
-        "#d35400",
+        "#f39c12", "#9b59b6", "#f1c40f", "#1abc9c",
+        "#e67e22", "#e84393", "#16a085", "#d35400",
     )
     tag_colors = {
         tag: _hex_rgb(palette[index % len(palette)])
@@ -490,11 +672,13 @@ def _render_sdk_screenshot_rpath(
         shapes.append(solid.wrapped)
         solid_tag = next((tag for tag in tags if solid._has_tag(tag)), None)
         if solid_tag is not None and solid_tag not in label_points:
-            box = _mesh_polydata([solid.wrapped], linear_deflection, angular_deflection).GetBounds()
+            bounds = _mesh_polydata(
+                [solid.wrapped], linear_deflection, angular_deflection
+            ).GetBounds()
             label_points[solid_tag] = (
-                (box[0] + box[1]) * 0.5,
-                (box[2] + box[3]) * 0.5,
-                (box[4] + box[5]) * 0.5,
+                (bounds[0] + bounds[1]) * 0.5,
+                (bounds[2] + bounds[3]) * 0.5,
+                (bounds[4] + bounds[5]) * 0.5,
             )
         for face in solid.get_faces():
             face_tag = next((tag for tag in tags if face._has_tag(tag)), None)
@@ -504,92 +688,62 @@ def _render_sdk_screenshot_rpath(
                 center = face.get_center()
                 label_points[face_tag] = (center.x, center.y, center.z)
 
-    vtk, _, _ = _vtk_modules()
-    renderer = vtk.vtkRenderer()
-    renderer.SetBackground(0.067, 0.067, 0.067)
-    renderer.SetUseFXAA(True)
-    window = vtk.vtkRenderWindow()
-    window.SetOffScreenRendering(1)
-    window.SetSize(int(image_size[0]), int(image_size[1]))
-    window.SetMultiSamples(4)
-    window.AddRenderer(renderer)
-
-    base_faces = grouped_faces.pop(None, [])
-    if base_faces:
-        renderer.AddActor(
-            _surface_actor(
-                _mesh_polydata(base_faces, linear_deflection, angular_deflection),
-                (0.6, 0.62, 0.64),
-                1.0,
+    datasets: dict[str, Any] = {
+        "base": (
+            _mesh_polydata(
+                grouped_faces.pop(None), linear_deflection, angular_deflection
             )
-        )
-    for tag, faces in grouped_faces.items():
+            if grouped_faces.get(None)
+            else None
+        ),
+        "edges": _edge_polydata(shapes, deflection=linear_deflection),
+    }
+    surface_groups = []
+    for index, (tag, faces) in enumerate(grouped_faces.items()):
         if not faces:
             continue
-        renderer.AddActor(
-            _surface_actor(
-                _mesh_polydata(faces, linear_deflection, angular_deflection),
-                tag_colors[str(tag)],
-                1.0,
-            )
+        name = f"surface_group_{index}"
+        datasets[name] = _mesh_polydata(
+            faces, linear_deflection, angular_deflection
         )
-    edges = _edge_polydata(shapes, deflection=linear_deflection)
-    if edges is not None:
-        renderer.AddActor(_line_actor(edges, (0.78, 0.80, 0.84), 1.0))
-
-    bounds = renderer.ComputeVisiblePropBounds()
-    spans = (bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
-    elevation, azimuth = _screenshot_view_angles(view, spans)
-    _set_camera(renderer, elevation, azimuth)
-    renderer.GetActiveCamera().Zoom(zoom / 4.0)
-    renderer.ResetCameraClippingRange()
-
-    if show_axes:
-        axis_length = max(max(spans) * 0.3, 1.0)
-        axes = vtk.vtkAxesActor()
-        axes.SetTotalLength(axis_length, axis_length, axis_length)
-        axes.SetShaftTypeToCylinder()
-        renderer.AddActor(axes)
-        renderer.ResetCameraClippingRange()
-
+        surface_groups.append({"dataset": name, "color": tag_colors[str(tag)]})
+    legend_items = []
     if show_legend and (tags or show_axes):
-        legend_items = [(tag, labels.get(tag, tag), tag_colors[tag]) for tag in tags]
+        legend_items.extend(
+            {"label": labels.get(tag, tag), "color": tag_colors[tag]}
+            for tag in tags
+        )
         if show_axes:
             legend_items.extend(
                 (
-                    ("axis.x", "+X", (1.0, 0.35, 0.35)),
-                    ("axis.y", "+Y", (0.35, 1.0, 0.55)),
-                    ("axis.z", "+Z", (0.45, 0.65, 1.0)),
+                    {"label": "+X", "color": (1.0, 0.35, 0.35)},
+                    {"label": "+Y", "color": (0.35, 1.0, 0.55)},
+                    {"label": "+Z", "color": (0.45, 0.65, 1.0)},
                 )
             )
-        for index, (_, label, color) in enumerate(legend_items):
-            actor = vtk.vtkTextActor()
-            actor.SetInput(f"■ {label}")
-            actor.SetPosition(18, image_size[1] - 28 - index * 24)
-            prop = actor.GetTextProperty()
-            prop.SetColor(*color)
-            prop.SetFontSize(16)
-            prop.SetBold(True)
-            renderer.AddViewProp(actor)
-
-    if show_callouts:
-        for tag, point in label_points.items():
-            callout = vtk.vtkBillboardTextActor3D()
-            callout.SetInput(labels.get(tag, tag))
-            callout.SetPosition(*point)
-            prop = callout.GetTextProperty()
-            prop.SetColor(1.0, 0.82, 0.48)
-            prop.SetBackgroundColor(0.067, 0.067, 0.067)
-            prop.SetBackgroundOpacity(0.9)
-            prop.SetFontSize(18)
-            renderer.AddViewProp(callout)
-
-    window.Render()
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    _write_window(window, output)
-    window.Finalize()
-    return output
+    options = {
+        "image_size": image_size,
+        "view": view,
+        "zoom": zoom,
+        "show_axes": show_axes,
+        "surface_groups": surface_groups,
+        "legend_items": legend_items,
+        "callouts": (
+            [
+                {"label": labels.get(tag, tag), "point": point}
+                for tag, point in label_points.items()
+            ]
+            if show_callouts
+            else []
+        ),
+    }
+    if sys.platform == "darwin":
+        return _run_render_worker(
+            mode="sdk", output_path=output_path, datasets=datasets, options=options
+        )
+    return _render_in_process(
+        _render_sdk_polydata_in_process, datasets, output_path, options
+    )
 def _point_polydata(points: Sequence[Sequence[float]]):
     if not points:
         return None
@@ -800,7 +954,7 @@ def _write_window(window, output: Path) -> None:
     writer.Write()
 
 
-def _render_polydata_views(
+def _render_polydata_views_in_process(
     base_polydata,
     output_path: str | Path,
     *,
@@ -981,6 +1135,108 @@ def _render_polydata_views(
     output.parent.mkdir(parents=True, exist_ok=True)
     _write_window(window, output)
     return output
+
+
+def _render_polydata_views(
+    base_polydata,
+    output_path: str | Path,
+    *,
+    title: str,
+    views: Sequence[tuple[float, float, str]],
+    image_size: tuple[float, float],
+    dpi: int,
+    context_opacity: float = 1.0,
+    highlight_edge_width: float = 4.5,
+    highlight_point_size: float = 15.0,
+    brep_edge_polydata=None,
+    highlighted_polydata=None,
+    highlighted_edge_polydata=None,
+    highlighted_point_polydata=None,
+    highlighted_groups=None,
+    highlighted_edge_groups=None,
+    highlighted_point_groups=None,
+    legend: Sequence[tuple[str, tuple[float, float, float]]] | None = None,
+    legend_columns: int = 1,
+    legend_panel: bool = False,
+    callouts: Sequence[
+        tuple[str, tuple[float, float, float], tuple[float, float, float]]
+    ] | None = None,
+) -> Path:
+    if not views:
+        raise ValueError("at least one render view is required")
+    if dpi < 1 or image_size[0] <= 0.0 or image_size[1] <= 0.0:
+        raise ValueError("image size and DPI must be greater than zero")
+    if highlight_edge_width <= 0.0:
+        raise ValueError("highlight_edge_width must be greater than zero")
+    if highlight_point_size <= 0.0:
+        raise ValueError("highlight_point_size must be greater than zero")
+    if legend_columns < 1:
+        raise ValueError("legend_columns must be at least one")
+    kwargs = {
+        "title": title,
+        "views": views,
+        "image_size": image_size,
+        "dpi": dpi,
+        "context_opacity": context_opacity,
+        "highlight_edge_width": highlight_edge_width,
+        "highlight_point_size": highlight_point_size,
+        "brep_edge_polydata": brep_edge_polydata,
+        "highlighted_polydata": highlighted_polydata,
+        "highlighted_edge_polydata": highlighted_edge_polydata,
+        "highlighted_point_polydata": highlighted_point_polydata,
+        "highlighted_groups": highlighted_groups,
+        "highlighted_edge_groups": highlighted_edge_groups,
+        "highlighted_point_groups": highlighted_point_groups,
+        "legend": legend,
+        "legend_columns": legend_columns,
+        "legend_panel": legend_panel,
+        "callouts": callouts,
+    }
+    if sys.platform != "darwin":
+        return _render_in_process(
+            _render_polydata_views_in_process,
+            base_polydata,
+            output_path,
+            **kwargs,
+        )
+    datasets: dict[str, Any] = {
+        "base": base_polydata,
+        "brep_edges": brep_edge_polydata,
+        "highlighted": highlighted_polydata,
+        "highlighted_edges": highlighted_edge_polydata,
+        "highlighted_points": highlighted_point_polydata,
+    }
+    options: dict[str, Any] = {
+        "title": title,
+        "views": views,
+        "image_size": image_size,
+        "dpi": dpi,
+        "context_opacity": context_opacity,
+        "highlight_edge_width": highlight_edge_width,
+        "highlight_point_size": highlight_point_size,
+        "legend": legend,
+        "legend_columns": legend_columns,
+        "legend_panel": legend_panel,
+        "callouts": callouts,
+        "surface_groups": [],
+        "edge_groups": [],
+        "point_groups": [],
+    }
+    for option_name, groups in (
+        ("surface_groups", highlighted_groups or ()),
+        ("edge_groups", highlighted_edge_groups or ()),
+        ("point_groups", highlighted_point_groups or ()),
+    ):
+        for index, group in enumerate(groups):
+            name = f"{option_name}_{index}"
+            datasets[name] = group[0]
+            item = {"dataset": name, "color": group[1]}
+            if option_name == "surface_groups":
+                item["opacity"] = group[2]
+            options[option_name].append(item)
+    return _run_render_worker(
+        mode="views", output_path=output_path, datasets=datasets, options=options
+    )
 def render_shape_views_rpath(
     shape: TopoDS_Shape,
     output_path: str | Path,

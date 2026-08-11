@@ -20,6 +20,11 @@ class TestPublicApiSurface(unittest.TestCase):
         self.assertNotIn("topology", scad.__all__)
         self.assertNotIn("graph", scad.__all__)
         self.assertNotIn("serializer", scad.__all__)
+        self.assertNotIn("OperationCacheReport", scad.__all__)
+        self.assertNotIn("OperationSpec", scad.__all__)
+        self.assertNotIn("operation_cache_scope", scad.__all__)
+        self.assertFalse(hasattr(scad, "operation_cache_report"))
+        self.assertFalse(hasattr(scad, "operation_registry"))
 
     def test_only_necessary_new_top_level_apis_are_present(self):
         code = """

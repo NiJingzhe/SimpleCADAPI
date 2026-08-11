@@ -4,7 +4,19 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Union,
+    cast,
+)
 from dataclasses import dataclass, asdict
 import math
 import numpy as np
@@ -588,6 +600,7 @@ def make_surface_patch_rface(
             ],
             error=e,
         )
+
 
 def _validated_loft_sections(
     sections: Sequence[Union[Wire, Vertex]], *, operation: str
@@ -1409,6 +1422,43 @@ def _union_separation_diagnostic(
         f"nearest detected gap is about {nearest_gap_above_tol:.6g}, "
         f"which exceeds tol={effective_tol:.6g}"
     )
+
+
+def _require_union_solid(result_shape: Any, effective_tol: Optional[float]) -> Solid:
+    result_shapes = solids_of(result_shape)
+    if len(result_shapes) == 1:
+        return Solid(result_shapes[0])
+
+    failure_reason = "union did not produce a valid solid"
+    diagnostic = _union_separation_diagnostic(
+        [Solid(result) for result in result_shapes], effective_tol
+    )
+    if diagnostic:
+        failure_reason = diagnostic
+    elif len(result_shapes) > 1:
+        failure_reason = (
+            f"union produced {len(result_shapes)} solids at zero detected gap; "
+            "the inputs likely meet only along an edge, vertex, tangent point, "
+            "or tangent curve, which is not one manifold solid"
+        )
+    raise ValueError(failure_reason)
+
+
+def _evaluate_tracked_union(
+    solids: Sequence[Solid],
+    *,
+    glue: bool,
+    tol: Optional[float],
+    clean: bool,
+) -> TrackedBooleanResult:
+    fused = fuse_shapes_with_history(
+        [solid.wrapped for solid in solids],
+        glue=glue,
+        tol=tol,
+        clean=clean,
+    )
+    result = _require_union_solid(fused.shape, tol)
+    return track_union_history(solids, result, fused.history, fused.section_edges)
 
 
 def _flatten_boolean_solids(
@@ -5223,14 +5273,17 @@ def make_box_rsolid(
             - np.asarray(cs.x_axis, dtype=float) * (width_value / 2.0)
             - np.asarray(cs.y_axis, dtype=float) * (height_value / 2.0)
         )
-        tracked = tracked_box(
-            tuple(float(value) for value in corner_global),
-            width_value,
-            height_value,
-            depth_value,
-            x_axis=tuple(float(value) for value in cs.x_axis),
-            y_axis=tuple(float(value) for value in cs.y_axis),
-            z_axis=tuple(float(value) for value in cs.z_axis),
+        tracked = cast(
+            TrackedResult,
+            tracked_box(
+                tuple(float(value) for value in corner_global),
+                width_value,
+                height_value,
+                depth_value,
+                x_axis=tuple(float(value) for value in cs.x_axis),
+                y_axis=tuple(float(value) for value in cs.y_axis),
+                z_axis=tuple(float(value) for value in cs.z_axis),
+            ),
         )
         solid = cast(Solid, tracked.shape)
 
@@ -5343,15 +5396,16 @@ def make_cylinder_rsolid(
         center_global = cs.transform_point(np.array(center_value))
         axis_global = cs.transform_vector(np.array(axis_value))
 
-        tracked = tracked_cylinder(
-            (
-                float(center_global[0]),
-                float(center_global[1]),
-                float(center_global[2]),
+        resolved_center = tuple(float(value) for value in center_global)
+        resolved_axis = tuple(float(value) for value in axis_global)
+        tracked = cast(
+            TrackedResult,
+            tracked_cylinder(
+                resolved_center,
+                resolved_axis,
+                radius_value,
+                height_value,
             ),
-            (float(axis_global[0]), float(axis_global[1]), float(axis_global[2])),
-            radius_value,
-            height_value,
         )
         solid = cast(Solid, tracked.shape)
 
@@ -5468,16 +5522,17 @@ def make_cone_rsolid(
         center_global = cs.transform_point(np.array(center_value))
         axis_global = cs.transform_vector(np.array(axis_value))
 
-        tracked = tracked_cone(
-            (
-                float(center_global[0]),
-                float(center_global[1]),
-                float(center_global[2]),
+        resolved_center = tuple(float(value) for value in center_global)
+        resolved_axis = tuple(float(value) for value in axis_global)
+        tracked = cast(
+            TrackedResult,
+            tracked_cone(
+                resolved_center,
+                resolved_axis,
+                bottom_radius_value,
+                top_radius_value,
+                height_value,
             ),
-            (float(axis_global[0]), float(axis_global[1]), float(axis_global[2])),
-            bottom_radius_value,
-            top_radius_value,
-            height_value,
         )
         solid = cast(Solid, tracked.shape)
 
@@ -5562,15 +5617,10 @@ def make_sphere_rsolid(
         center_value = cast(Tuple[float, float, float], evaluate_value(center))
         center_global = cs.transform_point(np.array(center_value))
 
-        solid = Solid(
-            make_sphere_solid(
-                (
-                    float(center_global[0]),
-                    float(center_global[1]),
-                    float(center_global[2]),
-                ),
-                radius_value,
-            )
+        resolved_center = tuple(float(value) for value in center_global)
+        solid = cast(
+            Solid,
+            Solid(make_sphere_solid(resolved_center, radius_value)),
         )
 
         # 自动标记面
@@ -6452,7 +6502,10 @@ def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyS
         global_vector = cs.transform_vector(np.array(vector_value))
         resolved_vector = tuple(float(value) for value in global_vector)
         if isinstance(shape, Solid):
-            tracked = tracked_translate(shape, resolved_vector)
+            tracked = cast(
+                TrackedResult,
+                tracked_translate(shape, resolved_vector),
+            )
             translated = cast(Solid, tracked.shape)
             translated._metadata = shape._metadata.copy()
             _attach_lineage_from_source(
@@ -6528,11 +6581,14 @@ def rotate_shape(
             resolved_axis = tuple(float(value) for value in global_axis)
             resolved_origin = tuple(float(value) for value in global_origin)
             if isinstance(shape, Solid):
-                tracked = tracked_rotate(
-                    shape,
-                    angle_value,
-                    axis=resolved_axis,
-                    origin=resolved_origin,
+                tracked = cast(
+                    TrackedResult,
+                    tracked_rotate(
+                        shape,
+                        angle_value,
+                        axis=resolved_axis,
+                        origin=resolved_origin,
+                    ),
                 )
                 rotated = cast(Solid, tracked.shape)
                 rotated._metadata = shape._metadata.copy()
@@ -6653,14 +6709,14 @@ def extrude_rsolid(
         else:
             raise ValueError("只能拉伸线或面")  # type: ignore[unreachable]
 
-        tracked = tracked_extrude(
-            face,
-            (
-                float(global_direction[0]),
-                float(global_direction[1]),
-                float(global_direction[2]),
+        resolved_direction = tuple(float(value) for value in global_direction)
+        tracked = cast(
+            TrackedResult,
+            tracked_extrude(
+                face,
+                resolved_direction,
+                distance_value,
             ),
-            distance_value,
         )
         solid = cast(Solid, tracked.shape)
 
@@ -6763,19 +6819,16 @@ def revolve_rsolid(
         else:
             raise ValueError("只能旋转线或面")
 
-        tracked = tracked_revolve(
-            face,
-            (
-                float(global_axis[0]),
-                float(global_axis[1]),
-                float(global_axis[2]),
+        resolved_axis = tuple(float(value) for value in global_axis)
+        resolved_origin = tuple(float(value) for value in global_origin)
+        tracked = cast(
+            TrackedResult,
+            tracked_revolve(
+                face,
+                resolved_axis,
+                resolved_origin,
+                angle_value,
             ),
-            (
-                float(global_origin[0]),
-                float(global_origin[1]),
-                float(global_origin[2]),
-            ),
-            angle_value,
         )
         solid = cast(Solid, tracked.shape)
 
@@ -7225,59 +7278,39 @@ def union_rsolid(
             return remaining[0]
 
         effective_tol = _resolve_union_tol(remaining, tol)
-        fused = (
-            fuse_shapes_with_history(
-                [solid.wrapped for solid in remaining],
-                glue=glue,
-                tol=effective_tol,
-                clean=clean,
+        tracked_union_result: Optional[TrackedBooleanResult] = None
+        if policy == TrackingPolicy.FULL and len(remaining) >= 2:
+            tracked_union_result = cast(
+                TrackedBooleanResult,
+                _evaluate_tracked_union(
+                    remaining,
+                    glue=glue,
+                    tol=effective_tol,
+                    clean=clean,
+                ),
             )
-            if policy == TrackingPolicy.FULL
-            else None
-        )
-        fused_shape = (
-            fused.shape
-            if fused is not None
-            else fuse_shapes(
-                [solid.wrapped for solid in remaining],
-                glue=glue,
-                tol=effective_tol,
-                clean=clean,
+            if tracked_union_result.solid is None:
+                raise ValueError("union did not produce a valid solid")
+            fused_solid = tracked_union_result.solid
+        else:
+            fused_solid = cast(
+                Solid,
+                _require_union_solid(
+                    fuse_shapes(
+                        [solid.wrapped for solid in remaining],
+                        glue=glue,
+                        tol=effective_tol,
+                        clean=clean,
+                    ),
+                    effective_tol,
+                ),
             )
-        )
-        result_shapes = solids_of(fused_shape)
-
-        failure_reason = "union did not produce a valid solid"
-        if len(result_shapes) != 1:
-            diagnostic = _union_separation_diagnostic(
-                [Solid(result_shape) for result_shape in result_shapes], effective_tol
-            )
-            if diagnostic:
-                failure_reason = diagnostic
-            elif len(result_shapes) > 1:
-                failure_reason = (
-                    f"union produced {len(result_shapes)} solids at zero detected gap; "
-                    "the inputs likely meet only along an edge, vertex, tangent point, "
-                    "or tangent curve, which is not one manifold solid"
-                )
-        if len(result_shapes) != 1:
-            raise ValueError(failure_reason)
-        fused_solid = Solid(result_shapes[0])
 
         all_metadata = {}
         for solid in remaining:
             all_metadata.update(solid._metadata)
 
         fused_solid._metadata = all_metadata.copy()
-
-        tracked_union_result: Optional[TrackedBooleanResult] = None
-        if fused is not None and len(remaining) >= 2:
-            tracked_union_result = track_union_history(
-                remaining,
-                fused_solid,
-                fused.history,
-                fused.section_edges,
-            )
 
         params: Dict[str, object] = {
             "input_count": len(remaining),
@@ -7413,9 +7446,16 @@ def cut_rsolid(
                 raise ValueError("差集工具实体与当前实体交集体积过小。")
 
             tracked = (
-                tracked_cut(result_solid, candidate)
-                if policy == TrackingPolicy.FULL
-                else None
+                cast(
+                    TrackedBooleanResult,
+                    tracked_cut(result_solid, candidate),
+                )
+                if policy == TrackingPolicy.FULL and len(remaining) == 2
+                else (
+                    tracked_cut(result_solid, candidate)
+                    if policy == TrackingPolicy.FULL
+                    else None
+                )
             )
             if tracked is not None:
                 if tracked.solid is None:
@@ -7533,7 +7573,14 @@ def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
             if s1.IsNull() or s2.IsNull():
                 raise ValueError("输入实体无效，无法进行交集运算。")
 
-            tracked = tracked_intersect(result_solid, candidate)
+            tracked = (
+                cast(
+                    TrackedBooleanResult,
+                    tracked_intersect(result_solid, candidate),
+                )
+                if len(remaining) == 2
+                else tracked_intersect(result_solid, candidate)
+            )
             if tracked.solid is None:
                 raise ValueError("交集结果为空或 OCC 未返回有效实体")
 
@@ -9185,7 +9232,10 @@ def fillet_rsolid(
         if not selected_edges:
             raise ValueError("圆角操作至少需要一条边")
 
-        tracked = tracked_fillet(solid, selected_edges, radius_value)
+        tracked = cast(
+            TrackedResult,
+            tracked_fillet(solid, selected_edges, radius_value),
+        )
         result = cast(Solid, tracked.shape)
 
         result._metadata = solid._metadata.copy()
@@ -9265,7 +9315,10 @@ def chamfer_rsolid(
         if not selected_edges:
             raise ValueError("倒角操作至少需要一条边")
 
-        tracked = tracked_chamfer(solid, selected_edges, distance_value)
+        tracked = cast(
+            TrackedResult,
+            tracked_chamfer(solid, selected_edges, distance_value),
+        )
         result = cast(Solid, tracked.shape)
 
         result._metadata = solid._metadata.copy()
@@ -9355,8 +9408,10 @@ def shell_rsolid(
         if not selected_faces:
             raise ValueError("抽壳操作至少需要一个待移除面")
 
-        # 转换为 OCP 面对象
-        tracked = tracked_shell(solid, selected_faces, thickness_value)
+        tracked = cast(
+            TrackedResult,
+            tracked_shell(solid, selected_faces, thickness_value),
+        )
         result = cast(Solid, tracked.shape)
 
         result._metadata = solid._metadata.copy()
@@ -9455,7 +9510,10 @@ def loft_rsolid(
             )
 
         tracked = (
-            tracked_loft(profiles, ruled=ruled)
+            cast(
+                TrackedResult,
+                tracked_loft(profiles, ruled=ruled),
+            )
             if policy == TrackingPolicy.FULL
             else None
         )
@@ -9562,7 +9620,10 @@ def sweep_rsolid(
         normalized_result_tag = (
             normalize_tag(result_tag, strict=True) if result_tag is not None else None
         )
-        tracked = tracked_sweep(profile, path, is_frenet=is_frenet)
+        tracked = cast(
+            TrackedResult,
+            tracked_sweep(profile, path, is_frenet=is_frenet),
+        )
         result = cast(Solid, tracked.shape)
 
         result._metadata = {**profile._metadata, **path._metadata}
@@ -9669,13 +9730,16 @@ def twisted_sweep_rsolid(
         normalized_result_tag = (
             normalize_tag(result_tag, strict=True) if result_tag is not None else None
         )
-        tracked = tracked_twisted_sweep(
-            profile,
-            axis=resolved_axis,
-            origin=resolved_origin,
-            distance=distance_value,
-            twist_angle=twist_value,
-            guide_radius=guide_radius_value,
+        tracked = cast(
+            TrackedResult,
+            tracked_twisted_sweep(
+                profile,
+                axis=resolved_axis,
+                origin=resolved_origin,
+                distance=distance_value,
+                twist_angle=twist_value,
+                guide_radius=guide_radius_value,
+            ),
         )
         result = cast(Solid, tracked.shape)
         kernel_metadata = result.get_metadata("twisted_sweep.kernel", {})
@@ -9917,17 +9981,14 @@ def mirror_shape(
             raise ValueError("镜像平面法向量不能是零向量")
 
         if isinstance(shape, Solid):
-            tracked = tracked_mirror(
-                shape,
-                (
-                    float(global_origin[0]),
-                    float(global_origin[1]),
-                    float(global_origin[2]),
-                ),
-                (
-                    float(global_normal[0]),
-                    float(global_normal[1]),
-                    float(global_normal[2]),
+            resolved_origin = tuple(float(value) for value in global_origin)
+            resolved_normal = tuple(float(value) for value in global_normal)
+            tracked = cast(
+                TrackedResult,
+                tracked_mirror(
+                    shape,
+                    resolved_origin,
+                    resolved_normal,
                 ),
             )
             new_shape = cast(Solid, tracked.shape)

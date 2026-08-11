@@ -271,10 +271,20 @@ class ModelResult:
 
         return replay_model_json(json_str=self.model_json, strict=strict)
 
-    def export_artifacts(self, *, output_dir: str | Path) -> "ModelResult":
-        """Write one self-contained Scene ZIP for the captured model."""
+    def export_artifacts(
+        self,
+        *,
+        output_dir: str | Path,
+        formats: Optional[Sequence[str]] = None,
+    ) -> "ModelResult":
+        """Export explicitly selected model, product, and scene artifacts.
 
-        return _export_model_artifacts(self, output_dir=output_dir)
+        A generic ``@model`` keeps the historical ``scene`` default. Product
+        packages are opt-in until the dedicated ``@part``/``@assemble``
+        decorators land.
+        """
+
+        return _export_model_artifacts(self, output_dir=output_dir, formats=formats)
 
 
 def get_active_session() -> Optional[GraphSession]:
@@ -424,31 +434,86 @@ def model(
     return decorate(func)
 
 
-def _export_model_artifacts(result: ModelResult, *, output_dir: str | Path) -> ModelResult:
-    from .scene import SceneCompileOptions, SceneRoot, compile_scene, export_scene
+def _export_model_artifacts(
+    result: ModelResult,
+    *,
+    output_dir: str | Path,
+    formats: Optional[Sequence[str]] = None,
+) -> ModelResult:
+    from .product_packages import (
+        build_assembly_package,
+        build_part_package,
+        export_product_package,
+    )
+    from .scene import SceneCompileOptions, SceneRoot, SceneSource, compile_scene, export_scene
 
+    requested = _normalize_export_formats(formats)
+    if "part" in requested and "assembly" in requested:
+        raise ValueError("part and assembly exports cannot be requested together")
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
     stem = result.session.graph.graph_id
     values = _captured_export_values(result.session.captured_values)
     products = [value for value in values if isinstance(value, (Part, Assembly))]
     shapes = [value for value in values if isinstance(value, (Solid, Compound))]
-    scene_values = products or shapes
     paths: Dict[str, Path] = {}
-    if scene_values:
+    product_package = None
+
+    if "part" in requested:
+        parts = [value for value in products if isinstance(value, Part)]
+        if len(parts) != 1:
+            raise ValueError("part export requires exactly one captured Part")
+        product_package = build_part_package(parts[0], model_json=result.model_json)
+        paths["part"] = export_product_package(
+            product_package,
+            destination / f"{stem}.prt.zip",
+        )
+    if "assembly" in requested:
+        assemblies = [value for value in products if isinstance(value, Assembly)]
+        if len(assemblies) != 1:
+            raise ValueError("assembly export requires exactly one captured Assembly")
+        product_package = build_assembly_package(
+            assemblies[0], model_json=result.model_json
+        )
+        paths["assembly"] = export_product_package(
+            product_package,
+            destination / f"{stem}.asm.zip",
+        )
+    if "scene" in requested:
+        scene_values = products or shapes
+        if not scene_values:
+            raise ValueError("scene export requires a captured renderable value")
         roots = tuple(
             SceneRoot(root_id=f"capture-{index}", value=value)
             for index, value in enumerate(scene_values)
         )
+        scene_source: Any = result
+        embed_source = True
+        if product_package is not None and len(scene_values) == 1:
+            scene_source = SceneSource(
+                kind=f"{product_package.kind}_package",
+                definition_id=str(product_package.manifest["definition_id"]),
+                revision=product_package.content_hash,
+                artifact_hash=product_package.content_hash,
+            )
+            embed_source = False
         package = compile_scene(
             scene_id=stem,
             roots=roots,
-            source=result,
-            options=SceneCompileOptions(embed_source=True),
+            source=scene_source,
+            options=SceneCompileOptions(embed_source=embed_source),
         )
         scene_path = destination / f"{stem}.scene.zip"
         export_scene(package=package, path=scene_path)
         paths["scene"] = scene_path
+    if "model" in requested:
+        model_path = destination / f"{stem}.model.json"
+        model_path.write_text(result.model_json, encoding="utf-8")
+        paths["model"] = model_path
+    if "session" in requested:
+        session_path = destination / f"{stem}.session.json"
+        session_path.write_text(result.session_json, encoding="utf-8")
+        paths["session"] = session_path
     return ModelResult(
         value=result.value,
         session=result.session,
@@ -457,6 +522,21 @@ def _export_model_artifacts(result: ModelResult, *, output_dir: str | Path) -> M
         session_json=result.session_json,
         artifact_paths=paths,
     )
+
+
+def _normalize_export_formats(formats: Optional[Sequence[str]]) -> Tuple[str, ...]:
+    requested = ("scene",) if formats is None else tuple(str(item).lower() for item in formats)
+    aliases = {"prt": "part", "asm": "assembly"}
+    normalized = tuple(aliases.get(item, item) for item in requested)
+    allowed = {"part", "assembly", "scene", "model", "session"}
+    unknown = sorted(set(normalized) - allowed)
+    if unknown:
+        raise ValueError("unknown export format(s): " + ", ".join(unknown))
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("export formats must not contain duplicates")
+    if not normalized:
+        raise ValueError("export formats must not be empty")
+    return normalized
 
 
 def _captured_export_values(values: Iterable[Any]) -> List[Any]:

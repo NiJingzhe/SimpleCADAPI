@@ -35,3 +35,7 @@ viewer/pnpm-lock.yaml
 design-docs/
 
 **/.vite/
+
+
+# SimpleCAD content-addressed cache
+.simplecad/

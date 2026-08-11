@@ -2926,7 +2926,7 @@ wheels = [
 
 [[package]]
 name = "simplecadapi"
-version = "2.0.4b1"
+version = "2.0.4b3"
 source = { editable = "." }
 dependencies = [
     { name = "cadquery-ocp" },
@@ -2937,6 +2937,7 @@ dependencies = [
     { name = "py-slvs" },
     { name = "rfc8785" },
     { name = "rich" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "typing-extensions" },
 ]
 
@@ -2983,6 +2984,7 @@ requires-dist = [
     { name = "python-fcl", marker = "extra == 'collision'", specifier = ">=0.7.0.11" },
     { name = "rfc8785", specifier = ">=0.1.4,<0.2.0" },
     { name = "rich", specifier = ">=14.0.0" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0,<3" },
     { name = "typing-extensions", specifier = ">=4.12,<5" },
 ]
 provides-extras = ["dev", "editor", "collision", "inspect"]
