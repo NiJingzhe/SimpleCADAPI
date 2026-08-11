@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import math
 import unittest
 from copy import deepcopy
 
 import simplecadapi as scad
+from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.GeomAbs import GeomAbs_Cylinder
 
 
 class TestSurfaceApi(unittest.TestCase):
@@ -14,6 +17,14 @@ class TestSurfaceApi(unittest.TestCase):
 
     def test_public_surface_namespace_and_basic_faces(self):
         self.assertIs(scad.surface.make_bezier_surface_rface, scad.make_bezier_surface_rface)
+        self.assertIs(
+            scad.surface.make_cylindrical_surface_rface,
+            scad.make_cylindrical_surface_rface,
+        )
+        self.assertIs(
+            scad.surface.make_solid_from_shell_rsolid,
+            scad.make_solid_from_shell_rsolid,
+        )
         self.assertIs(scad.surface.SurfaceBoundary, scad.SurfaceBoundary)
 
         bezier = scad.make_bezier_surface_rface(
@@ -29,6 +40,184 @@ class TestSurfaceApi(unittest.TestCase):
         self.assertIsInstance(fitted, scad.Face)
         self.assertAlmostEqual(bezier.get_area(), 1.0, places=6)
         self.assertAlmostEqual(fitted.get_area(), 1.0, places=6)
+
+    def test_cylindrical_surface_periodic_trim_and_replay(self):
+        def point(angle, z):
+            return (2.0 * math.cos(angle), 2.0 * math.sin(angle), z)
+
+        with scad.GraphSession() as session:
+            carrier = scad.make_cylindrical_surface_rface(
+                2.0,
+                (0.0, 2.0 * math.pi),
+                (0.0, 2.0),
+                tag_prefix="carrier",
+            )
+            edges = [
+                scad.make_three_point_arc_redge(
+                    point(0.5, 0.0), point(1.5, 0.0), point(2.5, 0.0)
+                ),
+                scad.make_line_redge(point(2.5, 0.0), point(2.5, 2.0)),
+                scad.make_three_point_arc_redge(
+                    point(2.5, 2.0), point(1.5, 2.0), point(0.5, 2.0)
+                ),
+                scad.make_line_redge(point(0.5, 2.0), point(0.5, 0.0)),
+            ]
+            outer = scad.make_wire_from_edges_rwire(edges)
+            trimmed = scad.trim_surface_rface(carrier, outer, tag_prefix="trimmed")
+
+        replayed = scad.replay_model_json(scad.export_model_json(session))[0]
+        self.assertEqual(BRepAdaptor_Surface(carrier.wrapped).GetType(), GeomAbs_Cylinder)
+        self.assertEqual(BRepAdaptor_Surface(trimmed.wrapped).GetType(), GeomAbs_Cylinder)
+        self.assertAlmostEqual(carrier.get_area(), 8.0 * math.pi, places=6)
+        self.assertAlmostEqual(trimmed.get_area(), 8.0, places=5)
+        self.assertAlmostEqual(replayed.get_area(), trimmed.get_area(), places=7)
+        self.assertIn("trimmed.face", scad.list_tags(replayed))
+
+    def test_cylindrical_surface_rejects_kernel_degenerate_spans(self):
+        with self.assertRaisesRegex(scad.SimpleCADError, "u_range"):
+            scad.make_cylindrical_surface_rface(
+                2.0,
+                (0.0, 1.0001e-12),
+                (0.0, 2.0),
+            )
+        with self.assertRaisesRegex(scad.SimpleCADError, "v_range"):
+            scad.make_cylindrical_surface_rface(
+                2.0,
+                (0.0, 1.0),
+                (0.0, 1.0e-8),
+            )
+
+    def test_periodic_trim_rejects_wire_outside_partial_carrier(self):
+        def point(angle, z):
+            return (2.0 * math.cos(angle), 2.0 * math.sin(angle), z)
+
+        carrier = scad.make_cylindrical_surface_rface(
+            2.0,
+            (0.0, 1.0),
+            (0.0, 2.0),
+        )
+        outer = scad.make_wire_from_edges_rwire(
+            [
+                scad.make_three_point_arc_redge(
+                    point(2.0, 0.0), point(2.25, 0.0), point(2.5, 0.0)
+                ),
+                scad.make_line_redge(point(2.5, 0.0), point(2.5, 2.0)),
+                scad.make_three_point_arc_redge(
+                    point(2.5, 2.0), point(2.25, 2.0), point(2.0, 2.0)
+                ),
+                scad.make_line_redge(point(2.0, 2.0), point(2.0, 0.0)),
+            ]
+        )
+
+        with self.assertRaisesRegex(scad.SimpleCADError, "bounded carrier"):
+            scad.trim_surface_rface(carrier, outer)
+
+    def test_periodic_trim_rejects_holes_explicitly(self):
+        carrier = scad.make_cylindrical_surface_rface(
+            2.0,
+            (0.0, 2.0 * math.pi),
+            (0.0, 2.0),
+        )
+        outer = scad.make_rectangle_rwire(1.0, 1.0, center=(2.0, 0.0, 1.0))
+        hole = scad.make_rectangle_rwire(0.25, 0.25, center=(2.0, 0.0, 1.0))
+
+        with self.assertRaisesRegex(scad.SimpleCADError, "holes is not supported"):
+            scad.trim_surface_rface(carrier, outer, holes=[hole])
+
+    def test_periodic_trim_converts_linear_tolerance_to_angular_tolerance(self):
+        def point(angle, z):
+            return (100.0 * math.cos(angle), 100.0 * math.sin(angle), z)
+
+        carrier = scad.make_cylindrical_surface_rface(
+            100.0,
+            (0.0, 1.0),
+            (0.0, 2.0),
+        )
+        outer = scad.make_wire_from_edges_rwire(
+            [
+                scad.make_three_point_arc_redge(
+                    point(1.05, 0.0), point(1.075, 0.0), point(1.10, 0.0)
+                ),
+                scad.make_line_redge(point(1.10, 0.0), point(1.10, 2.0)),
+                scad.make_three_point_arc_redge(
+                    point(1.10, 2.0), point(1.075, 2.0), point(1.05, 2.0)
+                ),
+                scad.make_line_redge(point(1.05, 2.0), point(1.05, 0.0)),
+            ]
+        )
+
+        with self.assertRaisesRegex(scad.SimpleCADError, "bounded carrier"):
+            scad.trim_surface_rface(carrier, outer, tolerance=0.2)
+
+    def test_solid_from_closed_shell_replays(self):
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(1.0, 2.0, 3.0)
+            shell = scad.sew_faces_rshell(box.get_faces())
+            shell = scad.apply_tag_rselection(
+                shell,
+                scad.ql.faces(),
+                "role.preserved_face",
+            )
+            source_face_tags = {face.topo_id for face in shell.get_faces()}
+            solid = scad.make_solid_from_shell_rsolid(shell, tag_prefix="body")
+
+        replayed = scad.replay_model_json(scad.export_model_json(session))[0]
+        self.assertIsInstance(solid, scad.Solid)
+        self.assertAlmostEqual(solid.get_volume(), 6.0, places=6)
+        self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=7)
+        self.assertIn("body.solid", scad.list_tags(replayed))
+        self.assertEqual(
+            solid._get_runtime("semantic.lineage.coverage"), "partial"
+        )
+        self.assertTrue(
+            all(
+                face.topo_id in source_face_tags
+                and "role.preserved_face" in scad.list_tags(face)
+                for face in solid.get_faces()
+            )
+        )
+        self.assertTrue(
+            all(
+                "role.preserved_face" in scad.list_tags(face)
+                for face in replayed.get_faces()
+            )
+        )
+
+    def test_trim_replays_with_semantically_tagged_inputs(self):
+        with scad.GraphSession() as session:
+            carrier = scad.make_bezier_surface_rface(
+                [[(-3, -3, 0), (-3, 3, 0)], [(3, -3, 0), (3, 3, 0)]]
+            )
+            outer = scad.make_rectangle_rwire(4.0, 4.0)
+            carrier = scad.apply_tag(carrier, "role.trim_carrier")
+            outer = scad.apply_tag(outer, "role.trim_outer")
+            trimmed = scad.trim_surface_rface(carrier, outer)
+
+        replayed = scad.replay_model_json(scad.export_model_json(session))[0]
+        self.assertAlmostEqual(replayed.get_area(), trimmed.get_area(), places=7)
+
+    def test_solid_from_shell_rejects_open_shell(self):
+        face = scad.make_bezier_surface_rface(
+            [[(0, 0, 0), (0, 1, 0)], [(1, 0, 0), (1, 1, 0)]]
+        )
+        shell = scad.sew_faces_rshell([face])
+
+        with self.assertRaisesRegex(scad.SimpleCADError, "closed shell"):
+            scad.make_solid_from_shell_rsolid(shell)
+
+    def test_shell_scoped_face_tag_replays(self):
+        with scad.GraphSession() as session:
+            box = scad.make_box_rsolid(1.0, 2.0, 3.0)
+            shell = scad.sew_faces_rshell(box.get_faces())
+            tagged_face = scad.apply_tag(
+                shell.get_faces(0),
+                "role.shell_face",
+            )
+            scad.capture_result(value=tagged_face)
+
+        replayed = scad.replay_model_json(scad.export_model_json(session))[0]
+        self.assertIsInstance(replayed, scad.Face)
+        self.assertIn("role.shell_face", scad.list_tags(replayed))
 
     def test_workplane_bezier_model_replay_preserves_geometry_and_tag(self):
         with scad.GraphSession() as session:
@@ -82,6 +271,36 @@ class TestSurfaceApi(unittest.TestCase):
         self.assertAlmostEqual(replayed[1].get_area(), patch.get_area(), places=7)
         self.assertEqual(len(replayed[1].get_edges()), 4)
         self.assertIn("patch.face", scad.list_tags(replayed[1]))
+
+    def test_trim_surface_with_hole_and_replay(self):
+        with scad.GraphSession() as session:
+            carrier = scad.make_bezier_surface_rface(
+                [[(-3, -3, 0), (-3, 3, 0)], [(3, -3, 0), (3, 3, 0)]]
+            )
+            outer = scad.make_rectangle_rwire(4.0, 4.0)
+            hole = scad.make_rectangle_rwire(1.0, 1.0)
+            trimmed = scad.trim_surface_rface(
+                carrier,
+                outer,
+                holes=[hole],
+                tag_prefix="trimmed",
+            )
+
+        replayed = scad.replay_model_json(scad.export_model_json(session))[0]
+        self.assertIsInstance(trimmed, scad.Face)
+        self.assertAlmostEqual(trimmed.get_area(), 15.0, places=6)
+        self.assertAlmostEqual(replayed.get_area(), trimmed.get_area(), places=7)
+        self.assertEqual(len(trimmed.get_wires()), 2)
+        self.assertIn("trimmed.face", scad.list_tags(replayed))
+
+    def test_trim_surface_rejects_off_carrier_wire(self):
+        carrier = scad.make_bezier_surface_rface(
+            [[(-3, -3, 0), (-3, 3, 0)], [(3, -3, 0), (3, 3, 0)]]
+        )
+        outer = scad.make_rectangle_rwire(4.0, 4.0, center=(0, 0, 1))
+
+        with self.assertRaisesRegex(scad.SimpleCADError, "trim"):
+            scad.trim_surface_rface(carrier, outer)
 
     def test_shell_loft_roles_names_point_profiles_and_replay(self):
         with scad.GraphSession() as session:
@@ -139,6 +358,28 @@ class TestSurfaceApi(unittest.TestCase):
         original_length = sum(edge.get_length() for edge in boundaries[0].get_edges())
         replayed_length = sum(edge.get_length() for edge in replayed[0].get_edges())
         self.assertAlmostEqual(replayed_length, original_length, places=8)
+
+    def test_sew_shell_faces_replays_selected_face_inputs(self):
+        with scad.GraphSession() as session:
+            lower = scad.make_circle_rwire((0, 0, 0), 1.0)
+            upper = scad.make_circle_rwire((0, 0, 2), 1.0)
+            lofted = scad.loft_rshell([lower, upper])
+            resewn = scad.sew_faces_rshell(lofted.get_faces())
+            scad.capture_result(value=resewn)
+
+        payload = scad.export_model_json(session)
+        sew_node = next(
+            node
+            for node in json.loads(payload)["graph"]["nodes"]
+            if node["op"] == "sew_faces_rshell"
+        )
+        self.assertEqual(len(sew_node["params"]["input_refs"]), 1)
+
+        replayed = scad.replay_model_json(payload, strict=True)
+        self.assertEqual(len(replayed), 1)
+        self.assertIsInstance(replayed[0], scad.Shell)
+        self.assertEqual(len(replayed[0].get_faces()), len(resewn.get_faces()))
+        self.assertAlmostEqual(replayed[0].get_area(), resewn.get_area(), places=8)
 
     def test_closed_shell_free_boundaries_records_zero_outputs(self):
         with scad.GraphSession() as session:

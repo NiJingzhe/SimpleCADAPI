@@ -16,6 +16,7 @@ suppress_vendor_deprecation_warnings()
 
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+from OCP.Precision import Precision
 from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
 from OCP.TopoDS import TopoDS
 
@@ -164,13 +165,16 @@ from .kernel.ocp_surfaces import (
     fit_point_grid_surface,
     free_boundaries as free_boundaries_ocp,
     make_bezier_surface,
+    make_cylindrical_surface,
     make_filling_face,
     make_gordon_surface,
     make_loft_shell,
     make_ruled_face,
     sew_faces as sew_faces_ocp,
     shell_from_face,
+    trim_surface_face,
 )
+from .kernel.ocp_mesh import solid_from_shell
 
 
 @dataclass(frozen=True)
@@ -346,6 +350,107 @@ def make_bezier_surface_rface(
             how_to_fix=[
                 "Pass a rectangular finite grid with at least two rows and columns.",
                 "Use positive finite weights with the same dimensions as the grid.",
+            ],
+            error=e,
+        )
+
+
+def make_cylindrical_surface_rface(
+    radius: ScalarLike,
+    u_range: Tuple[ScalarLike, ScalarLike],
+    v_range: Tuple[ScalarLike, ScalarLike],
+    origin: Tuple[float, float, float] = (0, 0, 0),
+    axis: Tuple[float, float, float] = (0, 0, 1),
+    x_direction: Optional[Tuple[float, float, float]] = None,
+    *,
+    tolerance: float = 1e-7,
+    tag_prefix: Optional[str] = None,
+) -> Face:
+    """Create a finite cylindrical carrier Face over explicit U/V ranges."""
+
+    try:
+        radius_value = evaluate_scalar(radius)
+        u_values = tuple(evaluate_scalar(value) for value in u_range)
+        v_values = tuple(evaluate_scalar(value) for value in v_range)
+        tolerance_value = float(tolerance)
+        if not np.isfinite(radius_value) or radius_value <= 0.0:
+            raise ValueError("radius must be a positive finite value")
+        if len(u_values) != 2 or not all(np.isfinite(value) for value in u_values):
+            raise ValueError("u_range must contain two finite values")
+        if len(v_values) != 2 or not all(np.isfinite(value) for value in v_values):
+            raise ValueError("v_range must contain two finite values")
+        u_span = u_values[1] - u_values[0]
+        v_span = v_values[1] - v_values[0]
+        if u_span <= Precision.PConfusion_s() or u_span > 2.0 * math.pi + Precision.Angular_s():
+            raise ValueError("u_range must be increasing and span at most one revolution")
+        if v_span <= Precision.Confusion_s():
+            raise ValueError("v_range must be increasing beyond kernel confusion")
+        if not np.isfinite(tolerance_value) or tolerance_value <= 0.0:
+            raise ValueError("tolerance must be a positive finite value")
+
+        origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
+        axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
+        x_value = (
+            tuple(float(value) for value in _default_plane_x_direction(axis_value))
+            if x_direction is None
+            else cast(Tuple[float, float, float], evaluate_value(x_direction))
+        )
+        vectors = [tuple(float(value) for value in item) for item in (origin_value, axis_value, x_value)]
+        if any(len(item) != 3 or not all(np.isfinite(value) for value in item) for item in vectors):
+            raise ValueError("origin, axis, and x_direction must be finite 3D values")
+        axis_norm = float(np.linalg.norm(vectors[1]))
+        x_norm = float(np.linalg.norm(vectors[2]))
+        if axis_norm <= 1e-12 or x_norm <= 1e-12:
+            raise ValueError("axis and x_direction must be non-zero")
+        parallel = abs(float(np.dot(vectors[1], vectors[2])) / (axis_norm * x_norm))
+        if parallel >= 1.0 - 1e-12:
+            raise ValueError("axis and x_direction must not be parallel")
+
+        cs = get_current_cs()
+        global_origin = cs.transform_point(np.asarray(vectors[0], dtype=float))
+        global_axis = cs.transform_vector(np.asarray(vectors[1], dtype=float))
+        global_x_direction = cs.transform_vector(np.asarray(vectors[2], dtype=float))
+        result = cast(
+            Face,
+            _finalize_primitive_shape(
+                Face(
+                    make_cylindrical_surface(
+                        radius_value,
+                        cast(Tuple[float, float], u_values),
+                        cast(Tuple[float, float], v_values),
+                        origin=global_origin,
+                        axis=global_axis,
+                        x_direction=global_x_direction,
+                        tolerance=tolerance_value,
+                    )
+                ),
+                op="make_cylindrical_surface_rface",
+                params={
+                    "radius": radius,
+                    "u_range": u_range,
+                    "v_range": v_range,
+                    "origin": origin,
+                    "axis": axis,
+                    "x_direction": x_direction,
+                    "tolerance": tolerance_value,
+                    "tag_prefix": tag_prefix,
+                },
+                tags={"primitive", "surface", "face"},
+            ),
+        )
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_cylindrical_surface_rface",
+            what_happened="Failed to create the cylindrical surface face.",
+            possible_causes=[
+                "The radius, U/V ranges, or tolerance is invalid.",
+                "The axis frame is degenerate or parallel.",
+                "The kernel rejected the bounded cylindrical surface.",
+            ],
+            how_to_fix=[
+                "Use a positive radius and tolerance with increasing finite ranges.",
+                "Keep the U span at or below one revolution and provide non-parallel axis directions.",
             ],
             error=e,
         )
@@ -718,6 +823,66 @@ def _apply_shell_loft_tag_prefix(
     return cast(Shell, result)
 
 
+def trim_surface_rface(
+    carrier: Face,
+    outer: Wire,
+    holes: Sequence[Wire] = (),
+    *,
+    tolerance: float = 1e-7,
+    tag_prefix: Optional[str] = None,
+) -> Face:
+    """Trim a carrier Face with projected 3D boundary wires."""
+
+    try:
+        if not isinstance(carrier, Face):
+            raise TypeError("carrier must be a Face")
+        if not isinstance(outer, Wire):
+            raise TypeError("outer must be a Wire")
+        hole_list = list(holes)
+        if not all(isinstance(wire, Wire) for wire in hole_list):
+            raise TypeError("holes must contain only Wire objects")
+        tolerance_value = float(tolerance)
+        if not np.isfinite(tolerance_value) or tolerance_value <= 0.0:
+            raise ValueError("tolerance must be a positive finite value")
+        result = cast(
+            Face,
+            _finalize_derived_shape(
+                Face(
+                    trim_surface_face(
+                        carrier.wrapped,
+                        outer.wrapped,
+                        [wire.wrapped for wire in hole_list],
+                        tolerance=tolerance_value,
+                    )
+                ),
+                op="trim_surface_rface",
+                params={
+                    "hole_count": len(hole_list),
+                    "tolerance": tolerance_value,
+                    "tag_prefix": tag_prefix,
+                },
+                input_shapes=[carrier, outer, *hole_list],
+                tags={"derived", "surface", "face", "trimmed"},
+            ),
+        )
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="trim_surface_rface",
+            what_happened="Failed to trim the carrier surface face.",
+            possible_causes=[
+                "A trim wire is open, invalid, or does not lie on the carrier.",
+                "A periodic trim crosses the carrier seam.",
+                "A hole intersects the outer boundary or another hole.",
+            ],
+            how_to_fix=[
+                "Pass one closed outer Wire and optional closed hole Wires.",
+                "Keep every trim curve on the carrier within tolerance and inside one periodic seam.",
+            ],
+            error=e,
+        )
+
+
 def loft_rshell(
     sections: Sequence[Union[Wire, Vertex]],
     *,
@@ -864,7 +1029,52 @@ def sew_faces_rshell(
         )
 
 
-def free_boundaries_rwirelist(shell: Shell, *, tolerance: float = 1e-6) -> List[Wire]:
+def make_solid_from_shell_rsolid(
+    shell: Shell, *, tag_prefix: Optional[str] = None
+) -> Solid:
+    """Create an oriented Solid from one valid closed Shell."""
+
+    try:
+        if not isinstance(shell, Shell):
+            raise TypeError("make_solid_from_shell_rsolid requires a Shell")
+        solid = Solid(solid_from_shell(shell.wrapped), cache=shell._topology_cache)
+        _attach_lineage_from_source(
+            shell,
+            solid,
+            derivation="continuation",
+            op="make_solid_from_shell_rsolid",
+            coverage="partial",
+        )
+        result = cast(
+            Solid,
+            _finalize_derived_shape(
+                solid,
+                op="make_solid_from_shell_rsolid",
+                params={"tag_prefix": tag_prefix},
+                input_shapes=[shell],
+                tags={"derived", "surface", "solid"},
+            ),
+        )
+        return cast(Solid, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_solid_from_shell_rsolid",
+            what_happened="Failed to create a solid from the shell.",
+            possible_causes=[
+                "The input is not a Shell.",
+                "The shell is open, invalid, or cannot be oriented as one material boundary.",
+            ],
+            how_to_fix=[
+                "Sew a valid closed shell before converting it to a solid.",
+                "Inspect free boundaries and face orientation when conversion fails.",
+            ],
+            error=e,
+        )
+
+
+def free_boundaries_rwirelist(
+    shell: Shell, *, tolerance: float = 1e-6
+) -> List[Wire]:
     """Return unique closed and open free boundary wires of a Shell."""
     try:
         if not isinstance(shell, Shell):
@@ -1763,7 +1973,7 @@ def _candidate_shapes_for_selection(source: AnyShape, kind: str) -> List[AnyShap
             return list(source.get_edges())
         return [source] if isinstance(source, Edge) else []
     if kind == "face":
-        if isinstance(source, (Solid, Compound)):
+        if isinstance(source, (Shell, Solid, Compound)):
             return list(source.get_faces())
         return [source] if isinstance(source, Face) else []
     if kind == "wire":
@@ -2435,8 +2645,10 @@ def _finalize_derived_shape(
         "make_ruled_surface_rface",
         "make_gordon_surface_rface",
         "make_surface_patch_rface",
+        "trim_surface_rface",
         "make_loft_rshell",
         "sew_faces_rshell",
+        "make_solid_from_shell_rsolid",
         "fill_holes_rshell",
     }:
         input_refs = _serialize_shape_refs(prepared_inputs)
