@@ -428,7 +428,16 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "op": "make_surface_patch_rface",
     },
     "loft_rshell": {"status": "replayable", "op": "make_loft_rshell"},
+    "make_cylindrical_surface_rface": {
+        "status": "replayable",
+        "op": "make_cylindrical_surface_rface",
+    },
+    "trim_surface_rface": {"status": "replayable", "op": "trim_surface_rface"},
     "sew_faces_rshell": {"status": "replayable", "op": "sew_faces_rshell"},
+    "make_solid_from_shell_rsolid": {
+        "status": "replayable",
+        "op": "make_solid_from_shell_rsolid",
+    },
     "free_boundaries_rwirelist": {
         "status": "replayable",
         "op": "free_boundaries_rwirelist",
@@ -562,12 +571,15 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_chamfer_rsolid",
     "make_shell_rsolid",
     "make_bezier_surface_rface",
+    "make_cylindrical_surface_rface",
     "fit_point_grid_rface",
     "make_ruled_surface_rface",
     "make_gordon_surface_rface",
     "make_surface_patch_rface",
+    "trim_surface_rface",
     "make_loft_rshell",
     "sew_faces_rshell",
+    "make_solid_from_shell_rsolid",
     "free_boundaries_rwirelist",
     "fill_holes_rshell",
     "make_select_rvertex",
@@ -1220,6 +1232,27 @@ def _replay_primitive_or_simple(
             weights=params.get("weights"),
             tag_prefix=cast(Optional[str], params.get("tag_prefix")),
         )
+    if op_name == "make_cylindrical_surface_rface":
+        ctx.require_params(
+            node_id,
+            op_name,
+            params,
+            ("radius", "u_range", "v_range", "origin", "axis", "tolerance"),
+        )
+        return ops.make_cylindrical_surface_rface(
+            params["radius"],
+            tuple(params["u_range"]),
+            tuple(params["v_range"]),
+            origin=tuple(params["origin"]),
+            axis=tuple(params["axis"]),
+            x_direction=(
+                None
+                if params.get("x_direction") is None
+                else tuple(params["x_direction"])
+            ),
+            tolerance=float(params["tolerance"]),
+            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+        )
     if op_name == "fit_point_grid_rface":
         ctx.require_params(
             node_id,
@@ -1346,7 +1379,7 @@ def _candidate_shapes_for_geo_selection(source: AnyShape, kind: str) -> List[Any
             ]
         return [source] if isinstance(source, Shell) else []
     if kind == "face":
-        if isinstance(source, Solid):
+        if isinstance(source, (Shell, Solid)):
             return list(source.get_faces())
         return [source] if isinstance(source, Face) else []
     if kind == "edge":
@@ -1924,16 +1957,43 @@ def _ordered_input_shapes(
             ctx.fail(
                 f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] belongs to foreign graph '{ref_graph_id}'"
             )
-        if ref_node_id not in direct_input_ids:
-            ctx.fail(
-                f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] is not a direct input"
-            )
-        candidates = outputs.get(ref_node_id, [])
-        if ref_slot < 0 or ref_slot >= len(candidates):
-            ctx.fail(
-                f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] references missing output slot {ref_slot}"
-            )
-        shape = candidates[ref_slot]
+        if ref_node_id in direct_input_ids:
+            candidates = outputs.get(ref_node_id, [])
+            if ref_slot < 0 or ref_slot >= len(candidates):
+                ctx.fail(
+                    f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] references missing output slot {ref_slot}"
+                )
+            shape = candidates[ref_slot]
+        else:
+            semantic_input_ids = [
+                direct_input_id
+                for direct_input_id in direct_input_ids
+                if _is_upstream_node(graph, direct_input_id, ref_node_id)
+            ]
+            matches = []
+            for semantic_input_id in semantic_input_ids:
+                for candidate in outputs.get(semantic_input_id, []):
+                    if not isinstance(
+                        candidate, (Vertex, Edge, Wire, Face, Shell, Solid, Compound)
+                    ):
+                        continue
+                    topo_ref = _shape_topo_ref_dict(candidate)
+                    candidate_kind = str(
+                        topo_ref.get("kind", _shape_kind_token(candidate))
+                    ).lower().split(".", 1)[-1]
+                    if (
+                        str(topo_ref.get("graph_id", "")) == ref_graph_id
+                        and str(topo_ref.get("node_id", "")) == ref_node_id
+                        and int(topo_ref.get("output_slot", 0)) == ref_slot
+                        and (not ref_kind or candidate_kind == ref_kind)
+                    ):
+                        matches.append(candidate)
+            if len(matches) != 1:
+                ctx.fail(
+                    f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] "
+                    "does not resolve through exactly one direct semantic input"
+                )
+            shape = matches[0]
         if not isinstance(shape, (Vertex, Edge, Wire, Face, Shell, Solid, Compound)):
             ctx.fail(
                 f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] does not resolve to geometry"
@@ -3150,6 +3210,34 @@ def _execute_graph(
                         _store_outputs(node, result)
                         continue
 
+                    if op_name == "trim_surface_rface":
+                        ctx.require_params(
+                            node.node_id,
+                            op_name,
+                            params,
+                            ("hole_count", "tolerance"),
+                        )
+                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        hole_count = int(params["hole_count"])
+                        if (
+                            len(ordered) != 2 + hole_count
+                            or not isinstance(ordered[0], Face)
+                            or not isinstance(ordered[1], Wire)
+                            or not all(isinstance(item, Wire) for item in ordered[2:])
+                        ):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) requires one Face, one outer Wire, and hole_count Wires"
+                            )
+                        result = ops.trim_surface_rface(
+                            cast(Face, ordered[0]),
+                            cast(Wire, ordered[1]),
+                            holes=cast(Sequence[Wire], ordered[2:]),
+                            tolerance=float(params["tolerance"]),
+                            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
                     if op_name == "make_loft_rshell":
                         ctx.require_params(
                             node.node_id, op_name, params, ("section_count", "ruled")
@@ -3187,6 +3275,19 @@ def _execute_graph(
                         result = ops.sew_faces_rshell(
                             cast(Sequence[Face], ordered),
                             tolerance=float(params["tolerance"]),
+                            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_solid_from_shell_rsolid":
+                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        if len(ordered) != 1 or not isinstance(ordered[0], Shell):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) requires exactly one Shell input"
+                            )
+                        result = ops.make_solid_from_shell_rsolid(
+                            cast(Shell, ordered[0]),
                             tag_prefix=cast(Optional[str], params.get("tag_prefix")),
                         )
                         _store_outputs(node, result)
