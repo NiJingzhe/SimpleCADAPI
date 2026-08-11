@@ -16,6 +16,7 @@ from simplecadapi.topology import TopoKind, TopoRef
 class TestGraphModelApi(unittest.TestCase):
     def test_model_export_dir_writes_one_self_contained_scene_package(self):
         with TemporaryDirectory() as directory:
+
             @scad.model(graph_id="auto_export", export_dir=directory)
             def build_model():
                 body = scad.make_box_rsolid(width=1.0, height=2.0, depth=3.0)
@@ -34,6 +35,7 @@ class TestGraphModelApi(unittest.TestCase):
 
     def test_model_export_dir_writes_assembly_artifacts_with_model_provenance(self):
         with TemporaryDirectory() as directory:
+
             @scad.model(graph_id="assembly_export", export_dir=directory)
             def build_model():
                 body = scad.make_box_rsolid(width=1.0, height=2.0, depth=3.0)
@@ -54,9 +56,7 @@ class TestGraphModelApi(unittest.TestCase):
                 all(Path(path).is_file() for path in result.artifact_paths.values())
             )
 
-            archive = preflight_zip_bytes(
-                result.artifact_paths["scene"].read_bytes()
-            )
+            archive = preflight_zip_bytes(result.artifact_paths["scene"].read_bytes())
             manifest = parse_canonical_json(archive.members["scene.json"])
             blobs = {
                 name: payload
@@ -144,6 +144,43 @@ class TestGraphModelApi(unittest.TestCase):
         self.assertEqual(len(result.replay()), 1)
         payload = json.loads(result.model_json)
         self.assertEqual(payload["leaf_ids"], list(result.result_node_ids))
+
+    def test_same_model_invocation_has_deterministic_graph_ids(self):
+        @scad.model(graph_id="deterministic_model")
+        def build_model():
+            body = scad.make_box_rsolid(width=1.0, height=2.0, depth=3.0)
+            return scad.apply_tag(shape=body, tag="role.body")
+
+        first = build_model()
+        second = build_model()
+
+        self.assertEqual(first.model_json, second.model_json)
+        self.assertEqual(first.session_json, second.session_json)
+        self.assertEqual(first.result_node_ids, second.result_node_ids)
+
+    def test_same_model_invocation_has_deterministic_auto_sketch_id(self):
+        @scad.model(graph_id="deterministic_sketch_model")
+        def build_model():
+            sketch = scad.make_sketch_rsketch(name="profile")
+            sketch = scad.add_point_rsketch(
+                sketch=sketch,
+                point_id="center",
+                x=0.0,
+                y=0.0,
+            )
+            sketch = scad.add_circle_rsketch(
+                sketch=sketch,
+                entity_id="circle",
+                center="center",
+                radius=1.0,
+            )
+            return scad.make_face_from_sketch_rface(sketch=sketch)
+
+        first = build_model()
+        second = build_model()
+
+        self.assertEqual(first.model_json, second.model_json)
+        self.assertEqual(first.session_json, second.session_json)
 
     def test_requires_session_reuses_active_session(self):
         @scad.requires_session
@@ -242,9 +279,7 @@ class TestGraphModelApi(unittest.TestCase):
         with scad.GraphSession(graph_id="atomic_capture") as session:
             body = scad.make_box_rsolid(width=1.0, height=1.0, depth=1.0)
             with scad.GraphSession(graph_id="foreign_capture"):
-                foreign = scad.make_box_rsolid(
-                    width=2.0, height=2.0, depth=2.0
-                )
+                foreign = scad.make_box_rsolid(width=2.0, height=2.0, depth=2.0)
             with self.assertRaisesRegex(ValueError, "foreign_capture.*atomic_capture"):
                 session.capture_result(value=(body, foreign))
             self.assertFalse(session.has_explicit_results)

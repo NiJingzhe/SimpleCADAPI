@@ -7,8 +7,15 @@ from typing import Any
 
 from .brep import read_brep_solid
 from .canonical import ArtifactValidationError
-from .part_definition import PartDefinition
-from .topology_snapshot import restore_topology_snapshot
+from .part_definition import (
+    PartDefinition,
+    mark_part_definition_validated,
+    part_definition_is_validated,
+)
+from .topology_snapshot import (
+    restore_topology_snapshot,
+    validate_connector_entity_bindings,
+)
 from .validation import parse_artifact_json, validate_artifact_blobs
 from ..scene.archive import canonical_zip_bytes, preflight_zip_bytes
 
@@ -21,7 +28,8 @@ def encode_part_definition(definition: PartDefinition) -> bytes:
 
     if not isinstance(definition, PartDefinition):
         raise TypeError("definition must be a PartDefinition")
-    validate_artifact_blobs(definition.to_dict(), definition.blobs)
+    if not part_definition_is_validated(definition):
+        validate_artifact_blobs(definition.to_dict(), definition.blobs)
     members: dict[str, bytes] = {
         _PART_DEFINITION_MANIFEST: definition.canonical_bytes,
     }
@@ -65,10 +73,7 @@ def load_part_definition(
             "/blobs",
             "archive member set differs from definition references",
         )
-    blobs = {
-        path: archive.members[_BLOB_PREFIX + path]
-        for path in expected_paths
-    }
+    blobs = {path: archive.members[_BLOB_PREFIX + path] for path in expected_paths}
     definition = PartDefinition.from_dict(manifest, blobs=blobs)
     validate_artifact_blobs(definition.to_dict(), definition.blobs)
     body = read_brep_solid(definition.blobs[definition.solid_cache_ref.path])
@@ -76,6 +81,8 @@ def load_part_definition(
         body,
         definition.blobs[definition.topology_snapshot_ref.path],
     )
+    validate_connector_entity_bindings(body, definition.connectors)
+    mark_part_definition_validated(definition, body=body)
     return definition
 
 
@@ -85,7 +92,11 @@ def export_part_definition(
 ) -> Path:
     """Write a PartDefinition or PartBuildResult to a canonical archive."""
 
-    definition = value if isinstance(value, PartDefinition) else getattr(value, "definition", None)
+    definition = (
+        value
+        if isinstance(value, PartDefinition)
+        else getattr(value, "definition", None)
+    )
     if not isinstance(definition, PartDefinition):
         raise TypeError("value must be a PartDefinition or PartBuildResult")
     destination = Path(path)

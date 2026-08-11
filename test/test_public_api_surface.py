@@ -103,3 +103,33 @@ print(json.dumps({
 
         self.assertIn("TrackingPolicy", scad.__all__)
         self.assertIs(scad.TrackingPolicy, TrackingPolicy)
+
+    def test_unified_product_package_exports(self):
+        import simplecadapi as scad
+        from simplecadapi import product_packages
+
+        expected = {
+            "PRODUCT_PACKAGE_SCHEMA_VERSION": product_packages.PRODUCT_PACKAGE_SCHEMA_VERSION,
+            "ProductPackage": product_packages.ProductPackage,
+            "ProductPackageError": product_packages.ProductPackageError,
+            "build_product_package": product_packages.build_product_package,
+            "encode_product_package": product_packages.encode_product_package,
+            "export_product_package": product_packages.export_product_package,
+            "load_product_package": product_packages.load_product_package,
+            "read_product_package": product_packages.read_product_package,
+            "validate_product_package": product_packages.validate_product_package,
+        }
+        for name, implementation in expected.items():
+            with self.subTest(name=name):
+                self.assertIn(name, scad.__all__)
+                self.assertIs(getattr(scad, name), implementation)
+
+        for legacy_name in (
+            "build_part_package",
+            "build_assembly_package",
+            "load_part_package",
+            "load_assembly_package",
+        ):
+            with self.subTest(legacy_name=legacy_name):
+                self.assertNotIn(legacy_name, scad.__all__)
+                self.assertFalse(hasattr(scad, legacy_name))

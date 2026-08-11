@@ -91,6 +91,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 ## Export
 
+- [export_product_package](export_product_package.md) *(from product_packages.py)* `top-level`
 - [export_step](export_step.md) *(from operations.py)* `top-level`
 - [export_stl](export_stl.md) *(from operations.py)* `top-level`
 
@@ -266,6 +267,8 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [Material](Material.md) *(from product.py)* `top-level`
 - [Part](Part.md) *(from product.py)* `top-level`
 - [Placement](Placement.md) *(from product.py)* `top-level`
+- [ProductPackage](ProductPackage.md) *(from product_packages.py)* `top-level`
+- [ProductPackageError](ProductPackageError.md) *(from product_packages.py)* `top-level`
 - [ScalarLimit](ScalarLimit.md) *(from product.py)* `top-level`
 - [SemanticDelta](SemanticDelta.md) *(from topology.py)* `top-level`
 - [SemanticRef](SemanticRef.md) *(from topology.py)* `top-level`
@@ -287,6 +290,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [add_revolute_constraint_rassembly](add_revolute_constraint_rassembly.md) *(from operations.py)* `top-level`
 - [and_](and_.md) *(from ql.py)* `submodule:ql`
 - [assign_material_rpart](assign_material_rpart.md) *(from operations.py)* `top-level`
+- [build_product_package](build_product_package.md) *(from product_packages.py)* `top-level`
 - [constrain_angle_rsketch](constrain_angle_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_coincident_rsketch](constrain_coincident_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_collinear_rsketch](constrain_collinear_rsketch.md) *(from operations.py)* `top-level`
@@ -309,6 +313,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [constrain_symmetric_rsketch](constrain_symmetric_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_tangent_rsketch](constrain_tangent_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_vertical_rsketch](constrain_vertical_rsketch.md) *(from operations.py)* `top-level`
+- [encode_product_package](encode_product_package.md) *(from product_packages.py)* `top-level`
 - [explain_tag](explain_tag.md) *(from operations.py)* `top-level`
 - [fill_holes_rshell](fill_holes_rshell.md) *(from operations.py)* `top-level`
 - [fit_point_grid_rface](fit_point_grid_rface.md) *(from operations.py)* `top-level`
@@ -322,6 +327,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [inspect_assembly_constraints_rconstraintreport](inspect_assembly_constraints_rconstraintreport.md) *(from operations.py)* `top-level`
 - [inspect_sketch_rsketchresult](inspect_sketch_rsketchresult.md) *(from operations.py)* `top-level`
 - [linear_pattern_rsolidlist](linear_pattern_rsolidlist.md) *(from operations.py)* `top-level`
+- [load_product_package](load_product_package.md) *(from product_packages.py)* `top-level`
 - [measure_constraint_residual_rconstraintresidual](measure_constraint_residual_rconstraintresidual.md) *(from operations.py)* `top-level`
 - [meta](meta.md) *(from ql.py)* `submodule:ql`
 - [not_](not_.md) *(from ql.py)* `submodule:ql`
@@ -331,6 +337,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [output_role](output_role.md) *(from ql.py)* `submodule:ql`
 - [place_component_rassembly](place_component_rassembly.md) *(from operations.py)* `top-level`
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)* `top-level`
+- [read_product_package](read_product_package.md) *(from product_packages.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`
 - [sew_faces_rshell](sew_faces_rshell.md) *(from operations.py)* `top-level`
@@ -341,4 +348,5 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [tag](tag.md) *(from ql.py)* `submodule:ql`
 - [twisted_sweep_rsolid](twisted_sweep_rsolid.md) *(from operations.py)* `top-level`
 - [unground_component_rassembly](unground_component_rassembly.md) *(from operations.py)* `top-level`
+- [validate_product_package](validate_product_package.md) *(from product_packages.py)* `top-level`
 - [value](value.md) *(from ql.py)* `submodule:ql`

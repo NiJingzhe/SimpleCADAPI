@@ -26,6 +26,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field, fields, is_dataclass
 from functools import wraps
+import json
 import inspect
 from typing import (
     Any,
@@ -41,7 +42,6 @@ from typing import (
     TypeVar,
     Union,
 )
-import uuid
 from pathlib import Path
 
 from .expr import ExpressionGraph, ScalarLike, ToleranceLike, canonicalize_params
@@ -66,7 +66,6 @@ from .topology import TopoKind, TopoRef, topo_ref_to_dict
 from .core import Compound, Edge, Face, Shell, Solid, Vertex, Wire, get_current_cs
 from .product import Assembly, Part
 from .source_mapping import capture_source_provenance
-
 
 # ---------------------------------------------------------------------------
 # Session management
@@ -113,6 +112,8 @@ class GraphSession:
         self._has_explicit_results = False
         self._captured_values: List[Any] = []
 
+        self._object_id_counters: Dict[str, int] = {}
+
     def start(self) -> None:
         if self._active_session_token is not None:
             raise RuntimeError("GraphSession is already active")
@@ -129,6 +130,13 @@ class GraphSession:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.stop()
+
+    def allocate_object_id(self, prefix: str) -> str:
+        """Allocate a deterministic session-local identifier outside the DAG."""
+
+        next_value = self._object_id_counters.get(prefix, 0) + 1
+        self._object_id_counters[prefix] = next_value
+        return f"{prefix}_{next_value:08x}"
 
     def require_tolerance(
         self,
@@ -156,9 +164,7 @@ class GraphSession:
             tolerance_unit=tolerance_unit,
         )
 
-    def validate_tolerances(
-        self, *, raise_on_failure: bool = False
-    ) -> ToleranceReport:
+    def validate_tolerances(self, *, raise_on_failure: bool = False) -> ToleranceReport:
         """Validate every declared dimension-chain requirement."""
 
         return self.tolerance_graph.validate(raise_on_failure=raise_on_failure)
@@ -360,9 +366,7 @@ def _graph_nodes_with_ids(
         yield node, graph_id
 
 
-def _graph_nodes_in_value(
-    value: Any, *, deep: bool = False
-) -> Iterable[OperationNode]:
+def _graph_nodes_in_value(value: Any, *, deep: bool = False) -> Iterable[OperationNode]:
     for node, _graph_id in _graph_nodes_with_ids(value, deep=deep):
         yield node
 
@@ -425,7 +429,11 @@ def model(
                 model_json=model_json,
                 session_json=session_json,
             )
-            return result.export_artifacts(output_dir=export_dir) if export_dir is not None else result
+            return (
+                result.export_artifacts(output_dir=export_dir)
+                if export_dir is not None
+                else result
+            )
 
         return wrapped
 
@@ -440,16 +448,15 @@ def _export_model_artifacts(
     output_dir: str | Path,
     formats: Optional[Sequence[str]] = None,
 ) -> ModelResult:
-    from .product_packages import (
-        build_assembly_package,
-        build_part_package,
-        export_product_package,
+    from .scene import (
+        SceneCompileOptions,
+        SceneRoot,
+        SceneSource,
+        compile_scene,
+        export_scene,
     )
-    from .scene import SceneCompileOptions, SceneRoot, SceneSource, compile_scene, export_scene
 
     requested = _normalize_export_formats(formats)
-    if "part" in requested and "assembly" in requested:
-        raise ValueError("part and assembly exports cannot be requested together")
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
     stem = result.session.graph.graph_id
@@ -457,28 +464,6 @@ def _export_model_artifacts(
     products = [value for value in values if isinstance(value, (Part, Assembly))]
     shapes = [value for value in values if isinstance(value, (Solid, Compound))]
     paths: Dict[str, Path] = {}
-    product_package = None
-
-    if "part" in requested:
-        parts = [value for value in products if isinstance(value, Part)]
-        if len(parts) != 1:
-            raise ValueError("part export requires exactly one captured Part")
-        product_package = build_part_package(parts[0], model_json=result.model_json)
-        paths["part"] = export_product_package(
-            product_package,
-            destination / f"{stem}.prt.zip",
-        )
-    if "assembly" in requested:
-        assemblies = [value for value in products if isinstance(value, Assembly)]
-        if len(assemblies) != 1:
-            raise ValueError("assembly export requires exactly one captured Assembly")
-        product_package = build_assembly_package(
-            assemblies[0], model_json=result.model_json
-        )
-        paths["assembly"] = export_product_package(
-            product_package,
-            destination / f"{stem}.asm.zip",
-        )
     if "scene" in requested:
         scene_values = products or shapes
         if not scene_values:
@@ -489,14 +474,6 @@ def _export_model_artifacts(
         )
         scene_source: Any = result
         embed_source = True
-        if product_package is not None and len(scene_values) == 1:
-            scene_source = SceneSource(
-                kind=f"{product_package.kind}_package",
-                definition_id=str(product_package.manifest["definition_id"]),
-                revision=product_package.content_hash,
-                artifact_hash=product_package.content_hash,
-            )
-            embed_source = False
         package = compile_scene(
             scene_id=stem,
             roots=roots,
@@ -525,18 +502,22 @@ def _export_model_artifacts(
 
 
 def _normalize_export_formats(formats: Optional[Sequence[str]]) -> Tuple[str, ...]:
-    requested = ("scene",) if formats is None else tuple(str(item).lower() for item in formats)
-    aliases = {"prt": "part", "asm": "assembly"}
-    normalized = tuple(aliases.get(item, item) for item in requested)
-    allowed = {"part", "assembly", "scene", "model", "session"}
-    unknown = sorted(set(normalized) - allowed)
+    requested = (
+        ("scene",) if formats is None else tuple(str(item).lower() for item in formats)
+    )
+    allowed = {"scene", "model", "session"}
+    unknown = sorted(set(requested) - allowed)
     if unknown:
-        raise ValueError("unknown export format(s): " + ", ".join(unknown))
-    if len(set(normalized)) != len(normalized):
+        raise ValueError(
+            "unknown @model export format(s): "
+            + ", ".join(unknown)
+            + "; durable product packages are exported from @part/@assemble results"
+        )
+    if len(set(requested)) != len(requested):
         raise ValueError("export formats must not contain duplicates")
-    if not normalized:
+    if not requested:
         raise ValueError("export formats must not be empty")
-    return normalized
+    return requested
 
 
 def _captured_export_values(values: Iterable[Any]) -> List[Any]:
@@ -750,9 +731,7 @@ def _unique_ref_index(
     for key, refs in candidates.items():
         unique = set(refs)
         if len(unique) > 1:
-            raise ValueError(
-                f"ambiguous topology identity for {key[0].name}:{key[1]}"
-            )
+            raise ValueError(f"ambiguous topology identity for {key[0].name}:{key[1]}")
         result[key] = next(iter(unique))
     return result
 
@@ -779,9 +758,7 @@ def _canonicalize_recorded_topo_delta(
 
     output_index: Dict[tuple[TopoKind, str], TopoRef] = {}
     for slot, output in enumerate(outputs):
-        slot_index = _unique_ref_index(
-            [output], ref_factory=output_ref_factory(slot)
-        )
+        slot_index = _unique_ref_index([output], ref_factory=output_ref_factory(slot))
         for key, ref in slot_index.items():
             existing = output_index.get(key)
             if existing is not None and existing != ref:
@@ -791,19 +768,41 @@ def _canonicalize_recorded_topo_delta(
             output_index[key] = ref
     source_index = _unique_ref_index(inputs or ())
 
-    def resolve(ref: TopoRef, *, source: bool, required: bool = True) -> TopoRef:
+    def resolve(
+        ref: TopoRef,
+        *,
+        source: bool,
+        required: bool = True,
+    ) -> TopoRef | None:
         index = source_index if source else output_index
         resolved = index.get((ref.kind, ref.topo_id))
-        if resolved is None:
-            if ref.graph_id not in {"", "pending"} and ref.node_id not in {"", "pending"}:
-                return ref
-            if required:
-                side = "source" if source else "result"
-                raise ValueError(
-                    f"complete topology witness cannot resolve {side} {ref.kind.name}:{ref.topo_id}"
-                )
+        if resolved is not None:
+            return resolved
+        temporary_tracking_ref = ref.graph_id.startswith(
+            "g_"
+        ) and ref.node_id.startswith("n_")
+        if temporary_tracking_ref:
+            return None
+        if ref.graph_id not in {"", "pending"} and ref.node_id not in {"", "pending"}:
             return ref
-        return resolved
+        if required:
+            side = "source" if source else "result"
+            raise ValueError(
+                f"complete topology witness cannot resolve {side} {ref.kind.name}:{ref.topo_id}"
+            )
+        return ref
+
+    def ref_key(ref: TopoRef) -> tuple[str, str, int, str, str]:
+        return (
+            ref.graph_id,
+            ref.node_id,
+            ref.output_slot,
+            ref.kind.name,
+            ref.topo_id,
+        )
+
+    def canonical_parents(refs: Iterable[TopoRef]) -> tuple[TopoRef, ...]:
+        return tuple(sorted(refs, key=ref_key))
 
     entries = []
     for entry in delta.entries:
@@ -811,18 +810,23 @@ def _canonicalize_recorded_topo_delta(
             str(entry.metadata.get("coverage", "complete")) == "complete"
             and str(entry.metadata.get("status", "proven")) == "proven"
         )
+        resolved_ref = resolve(
+            entry.ref,
+            source=entry.event == TopoEvent.DELETED,
+            required=complete,
+        )
+        resolved_parents = tuple(
+            resolve(ref, source=True, required=complete) for ref in entry.parent_refs
+        )
+        if resolved_ref is None or any(ref is None for ref in resolved_parents):
+            continue
         entries.append(
             TopoEntry(
-                ref=resolve(
-                    entry.ref,
-                    source=entry.event == TopoEvent.DELETED,
-                    required=complete,
-                ),
+                ref=resolved_ref,
                 event=entry.event,
                 origin_role=entry.origin_role,
-                parent_refs=tuple(
-                    resolve(ref, source=True, required=complete)
-                    for ref in entry.parent_refs
+                parent_refs=canonical_parents(
+                    ref for ref in resolved_parents if ref is not None
                 ),
                 metadata=dict(entry.metadata),
             )
@@ -834,25 +838,70 @@ def _canonicalize_recorded_topo_delta(
             str(role.metadata.get("coverage", "complete")) == "complete"
             and str(role.metadata.get("status", "proven")) == "proven"
         )
+        resolved_ref = resolve(role.ref, source=False, required=complete)
+        resolved_parents = tuple(
+            resolve(ref, source=True, required=complete) for ref in role.parent_refs
+        )
+        if resolved_ref is None or any(ref is None for ref in resolved_parents):
+            continue
         roles.append(
             TopoRoleEntry(
-                ref=resolve(role.ref, source=False, required=complete),
+                ref=resolved_ref,
                 role=role.role,
                 origin_role=role.origin_role,
-                parent_refs=tuple(
-                    resolve(ref, source=True, required=complete)
-                    for ref in role.parent_refs
+                parent_refs=canonical_parents(
+                    ref for ref in resolved_parents if ref is not None
                 ),
                 metadata=dict(role.metadata),
             )
         )
 
+    def resolve_many(refs: Iterable[TopoRef], *, source: bool) -> tuple[TopoRef, ...]:
+        resolved = (resolve(ref, source=source) for ref in refs)
+        return tuple(sorted((ref for ref in resolved if ref is not None), key=ref_key))
+
+    entries.sort(
+        key=lambda entry: (
+            ref_key(entry.ref),
+            entry.event.name,
+            entry.origin_role or "",
+            tuple(ref_key(ref) for ref in entry.parent_refs),
+            json.dumps(entry.metadata, sort_keys=True, separators=(",", ":")),
+        )
+    )
+    roles.sort(
+        key=lambda role: (
+            ref_key(role.ref),
+            role.role,
+            role.origin_role or "",
+            tuple(ref_key(ref) for ref in role.parent_refs),
+            json.dumps(role.metadata, sort_keys=True, separators=(",", ":")),
+        )
+    )
+
+    def event_refs(event: TopoEvent) -> tuple[TopoRef, ...]:
+        if not entries:
+            source = event == TopoEvent.DELETED
+            legacy = {
+                TopoEvent.PRESERVED: delta.preserved,
+                TopoEvent.MODIFIED: delta.modified,
+                TopoEvent.GENERATED: delta.generated,
+                TopoEvent.DELETED: delta.deleted,
+            }[event]
+            return resolve_many(legacy, source=source)
+        return tuple(
+            sorted(
+                {entry.ref for entry in entries if entry.event == event},
+                key=ref_key,
+            )
+        )
+
     return TopoDelta(
-        preserved=tuple(resolve(ref, source=False) for ref in delta.preserved),
-        modified=tuple(resolve(ref, source=False) for ref in delta.modified),
-        generated=tuple(resolve(ref, source=False) for ref in delta.generated),
-        deleted=tuple(resolve(ref, source=True) for ref in delta.deleted),
-        section_edges=tuple(resolve(ref, source=False) for ref in delta.section_edges),
+        preserved=event_refs(TopoEvent.PRESERVED),
+        modified=event_refs(TopoEvent.MODIFIED),
+        generated=event_refs(TopoEvent.GENERATED),
+        deleted=event_refs(TopoEvent.DELETED),
+        section_edges=resolve_many(delta.section_edges, source=False),
         entries=tuple(entries),
         roles=tuple(roles),
         raw_event=dict(delta.raw_event),
@@ -1019,7 +1068,7 @@ def record_operation_if_active(
     input_list = list(input_shapes or ())
     _validate_input_graph_ownership(input_list, session)
     input_nodes = _extract_input_nodes(input_list)
-    node_id = f"node_{uuid.uuid4().hex[:8]}"
+    node_id = session.graph.allocate_node_id()
     canonical_topo_delta = _canonicalize_recorded_topo_delta(
         topo_delta,
         graph_id=session.graph.graph_id,
@@ -1038,11 +1087,7 @@ def record_operation_if_active(
         topo_delta=canonical_topo_delta,
         context=context or _current_context_snapshot(),
         tags=tags,
-        source=(
-            source
-            if source is not None
-            else capture_source_provenance()
-        ),
+        source=(source if source is not None else capture_source_provenance()),
     )
 
     _register_current_frame(session, node.node_id)
@@ -1109,11 +1154,7 @@ def record_operation(
         topo_delta=topo_delta,
         context=context,
         tags=tags,
-        source=(
-            source
-            if source is not None
-            else capture_source_provenance()
-        ),
+        source=(source if source is not None else capture_source_provenance()),
     )
     _register_current_frame(session, node.node_id)
     return node
