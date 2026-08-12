@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -13,7 +13,14 @@ import numpy as np
 from OCP.BRep import BRep_Tool
 from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
-from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_VERTEX
+from OCP.TopAbs import (
+    TopAbs_COMPOUND,
+    TopAbs_COMPSOLID,
+    TopAbs_EDGE,
+    TopAbs_FACE,
+    TopAbs_SHELL,
+    TopAbs_VERTEX,
+)
 from OCP.TopExp import TopExp, TopExp_Explorer
 from OCP.TopTools import TopTools_IndexedMapOfShape, TopTools_ListOfShape
 from OCP.TopoDS import TopoDS, TopoDS_Shape
@@ -36,6 +43,7 @@ class BRepComparison:
     candidate_graph_nodes_edges: tuple[int, int]
     geometric_tolerance: float
     boolean_volume_tolerance: float
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
     @property
     def hard_gate_passed(self) -> bool:
@@ -53,6 +61,27 @@ class BRepComparison:
         output = Path(path)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(self.to_dict(), indent=indent), encoding="utf-8")
+        return output
+
+    def to_error_summary(self) -> dict[str, Any]:
+        """Return all comparison errors grouped by plausible common root cause."""
+        from .diagnostic_state import build_diagnostic_state
+
+        return build_diagnostic_state(self)
+
+    def write_error_summary_json(
+        self,
+        path: str | Path,
+        *,
+        indent: int = 2,
+    ) -> Path:
+        """Write full grouped diagnostics without changing acceptance."""
+        output = Path(path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps(self.to_error_summary(), indent=indent),
+            encoding="utf-8",
+        )
         return output
 
 
@@ -400,6 +429,56 @@ def _shape_volume(shape: TopoDS_Shape, description: str) -> float:
     return volume
 
 
+def _subshape_count(shape: TopoDS_Shape, kind: Any) -> int:
+    mapping = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(shape, kind, mapping)
+    return mapping.Extent()
+
+
+def _comparison_summary(shape: TopoDS_Shape) -> dict[str, Any]:
+    from .model import index_shape_rbrepmodel
+
+    model = index_shape_rbrepmodel(shape)
+    summary = model.summary()
+    return {
+        "valid": summary["valid"],
+        "counts": {
+            "compound": _subshape_count(shape, TopAbs_COMPOUND),
+            "compsolid": _subshape_count(shape, TopAbs_COMPSOLID),
+            "solid": summary["body_count"],
+            "shell": _subshape_count(shape, TopAbs_SHELL),
+            "face": summary["face_count"],
+            "edge": summary["edge_count"],
+            "vertex": summary["vertex_count"],
+        },
+        "bounding_box": summary["bounding_box"],
+        "surface_types": summary["surface_type_statistics"],
+        "curve_types": summary["curve_type_statistics"],
+        "face_edge_topology": [
+            {
+                "face_id": f"face:{index}",
+                "edge_ids": model.adjacency_details(f"face:{index}")["edges"],
+            }
+            for index in range(len(model.faces))
+        ],
+    }
+
+
+def _numeric_delta(target: Any, candidate: Any) -> Any:
+    if isinstance(target, dict) and isinstance(candidate, dict):
+        keys = sorted(set(target) | set(candidate))
+        return {
+            key: _numeric_delta(target.get(key, 0), candidate.get(key, 0))
+            for key in keys
+        }
+    if isinstance(target, list) and isinstance(candidate, list):
+        return [
+            float(candidate_value) - float(target_value)
+            for target_value, candidate_value in zip(target, candidate)
+        ]
+    return float(candidate) - float(target)
+
+
 def _material_operand(shape: TopoDS_Shape, description: str) -> TopoDS_Shape:
     from .model import index_shape_rbrepmodel
 
@@ -441,6 +520,8 @@ def compare_shapes_rbrepcomparison(
             )
     target_graph = _incidence_graph(target, geometric_tolerance)
     candidate_graph = _incidence_graph(candidate, geometric_tolerance)
+    target_summary = _comparison_summary(target)
+    candidate_summary = _comparison_summary(candidate)
     target_material = _material_operand(target, "Target BREP")
     candidate_material = _material_operand(candidate, "Candidate BREP")
     target_minus_candidate = _cut_volume(
@@ -481,6 +562,67 @@ def compare_shapes_rbrepcomparison(
         boolean_volume_tolerance,
         max(target_volume, candidate_volume, 1.0) * 1.0e-12,
     )
+    topology_isomorphic = _labelled_graph_isomorphic(
+        target_graph,
+        candidate_graph,
+    )
+    bounding_box_delta = _numeric_delta(
+        target_summary["bounding_box"],
+        candidate_summary["bounding_box"],
+    )
+    bounding_box_equal = all(
+        abs(value) <= geometric_tolerance
+        for key in ("min", "max")
+        for value in bounding_box_delta[key]
+    )
+    topology_counts_equal = target_summary["counts"] == candidate_summary["counts"]
+    diagnostics = {
+        "step_validity": {
+            "target": target_summary["valid"],
+            "candidate": candidate_summary["valid"],
+        },
+        "bounding_box": {
+            "target": target_summary["bounding_box"],
+            "candidate": candidate_summary["bounding_box"],
+            "delta": bounding_box_delta,
+            "equal": bounding_box_equal,
+        },
+        "volume": {
+            "target": target_volume,
+            "candidate": candidate_volume,
+            "delta": candidate_volume - target_volume,
+        },
+        "boolean_difference": {
+            "target_minus_candidate": target_minus_candidate,
+            "candidate_minus_target": candidate_minus_target,
+        },
+        "topology_counts": {
+            "target": target_summary["counts"],
+            "candidate": candidate_summary["counts"],
+            "delta": _numeric_delta(
+                target_summary["counts"],
+                candidate_summary["counts"],
+            ),
+            "equal": topology_counts_equal,
+        },
+        "face_edge_topology": {
+            "target": target_summary["face_edge_topology"],
+            "candidate": candidate_summary["face_edge_topology"],
+            "geometry_labelled_incidence_graph_isomorphic": topology_isomorphic,
+        },
+        "surface_types": {
+            "target": target_summary["surface_types"],
+            "candidate": candidate_summary["surface_types"],
+            "equal": target_summary["surface_types"]
+            == candidate_summary["surface_types"],
+        },
+        "curve_types": {
+            "target": target_summary["curve_types"],
+            "candidate": candidate_summary["curve_types"],
+            "equal": target_summary["curve_types"] == candidate_summary["curve_types"],
+        },
+        "acceptance_standard_changed": False,
+    }
     return BRepComparison(
         target=target_name,
         candidate=candidate_name,
@@ -492,9 +634,7 @@ def compare_shapes_rbrepcomparison(
             and volume_delta < boolean_volume_tolerance
             and volume_balance_error <= volume_balance_tolerance
         ),
-        geometry_labelled_incidence_graph_isomorphic=_labelled_graph_isomorphic(
-            target_graph, candidate_graph
-        ),
+        geometry_labelled_incidence_graph_isomorphic=topology_isomorphic,
         target_graph_nodes_edges=(
             len(target_graph[0]),
             sum(len(neighbors) for neighbors in target_graph[1].values()) // 2,
@@ -505,6 +645,7 @@ def compare_shapes_rbrepcomparison(
         ),
         geometric_tolerance=geometric_tolerance,
         boolean_volume_tolerance=boolean_volume_tolerance,
+        diagnostics=diagnostics,
     )
 
 
