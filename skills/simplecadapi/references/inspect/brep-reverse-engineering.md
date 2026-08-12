@@ -41,6 +41,17 @@ evaluation = brep.evaluate_reconstruction_rdescriptor(
     current="candidate.step",
     replay_succeeded=True,
 )
+fit = brep.fit_face_analytic_rdescriptor(
+    model_or_path="part.step",
+    face_id="face:0",
+    tolerance=1.0e-3,
+)
+tracks = brep.track_section_contours_rdescriptor(sections=[section_a, section_b])
+image = brep.render_step_comparison_rpath(
+    target_step_path="target.step",
+    current_step_path="candidate.step",
+    output_path="comparison.png",
+)
 ```
 
 `inspect_step_rsummary` returns entity counts, bounding box, material
@@ -104,11 +115,14 @@ case-by-case inspection code for the model:
 | Single face/edge parameters and adjacency | `inspect_step_entity_rdescriptor`, `inspect_topology_neighborhood_rdescriptor` |
 | Map stable geometry IDs to visual entities | `render_entity_map_rpath` (opaque depth-preserving context with type-specific edge/face/point marks, distinct colors, and anchored `entity_id · geometry.type` callouts) |
 | Section profile, wall thickness, or local cut | `inspect_section_rdescriptor`, `compare_sections_rdescriptor` |
+| Test whether a face has an analytic carrier | `fit_face_analytic_rdescriptor` (require `accepted=True` and inspect residuals) |
+| Track contour topology across ordered sections | `track_section_contours_rdescriptor` |
 | Assembly tree and interface visualization | `inspect_step_components_rdescriptorlist`, `render_step_components_rpath` |
 | Side-by-side multi-part observation | `render_step_components_colored_rpath` (direct `{component name: color name}` mapping, highlights multiple solids at once, with legend) |
 | Where the difference is | `compare_material_rdescriptor`, `inspect_difference_regions_rdescriptor` |
 | Local geometric error | `compare_boundary_distance_rdescriptor`, `compare_entities_rdescriptor` |
 | Final exact-BREP gate | `compare_shapes_rbrepcomparison`, `compare_steps_rbrepcomparison` |
+| Shared-scale visual comparison | `render_step_comparison_rpath` |
 
 Start from cheap, bounded facts; add boundary sampling, boolean difference,
 sections, rendering, or strict topology comparison only when the current
@@ -145,6 +159,18 @@ connectivity, nesting, and area computation, but returns only endpoints/exact
 lengths of each section edge plus a contour summary. Set
 `connection_tolerance` explicitly when section endpoints have tiny gaps;
 section-local edge indexes are not stable IDs across models.
+
+Use `fit_face_analytic_rdescriptor(...)` when an imported face may be supported
+by a plane, sphere, cylinder, or cone. Keep the candidate type, parameters,
+residuals, and tolerance as evidence; do not treat the fit as recovered feature
+history. Use `track_section_contours_rdescriptor(...)` on ordered section
+results before selecting a loft strategy. Birth, death, split, or merge events
+after the initial section make one global loft unsafe.
+
+Use `render_step_comparison_rpath(...)` for final visual comparison. It locks
+both models to the union of their bounds so independent camera fitting cannot
+hide size or placement differences. The rendered image remains diagnostic and
+does not replace the strict BREP gate.
 
 `compare_material_rdescriptor(..., include_components=False)` does a fast
 volume estimate with a single intersection; subtracting a common volume can

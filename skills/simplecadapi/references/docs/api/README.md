@@ -206,6 +206,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [compare_step_to_inspection_rentityinspectionparity](compare_step_to_inspection_rentityinspectionparity.md) *(from inspect/brep/parity.py)* `inspection namespace`
 - [compare_steps_rbrepcomparison](compare_steps_rbrepcomparison.md) *(from inspect/brep/compare.py)* `inspection namespace`
 - [evaluate_reconstruction_rdescriptor](evaluate_reconstruction_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
+- [fit_face_analytic_rdescriptor](fit_face_analytic_rdescriptor.md) *(from inspect/brep/fitting.py)* `inspection namespace`
 - [index_shape_rbrepmodel](index_shape_rbrepmodel.md) *(from inspect/brep/model.py)* `inspection namespace`
 - [inspect_difference_regions_rdescriptor](inspect_difference_regions_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
 - [inspect_face_boundaries_rdescriptor](inspect_face_boundaries_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
@@ -229,8 +230,10 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [render_shape_views_rpath](render_shape_views_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_components_colored_rpath](render_step_components_colored_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_components_rpath](render_step_components_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [render_step_comparison_rpath](render_step_comparison_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_views_rpath](render_step_views_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [select_region_entities_rdescriptor](select_region_entities_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
+- [track_section_contours_rdescriptor](track_section_contours_rdescriptor.md) *(from inspect/brep/section_tracking.py)* `inspection namespace`
 
 ## Other
 
