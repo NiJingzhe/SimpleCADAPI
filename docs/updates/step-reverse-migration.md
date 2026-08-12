@@ -27,3 +27,24 @@ comparison, topology fingerprint, or public-export-only changes were included.
 Updated the bundled `simplecadapi` Skill with selection rules, reverse-
 engineering usage guidance, API index entries, and exact reference pages for
 the three inspection APIs.
+
+## 2. Grouped STEP/BREP Comparison Diagnostics
+
+Extended `BRepComparison` with structured diagnostic facts for STEP validity,
+bounding boxes, material volume and bidirectional Boolean difference,
+topology counts, Face-Edge topology, and surface/curve carrier types. The
+strict geometric and topology hard gate remains unchanged.
+
+Added `to_error_summary()` and `write_error_summary_json(...)` to report every
+failed comparison check instead of stopping at one reason. Each error includes
+its code, expected and actual values, plausible causes, affected modeling
+stages, and severity. Related errors are grouped by a plausible common root
+cause, with an iteration policy that permits coordinated fixes within one
+group before rerunning Direct modeling, strict replay, STEP export, and the
+complete comparison.
+
+Added regression coverage for successful comparisons, simultaneous material
+and placement failures, common-root-cause grouping, iteration-policy output,
+and JSON artifact writing. Updated the bundled `simplecadapi` Skill API pages
+and reverse-engineering guidance for the new comparison diagnostics and error
+summary workflow.

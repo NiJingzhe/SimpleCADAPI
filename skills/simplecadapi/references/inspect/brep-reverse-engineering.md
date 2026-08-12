@@ -172,6 +172,13 @@ both models to the union of their bounds so independent camera fitting cannot
 hide size or placement differences. The rendered image remains diagnostic and
 does not replace the strict BREP gate.
 
+After `compare_steps_rbrepcomparison(...)`, use
+`comparison.to_error_summary()` to collect every failed validity, bounds,
+material, topology, and carrier-type check. Errors are grouped by plausible
+common root cause. One iteration may change multiple related operations or
+code locations in a group, but must then rerun Direct modeling, strict replay,
+STEP export, and the complete comparison.
+
 `compare_material_rdescriptor(..., include_components=False)` does a fast
 volume estimate with a single intersection; subtracting a common volume can
 lose a small residual on large-scale models and cannot by itself prove strict
