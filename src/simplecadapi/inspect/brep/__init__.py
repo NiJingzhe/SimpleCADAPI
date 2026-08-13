@@ -28,6 +28,8 @@ from .inspect import (
     inspect_step_rbrepinspection,
 )
 from .io import load_step_rshape
+from .fitting import fit_face_analytic_rdescriptor
+from .section_tracking import track_section_contours_rdescriptor
 from .model import (
     BRepEntityError,
     BRepModel,
@@ -59,6 +61,7 @@ from .render import (
     render_shape_views_rpath,
     render_step_components_colored_rpath,
     render_step_components_rpath,
+    render_step_comparison_rpath,
     render_step_views_rpath,
 )
 from .slices import (
@@ -95,6 +98,7 @@ __all__ = [
     "compare_step_to_inspection_rentityinspectionparity",
     "compare_steps_rbrepcomparison",
     "evaluate_reconstruction_rdescriptor",
+    "fit_face_analytic_rdescriptor",
     "index_shape_rbrepmodel",
     "inspect_difference_regions_rdescriptor",
     "inspect_face_boundaries_rdescriptor",
@@ -110,12 +114,14 @@ __all__ = [
     "load_step_rbrepmodel",
     "load_step_rshape",
     "make_center_slice_specs_rslicespeclist",
+    "track_section_contours_rdescriptor",
     "render_entity_kind_maps_rpath",
     "render_entity_map_rpath",
     "render_region_rpath",
     "render_shape_views_rpath",
     "render_step_components_colored_rpath",
     "render_step_components_rpath",
+    "render_step_comparison_rpath",
     "render_step_views_rpath",
     "select_region_entities_rdescriptor",
 ]

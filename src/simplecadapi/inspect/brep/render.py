@@ -743,8 +743,14 @@ def _add_geometry_callouts(
     return resources
 
 
-def _set_camera(renderer, elevation: float, azimuth: float) -> None:
-    bounds = renderer.ComputeVisiblePropBounds()
+def _set_camera(
+    renderer,
+    elevation: float,
+    azimuth: float,
+    bounds: Sequence[float] | None = None,
+) -> None:
+    shared_bounds = bounds
+    bounds = renderer.ComputeVisiblePropBounds() if shared_bounds is None else shared_bounds
     center = np.asarray(
         [
             (bounds[0] + bounds[1]) * 0.5,
@@ -773,7 +779,10 @@ def _set_camera(renderer, elevation: float, azimuth: float) -> None:
         camera.SetViewUp(0.0, 1.0, 0.0)
     else:
         camera.SetViewUp(0.0, 0.0, 1.0)
-    renderer.ResetCamera()
+    if shared_bounds is None:
+        renderer.ResetCamera()
+    else:
+        renderer.ResetCamera(*[float(value) for value in bounds])
     camera.Zoom(0.92)
     renderer.ResetCameraClippingRange()
 
@@ -1552,6 +1561,100 @@ def render_step_views_rpath(
             else None
         ),
     )
+
+
+def render_step_comparison_rpath(
+    target_step_path: str | Path,
+    current_step_path: str | Path,
+    output_path: str | Path,
+    *,
+    views: Sequence[tuple[float, float, str]] = DEFAULT_VIEWS,
+    image_size: tuple[float, float] = (16.0, 20.0),
+    dpi: int = 160,
+    linear_deflection: float = 0.12,
+    angular_deflection: float = 0.18,
+    show_brep_edges: bool = True,
+) -> Path:
+    """Render target and current STEP models with identical cameras and scale."""
+    if not views:
+        raise ValueError("at least one render view is required")
+    if dpi < 1 or image_size[0] <= 0.0 or image_size[1] <= 0.0:
+        raise ValueError("image size and DPI must be greater than zero")
+    target_path = Path(target_step_path)
+    current_path = Path(current_step_path)
+    target_shape = load_step_rshape(target_path)
+    current_shape = load_step_rshape(current_path)
+    target_polydata = _mesh_polydata(
+        [target_shape], linear_deflection, angular_deflection
+    )
+    current_polydata = _mesh_polydata(
+        [current_shape], linear_deflection, angular_deflection
+    )
+    target_edges = (
+        _edge_polydata([target_shape], deflection=linear_deflection)
+        if show_brep_edges
+        else None
+    )
+    current_edges = (
+        _edge_polydata([current_shape], deflection=linear_deflection)
+        if show_brep_edges
+        else None
+    )
+
+    target_box = load_step_rbrepmodel(target_path).summary()["bounding_box"]
+    current_box = load_step_rbrepmodel(current_path).summary()["bounding_box"]
+    minimum = np.minimum(target_box["min"], current_box["min"])
+    maximum = np.maximum(target_box["max"], current_box["max"])
+    shared_bounds = (
+        float(minimum[0]),
+        float(maximum[0]),
+        float(minimum[1]),
+        float(maximum[1]),
+        float(minimum[2]),
+        float(maximum[2]),
+    )
+
+    width = max(1, int(round(image_size[0] * dpi)))
+    height = max(1, int(round(image_size[1] * dpi)))
+    rows = len(views)
+    columns = 2
+    window = _offscreen_window(width, height)
+    vtk, _, _ = _vtk_modules()
+    models = (
+        ("Original", target_path.name, target_polydata, target_edges),
+        ("Reconstructed", current_path.name, current_polydata, current_edges),
+    )
+    for row, (elevation, azimuth, view_title) in enumerate(views):
+        for column, (model_title, filename, polydata, edge_data) in enumerate(models):
+            left = column / columns
+            right = (column + 1) / columns
+            top = 1.0 - row / rows
+            bottom = 1.0 - (row + 1) / rows
+            renderer = vtk.vtkRenderer()
+            renderer.SetViewport(left, bottom, right, top)
+            renderer.GradientBackgroundOn()
+            renderer.SetBackground(0.94, 0.96, 0.98)
+            renderer.SetBackground2(0.78, 0.84, 0.90)
+            renderer.SetUseFXAA(True)
+            renderer.AddActor(_surface_actor(polydata, (0.55, 0.64, 0.73), 1.0))
+            if edge_data is not None:
+                renderer.AddActor(_line_actor(edge_data, (0.16, 0.21, 0.27), 1.0))
+            label = vtk.vtkTextActor()
+            label.SetInput(f"{model_title}: {filename}\n{view_title}")
+            label.SetPosition(14, 12)
+            text = label.GetTextProperty()
+            text.SetColor(0.08, 0.11, 0.15)
+            text.SetFontSize(max(13, min(width // columns, height // rows) // 34))
+            text.SetBold(True)
+            renderer.AddViewProp(label)
+            window.AddRenderer(renderer)
+            _set_camera(renderer, elevation, azimuth, shared_bounds)
+
+    window.Render()
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _write_window(window, output)
+    return output
 
 
 def render_region_rpath(
