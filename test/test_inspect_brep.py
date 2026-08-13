@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
@@ -420,6 +421,43 @@ def test_compare_same_shape_passes_geometry_and_topology():
     assert comparison.hard_gate_passed is True
     assert comparison.target_minus_candidate_volume == 0.0
     assert comparison.candidate_minus_target_volume == 0.0
+    assert comparison.diagnostics["step_validity"] == {
+        "target": True,
+        "candidate": True,
+    }
+    assert comparison.diagnostics["bounding_box"]["equal"] is True
+    assert comparison.diagnostics["topology_counts"]["equal"] is True
+    assert comparison.diagnostics["surface_types"]["equal"] is True
+    assert comparison.diagnostics["curve_types"]["equal"] is True
+    assert comparison.diagnostics["acceptance_standard_changed"] is False
+    diagnostic_state = comparison.to_error_summary()
+    assert diagnostic_state["errors"] == []
+    assert diagnostic_state["root_cause_groups"] == []
+
+
+def test_comparison_error_summary_reports_all_errors_by_common_cause():
+    target = _box().wrapped
+    transform = gp_Trsf()
+    transform.SetTranslation(gp_Vec(1.0, 0.0, 0.0))
+    candidate = BRepBuilderAPI_Transform(target, transform, True).Shape()
+    comparison = brep.compare_shapes_rbrepcomparison(target, candidate)
+    diagnostic_state = comparison.to_error_summary()
+
+    codes = [error["code"] for error in diagnostic_state["errors"]]
+    assert "bounding_box_mismatch" in codes
+    assert "material_point_set_mismatch" in codes
+    assert len(diagnostic_state["errors"]) > 1
+    assert any(
+        group["group_id"] == "root_cause.datum_scale_placement"
+        for group in diagnostic_state["root_cause_groups"]
+    )
+    assert diagnostic_state["iteration_policy"] == {
+        "all_errors_reported": True,
+        "group_by_common_root_cause": True,
+        "single_error_only": False,
+        "single_code_change_only": False,
+        "fresh_direct_replay_export_compare_required": True,
+    }
 
 
 def test_compare_normalizes_duplicate_solid_material():
@@ -609,10 +647,20 @@ def test_step_round_trip_uses_public_inspection_namespace(tmp_path: Path):
         candidate_path=step,
     )
     summary = brep.inspect_step_rsummary(path=step)
+    comparison_path = comparison.write_json(tmp_path / "comparison.json")
+    error_summary_path = comparison.write_error_summary_json(
+        tmp_path / "error_summary.json"
+    )
 
     assert report.counts["unique_faces"] == 6
     assert comparison.hard_gate_passed is True
     assert summary["volume"] == pytest.approx(24.0)
+    assert json.loads(comparison_path.read_text(encoding="utf-8"))["diagnostics"][
+        "topology_counts"
+    ]["equal"] is True
+    diagnostic_state = json.loads(error_summary_path.read_text(encoding="utf-8"))
+    assert diagnostic_state["errors"] == []
+    assert diagnostic_state["root_cause_groups"] == []
 
 
 def test_step_model_helpers_cache_and_return_stable_ids(tmp_path: Path):
