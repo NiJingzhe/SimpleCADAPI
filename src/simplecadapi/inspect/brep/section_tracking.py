@@ -109,7 +109,8 @@ def track_section_contours_rdescriptor(
     """Track contours across ordered stations without forcing one global loft.
 
     The output distinguishes continuation, birth, death, split and merge
-    events. It is hypothesis evidence and must not be copied into the raw BREP
+    events. Its summary reports whether topology changes make one global loft
+    unsafe. It is hypothesis evidence and must not be copied into the raw BREP
     summary.
     """
     if len(sections) < 2:

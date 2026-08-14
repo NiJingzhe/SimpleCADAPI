@@ -198,7 +198,9 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [compare_global_properties_rdescriptor](compare_global_properties_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
 - [compare_inspections_rinspectionsummarycomparison](compare_inspections_rinspectionsummarycomparison.md) *(from inspect/brep/compare.py)* `inspection namespace`
 - [compare_material_rdescriptor](compare_material_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
+- [compare_material_region_rdescriptor](compare_material_region_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
 - [compare_model_to_inspection_rentityinspectionparity](compare_model_to_inspection_rentityinspectionparity.md) *(from inspect/brep/parity.py)* `inspection namespace`
+- [compare_sections_batch_rdescriptor](compare_sections_batch_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
 - [compare_sections_rdescriptor](compare_sections_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
 - [compare_shape_slices_rslicecomparison](compare_shape_slices_rslicecomparison.md) *(from inspect/brep/slices.py)* `inspection namespace`
 - [compare_shapes_rbrepcomparison](compare_shapes_rbrepcomparison.md) *(from inspect/brep/compare.py)* `inspection namespace`
@@ -219,6 +221,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [inspect_step_rbrepinspection](inspect_step_rbrepinspection.md) *(from inspect/brep/inspect.py)* `inspection namespace`
 - [inspect_step_rsummary](inspect_step_rsummary.md) *(from inspect/brep/model.py)* `inspection namespace`
 - [inspect_topology_neighborhood_rdescriptor](inspect_topology_neighborhood_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
+- [inspect_topology_rdescriptor](inspect_topology_rdescriptor.md) *(from inspect/brep/topology_inspection.py)* `inspection namespace`
 - [load_step_rbrepmodel](load_step_rbrepmodel.md) *(from inspect/brep/model.py)* `inspection namespace`
 - [load_step_rshape](load_step_rshape.md) *(from inspect/brep/io.py)* `inspection namespace`
 - [make_center_slice_specs_rslicespeclist](make_center_slice_specs_rslicespeclist.md) *(from inspect/brep/slices.py)* `inspection namespace`
@@ -228,12 +231,13 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [render_entity_map_rpath](render_entity_map_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_region_rpath](render_region_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_shape_views_rpath](render_shape_views_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [render_step_comparison_rpath](render_step_comparison_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_components_colored_rpath](render_step_components_colored_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_components_rpath](render_step_components_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
-- [render_step_comparison_rpath](render_step_comparison_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_views_rpath](render_step_views_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [select_region_entities_rdescriptor](select_region_entities_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
 - [track_section_contours_rdescriptor](track_section_contours_rdescriptor.md) *(from inspect/brep/section_tracking.py)* `inspection namespace`
+- [validate_step_roundtrip_rdescriptor](validate_step_roundtrip_rdescriptor.md) *(from inspect/brep/persistence.py)* `inspection namespace`
 
 ## Other
 

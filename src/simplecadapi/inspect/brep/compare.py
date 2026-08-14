@@ -31,7 +31,12 @@ from .io import load_step_rshape, measure_shape_mass_rtuple
 
 @dataclass(frozen=True)
 class BRepComparison:
-    """Hard-gate comparison facts for two solid BREPs."""
+    """Hard-gate comparison facts for two solid BREPs.
+
+    ``diagnostics`` records validity, bounds, material, topology, and carrier
+    evidence. Use ``to_error_summary()`` to group every failed check by a
+    plausible common root cause without changing the strict hard gate.
+    """
 
     target: str | None
     candidate: str | None
@@ -654,7 +659,13 @@ def compare_steps_rbrepcomparison(
     candidate_path: str | Path,
     **kwargs,
 ) -> BRepComparison:
-    """Load two STEP files and run the strict BREP comparison."""
+    """Load two STEP files and run the strict BREP comparison.
+
+    The returned comparison includes validity, bounds, material, topology, and
+    carrier diagnostics. Use ``to_error_summary()`` or
+    ``write_error_summary_json(...)`` to report all failures by plausible
+    common root cause.
+    """
     target_source = Path(target_path)
     candidate_source = Path(candidate_path)
     return compare_shapes_rbrepcomparison(
