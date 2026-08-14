@@ -26,6 +26,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_cone_rsolid](make_cone_rsolid.md) *(from operations.py)* `top-level`
 - [make_connector_ref_rconnectorref](make_connector_ref_rconnectorref.md) *(from operations.py)* `top-level`
 - [make_cylinder_rsolid](make_cylinder_rsolid.md) *(from operations.py)* `top-level`
+- [make_cylindrical_surface_rface](make_cylindrical_surface_rface.md) *(from operations.py)* `top-level`
 - [make_edge_connector_rconnector](make_edge_connector_rconnector.md) *(from operations.py)* `top-level`
 - [make_face_connector_rconnector](make_face_connector_rconnector.md) *(from operations.py)* `top-level`
 - [make_face_from_sketch_rface](make_face_from_sketch_rface.md) *(from operations.py)* `top-level`
@@ -51,6 +52,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_segment_redge](make_segment_redge.md) *(from operations.py)* `top-level`
 - [make_segment_rwire](make_segment_rwire.md) *(from operations.py)* `top-level`
 - [make_sketch_rsketch](make_sketch_rsketch.md) *(from operations.py)* `top-level`
+- [make_solid_from_shell_rsolid](make_solid_from_shell_rsolid.md) *(from operations.py)* `top-level`
 - [make_sphere_rsolid](make_sphere_rsolid.md) *(from operations.py)* `top-level`
 - [make_spline_redge](make_spline_redge.md) *(from operations.py)* `top-level`
 - [make_spline_rwire](make_spline_rwire.md) *(from operations.py)* `top-level`
@@ -326,6 +328,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [source_binding](source_binding.md) *(from ql.py)* `submodule:ql`
 - [source_topology](source_topology.md) *(from ql.py)* `submodule:ql`
 - [tag](tag.md) *(from ql.py)* `submodule:ql`
+- [trim_surface_rface](trim_surface_rface.md) *(from operations.py)* `top-level`
 - [twisted_sweep_rsolid](twisted_sweep_rsolid.md) *(from operations.py)* `top-level`
 - [unground_component_rassembly](unground_component_rassembly.md) *(from operations.py)* `top-level`
 - [value](value.md) *(from ql.py)* `submodule:ql`
