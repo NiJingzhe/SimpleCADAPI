@@ -558,6 +558,10 @@ class SkillPackager:
             19. Use `simplecadapi.inspect.brep` only outside `GraphSession` and `@model`; inspection functions are diagnostic tools, not modeling operations.
             20. Reverse engineering is case-by-case: use the built-in inspection primitives as tools, write model-specific inspection code only when needed, and take controlled-run acceptance/classification rules from the reconstruction test contract rather than restating them here.
 {guide_requirement}
+            22. Use `fit_face_analytic_rdescriptor(...)` to test whether a sampled face is supported by a plane, sphere, cylinder, or cone. Treat `accepted=True` and the reported residuals as geometric evidence, not as recovered feature history.
+            23. Use `track_section_contours_rdescriptor(...)` to preserve contour continuation, birth, death, split, and merge events across ordered sections. Do not force a topology-changing sequence into one global loft.
+            24. Use `render_step_comparison_rpath(...)` for Original-vs-Reconstructed visual evidence so both STEP models share views, camera bounds, and scale. Visual similarity does not replace strict BREP comparison.
+            25. After strict STEP/BREP comparison, use `BRepComparison.to_error_summary()` to inspect every failed check grouped by plausible common root cause. Related fixes may be applied together, followed by a fresh Direct/replay/export/compare cycle.
 
             ## Coding Standard (MUST)
             This file/parameter standard applies to every modeling task. It is mandatory; deviation requires explicit user approval.
