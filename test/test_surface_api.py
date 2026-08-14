@@ -195,6 +195,17 @@ class TestSurfaceApi(unittest.TestCase):
 
         replayed = scad.replay_model_json(scad.export_model_json(session))[0]
         self.assertAlmostEqual(replayed.get_area(), trimmed.get_area(), places=7)
+        for result in (trimmed, replayed):
+            self.assertEqual(
+                sorted(witness.binding.tag for witness in result._tag_lineage),
+                ["role.trim_carrier", "role.trim_outer"],
+            )
+            self.assertTrue(
+                all(witness.coverage == "partial" for witness in result._tag_lineage)
+            )
+            self.assertEqual(
+                result._get_runtime("semantic.lineage.coverage"), "partial"
+            )
 
     def test_solid_from_shell_rejects_open_shell(self):
         face = scad.make_bezier_surface_rface(
