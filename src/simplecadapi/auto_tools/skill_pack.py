@@ -427,7 +427,7 @@ class SkillPackager:
 
     def _validate_generated_skill(self) -> None:
         self.log("Validating generated skill...")
-        required = (
+        required = [
             self.skill_root / "SKILL.md",
             self.references_dir / "SDK_OVERVIEW.md",
             self.references_dir / "SDK_SURFACES.md",
@@ -438,7 +438,16 @@ class SkillPackager:
             self.docs_dir / "api" / "README.md",
             self.docs_dir / "core" / "README.md",
             self.docs_dir / "stdlib" / "README.md",
-        )
+        ]
+        if self._has_reconstruction_guides():
+            required.extend(
+                (
+                    self.docs_dir
+                    / "guides"
+                    / "reconstruction-agent-test-prompt.md",
+                    self.docs_dir / "guides" / "reconstruction-agent-strategy.md",
+                )
+            )
 
         for path in required:
             if not path.exists():
@@ -469,6 +478,29 @@ class SkillPackager:
 
     def _build_skill_markdown(self) -> str:
         package_spec = self._package_spec()
+        guide_paths = ""
+        guide_requirement = ""
+        guide_references = ""
+        if self._has_reconstruction_guides():
+            guide_paths = (
+                "              - `<skill_root>/references/docs/guides/"
+                "reconstruction-agent-test-prompt.md`\n"
+                "              - `<skill_root>/references/docs/guides/"
+                "reconstruction-agent-strategy.md`"
+            )
+            guide_requirement = (
+                "            21. For controlled reconstruction tests, use "
+                "`references/docs/guides/reconstruction-agent-test-prompt.md` "
+                "as the packaged contract copy and `references/docs/guides/"
+                "reconstruction-agent-strategy.md` only for advisory tactics; "
+                "the source-checkout contract is authoritative when available."
+            )
+            guide_references = (
+                "            - `references/docs/guides/"
+                "reconstruction-agent-test-prompt.md`\n"
+                "            - `references/docs/guides/"
+                "reconstruction-agent-strategy.md`"
+            )
         body = textwrap.dedent(
             f"""\
             ---
@@ -502,6 +534,7 @@ class SkillPackager:
               - `<skill_root>/references/SDK_SURFACES.md`
               - `<skill_root>/references/MODELING_WORKFLOWS.md`
               - `<skill_root>/references/inspect/brep-reverse-engineering.md`
+{guide_paths}
 
             ## MUST Requirements
             1. Read `SKILL.md`, `references/docs/api/README.md`, and `references/docs/stdlib/README.md` before choosing APIs.
@@ -523,11 +556,8 @@ class SkillPackager:
             17. If a task depends on model replay or interchange, prefer `ModelResult.model_json` or `export_model_json()` output over hand-written payloads.
             18. For STEP/BREP inspection or target/candidate comparison, read `references/inspect/brep-reverse-engineering.md` completely.
             19. Use `simplecadapi.inspect.brep` only outside `GraphSession` and `@model`; inspection functions are diagnostic tools, not modeling operations.
-            20. Reverse engineering is case-by-case: the built-in inspection primitives are tools, not a pipeline — write ad hoc inspection code for the specific model when built-ins do not answer the question. Acceptance hierarchy: BREP topology identity is the best endpoint (complete reverse engineering); identical structure with minor float-level parameter drift from export is acceptable; a visually-close but structurally different result is a valid stop only when no better feature operation order/combination exists or the SDK lacks the required operation type.
-            21. Use `fit_face_analytic_rdescriptor(...)` to test whether a sampled face is supported by a plane, sphere, cylinder, or cone. Treat `accepted=True` and the reported residuals as geometric evidence, not as recovered feature history.
-            22. Use `track_section_contours_rdescriptor(...)` to preserve contour continuation, birth, death, split, and merge events across ordered sections. Do not force a topology-changing sequence into one global loft.
-            23. Use `render_step_comparison_rpath(...)` for Original-vs-Reconstructed visual evidence so both STEP models share views, camera bounds, and scale. Visual similarity does not replace strict BREP comparison.
-            24. After strict STEP/BREP comparison, use `BRepComparison.to_error_summary()` to inspect every failed check grouped by plausible common root cause. Related fixes may be applied together, followed by a fresh Direct/replay/export/compare cycle.
+            20. Reverse engineering is case-by-case: use the built-in inspection primitives as tools, write model-specific inspection code only when needed, and take controlled-run acceptance/classification rules from the reconstruction test contract rather than restating them here.
+{guide_requirement}
 
             ## Coding Standard (MUST)
             This file/parameter standard applies to every modeling task. It is mandatory; deviation requires explicit user approval.
@@ -615,6 +645,7 @@ class SkillPackager:
             - `references/SDK_SURFACES.md`
             - `references/MODELING_WORKFLOWS.md`
             - `references/inspect/brep-reverse-engineering.md`
+{guide_references}
             - `references/SDK_PACKAGE_SUMMARY.md`
             - `references/docs/api/`
             - `references/docs/stdlib/`
@@ -622,6 +653,16 @@ class SkillPackager:
             """
         )
         return body.rstrip() + "\n"
+
+    def _has_reconstruction_guides(self) -> bool:
+        guides = self.source_docs / "guides"
+        return all(
+            (guides / name).is_file()
+            for name in (
+                "reconstruction-agent-test-prompt.md",
+                "reconstruction-agent-strategy.md",
+            )
+        )
 
     def _build_project_overview(self) -> str:
         package_spec = self._package_spec()

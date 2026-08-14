@@ -4,9 +4,9 @@ description: Thin SimpleCAD SDK reference skill focused on the public API surfac
 license: AGPL-3.0
 metadata:
   project: simplecadapi
-  version: 2.0.4b2
+  version: 2.0.4b1
   package-name: simplecadapi
-  package-version: 2.0.4b2
+  package-version: 2.0.4b1
 ---
 
 # SimpleCAD SDK Skill
@@ -29,6 +29,8 @@ metadata:
   - `<skill_root>/references/SDK_SURFACES.md`
   - `<skill_root>/references/MODELING_WORKFLOWS.md`
   - `<skill_root>/references/inspect/brep-reverse-engineering.md`
+  - `<skill_root>/references/docs/guides/reconstruction-agent-test-prompt.md`
+  - `<skill_root>/references/docs/guides/reconstruction-agent-strategy.md`
 
 ## MUST Requirements
 1. Read `SKILL.md`, `references/docs/api/README.md`, and `references/docs/stdlib/README.md` before choosing APIs.
@@ -50,11 +52,12 @@ metadata:
 17. If a task depends on model replay or interchange, prefer `ModelResult.model_json` or `export_model_json()` output over hand-written payloads.
 18. For STEP/BREP inspection or target/candidate comparison, read `references/inspect/brep-reverse-engineering.md` completely.
 19. Use `simplecadapi.inspect.brep` only outside `GraphSession` and `@model`; inspection functions are diagnostic tools, not modeling operations.
-20. Reverse engineering is case-by-case: the built-in inspection primitives are tools, not a pipeline — write ad hoc inspection code for the specific model when built-ins do not answer the question. Acceptance hierarchy: BREP topology identity is the best endpoint (complete reverse engineering); identical structure with minor float-level parameter drift from export is acceptable; a visually-close but structurally different result is a valid stop only when no better feature operation order/combination exists or the SDK lacks the required operation type.
-21. Use `fit_face_analytic_rdescriptor(...)` to test whether a sampled face is supported by a plane, sphere, cylinder, or cone. Treat `accepted=True` and the reported residuals as geometric evidence, not as recovered feature history.
-22. Use `track_section_contours_rdescriptor(...)` to preserve contour continuation, birth, death, split, and merge events across ordered sections. Do not force a topology-changing sequence into one global loft.
-23. Use `render_step_comparison_rpath(...)` for Original-vs-Reconstructed visual evidence so both STEP models share views, camera bounds, and scale. Visual similarity does not replace strict BREP comparison.
-24. After strict STEP/BREP comparison, use `BRepComparison.to_error_summary()` to inspect every failed check grouped by plausible common root cause. Related fixes may be applied together, followed by a fresh Direct/replay/export/compare cycle.
+20. Reverse engineering is case-by-case: use the built-in inspection primitives as tools, write model-specific inspection code only when needed, and take controlled-run acceptance/classification rules from the reconstruction test contract rather than restating them here.
+21. For controlled reconstruction tests, use `references/docs/guides/reconstruction-agent-test-prompt.md` as the packaged contract copy and `references/docs/guides/reconstruction-agent-strategy.md` only for advisory tactics; the source-checkout contract is authoritative when available.
+22. Use `fit_face_analytic_rdescriptor(...)` to test whether a sampled face is supported by a plane, sphere, cylinder, or cone. Treat `accepted=True` and the reported residuals as geometric evidence, not as recovered feature history.
+23. Use `track_section_contours_rdescriptor(...)` to preserve contour continuation, birth, death, split, and merge events across ordered sections. Do not force a topology-changing sequence into one global loft.
+24. Use `render_step_comparison_rpath(...)` for Original-vs-Reconstructed visual evidence so both STEP models share views, camera bounds, and scale. Visual similarity does not replace strict BREP comparison.
+25. After strict STEP/BREP comparison, use `BRepComparison.to_error_summary()` to inspect every failed check grouped by plausible common root cause. Related fixes may be applied together, followed by a fresh Direct/replay/export/compare cycle.
 
 ## Coding Standard (MUST)
 This file/parameter standard applies to every modeling task. It is mandatory; deviation requires explicit user approval.
@@ -142,6 +145,8 @@ Use the graph/model JSON workflow when the task needs reproducibility, interchan
 - `references/SDK_SURFACES.md`
 - `references/MODELING_WORKFLOWS.md`
 - `references/inspect/brep-reverse-engineering.md`
+- `references/docs/guides/reconstruction-agent-test-prompt.md`
+- `references/docs/guides/reconstruction-agent-strategy.md`
 - `references/SDK_PACKAGE_SUMMARY.md`
 - `references/docs/api/`
 - `references/docs/stdlib/`
