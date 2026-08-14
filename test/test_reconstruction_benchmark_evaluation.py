@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-
 import pytest
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
 
@@ -11,8 +10,8 @@ from simplecadapi.inverse_engineer.brep import evaluation as benchmark_evaluatio
 from simplecadapi.kernel.ocp_export import export_step_shapes
 
 
-def _config(*, target_kind: str = "solid") -> SimpleNamespace:
-    return SimpleNamespace(
+def _config(*, target_kind: str = "solid") -> benchmark_evaluation.EvaluationConfig:
+    return benchmark_evaluation.EvaluationConfig(
         target_kind=target_kind,
         stage_timeout_seconds=30.0,
         material_timeout_seconds=90.0,
@@ -21,14 +20,11 @@ def _config(*, target_kind: str = "solid") -> SimpleNamespace:
         global_max_relative_volume_error=1.0e-6,
         global_max_relative_area_error=1.0e-6,
         strict_material_tolerance=1.0e-9,
-        material_max_relative_difference=1.0e-6,
-        material_boolean_tolerance=0.01,
         boundary_linear_deflection=1.0,
         boundary_max_samples=32,
         boundary_max_hausdorff=1.0e-6,
         boundary_max_p95=1.0e-6,
         sections=(),
-        strict_enabled=True,
         strict_geometric_tolerance=1.0e-7,
     )
 
@@ -122,6 +118,25 @@ def test_comparison_bundle_requests_strict_bidirectional_material(
 
     assert [request["task"] for request in requests] == ["global", "material"]
     assert stages["material"]["strict_point_set_equal"] is True
+
+
+def test_evaluation_config_validates_closed_contract() -> None:
+    section = benchmark_evaluation.SectionEvaluationConfig(
+        section_id="center",
+        origin=(0.0, 0.0, 0.0),
+        normal=(0.0, 0.0, 1.0),
+        samples_per_edge=4,
+    )
+    config = benchmark_evaluation.EvaluationConfig(sections=(section,))
+
+    assert config.sections == (section,)
+    with pytest.raises(ValueError, match="at least four"):
+        benchmark_evaluation.SectionEvaluationConfig(
+            section_id="invalid",
+            origin=(0.0, 0.0, 0.0),
+            normal=(0.0, 0.0, 1.0),
+            samples_per_edge=3,
+        )
 
 
 def test_identical_solids_produce_real_strict_material_proof(

@@ -4,13 +4,100 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
+import math
 from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
+
+
+@dataclass(frozen=True)
+class SectionEvaluationConfig:
+    """One bounded section gate used by trusted reconstruction evaluation."""
+
+    section_id: str
+    origin: tuple[float, float, float]
+    normal: tuple[float, float, float]
+    tolerance: float = 1.0e-7
+    samples_per_edge: int = 16
+    require_nonempty: bool = True
+    max_hausdorff: float = 0.1
+    max_relative_area_error: float = 0.01
+
+    def __post_init__(self) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", self.section_id):
+            raise ValueError("section_id must be a filename-safe token")
+        if len(self.origin) != 3 or not all(math.isfinite(value) for value in self.origin):
+            raise ValueError("origin must contain three finite values")
+        if len(self.normal) != 3 or not all(math.isfinite(value) for value in self.normal):
+            raise ValueError("normal must contain three finite values")
+        if math.sqrt(sum(value * value for value in self.normal)) <= 1.0e-12:
+            raise ValueError("normal must be non-zero")
+        if not math.isfinite(self.tolerance) or self.tolerance <= 0.0:
+            raise ValueError("tolerance must be positive and finite")
+        if self.samples_per_edge < 4:
+            raise ValueError("samples_per_edge must be at least four")
+        for name in ("max_hausdorff", "max_relative_area_error"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative")
+
+
+@dataclass(frozen=True)
+class EvaluationConfig:
+    """Closed configuration contract for trusted reconstruction evaluation."""
+
+    target_kind: str = "solid"
+    stage_timeout_seconds: float = 120.0
+    material_timeout_seconds: float = 300.0
+    global_max_bbox_delta: float = 0.1
+    global_max_centroid_distance: float = 0.1
+    global_max_relative_volume_error: float = 0.01
+    global_max_relative_area_error: float = 0.01
+    strict_material_tolerance: float = 1.0e-6
+    boundary_linear_deflection: float = 0.2
+    boundary_max_samples: int = 200
+    boundary_max_hausdorff: float = 0.1
+    boundary_max_p95: float = 0.1
+    sections: tuple[SectionEvaluationConfig, ...] = ()
+    strict_geometric_tolerance: float = 1.0e-7
+
+    def __post_init__(self) -> None:
+        if self.target_kind not in {"solid", "open_shell"}:
+            raise ValueError("target_kind must be solid or open_shell")
+        for name in ("stage_timeout_seconds", "material_timeout_seconds"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be positive and finite")
+        for name in (
+            "global_max_bbox_delta",
+            "global_max_centroid_distance",
+            "global_max_relative_volume_error",
+            "global_max_relative_area_error",
+            "boundary_max_hausdorff",
+            "boundary_max_p95",
+        ):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative")
+        for name in (
+            "strict_material_tolerance",
+            "boundary_linear_deflection",
+            "strict_geometric_tolerance",
+        ):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be positive and finite")
+        if self.boundary_max_samples < 16:
+            raise ValueError("boundary_max_samples must be at least 16")
+        if not isinstance(self.sections, tuple) or not all(
+            isinstance(section, SectionEvaluationConfig) for section in self.sections
+        ):
+            raise TypeError("sections must be a tuple of SectionEvaluationConfig")
 
 
 def _relative_error(current: float, target: float) -> float:
@@ -170,7 +257,7 @@ def _strict_material_equal(report: Mapping[str, Any], tolerance: float) -> bool:
 
 
 def run_comparison_bundle(
-    config: Any,
+    config: EvaluationConfig,
     *,
     target_path: str | Path,
     candidate_path: str | Path,
@@ -593,6 +680,8 @@ def classify_benchmark_result(
 
 
 __all__ = [
+    "EvaluationConfig",
+    "SectionEvaluationConfig",
     "classify_benchmark_result",
     "inspect_benchmark_step",
     "run_comparison_bundle",

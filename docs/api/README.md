@@ -251,11 +251,13 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [Constraint](Constraint.md) *(from product.py)* `top-level`
 - [ConstraintReport](ConstraintReport.md) *(from product.py)* `top-level`
 - [ConstraintResidual](ConstraintResidual.md) *(from product.py)* `top-level`
+- [EvaluationConfig](EvaluationConfig.md) *(from inverse_engineer/brep/evaluation.py)* `submodule:inverse_engineer/brep/evaluation`
 - [GeometryRef](GeometryRef.md) *(from product.py)* `top-level`
 - [Material](Material.md) *(from product.py)* `top-level`
 - [Part](Part.md) *(from product.py)* `top-level`
 - [Placement](Placement.md) *(from product.py)* `top-level`
 - [ScalarLimit](ScalarLimit.md) *(from product.py)* `top-level`
+- [SectionEvaluationConfig](SectionEvaluationConfig.md) *(from inverse_engineer/brep/evaluation.py)* `submodule:inverse_engineer/brep/evaluation`
 - [SemanticDelta](SemanticDelta.md) *(from topology.py)* `top-level`
 - [SemanticRef](SemanticRef.md) *(from topology.py)* `top-level`
 - [SurfaceBoundary](SurfaceBoundary.md) *(from operations.py)* `top-level`
@@ -276,6 +278,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [add_revolute_constraint_rassembly](add_revolute_constraint_rassembly.md) *(from operations.py)* `top-level`
 - [and_](and_.md) *(from ql.py)* `submodule:ql`
 - [assign_material_rpart](assign_material_rpart.md) *(from operations.py)* `top-level`
+- [classify_benchmark_result](classify_benchmark_result.md) *(from inverse_engineer/brep/evaluation.py)* `submodule:inverse_engineer/brep/evaluation`
 - [constrain_angle_rsketch](constrain_angle_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_coincident_rsketch](constrain_coincident_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_collinear_rsketch](constrain_collinear_rsketch.md) *(from operations.py)* `top-level`
@@ -309,6 +312,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [ground_component_rassembly](ground_component_rassembly.md) *(from operations.py)* `top-level`
 - [identity_placement_rplacement](identity_placement_rplacement.md) *(from operations.py)* `top-level`
 - [inspect_assembly_constraints_rconstraintreport](inspect_assembly_constraints_rconstraintreport.md) *(from operations.py)* `top-level`
+- [inspect_benchmark_step](inspect_benchmark_step.md) *(from inverse_engineer/brep/evaluation.py)* `submodule:inverse_engineer/brep/evaluation`
 - [inspect_sketch_rsketchresult](inspect_sketch_rsketchresult.md) *(from operations.py)* `top-level`
 - [linear_pattern_rsolidlist](linear_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [measure_constraint_residual_rconstraintresidual](measure_constraint_residual_rconstraintresidual.md) *(from operations.py)* `top-level`
@@ -321,6 +325,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [place_component_rassembly](place_component_rassembly.md) *(from operations.py)* `top-level`
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
+- [run_comparison_bundle](run_comparison_bundle.md) *(from inverse_engineer/brep/evaluation.py)* `submodule:inverse_engineer/brep/evaluation`
 - [select](select.md) *(from ql.py)* `submodule:ql`
 - [sew_faces_rshell](sew_faces_rshell.md) *(from operations.py)* `top-level`
 - [shells](shells.md) *(from ql.py)* `submodule:ql`

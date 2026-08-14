@@ -29,6 +29,7 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "sketch.py",
     "errors.py",
     "topology.py",
+    "inverse_engineer/brep/evaluation.py",
     "inspect/brep/compare.py",
     "inspect/brep/diagnostics.py",
     "inspect/brep/fitting.py",
@@ -67,6 +68,7 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "tolerance.py",
         "units.py",
         "errors.py",
+        "inverse_engineer/brep/evaluation.py",
         "inspect/brep/compare.py",
         "inspect/brep/diagnostics.py",
         "inspect/brep/fitting.py",
@@ -327,6 +329,12 @@ class APIDocumentGenerator:
                     "_rtuple",
                 )
             )
+        if module_name == "inverse_engineer/brep/evaluation.py":
+            return name in {
+                "classify_benchmark_result",
+                "inspect_benchmark_step",
+                "run_comparison_bundle",
+            }
         if module_name in EXPORTED_FUNCTION_MODULES:
             if not exported_names:
                 return True
@@ -355,6 +363,8 @@ class APIDocumentGenerator:
                 "SlicePanelResult",
                 "SliceSpec",
             }
+        if module_name == "inverse_engineer/brep/evaluation.py":
+            return name in {"EvaluationConfig", "SectionEvaluationConfig"}
         if name in exported_names:
             return True
         if module_name not in EXPORTED_CALLABLE_MODULES:
@@ -402,6 +412,12 @@ class APIDocumentGenerator:
             return (
                 "inspection namespace: `from simplecadapi.inspect import brep` "
                 f"then `brep.{name}(...)`; unavailable inside GraphSession/@model"
+            )
+
+        if module_name == "inverse_engineer/brep/evaluation.py":
+            return (
+                "reverse-engineering evaluator: `from simplecadapi.inverse_engineer.brep "
+                f"import {name}`"
             )
 
         module_stem = module_name.removesuffix(".py")

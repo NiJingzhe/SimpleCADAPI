@@ -4,9 +4,9 @@ description: Thin SimpleCAD SDK reference skill focused on the public API surfac
 license: AGPL-3.0
 metadata:
   project: simplecadapi
-  version: 2.0.4b1
+  version: 2.0.4b2
   package-name: simplecadapi
-  package-version: 2.0.4b1
+  package-version: 2.0.4b2
 ---
 
 # SimpleCAD SDK Skill

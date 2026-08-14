@@ -27,7 +27,7 @@ class TestSkillPackPathResolution(unittest.TestCase):
             project_root=project_root,
             output_root=project_root / "unused-skill-output",
             skill_name="simplecadapi",
-            license_name="Apache-2.0",
+            license_name=skill_pack.DEFAULT_LICENSE,
             quiet=True,
         )
 
