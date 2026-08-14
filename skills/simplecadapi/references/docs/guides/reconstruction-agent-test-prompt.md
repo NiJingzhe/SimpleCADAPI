@@ -1,60 +1,96 @@
-# Reconstruction Agent Test Prompt
+# Reconstruction Agent Test Contract
 
-Use this specification to test a fresh Agent on STEP-to-SimpleCADAPI
-reconstruction without exposing an existing solution.
+Contract ID: `simplecadapi.reconstruction-agent-test`
+
+Contract version: `2.1`
+
+This is the normative run contract for controlled STEP-to-SimpleCADAPI
+reconstruction. Modeling tactics are advisory and live in
+[`reconstruction-agent-strategy.md`](reconstruction-agent-strategy.md).
 
 ## Start Message
 
-Send the Agent only this wrapper with all placeholders replaced:
+Send only this wrapper with every value resolved:
 
 ```text
-Read and follow this test specification completely:
+Read and follow this contract completely:
 {SIMPLECADAPI_ROOT}/docs/guides/reconstruction-agent-test-prompt.md
 
 Configuration:
 SIMPLECADAPI_ROOT = {SIMPLECADAPI_ROOT}
 TARGET_DIR = {TARGET_DIR}
-CASE_NAME = {CASE_NAME}
 OUTPUT_DIR = {OUTPUT_DIR}
-MAX_ITERATIONS = {MAX_ITERATIONS}
-BENCHMARK_MODE = {BENCHMARK_MODE}
-MATERIAL_TIMEOUT_SECONDS = {MATERIAL_TIMEOUT_SECONDS}
+CASE_NAME = {CASE_NAME}
+CASE_MANIFEST = {relative path|null}
+ALLOWED_INPUTS = {JSON array of direct-child filenames}
+PROMPT_VERSION = 2.1
+OBJECTIVE = {best_effort|geometry_equivalent|exact_brep}
+TARGET_PATH = {direct-child STEP filename}
+TARGET_KIND = {solid|open_shell}
+BENCHMARK_MODE = {inspection_only|report_assisted|exact_brep_transcription}
+ENTRYPOINT = {relative source path}
+CANDIDATE_PATH = {relative STEP path}
+MAX_ITERATIONS = {positive integer}
+MAX_FAILED_ATTEMPTS = {positive integer}
+TOTAL_TIMEOUT_SECONDS = {positive number}
+STAGE_TIMEOUT_SECONDS = {positive number}
+MATERIAL_TIMEOUT_SECONDS = {positive number}
+GLOBAL_MAX_BBOX_DELTA_MM = {non-negative number}
+GLOBAL_MAX_CENTROID_DISTANCE_MM = {non-negative number}
+GLOBAL_MAX_RELATIVE_VOLUME_ERROR = {non-negative number}
+GLOBAL_MAX_RELATIVE_AREA_ERROR = {non-negative number}
+BOUNDARY_LINEAR_DEFLECTION_MM = {positive number}
+BOUNDARY_MAX_SAMPLES = {integer >= 16}
+BOUNDARY_MAX_HAUSDORFF_MM = {non-negative number}
+BOUNDARY_MAX_P95_MM = {non-negative number}
+SECTIONS = {JSON array using the schema below}
+STRICT_TOPOLOGY = {true|false}
+PARAMETER_REPRESENTATION_REQUIRED = {true|false}
+STRICT_MATERIAL_TOLERANCE_MM3 = {positive number}
+STRICT_GEOMETRIC_TOLERANCE_MM = {positive number}
 
-The configuration above overrides examples in the specification. Start the
-test immediately and continue through independent replay, evaluation, and final
-classification. Do not modify the SDK or target baseline.
+Configuration selects options and supplies budgets but cannot waive a normative rule.
+Start immediately.
+Do not modify the SDK or target baseline.
 ```
 
-Use a new, empty `OUTPUT_DIR` for every Agent.
+`OUTPUT_DIR` must not exist before the run. All generated files belong there.
+`TARGET_PATH` and `CASE_MANIFEST` are relative to `TARGET_DIR`; `ENTRYPOINT` and
+`CANDIDATE_PATH` are relative to `OUTPUT_DIR`.
+
+## Precedence
+
+Conflicts resolve in this order:
+
+1. this contract's normative rules;
+2. resolved run configuration for declared options and budgets;
+3. versioned case manifest for case-specific gates and allowlists;
+4. normative public API documentation;
+5. the advisory strategy guide.
+
+Record this contract version, configuration, target hashes, SDK commit, and
+case-manifest hash in the final manifest. In a source checkout this file is
+authoritative; a packaged Skill copy is a frozen mirror of this contract.
 
 ## Objective
 
-Reconstruct `{CASE_NAME}.step` as a readable, independently replayable
-SimpleCADAPI program.
+Produce a readable, independently replayable SimpleCADAPI program that creates
+`CANDIDATE_PATH` without reading the target at runtime.
 
-The default objective is `geometry_equivalent`, not original feature history.
-Geometry equivalence means that strict bidirectional material difference proves
-the same occupied material point set. Matching renders, volume, area, bounds,
-centroid, sections, or topology counts alone is not proof.
+- `best_effort`: publish the strongest valid result reached within budget.
+- `geometry_equivalent`: seek proof of the same material point set for solids.
+- `exact_brep`: additionally seek geometry-labelled incidence identity and any
+  required representation checks.
 
-Acceptance follows the priority order in Classification:
+Original feature history is not required unless the case manifest says so.
+Visual similarity and matching summary values are never equality proof.
 
-1. BREP topology identity is the best endpoint — reaching it is complete
-   reverse engineering.
-2. Identical structure with minor parameter drift attributable to
-   export/serialization float error is acceptable; do not keep optimizing
-   float-level residuals.
-3. A visually close but structurally different candidate is a valid stop only
-   when you cannot find a better feature operation order/combination, or the
-   required operation type is not supported by the SDK. Otherwise keep
-   iterating.
+## Allowed Inputs
 
-`exact_brep` evaluation is expensive and must not consume iterations before the
-candidate is near structure match.
-
-## Input Isolation
-
-The only permitted case-specific inputs are files directly under `TARGET_DIR`:
+Case-specific reads are limited to direct children of `TARGET_DIR` listed in
+`ALLOWED_INPUTS`. A case manifest may restrict that list but cannot add to it.
+If `CASE_MANIFEST` is non-null, it is relative to `TARGET_DIR` and must itself
+appear in `ALLOWED_INPUTS`. Typical inputs are:
 
 ```text
 {CASE_NAME}.step
@@ -63,453 +99,201 @@ The only permitted case-specific inputs are files directly under `TARGET_DIR`:
 {CASE_NAME}_mesh_render.png
 ```
 
-Rules:
+Do not search Git history, caches, temporary directories, deleted files,
+previous reconstructions, other Agent outputs, or paths outside `TARGET_DIR` for
+case solutions. SDK source, public docs, tests, and generic guidance are allowed.
 
-1. Do not search outside `TARGET_DIR` for `{CASE_NAME}`, previous candidates,
-   reconstruction scripts, parameter files, summaries, scene packages, or
-   Agent outputs.
-2. Do not inspect Git history, deleted files, caches, temporary directories, or
-   another Agent's output to recover a prior solution.
-3. You may read SDK source, public API documentation, tests, and generic
-   reverse-engineering guidance, but not another reconstruction of this case.
-4. Write every generated artifact under `OUTPUT_DIR`.
+Mode permissions:
 
-If a forbidden solution artifact is encountered accidentally, do not read it;
-record the path and continue from allowed inputs only.
+| Mode | Target access |
+|---|---|
+| `inspection_only` | Approved `simplecadapi.inspect.brep` queries and supplied renders; no complete control arrays |
+| `report_assisted` | Complete supplied report and targeted exact definitions |
+| `exact_brep_transcription` | Complete carrier, trim, pcurve, and topology data |
 
-## Benchmark Modes
+Transcribed values must be labelled as transcription. Different modes measure
+different capabilities and must not be compared as equivalent experiments.
 
-### inspection-only reconstruction
-
-Use the target only through approved BREP inspection/query tools and supplied
-renders. Do not read complete control-point, knot, multiplicity, or weight
-arrays from the report. Do not request `include_curve_definition`,
-`include_surface_definition`, or boundary `include_curve_definitions`; those
-options expose the same exact arrays through tools.
-
-### report-assisted reconstruction
-
-You may read the complete BREP report, including exact curve and surface data.
-Record which values were copied, inferred, or fitted.
-
-### exact BREP transcription
-
-Complete carrier, trim, and topology data may be used. Label the result as
-transcription, not inferred feature reconstruction.
+In `inspection_only`, the approved target-reading interfaces are
+`inspect_step_rsummary`, `inspect_step_entity_rdescriptor`,
+`inspect_topology_neighborhood_rdescriptor`, `inspect_section_rdescriptor`,
+`inspect_face_boundaries_rdescriptor`, and configured comparison/render calls.
+Do not enable complete curve/surface definitions, directly traverse target
+entities to recover complete definitions, or add/modify SDK operations,
+inspection tools, plugins, or helper executables during the run.
 
 ## Hard Constraints
 
-1. Use public SimpleCADAPI modeling APIs for the final candidate.
-2. Do not modify `SIMPLECADAPI_ROOT/src`, tests, tools, or target inputs.
-3. The final program must not read or import the target STEP at runtime.
-4. Do not copy, encode, embed, or re-export target STEP contents.
-5. A separate reconstruction-parameter JSON is allowed, but it must contain
-   explicit inferred/fitted parameters and work without the target.
+1. Final geometry uses public SimpleCADAPI modeling interfaces.
+2. Do not edit SDK source, tests, tools, target files, or baselines.
+3. Final replay must not read/import the target STEP.
+4. Do not copy, encode, embed, or re-export target STEP bytes.
+5. Declared numeric parameter files are allowed when authorized by the mode.
 6. Do not replace an open-shell target with a fabricated solid.
 7. Do not use network services or external CAD applications.
-8. Do not add Agent tools or SDK operations during the test. Work with the
-   existing API and focused tool set.
-9. Follow the Sketch-first profile policy in Phase 2. A planar profile that
-   drives an extrude, revolve, or additive/subtractive cut must start as a
-   declarative Sketch unless a documented exception applies. Wrapping an
-   already-built Wire in `Sketch([wire])` does not satisfy this rule.
+8. Write only under `OUTPUT_DIR`; never overwrite an accepted iteration.
+9. Participant replay may execute only `ENTRYPOINT` with the configured Python
+   interpreter. Trusted evaluator workers are separate from participant code.
 
-## Minimal Tool Policy
+## Provenance
 
-Start with the cheapest evidence that can test a concrete hypothesis:
+Record provenance per significant parameter and final face/region when
+available. Keep these dimensions separate:
 
-```text
-get_model_summary
-inspect_entity
-get_topology_neighborhood
-make_section
-extract_face_boundaries
-compare_global_properties
+- evidence origin: `copied | inferred | fitted`;
+- construction: `transcribed | fitted | analytic_feature`;
+- topology origin: `retained | modified | generated`;
+- runtime dependency: `independent | embedded_target_derived`.
+
+Orange/purple/blue rendering is only a derived visualization:
+
+- orange: exact target-derived transcription;
+- purple: target-derived fit or Loft;
+- blue: analytic/feature construction.
+
+Blue does not imply target independence. A face with an analytic carrier but
+retained target trims/topology must not be described as recovered feature
+history.
+
+## Required Loop
+
+1. Freeze and hash inputs; record mode, objective, target kind, and budgets.
+2. Inspect bounded global facts and form one falsifiable construction hypothesis.
+3. Build in a fresh process and write immutable iteration artifacts.
+4. Require successful exit, a newly generated STEP, expected target kind, and a
+   valid BREP before counting a complete iteration.
+5. Validate STEP write/reload. Record property and topology drift; do not publish
+   an invalid roundtrip.
+6. Run cheap global checks, then only diagnostics that answer the next question.
+7. Attempt the strongest applicable acceptance proof within budget.
+8. Atomically promote the best valid iteration to the configured final paths.
+
+A failed replay or invalid BREP is a failed attempt, not a complete iteration.
+Stop after `MAX_FAILED_ATTEMPTS`, `MAX_ITERATIONS`, total timeout, or three
+consecutive non-improving complete iterations, whichever comes first.
+
+Each `SECTIONS` item has this closed schema:
+
+```json
+{
+  "id": "filename-safe-unique-token",
+  "origin": [0.0, 0.0, 0.0],
+  "normal": [0.0, 0.0, 1.0],
+  "tolerance": 1e-7,
+  "samples_per_edge": 16,
+  "require_nonempty": true,
+  "max_hausdorff": 0.1,
+  "max_relative_area_error": 0.01
+}
 ```
 
-Use `get_model_summary(include_parameter_groups=true)` once during initial
-characterization when analytic radii or repeated carrier signatures may be
-informative. Carrier, canonical-axis, and adjacency-signature groups are
-bounded descriptive multiplicities only. They do not prove a pattern.
+Section IDs must be unique and match `[A-Za-z0-9][A-Za-z0-9_.-]*`; normals
+must be non-zero, tolerances positive, and `samples_per_edge >= 4`.
 
-Use `extract_face_boundaries(compact=true)` before requesting sampled boundary
-arrays. Compact mode preserves ordered edge occurrences, orientation, type,
-length, endpoints, and key scalar parameters while keeping context small.
+## Mechanical Gates
 
-Use `make_section(compact=true)` for initial section-family and opening checks.
-Request sampled section arrays only for a specific fit or distance question.
+### Replay
 
-In report-assisted mode, after identifying the exact entities needed by a
-hypothesis, prefer targeted definitions over reading the full report:
+- fresh process exits successfully;
+- candidate is newly created at `CANDIDATE_PATH`;
+- candidate bytes are not target bytes;
+- BREP is valid and matches `TARGET_KIND`;
+- target and baseline hashes remain unchanged.
 
-- use `inspect_entity(include_curve_definition=true)` for one curve. For a
-  B-spline/Bezier edge this returns the complete definition without a
-  control-point limit, so inspect its pole count first;
-- use `extract_face_boundaries(compact=true,
-  include_curve_definitions=true, curve_definition_edge_ids=[...])` for an
-  explicitly selected set of boundary curves. Definitions are deduplicated and
-  sorted by stable edge ID; read the loop `edges` arrays for coedge order.
-  Unsupported carrier types return `available=false`, not a partial definition;
-- use `inspect_entity(include_surface_definition=true,
-  max_surface_control_points=...)` for one B-spline/Bezier carrier surface.
+### STEP Persistence
 
-Start with the default surface and boundary-batch limits. Increase a limit only
-after recording the entity's degree and control-point counts and why the
-complete definition is needed. `max_total_control_points` counts selected
-unique B-spline/Bezier poles; it does not bound analytic edge count or the whole
-payload. Exact surface definitions describe untrimmed carriers; always retain
-UV ranges and trim-loop evidence separately. Do not echo complete arrays into
-the iteration log or subsequent prompts; persist them directly as explicit
-reconstruction parameters under `OUTPUT_DIR` and keep only a concise provenance
-summary in conversation context.
+Write to a temporary sibling STEP, reload it with the public BREP loader, and
+publish only after validation. Record before/after validity, root kind, bodies,
+shells, faces, edges, vertices, edge classes, volume, area, centroid, and
+whether publication occurred.
 
-Use these only when a specific local question requires them:
+### Strict Material Proof For Solids
+
+Strict material equality requires all of:
 
 ```text
-measure_relation
-probe_point
-find_nearby_entities
-compare_entities
-render_region
-compare_sections
+include_components=True
+boolean_tolerance=None
+method=bidirectional_cut
+strict_equality_supported=true
+boolean_result_valid=true
+volume_balance.valid=true
+missing_material.volume < STRICT_MATERIAL_TOLERANCE_MM3
+excess_material.volume < STRICT_MATERIAL_TOLERANCE_MM3
 ```
 
-Expensive tools are not default iteration steps:
+A common-volume estimate, fuzzy Boolean, timeout, invalid Boolean result, or
+missing directional Cut cannot prove equality. A material timeout leaves a valid
+solid eligible for `approximation`; it is not `unsupported_or_incomplete`.
+
+### Exact BREP Proof
+
+Requires proven geometry equivalence plus geometry-labelled Face/Edge/Vertex
+incidence isomorphism and every case-required representation check. Evaluate it
+only when requested and after lower-tier proof succeeds.
+
+### Open Shells
+
+Material proof does not apply. Preserve shell kind and do not fabricate material.
+Until an exact boundary-set proof is configured, a valid replayable open shell is
+`approximation` with reason `open_shell_equivalence_unproved`. A solid candidate
+for an open-shell target is `unsupported_or_incomplete` with reason
+`fabricated_solid_for_open_shell`.
+
+## Monotonic Classification
+
+Assign exactly one classification. Higher-tier failure never erases a proven lower tier.
+
+- `exact_brep`: all replay, persistence, strict material, incidence, and required
+  representation gates pass.
+- `geometry_equivalent`: solid replay and strict material proof pass, but exact
+  topology was not requested, differs, or remains unproved.
+- `approximation`: valid replayable candidate exists, but applicable equality is
+  disproved or unproved, including material timeout and valid open shells without
+  boundary-set proof.
+- `unsupported_or_incomplete`: replay/candidate is invalid, no valid target-kind
+  candidate can be represented, or target kind is fabricated. If a valid
+  target-kind candidate exists but an equality-level feature is unavailable,
+  classify it as `approximation` instead.
+
+Never upgrade from render, global property, sampled boundary, or section metrics.
+
+## Artifact Contract
+
+Authoritative submission:
 
 ```text
-compute_material_difference
-compare_boundary_distance
-build_difference_regions
-compare_brep_strict
+{ENTRYPOINT}
+reconstruction_params.json          # only when needed
 ```
 
-Cost rules:
-
-- Run `compute_material_difference` only for the final candidate or when global
-  evidence says the candidate is close enough to justify a Boolean. Agent-tool
-  calls default to volume-only mode, which uses one intersection and reports
-  `method=common_volume` without component lists. Because subtracting a common
-  volume can lose a small residual at large model scales, use it only as an
-  estimate. Request `include_components=true` for a strict material check; this
-  uses two directional cuts and is also required for difference regions or STEP
-  export. Leave `boolean_tolerance` unset for equality proof; a fuzzy result is
-  diagnostic only and reports `strict_equality_supported=false`.
-- Skip the Boolean when the absolute global volume delta already exceeds the
-  strict material tolerance: equal point sets must have equal volume, so this
-  cheaply disproves equivalence.
-- Bound it by `MATERIAL_TIMEOUT_SECONDS`. A timeout means equivalence remains
-  unproved; it does not mean the model is equal.
-- Use `compare_boundary_distance` only to diagnose an approximation. Start with
-  at most 200 samples and use `target_face_ids`/`current_face_ids` when a local
-  region is known.
-- `build_difference_regions` defaults to Boolean material components. Reuse an
-  existing `material_result` only when it was created with
-  `include_components=true`; include boundary clustering only when needed and
-  reuse a boundary result created with `include_records=true`.
-- Do not run `compare_brep_strict` unless Exact BREP was explicitly requested.
-- Never repeat an expensive result when target hash, candidate hash, and tool
-  options are unchanged.
-
-## Phase 1: Investigate
-
-1. Record target hashes and declare the benchmark mode.
-2. Inspect validity, body/shell counts, bounds, volume, area, centroid, and
-   surface/curve type statistics.
-3. Establish coordinate semantics, openings, cavities, and likely feature
-   families.
-4. Treat symmetry and repetition as hypotheses, never defaults:
-   - inspect scalar carrier groups and their counts;
-   - look for a plausible common factor only as a candidate unit count;
-   - verify spatial center/axis spacing, orientation, and local adjacency on at
-     least two proposed units;
-   - reduce the model to one repeated unit only after those independent checks
-     agree;
-   - if they do not agree, abandon repetition and evaluate revolve, extrude,
-     sweep, Loft, mixed-feature, or freeform explanations instead.
-5. Use a small number of informative sections or local queries.
-6. Write one explicit construction hypothesis before modeling. State its
-   parameters, discrete choices, and evidence that could falsify it.
-7. For every proposed feature-driving profile, record its plane, intended
-   feature, and authoring choice: declarative Sketch, path/guide Wire, or exact
-   geometry transcription.
-
-Do not inspect hundreds of entities without a hypothesis.
-
-### Feature provenance and operation order
-
-A loop visible on a final planar face is not automatically part of the profile
-that generated the surrounding body. It may instead be the trace of a later
-hole, slot, notch, pocket, trim, or intersecting feature.
-
-Before placing an inner loop or local concavity into a generating profile:
-
-1. Inspect its topology neighborhood and at least one adjacent side face.
-2. Record the adjacent carrier type, axis or normal, and whether the same loop
-   continues to another terminal face.
-3. Infer the likely operation direction from those carriers. For example,
-   translated side carriers support an extrusion or cut, while rotational
-   carriers sharing an axis support a revolved feature.
-4. Check whether other loops on the same final face have the same carrier and
-   direction evidence. If they do not, use a mixed ordered feature tree rather
-   than forcing all loops into one sketch operation.
-5. Falsify the proposed operation with one section or representative entity
-   comparison before constructing the full model.
-
-Maintain a compact feature-provenance table in the iteration log with one row
-per proposed base region, opening, or local detail: observed final boundary,
-adjacent carrier evidence, inferred operation, direction/axis, and confidence.
-The table describes reasoning; it must not be copied into the final program as
-target-dependent runtime data.
-
-### Conditional feature-family decision
-
-Use this decision order rather than forcing every model into a repeated-unit
-construction:
+Derived final artifacts:
 
 ```text
-dominant shared axis + rotationally invariant sections -> revolve/turning
-dominant direction + stable translated profile         -> extrude
-profile transported along a path                       -> sweep
-ordered section family with changing shape             -> Loft
-verified equal angular/linear units                     -> construct one unit + pattern
-several local signatures                                -> mixed feature tree
-none of the above                                       -> fitted freeform or transcription
+{CANDIDATE_PATH}
+rebuilt_brep_report.json
+evaluation.json
+iteration_log.json
+artifact_manifest.json
 ```
 
-Equal type counts, equal radii, or a count divisible by `N` are insufficient
-on their own. A non-repetitive part must not be coerced into a pattern merely
-because several faces share a carrier type.
+The source and declared parameters are authoritative. STEP and model JSON are
+derived. Trusted evaluator output overrides self-reported evaluation. Renders
+and logs are diagnostic only.
 
-## Phase 2: Construct
-
-Create:
-
-```text
-{OUTPUT_DIR}/{CASE_NAME}_rebuild_simplecadapi.py
-```
-
-The program must:
-
-- be readable and parameterized;
-- run in a fresh process;
-- export `{CASE_NAME}_rebuilt.step` under `OUTPUT_DIR`;
-- produce a valid BREP;
-- use `@scad.model` and strict replay when supported;
-- clearly label exact transcription, fitting, and approximation.
-
-Prefer compact design intent over arbitrary point clouds. Do not describe a
-polyline or fitted Loft as exact NURBS transcription.
-
-### Sketch-first profile policy
-
-Use a declarative Sketch as the default authoring representation for a planar
-closed profile that drives:
-
-- an extrusion or revolution;
-- an additive boss or subtractive hole, pocket, slot, notch, or through-cut;
-- a planar section whose design intent is a named, editable profile.
-
-Build it with `make_sketch_rsketch(...)`, stable point/entity IDs,
-`add_*_rsketch(...)`, and constraints supported by the reconstruction
-evidence. Promote it with `make_face_from_sketch_rface(...)` or, when a feature
-requires a section Wire, `make_wire_from_sketch_rwire(...)`. Use
-`require_fully_constrained=True` when the intended dimensions and relations can
-be represented without inventing unsupported design intent.
-
-Prefer dimensional and geometric constraints such as radius, distance,
-horizontal/vertical, parallel, perpendicular, tangent, and concentric when
-they are supported by evidence. If only recovered coordinates are known,
-fixed points are allowed for deterministic replay, but label the result as a
-coordinate-locked reconstruction rather than claiming recovered parametric
-intent.
-
-Use `inner_profiles=(...)` only when topology and adjacent-carrier evidence
-show that the loops belong to the same generating Sketch. Model a later hole,
-slot, or pocket as its own ordered feature instead of folding its final-face
-trace into the base Sketch.
-
-Before promoting a Sketch profile, verify:
-
-- the Sketch plane and local-to-world mapping;
-- a closed non-construction loop with the intended entity segmentation;
-- Arc sweep direction and minor/major choice; `add_arc_rsketch(...)` uses the
-  positive local angular sweep, so swapping endpoints changes the geometry;
-- B-spline degree, knots, multiplicities, weights, and endpoint poles; use the
-  shared endpoint point refs as first/last poles when exact connectivity is
-  intended;
-- solve status, remaining DOF, and diagnostics.
-
-Direct Wire construction is allowed only for a concrete reason:
-
-- a non-planar path, 3-D guide curve, Helix, or other path geometry;
-- freeform carrier/trim geometry or exact BREP/NURBS transcription that is not
-  a planar design Sketch;
-- an entity, constraint, or multi-loop relationship the current Sketch API
-  cannot represent faithfully;
-- report-derived geometry whose projection onto a Sketch plane changes its
-  control data or measured geometry;
-- a demonstrated kernel or modeling regression in the Sketch path.
-
-Do not force a spatial path, freeform surface boundary, or unsupported exact
-transcription into a fake Sketch merely to satisfy Sketch-first. Record every
-direct-Wire exception and its evidence in the iteration log.
-
-When a planar Wire exception is proposed, or when Sketch promotion may change
-geometry, use the cheapest A/B sequence that can decide it:
-
-1. Keep one shared parameter source and independently build Wire and Sketch
-   profiles.
-2. Compare profile closure, area, bounds, edge count, and ordered edge lengths.
-3. If those agree, rebuild the complete Wire and Sketch candidates in fresh
-   processes and run `compare_global_properties`.
-4. Only when the candidates are close enough, compare strict bidirectional
-   material and a bounded boundary distance. Do not run `compare_brep_strict`
-   solely for this A/B unless `exact_brep` was requested.
-5. Prefer Sketch when it preserves or improves target evidence. Keep Wire when
-   Sketch introduces avoidable measured drift or changes the acceptance result,
-   and document the exception rather than hiding it.
-
-Candidate-to-target evidence remains the acceptance basis. Wire-to-Sketch A/B
-selects the authoring strategy; it does not by itself prove reconstruction
-quality.
-
-### Boolean construction policy
-
-Use the simplest direct feature sequence supported by the evidence. Prefer a
-base feature followed by independent local additive or subtractive tools over
-whole-model complements, large clipping constructions, or coincident Boolean
-operands.
-
-For a through opening or slot, prefer a simple cutter that deliberately
-overshoots both terminal sides. For multiple local cuts, validate one
-representative base/tool pair before constructing all tools, then apply the
-tools individually or as a flat list so the failing feature can be identified.
-
-If a Boolean fails:
-
-1. Verify that the base and tool are each valid solids and that the intended
-   overlap has positive volume, not only overlapping bounding boxes.
-2. Remove exact tangencies and coincident end faces with small intentional tool
-   overshoot; do not change target dimensions merely to hide the failure.
-3. Retry the isolated base/tool pair with a simpler tool and no unnecessary
-   upstream union or complement.
-4. Use `TrackingPolicy.GRAPH` when topology lineage is unnecessary and history
-   tracking is the suspected cost. This does not repair wrong geometry or alter
-   intersection validation.
-5. Use `skip_non_intersecting=False` for strict cut diagnostics when available;
-   it exposes a missed cut instead of silently accepting it.
-6. After repeated failure, reconsider the operation order or feature-family
-   hypothesis. Do not replace a locally supported feature tree with a global
-   clipping construction solely as a Boolean workaround.
-
-Never classify a skipped or silently ineffective cut as a completed feature.
-
-## Phase 3: Iterate
-
-For each complete candidate iteration:
-
-1. Run the program in a fresh process and regenerate the STEP.
-2. Require successful exit, a newly generated STEP, and valid BREP.
-3. For every promoted Sketch used by the candidate, require a closed profile
-   and record solve status, DOF, and diagnostics.
-4. Run `compare_global_properties`.
-5. If global/material scale is clearly wrong, fix the construction before any
-   dense boundary or topology work.
-6. Use sections or local diagnostics only to answer the next modeling question.
-7. When the candidate is plausibly final, attempt one bounded
-   `compute_material_difference(include_components=true)` for the strict
-   material result.
-
-An attempt that fails to replay, does not generate a new STEP, or produces an
-invalid BREP is a failed construction attempt, not a complete candidate
-iteration. Record the failure and diagnostic evidence, but do not consume
-`MAX_ITERATIONS` or count it toward the three non-improving complete iterations.
-Do not make more than three consecutive failed construction attempts on the
-same feature family or Boolean arrangement; revert to the best valid candidate
-and change the hypothesis or operation order.
-
-One parameter-only retry may reuse the same construction strategy. A changed
-feature family or construction method starts a new complete iteration only when
-it produces a freshly replayed valid candidate.
-
-Stop blind tuning after three non-improving iterations. Preserve the best valid
-candidate and report the blocker. Select the best candidate using material,
-focused section/boundary, carrier, and global evidence together; global
-properties alone must not override a locally falsified feature family.
-
-## Classification
-
-Assign exactly one classification.
-
-### exact_brep
-
-Complete reverse engineering — the best endpoint. Requires fresh replay, valid
-BREP, strict bidirectional material equality, geometry-labelled incidence graph
-isomorphism, and required representation checks. Minor parameter drift
-attributable to export float error does not break topology identity. This is
-expensive: evaluate it only when the candidate is near structure match, not as
-a routine iteration step.
-
-### geometry_equivalent
-
-Requires fresh replay, valid BREP, and strict bidirectional material equality.
-Boundary, section, seam, surface representation, and topology equality are not
-additional requirements. A structure-matched candidate with float-level
-parameter drift classifies here or as `exact_brep` — never as `approximation`.
-
-### approximation
-
-Use when a valid replayable candidate exists but strict material equality
-fails or remains unproved (including Boolean timeout), AND optimization is
-genuinely exhausted: no better feature operation order/combination is findable,
-or the required operation type is not supported by the SDK. Record which reason
-and its evidence. Report measured global and local errors without upgrading the
-result based on visual similarity. A "looks close" result is not a valid stop
-on its own.
-
-### unsupported_or_incomplete
-
-Use when no valid replayable candidate exists or the target cannot be
-represented by the available SDK. Do not manufacture a success-shaped result.
-
-## Required Artifacts
-
-Keep the artifact set minimal:
-
-```text
-{CASE_NAME}_rebuild_simplecadapi.py
-{CASE_NAME}_reconstruction_params.json        # only if needed
-{CASE_NAME}_rebuilt.step
-{CASE_NAME}_rebuilt_brep_report.json
-{CASE_NAME}_evaluation.json
-{CASE_NAME}_iteration_log.json
-```
-
-The iteration log records:
-
-- hypothesis and exact source/parameter change;
-- replay and validity result;
-- Sketch solve evidence and every direct-Wire exception;
-- global errors;
-- diagnostics actually used and why;
-- strict material result or timeout when attempted;
-- evidence selecting the next change.
-
-Optional renders or Scene packages may be generated for human inspection, but
-they are not acceptance evidence.
+The manifest records paths, SHA-256, byte sizes, prompt/config/SDK identity,
+classification, budget status, and authoritative/derived/diagnostic role.
 
 ## Final Response
 
 Report concisely:
 
-- classification and iteration count;
-- construction hypothesis and final command sequence;
-- Sketch-first coverage and any retained direct-Wire exceptions;
-- copied, inferred, and fitted parameters;
-- replay and BREP validity;
-- volume, area, centroid, and bounds errors;
-- strict missing/excess material or timeout status;
-- diagnostics used and unresolved differences;
-- paths to all artifacts.
-
-Never call an approximation `exact_brep` or `geometry_equivalent`.
+- classification and reason codes;
+- complete and failed iteration counts plus budget status;
+- final construction and replay command;
+- target kind, validity, and STEP roundtrip result;
+- strict material status for solids or boundary-proof status for open shells;
+- exact-topology status when requested;
+- provenance summary and target runtime dependency;
+- measured diagnostics and unresolved blockers;
+- artifact paths.
