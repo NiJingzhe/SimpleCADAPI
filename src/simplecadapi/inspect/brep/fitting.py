@@ -159,6 +159,8 @@ def fit_face_analytic_rdescriptor(
 
     Results are evidence, not feature-history assertions. Callers should use
     ``accepted`` and residuals instead of assuming the best candidate is exact.
+    The report includes every fitted candidate and the selected carrier
+    parameters.
     """
     if tolerance <= 0.0:
         raise ValueError("tolerance must be positive")

@@ -2,13 +2,13 @@
 
 This document is the normative STEP BREP reverse-engineering reference shipped
 with the SDK (repo path `docs/guides/step-brep-reverse-engineering.md`).
-The inspection tooling lives in:
+The inspection APIs live in:
 
 ```text
 src/simplecadapi/inspect/brep/
 ```
 
-All of these functions are diagnostic, tool-grade APIs, not modeling
+All of these functions are diagnostic APIs, not modeling
 operations: they do not record graph nodes and must not run inside a
 `GraphSession` or `@model` modeling script. Export or obtain the geometry
 under test first, then call them outside the modeling script:
@@ -41,6 +41,17 @@ evaluation = brep.evaluate_reconstruction_rdescriptor(
     current="candidate.step",
     replay_succeeded=True,
 )
+fit = brep.fit_face_analytic_rdescriptor(
+    model_or_path="part.step",
+    face_id="face:0",
+    tolerance=1.0e-3,
+)
+tracks = brep.track_section_contours_rdescriptor(sections=[section_a, section_b])
+image = brep.render_step_comparison_rpath(
+    target_step_path="target.step",
+    current_step_path="candidate.step",
+    output_path="comparison.png",
+)
 ```
 
 `inspect_step_rsummary` returns entity counts, bounding box, material
@@ -62,11 +73,11 @@ BREP, but they do not imply semantic correspondence between two different
 models. Degenerate edges are reported uniformly as `DEGENERATE`, with the
 underlying carrier type preserved in `underlying_curve_type`.
 
-## Mindset: tools are not a pipeline
+## Mindset: APIs are not a pipeline
 
-The built-in inspect functions are inspection tools, not a fixed workflow, and
+The built-in inspect functions are composable APIs, not a fixed workflow, and
 they do not guarantee coverage of every question. Reverse engineering has no
-"standard toolchain": for a specific case, the agent must write case-by-case
+"standard pipeline": for a specific case, the agent must write case-by-case
 inspection code as needed — load the model and traverse entities directly,
 compose multiple queries, and write model-specific
 sampling/projection/adjacency analysis — to obtain more detailed information
@@ -93,7 +104,7 @@ starting point, not the endpoint.
 
 ## Choosing an inspection strategy per problem
 
-There is no fixed "reverse-engineering toolchain" to apply mechanically. First
+There is no fixed reverse-engineering workflow to apply mechanically. First
 clarify the current unknown and the acceptance evidence, then compose the
 smallest set of primitives; for details the primitives do not cover, write
 case-by-case inspection code for the model:
@@ -104,16 +115,33 @@ case-by-case inspection code for the model:
 | Single face/edge parameters and adjacency | `inspect_step_entity_rdescriptor`, `inspect_topology_neighborhood_rdescriptor` |
 | Map stable geometry IDs to visual entities | `render_entity_map_rpath` (opaque depth-preserving context with type-specific edge/face/point marks, distinct colors, and anchored `entity_id · geometry.type` callouts) |
 | Section profile, wall thickness, or local cut | `inspect_section_rdescriptor`, `compare_sections_rdescriptor` |
+| Test whether a face has an analytic carrier | `fit_face_analytic_rdescriptor` (require `accepted=True` and inspect residuals) |
+| Track contour topology across ordered sections | `track_section_contours_rdescriptor` |
 | Assembly tree and interface visualization | `inspect_step_components_rdescriptorlist`, `render_step_components_rpath` |
 | Side-by-side multi-part observation | `render_step_components_colored_rpath` (direct `{component name: color name}` mapping, highlights multiple solids at once, with legend) |
 | Where the difference is | `compare_material_rdescriptor`, `inspect_difference_regions_rdescriptor` |
 | Local geometric error | `compare_boundary_distance_rdescriptor`, `compare_entities_rdescriptor` |
+| Closure, manifoldness, edge uses, and tolerances | `inspect_topology_rdescriptor` |
+| Material difference inside one ROI | `compare_material_region_rdescriptor` |
+| Ordered section sweep | `compare_sections_batch_rdescriptor` |
+| Atomic STEP write/reload evidence | `validate_step_roundtrip_rdescriptor` |
 | Final exact-BREP gate | `compare_shapes_rbrepcomparison`, `compare_steps_rbrepcomparison` |
+| Shared-scale visual comparison | `render_step_comparison_rpath` |
 
 Start from cheap, bounded facts; add boundary sampling, boolean difference,
 sections, rendering, or strict topology comparison only when the current
 question requires them. The generic schema registry and fixed dispatch have
 been removed: pick and call these composable APIs directly per task.
+
+`inspect_topology_rdescriptor` reports generic BREP validity separately from
+shell closure and manifoldness. It classifies face-local edge occurrences as
+free, manifold, seam, non-manifold, orphan, degenerate, or orientation-defective,
+and also reports wire closure, shell orientation, small faces, and tolerance
+ranges.
+
+`validate_step_roundtrip_rdescriptor` writes to a temporary sibling, reloads
+the STEP, checks property and topology-count drift, and replaces the destination
+only after validation succeeds.
 
 `inspect_step_rbrepinspection()` keeps the full knot, multiplicity, control
 point, and rational weight data of B-spline curves/surfaces in its report.
@@ -144,7 +172,28 @@ exact carriers add `include_curve_definitions=True` and optionally
 connectivity, nesting, and area computation, but returns only endpoints/exact
 lengths of each section edge plus a contour summary. Set
 `connection_tolerance` explicitly when section endpoints have tiny gaps;
-section-local edge indexes are not stable IDs across models.
+section-local edge indexes are not stable IDs across models. Use `face_ids` to
+restrict a section to an already identified carrier set. Align contour samples
+in case-specific extraction code only when a loft hypothesis requires it.
+
+Use `fit_face_analytic_rdescriptor(...)` when an imported face may be supported
+by a plane, sphere, cylinder, or cone. Keep the candidate type, parameters,
+residuals, and tolerance as evidence; do not treat the fit as recovered feature
+history. Use `track_section_contours_rdescriptor(...)` on ordered section
+results before selecting a loft strategy. Birth, death, split, or merge events
+after the initial section make one global loft unsafe.
+
+Use `render_step_comparison_rpath(...)` for final visual comparison. It locks
+both models to the union of their bounds so independent camera fitting cannot
+hide size or placement differences. The rendered image remains diagnostic and
+does not replace the strict BREP gate.
+
+After `compare_steps_rbrepcomparison(...)`, use
+`comparison.to_error_summary()` to collect every failed validity, bounds,
+material, topology, and carrier-type check. Errors are grouped by plausible
+common root cause. One iteration may change multiple related operations or
+code locations in a group, but must then rerun Direct modeling, strict replay,
+STEP export, and the complete comparison.
 
 `compare_material_rdescriptor(..., include_components=False)` does a fast
 volume estimate with a single intersection; subtracting a common volume can

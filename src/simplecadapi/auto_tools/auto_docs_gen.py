@@ -31,6 +31,7 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "topology.py",
     "inspect/brep/compare.py",
     "inspect/brep/diagnostics.py",
+    "inspect/brep/fitting.py",
     "inspect/brep/inspect.py",
     "inspect/brep/io.py",
     "inspect/brep/model.py",
@@ -38,6 +39,7 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "inspect/brep/persistence.py",
     "inspect/brep/queries.py",
     "inspect/brep/render.py",
+    "inspect/brep/section_tracking.py",
     "inspect/brep/slices.py",
     "inspect/brep/topology_inspection.py",
 )
@@ -67,6 +69,7 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "errors.py",
         "inspect/brep/compare.py",
         "inspect/brep/diagnostics.py",
+        "inspect/brep/fitting.py",
         "inspect/brep/inspect.py",
         "inspect/brep/io.py",
         "inspect/brep/model.py",
@@ -74,6 +77,7 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "inspect/brep/persistence.py",
         "inspect/brep/queries.py",
         "inspect/brep/render.py",
+        "inspect/brep/section_tracking.py",
         "inspect/brep/slices.py",
         "inspect/brep/topology_inspection.py",
     }

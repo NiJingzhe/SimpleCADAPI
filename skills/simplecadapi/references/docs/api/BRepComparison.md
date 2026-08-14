@@ -16,9 +16,6 @@ class BRepComparison(target: str | None, candidate: str | None, target_minus_can
 
 Hard-gate comparison facts for two solid BREPs.
 
-`diagnostics` contains STEP validity, bounding box, volume, strict Boolean
-difference, topology counts, Face-Edge topology, and surface/curve type facts.
-Use `write_json(...)` to write the complete comparison. Use
-`to_error_summary()` or `write_error_summary_json(...)` to obtain every failed
-check grouped by plausible common root cause. These methods do not change the
-existing hard-gate definition.
+``diagnostics`` records validity, bounds, material, topology, and carrier
+evidence. Use ``to_error_summary()`` to group every failed check by a
+plausible common root cause without changing the strict hard gate.

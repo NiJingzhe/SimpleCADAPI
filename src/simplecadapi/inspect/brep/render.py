@@ -1575,7 +1575,12 @@ def render_step_comparison_rpath(
     angular_deflection: float = 0.18,
     show_brep_edges: bool = True,
 ) -> Path:
-    """Render target and current STEP models with identical cameras and scale."""
+    """Render target and current STEP models with identical cameras and scale.
+
+    Shared views, union bounds, tessellation, and BREP-edge settings keep
+    independent camera fitting from hiding size or placement differences. The
+    image is diagnostic evidence and does not replace strict comparison.
+    """
     if not views:
         raise ValueError("at least one render view is required")
     if dpi < 1 or image_size[0] <= 0.0 or image_size[1] <= 0.0:
