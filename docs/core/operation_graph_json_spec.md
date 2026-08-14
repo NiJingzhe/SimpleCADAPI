@@ -1040,6 +1040,18 @@ New canonical profile nodes use the `make_*_r*` names listed in `canonical_contr
 - `make_fillet_rsolid`
 - `make_chamfer_rsolid`
 - `make_shell_rsolid`
+- `make_bezier_surface_rface`
+- `make_cylindrical_surface_rface`
+- `fit_point_grid_rface`
+- `make_ruled_surface_rface`
+- `make_gordon_surface_rface`
+- `make_surface_patch_rface`
+- `trim_surface_rface`
+- `make_loft_rshell`
+- `sew_faces_rshell`
+- `make_solid_from_shell_rsolid`
+- `free_boundaries_rwirelist`
+- `fill_holes_rshell`
 
 下列 node 不允许出现在 canonical `graph`：
 

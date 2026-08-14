@@ -21,6 +21,7 @@ Use the public surface operations rather than constructing `Shell` from an OCP o
 - [`loft_rshell`](../api/loft_rshell.md) lofts through Wire sections with optional Vertex endpoints and can name the start/end boundary Wires and side Faces.
 - [`sew_faces_rshell`](../api/sew_faces_rshell.md) sews connected faces into one shell.
 - [`fill_holes_rshell`](../api/fill_holes_rshell.md) fills every free boundary loop.
+- [`make_solid_from_shell_rsolid`](../api/make_solid_from_shell_rsolid.md) converts one valid closed shell into an oriented solid.
 
 ```python
 import simplecadapi as scad
