@@ -813,11 +813,15 @@ def compare_material_region_rdescriptor(
 
     target_model = _model(target)
     current_model = _model(current)
-    for name, model in (("target", target_model), ("current", current_model)):
+    target_material = _material_shape(target_model)
+    current_material = _material_shape(current_model)
+    for name, material in (
+        ("target", target_material),
+        ("current", current_material),
+    ):
         if (
-            len(model.bodies) != 1
-            or not BRepCheck_Analyzer(model.bodies[0]).IsValid()
-            or _material_volume(model.bodies[0], f"{name} material") <= 0.0
+            not BRepCheck_Analyzer(material).IsValid()
+            or _material_volume(material, f"{name} material") <= 0.0
         ):
             raise ValueError(f"{name} must contain valid positive-volume solid material")
     output = Path(output_directory).expanduser().resolve() if output_directory else None
@@ -833,8 +837,6 @@ def compare_material_region_rdescriptor(
                 raise ValueError("localized material export would overwrite an input STEP")
         output.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=".localized-material-", dir=output))
-    target_material = _material_shape(target_model)
-    current_material = _material_shape(current_model)
     roi = BRepPrimAPI_MakeBox(gp_Pnt(*minimum), gp_Pnt(*maximum)).Shape()
     target_local = _common_shape(target_material, roi, boolean_tolerance)
     current_local = _common_shape(current_material, roi, boolean_tolerance)

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import math
 import pytest
+from OCP.BRep import BRep_Builder
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+from OCP.TopoDS import TopoDS_Compound
 from OCP.gp import gp_Pnt
 
 from simplecadapi.inspect import brep
@@ -18,6 +20,15 @@ def _candidate_with_two_notches():
     cut2 = BRepAlgoAPI_Cut(cut.Shape(), second)
     cut2.Build()
     return target, cut2.Shape()
+
+
+def _compound(*shapes):
+    result = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(result)
+    for shape in shapes:
+        builder.Add(result, shape)
+    return result
 
 
 def test_compare_material_region_limits_evidence_to_roi(tmp_path):
@@ -84,6 +95,24 @@ def test_compare_material_region_handles_one_empty_crop_side():
     assert report["missing_material"]["volume"] == pytest.approx(8.0)
     assert report["excess_material"]["volume"] == pytest.approx(0.0)
     assert report["boolean_result_valid"] is True
+
+
+def test_compare_material_region_supports_multi_body_material_unions():
+    first = BRepPrimAPI_MakeBox(2.0, 2.0, 2.0).Shape()
+    second = BRepPrimAPI_MakeBox(gp_Pnt(5.0, 0.0, 0.0), 2.0, 2.0, 2.0).Shape()
+    target = _compound(first, second)
+    current = _compound(first, second)
+
+    report = brep.compare_material_region_rdescriptor(
+        target,
+        current,
+        region_min=(-1.0, -1.0, -1.0),
+        region_max=(8.0, 3.0, 3.0),
+    )
+
+    assert report["localized_target_volume"] == pytest.approx(16.0)
+    assert report["localized_current_volume"] == pytest.approx(16.0)
+    assert report["locally_equal"] is True
 
 
 def test_compare_material_region_large_roi_does_not_hide_difference():

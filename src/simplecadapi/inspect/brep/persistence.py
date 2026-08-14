@@ -149,6 +149,8 @@ def validate_step_roundtrip_rdescriptor(
                 or (float(before["volume"]) > 0.0 and float(after["volume"]) > 0.0)
             )
             and before["face_count"] == after["face_count"]
+            and before["edge_count"] == after["edge_count"]
+            and before["vertex_count"] == after["vertex_count"]
             and abs(relative_volume) <= relative_property_tolerance
             and abs(relative_area) <= relative_property_tolerance
             and topology_deltas["free_edges"] == 0

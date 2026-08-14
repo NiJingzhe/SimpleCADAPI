@@ -81,3 +81,42 @@ def test_failed_roundtrip_does_not_replace_existing_output(tmp_path, monkeypatch
     assert result["passed"] is False
     assert result["output_replaced"] is False
     assert output.read_bytes() == sentinel
+
+
+@pytest.mark.parametrize("count_name", ["edge_count", "vertex_count"])
+def test_roundtrip_does_not_publish_topology_count_drift(
+    tmp_path, monkeypatch, count_name
+):
+    from simplecadapi.inspect.brep import persistence
+
+    output = tmp_path / f"{count_name}.step"
+    sentinel = b"do-not-replace"
+    output.write_bytes(sentinel)
+    original_index = persistence.index_shape_rbrepmodel
+    index_calls = 0
+
+    def drifting_index(*args, **kwargs):
+        nonlocal index_calls
+        index_calls += 1
+        model = original_index(*args, **kwargs)
+        if index_calls == 1:
+            return model
+        original_summary = model.summary
+
+        def summary():
+            result = original_summary()
+            result[count_name] += 1
+            return result
+
+        model.summary = summary
+        return model
+
+    monkeypatch.setattr(persistence, "index_shape_rbrepmodel", drifting_index)
+
+    result = persistence.validate_step_roundtrip_rdescriptor(
+        BRepPrimAPI_MakeBox(1.0, 1.0, 1.0).Shape(), output
+    )
+
+    assert result["passed"] is False
+    assert result["output_replaced"] is False
+    assert output.read_bytes() == sentinel
