@@ -844,17 +844,26 @@ def trim_surface_rface(
         tolerance_value = float(tolerance)
         if not np.isfinite(tolerance_value) or tolerance_value <= 0.0:
             raise ValueError("tolerance must be a positive finite value")
+        result = Face(
+            trim_surface_face(
+                carrier.wrapped,
+                outer.wrapped,
+                [wire.wrapped for wire in hole_list],
+                tolerance=tolerance_value,
+            )
+        )
+        for source in (carrier, outer, *hole_list):
+            _attach_lineage_from_source(
+                source,
+                result,
+                derivation="fragment",
+                op="trim_surface_rface",
+                coverage="partial",
+            )
         result = cast(
             Face,
             _finalize_derived_shape(
-                Face(
-                    trim_surface_face(
-                        carrier.wrapped,
-                        outer.wrapped,
-                        [wire.wrapped for wire in hole_list],
-                        tolerance=tolerance_value,
-                    )
-                ),
+                result,
                 op="trim_surface_rface",
                 params={
                     "hole_count": len(hole_list),
