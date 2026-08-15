@@ -37,6 +37,7 @@ from .core import (
 )
 from .autotag import apply_tracking_tags_to_delta
 from .expr import ScalarLike, evaluate_scalar, evaluate_value
+from .units import DIMENSIONLESS, LENGTH, expression_uses_units, infer_dimension
 from .graph import (
     attach_graph_node,
     attach_semantic_graph_node,
@@ -363,16 +364,39 @@ def make_cylindrical_surface_rface(
     axis: Tuple[float, float, float] = (0, 0, 1),
     x_direction: Optional[Tuple[float, float, float]] = None,
     *,
-    tolerance: float = 1e-7,
+    tolerance: ScalarLike = 1e-7,
     tag_prefix: Optional[str] = None,
 ) -> Face:
-    """Create a finite cylindrical carrier Face over explicit U/V ranges."""
+    """Create a finite cylindrical carrier Face over explicit U/V ranges.
+
+    ``radius``, V values, and ``tolerance`` use model length units. U values
+    are unitless raw radians, must increase, and may span at most one
+    revolution. Unit-aware angle expressions are not accepted for U because
+    the existing expression evaluator returns canonical angles in degrees.
+    """
 
     try:
+        if expression_uses_units(radius) and infer_dimension(radius) != LENGTH:
+            raise ValueError("radius must use model length units")
+        if any(
+            expression_uses_units(value) and infer_dimension(value) != DIMENSIONLESS
+            for value in u_range
+        ):
+            raise ValueError(
+                "u_range must use unitless raw radians; unit-aware angle values "
+                "evaluate in degrees"
+            )
+        if any(
+            expression_uses_units(value) and infer_dimension(value) != LENGTH
+            for value in v_range
+        ):
+            raise ValueError("v_range must use model length units")
+        if expression_uses_units(tolerance) and infer_dimension(tolerance) != LENGTH:
+            raise ValueError("tolerance must use model length units")
         radius_value = evaluate_scalar(radius)
         u_values = tuple(evaluate_scalar(value) for value in u_range)
         v_values = tuple(evaluate_scalar(value) for value in v_range)
-        tolerance_value = float(tolerance)
+        tolerance_value = float(evaluate_scalar(tolerance))
         if not np.isfinite(radius_value) or radius_value <= 0.0:
             raise ValueError("radius must be a positive finite value")
         if len(u_values) != 2 or not all(np.isfinite(value) for value in u_values):
@@ -432,7 +456,7 @@ def make_cylindrical_surface_rface(
                     "origin": origin,
                     "axis": axis,
                     "x_direction": x_direction,
-                    "tolerance": tolerance_value,
+                    "tolerance": tolerance,
                     "tag_prefix": tag_prefix,
                 },
                 tags={"primitive", "surface", "face"},
@@ -449,7 +473,8 @@ def make_cylindrical_surface_rface(
                 "The kernel rejected the bounded cylindrical surface.",
             ],
             how_to_fix=[
-                "Use a positive radius and tolerance with increasing finite ranges.",
+                "Use model length units for radius, V, and tolerance.",
+                "Pass increasing finite U bounds as unitless raw radians.",
                 "Keep the U span at or below one revolution and provide non-parallel axis directions.",
             ],
             error=e,
@@ -831,7 +856,15 @@ def trim_surface_rface(
     tolerance: float = 1e-7,
     tag_prefix: Optional[str] = None,
 ) -> Face:
-    """Trim a carrier Face with projected 3D boundary wires."""
+    """Trim a carrier Face to exactly one connected Face.
+
+    Existing carrier bounds and holes are preserved by intersecting them with
+    the requested closed, simple outer loop and optional closed, simple holes.
+    Empty or disconnected intersections are rejected. Every trim curve must
+    lie on the carrier within ``tolerance``. Periodic carriers do not support
+    holes; their outer loop must fit within one seam period without crossing
+    the seam.
+    """
 
     try:
         if not isinstance(carrier, Face):
@@ -883,10 +916,12 @@ def trim_surface_rface(
                 "A trim wire is open, invalid, or does not lie on the carrier.",
                 "A periodic trim crosses the carrier seam.",
                 "A hole intersects the outer boundary or another hole.",
+                "The bounded intersection is empty or has multiple connected regions.",
             ],
             how_to_fix=[
-                "Pass one closed outer Wire and optional closed hole Wires.",
+                "Pass one closed, simple outer Wire and optional closed, simple hole Wires.",
                 "Keep every trim curve on the carrier within tolerance and inside one periodic seam.",
+                "Choose boundaries whose carrier intersection is exactly one connected Face.",
             ],
             error=e,
         )
@@ -1046,7 +1081,23 @@ def make_solid_from_shell_rsolid(
     try:
         if not isinstance(shell, Shell):
             raise TypeError("make_solid_from_shell_rsolid requires a Shell")
-        solid = Solid(solid_from_shell(shell.wrapped), cache=shell._topology_cache)
+        solid = Solid(solid_from_shell(shell.wrapped))
+        source_entities = shell._topology_cache.entities()
+        for target_entity in solid._topology_cache.entities():
+            matches = [
+                source_entity
+                for source_entity in source_entities
+                if source_entity.kind == target_entity.kind
+                and _same_semantic_topology(
+                    source_entity.kind,
+                    source_entity.representative,
+                    target_entity.representative,
+                )
+            ]
+            if len(matches) == 1 and matches[0].wrappers and target_entity.wrappers:
+                target_entity.wrappers[0]._copy_semantic_state_from(
+                    matches[0].wrappers[0]
+                )
         _attach_lineage_from_source(
             shell,
             solid,
@@ -1730,31 +1781,59 @@ def _attach_lineage_from_source(
     op: str,
     coverage: str = "complete",
 ) -> None:
-    evidence = TagEvidence(
-        "topology_change",
-        {
-            "op": op,
-            "derivation": derivation,
-            "coverage": coverage,
-        },
+    coverage_rank = {"complete": 0, "partial": 1, "none": 2}
+
+    def aggregate(*values: object) -> str:
+        normalized = [str(value) for value in values if value in coverage_rank]
+        return (
+            max(normalized, key=coverage_rank.__getitem__)
+            if normalized
+            else "complete"
+        )
+
+    effective_coverage = aggregate(
+        coverage,
+        source._get_runtime("semantic.lineage.coverage"),
     )
-    bindings = list(source._local_tag_bindings())
-    bindings.extend(
-        witness.binding
-        for witness in source._tag_lineage
-        if witness.coverage == "complete"
-        and lineage_policy_allows(witness.binding.propagation, witness.derivation)
-    )
-    unique_bindings = {binding.binding_id: binding for binding in bindings}
-    for binding in unique_bindings.values():
+    bindings = {
+        binding.binding_id: (binding, effective_coverage)
+        for binding in source._local_tag_bindings()
+        if lineage_policy_allows(binding.propagation, derivation)
+    }
+    for witness in source._tag_lineage:
+        if not lineage_policy_allows(
+            witness.binding.propagation, witness.derivation
+        ) or not lineage_policy_allows(witness.binding.propagation, derivation):
+            continue
+        existing = bindings.get(witness.binding.binding_id)
+        witness_coverage = aggregate(effective_coverage, witness.coverage)
+        bindings[witness.binding.binding_id] = (
+            witness.binding,
+            aggregate(existing[1], witness_coverage) if existing else witness_coverage,
+        )
+    for binding, binding_coverage in bindings.values():
+        evidence = TagEvidence(
+            "topology_change",
+            {
+                "op": op,
+                "derivation": derivation,
+                "coverage": binding_coverage,
+            },
+        )
         target._add_tag_lineage(
             binding,
             derivation=derivation,
             source_topo_id=source.topo_id,
             evidence=evidence,
-            coverage=coverage,
+            coverage=binding_coverage,
         )
-    target._set_runtime("semantic.lineage.coverage", coverage)
+    target._set_runtime(
+        "semantic.lineage.coverage",
+        aggregate(
+            target._get_runtime("semantic.lineage.coverage"),
+            effective_coverage,
+        ),
+    )
 
 
 def _current_context_metadata() -> Dict[str, Tuple[float, float, float]]:

@@ -7,15 +7,16 @@ from typing import Iterable, Mapping, Sequence
 
 import numpy as np
 from ocp_gordon import interpolate_curve_network
+from OCP.Adaptor3d import Adaptor3d_CurveOnSurface
 from OCP.BRep import BRep_Builder, BRep_Tool
-from OCP.BRepAdaptor import BRepAdaptor_Curve
-from OCP.BRepClass import BRepClass_FaceClassifier
+from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_Copy,
     BRepBuilderAPI_MakeFace,
     BRepBuilderAPI_Sewing,
 )
-from OCP.BRepCheck import BRepCheck_Analyzer
+from OCP.BRepCheck import BRepCheck_Analyzer, BRepCheck_NoError, BRepCheck_Wire
 from OCP.BRepTools import BRepTools, BRepTools_WireExplorer
 from OCP.BRepFill import BRepFill
 from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeFilling, BRepOffsetAPI_ThruSections
@@ -33,8 +34,10 @@ from OCP.GeomAbs import (
     GeomAbs_G1,
     GeomAbs_G2,
 )
-from OCP.GeomAPI import GeomAPI_PointsToBSplineSurface
-from OCP.GeomAPI import GeomAPI_ProjectPointOnSurf
+from OCP.GCPnts import GCPnts_AbscissaPoint, GCPnts_UniformAbscissa
+from OCP.GeomAPI import GeomAPI_PointsToBSplineSurface, GeomAPI_ProjectPointOnSurf
+from OCP.Geom2dAdaptor import Geom2dAdaptor_Curve
+from OCP.GeomLib import GeomLib_CheckCurveOnSurface
 from OCP.Precision import Precision
 from OCP.ShapeAnalysis import ShapeAnalysis_FreeBounds
 from OCP.ShapeFix import ShapeFix_Edge, ShapeFix_Wire
@@ -47,8 +50,6 @@ from OCP.TColStd import (
 from OCP.TopAbs import (
     TopAbs_EDGE,
     TopAbs_FACE,
-    TopAbs_IN,
-    TopAbs_ON,
     TopAbs_SHELL,
     TopAbs_VERTEX,
     TopAbs_WIRE,
@@ -63,7 +64,7 @@ from OCP.TopoDS import (
     TopoDS_Vertex,
     TopoDS_Wire,
 )
-from OCP.gp import gp_Ax3, gp_Dir, gp_Pnt, gp_Pnt2d
+from OCP.gp import gp_Ax3, gp_Dir, gp_Pnt
 
 from .ocp_topology import faces_of, wires_of
 
@@ -360,6 +361,39 @@ def _fits_parameter_bounds(
     return minimum_shift <= maximum_shift
 
 
+def _curve_sample_parameters(adaptor: BRepAdaptor_Curve, surface) -> list[float]:
+    """Sample by arc length densely enough to preserve periodic winding."""
+
+    sample_count = 65
+    if adaptor.GetType() in {GeomAbs_BSplineCurve, GeomAbs_BezierCurve}:
+        sample_count = max(sample_count, 8 * int(adaptor.NbPoles()) + 1)
+    if isinstance(surface, Geom_CylindricalSurface):
+        curve_length = float(GCPnts_AbscissaPoint.Length_s(adaptor))
+        quarter_period_length = float(surface.Radius()) * math.pi / 2.0
+        if math.isfinite(curve_length) and quarter_period_length > 0.0:
+            sample_count = max(
+                sample_count,
+                int(math.ceil(curve_length / quarter_period_length)) + 1,
+            )
+
+    sampler = GCPnts_UniformAbscissa(adaptor, sample_count)
+    if sampler.IsDone() and sampler.NbPoints() >= sample_count:
+        return [
+            float(sampler.Parameter(index))
+            for index in range(1, sampler.NbPoints() + 1)
+        ]
+    return np.linspace(
+        float(adaptor.FirstParameter()),
+        float(adaptor.LastParameter()),
+        sample_count,
+    ).tolist()
+
+
+def _validate_closed_trim_wire(wire: TopoDS_Wire, description: str) -> None:
+    if BRepCheck_Wire(wire).Closed() != BRepCheck_NoError:
+        raise ValueError(f"{description} trim wire must be closed")
+
+
 def _validate_trim_wire_domain(
     wire: TopoDS_Wire,
     carrier: TopoDS_Face,
@@ -377,21 +411,16 @@ def _validate_trim_wire_domain(
     while explorer.More():
         edge = TopoDS.Edge_s(explorer.Current())
         adaptor = BRepAdaptor_Curve(edge)
-        first = float(adaptor.FirstParameter())
-        last = float(adaptor.LastParameter())
-        parameters = np.linspace(first, last, 17).tolist()
+        parameters = _curve_sample_parameters(adaptor, surface)
         if edge.Orientation().name == "TopAbs_REVERSED":
             parameters.reverse()
         for sample_index, parameter in enumerate(parameters):
             if edge_index and sample_index == 0:
                 continue
             projection = GeomAPI_ProjectPointOnSurf(adaptor.Value(parameter), surface)
-            if (
-                projection.NbPoints() == 0
-                or float(projection.LowerDistance()) > float(tolerance)
-            ):
+            if projection.NbPoints() == 0:
                 raise ValueError(
-                    f"trim edge {edge_index} deviates from the carrier beyond tolerance"
+                    f"trim edge {edge_index} could not be projected onto the carrier"
                 )
             u_value, v_value = projection.LowerDistanceParameters()
             u_values.append(float(u_value))
@@ -405,58 +434,28 @@ def _validate_trim_wire_domain(
     u_tolerance = float(tolerance)
     v_tolerance = float(tolerance)
     if isinstance(surface, Geom_CylindricalSurface):
-        u_tolerance = float(tolerance) / max(float(surface.Radius()), Precision.Confusion_s())
-    if not _fits_parameter_bounds(
+        u_tolerance = float(tolerance) / float(surface.Radius())
+    u_outside = u_period is not None and not _fits_parameter_bounds(
         u_values,
         u_min,
         u_max,
         tolerance=u_tolerance,
         period=u_period,
-    ) or not _fits_parameter_bounds(
+    )
+    v_outside = v_period is not None and not _fits_parameter_bounds(
         v_values,
         v_min,
         v_max,
         tolerance=v_tolerance,
         period=v_period,
-    ):
+    )
+    if u_outside or v_outside:
         raise ValueError("trim wire lies outside the bounded carrier parameter domain")
 
 
 def _project_trim_wire(
     wire: TopoDS_Wire, support: TopoDS_Face, *, tolerance: float
 ) -> TopoDS_Wire:
-    surface = BRep_Tool.Surface_s(support)
-    source_explorer = BRepTools_WireExplorer(wire)
-    source_edge_index = 0
-    while source_explorer.More():
-        source_edge = TopoDS.Edge_s(source_explorer.Current())
-        adaptor = BRepAdaptor_Curve(source_edge)
-        first = float(adaptor.FirstParameter())
-        last = float(adaptor.LastParameter())
-        for sample_index in range(17):
-            parameter = first + (last - first) * sample_index / 16.0
-            point = adaptor.Value(parameter)
-            projection = GeomAPI_ProjectPointOnSurf(point, surface)
-            if (
-                projection.NbPoints() == 0
-                or float(projection.LowerDistance()) > float(tolerance)
-            ):
-                raise ValueError(
-                    f"trim edge {source_edge_index} deviates from the carrier beyond tolerance"
-                )
-            u_value, v_value = projection.LowerDistanceParameters()
-            state = BRepClass_FaceClassifier(
-                support,
-                gp_Pnt2d(float(u_value), float(v_value)),
-                float(tolerance),
-            ).State()
-            if state not in {TopAbs_IN, TopAbs_ON}:
-                raise ValueError(
-                    f"trim edge {source_edge_index} lies outside the bounded carrier"
-                )
-        source_edge_index += 1
-        source_explorer.Next()
-
     copied = BRepBuilderAPI_Copy(wire, True, False)
     copied.Build()
     if not copied.IsDone() or copied.Shape().IsNull():
@@ -468,9 +467,28 @@ def _project_trim_wire(
     while explorer.More():
         edge = TopoDS.Edge_s(explorer.Current())
         edge_fix.FixAddPCurve(edge, support, False, float(tolerance))
-        first, last = BRep_Tool.Range_s(edge)
-        if BRep_Tool.CurveOnSurface_s(edge, support, first, last) is None:
+        first, last = BRep_Tool.Range_s(edge, support)
+        pcurve = BRep_Tool.CurveOnSurface_s(edge, support, first, last)
+        if pcurve is None:
             raise ValueError(f"trim edge {edge_count} could not be projected")
+        curve_check = GeomLib_CheckCurveOnSurface(
+            BRepAdaptor_Curve(edge),
+            float(tolerance),
+        )
+        curve_check.Perform(
+            Adaptor3d_CurveOnSurface(
+                Geom2dAdaptor_Curve(pcurve, first, last),
+                BRepAdaptor_Surface(support),
+            )
+        )
+        if not curve_check.IsDone() or curve_check.ErrorStatus() != 0:
+            raise ValueError(
+                f"trim edge {edge_count} could not be validated against the carrier"
+            )
+        if float(curve_check.MaxDistance()) > float(tolerance):
+            raise ValueError(
+                f"trim edge {edge_count} deviates from the carrier beyond tolerance"
+            )
         edge_fix.FixSameParameter(edge, support, float(tolerance))
         edge_count += 1
         explorer.Next()
@@ -481,7 +499,37 @@ def _project_trim_wire(
     result = wire_fix.Wire()
     if result.IsNull() or not BRepCheck_Analyzer(result).IsValid():
         raise ValueError("projected trim wire is invalid")
+    wire_check = BRepCheck_Wire(result)
+    if wire_check.Closed() != BRepCheck_NoError:
+        raise ValueError("projected trim wire must be closed")
+    first_intersection = TopoDS_Edge()
+    second_intersection = TopoDS_Edge()
+    if (
+        wire_check.SelfIntersect(
+            support,
+            first_intersection,
+            second_intersection,
+        )
+        != BRepCheck_NoError
+    ):
+        raise ValueError("projected trim wire must be simple and non-self-intersecting")
     return result
+
+
+def _single_face(shape: TopoDS_Shape, description: str) -> TopoDS_Face:
+    if shape.ShapeType() == TopAbs_FACE:
+        return TopoDS.Face_s(shape)
+    faces = faces_of(shape)
+    if not faces:
+        raise ValueError(
+            f"{description} must produce exactly one connected Face; intersection is empty"
+        )
+    if len(faces) != 1:
+        raise ValueError(
+            f"{description} must produce exactly one connected Face; "
+            f"intersection produced {len(faces)} disconnected Faces"
+        )
+    return faces[0]
 
 
 def trim_surface_face(
@@ -496,6 +544,9 @@ def trim_surface_face(
     surface = BRep_Tool.Surface_s(carrier)
     if (surface.IsUPeriodic() or surface.IsVPeriodic()) and holes:
         raise ValueError("periodic carrier trimming with holes is not supported")
+    _validate_closed_trim_wire(outer, "outer")
+    for index, wire in enumerate(holes):
+        _validate_closed_trim_wire(wire, f"hole {index}")
     _validate_trim_wire_domain(outer, carrier, tolerance=tolerance)
     for wire in holes:
         _validate_trim_wire_domain(wire, carrier, tolerance=tolerance)
@@ -523,7 +574,20 @@ def trim_surface_face(
     face_builder.Build()
     if not face_builder.IsDone() or face_builder.Face().IsNull():
         raise ValueError("OCP could not build the trimmed surface face")
-    face = face_builder.Face()
+    requested_face = face_builder.Face()
+    common = BRepAlgoAPI_Common(carrier, requested_face)
+    common.SetRunParallel(True)
+    common.SetUseOBB(True)
+    common.SetNonDestructive(True)
+    common.Build()
+    if not common.IsDone():
+        raise ValueError("OCP could not intersect the trim with the bounded carrier")
+    if common.Shape().IsNull():
+        raise ValueError(
+            "trimmed carrier intersection must produce exactly one connected Face; "
+            "intersection is empty"
+        )
+    face = _single_face(common.Shape(), "trimmed carrier intersection")
     if not BRepCheck_Analyzer(face).IsValid():
         raise ValueError("trimmed surface face is invalid")
     return face
