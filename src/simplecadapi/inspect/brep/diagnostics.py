@@ -1083,21 +1083,25 @@ def compare_sections_rdescriptor(
     current_points = _flatten_section_samples(current_section)
 
     def plane_may_cross(model: BRepModel) -> bool:
-        box = model.summary()["bounding_box"]
-        corners = np.asarray(
-            [
-                (x_value, y_value, z_value)
-                for x_value in (box["min"][0], box["max"][0])
-                for y_value in (box["min"][1], box["max"][1])
-                for z_value in (box["min"][2], box["max"][2])
-            ],
-            dtype=float,
-        )
         origin = np.asarray(plane_origin, dtype=float)
         normal = np.asarray(plane_normal, dtype=float)
         normal /= np.linalg.norm(normal)
-        distances = (corners - origin) @ normal
-        return float(np.min(distances)) <= tolerance and float(np.max(distances)) >= -tolerance
+        bounded_entities = model.bodies or model.faces or (model.root,)
+        boxes = [_bounding_box(entity) for entity in bounded_entities]
+        for box in boxes:
+            corners = np.asarray(
+                [
+                    (x_value, y_value, z_value)
+                    for x_value in (box["min"][0], box["max"][0])
+                    for y_value in (box["min"][1], box["max"][1])
+                    for z_value in (box["min"][2], box["max"][2])
+                ],
+                dtype=float,
+            )
+            distances = (corners - origin) @ normal
+            if float(np.min(distances)) <= tolerance and float(np.max(distances)) >= -tolerance:
+                return True
+        return False
 
     target_unresolved = not target_section["edge_count"] and plane_may_cross(target_model)
     current_unresolved = not current_section["edge_count"] and plane_may_cross(current_model)

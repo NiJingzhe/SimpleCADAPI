@@ -2,9 +2,39 @@ from __future__ import annotations
 
 import math
 import pytest
+from OCP.BRep import BRep_Builder
+from OCP.BRepBuilderAPI import (
+    BRepBuilderAPI_MakeEdge,
+    BRepBuilderAPI_MakeFace,
+    BRepBuilderAPI_MakeWire,
+)
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+from OCP.TopoDS import TopoDS_Compound
+from OCP.gp import gp_Pnt
 
 from simplecadapi.inspect import brep
+
+
+def _compound(*shapes):
+    result = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(result)
+    for shape in shapes:
+        builder.Add(result, shape)
+    return result
+
+
+def _face(x_min, x_max):
+    points = (
+        gp_Pnt(x_min, 0.0, 0.0),
+        gp_Pnt(x_max, 0.0, 0.0),
+        gp_Pnt(x_max, 1.0, 0.0),
+        gp_Pnt(x_min, 1.0, 0.0),
+    )
+    wire = BRepBuilderAPI_MakeWire()
+    for first, last in zip(points, (*points[1:], points[0])):
+        wire.Add(BRepBuilderAPI_MakeEdge(first, last).Edge())
+    return BRepBuilderAPI_MakeFace(wire.Wire(), True).Face()
 
 
 def test_compare_sections_batch_preserves_order_and_reports_worst_section():
@@ -111,3 +141,48 @@ def test_compare_sections_batch_does_not_claim_equal_when_sections_fail():
     assert comparison["section_generation_unresolved"] is True
     assert comparison["hausdorff_approximation"] is None
     assert report["aggregate"]["max_hausdorff"] is None
+
+
+def test_compare_sections_batch_accepts_identical_empty_multi_body_gap():
+    model = _compound(
+        BRepPrimAPI_MakeBox(1.0, 1.0, 1.0).Shape(),
+        BRepPrimAPI_MakeBox(gp_Pnt(3.0, 0.0, 0.0), 1.0, 1.0, 1.0).Shape(),
+    )
+
+    report = brep.compare_sections_batch_rdescriptor(
+        model,
+        model,
+        sections=[
+            {
+                "section_id": "gap",
+                "origin": [2.0, 0.0, 0.0],
+                "normal": [1.0, 0.0, 0.0],
+            }
+        ],
+    )
+
+    comparison = report["sections"][0]["comparison"]
+    assert comparison["section_generation_unresolved"] is False
+    assert comparison["empty_section_mismatch"] is False
+    assert comparison["hausdorff_approximation"] == pytest.approx(0.0)
+
+
+def test_compare_sections_batch_accepts_identical_empty_bodyless_gap():
+    model = _compound(_face(0.0, 1.0), _face(3.0, 4.0))
+
+    report = brep.compare_sections_batch_rdescriptor(
+        model,
+        model,
+        sections=[
+            {
+                "section_id": "gap",
+                "origin": [2.0, 0.0, 0.0],
+                "normal": [1.0, 0.0, 0.0],
+            }
+        ],
+    )
+
+    comparison = report["sections"][0]["comparison"]
+    assert comparison["section_generation_unresolved"] is False
+    assert comparison["empty_section_mismatch"] is False
+    assert comparison["hausdorff_approximation"] == pytest.approx(0.0)
