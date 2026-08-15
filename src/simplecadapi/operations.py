@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from dataclasses import dataclass, asdict
 import math
@@ -78,9 +79,12 @@ from .tagging import (
     TagEvidence,
     TagLifecycle,
     TagProducer,
+    TagProducerKind,
     TagPropagation,
     TagScope,
     TagTarget,
+    TagTargetKind,
+    TagEvidenceKind,
     TopologyPropagation,
     lineage_policy_allows,
     normalize_tag,
@@ -123,6 +127,7 @@ from .tracking import (
 from .kernel.ocp_builders import (
     make_sphere_solid,
 )
+from ._brep_region import read_artifact
 from .kernel.ocp_curves import (
     make_arc_angle_edge,
     make_arc_three_point_edge,
@@ -171,7 +176,7 @@ from .kernel.ocp_surfaces import (
     make_gordon_surface,
     make_loft_shell,
     make_ruled_face,
-    sew_faces as sew_faces_ocp,
+    sew_faces_with_history as sew_faces_with_history_ocp,
     shell_from_face,
     trim_surface_face,
 )
@@ -1041,14 +1046,13 @@ def sew_faces_rshell(
             raise ValueError("sew_faces_rshell requires a non-empty Face sequence")
         if not np.isfinite(float(tolerance)) or float(tolerance) <= 0:
             raise ValueError("tolerance must be a positive finite value")
+        sewn, result_face_indices = sew_faces_with_history_ocp(
+            [face.wrapped for face in face_list], tolerance=float(tolerance)
+        )
         result = cast(
             Shell,
             _finalize_derived_shape(
-                Shell(
-                    sew_faces_ocp(
-                        [face.wrapped for face in face_list], tolerance=float(tolerance)
-                    )
-                ),
+                Shell(sewn),
                 op="sew_faces_rshell",
                 params={
                     "face_count": len(face_list),
@@ -1058,6 +1062,9 @@ def sew_faces_rshell(
                 input_shapes=face_list,
                 tags={"derived", "surface", "shell"},
             ),
+        )
+        _carry_face_provenance(
+            result, face_list, result_face_indices=result_face_indices
         )
         return cast(Shell, _surface_tag_output(result, tag_prefix))
     except Exception as e:
@@ -1114,6 +1121,12 @@ def make_solid_from_shell_rsolid(
                 input_shapes=[shell],
                 tags={"derived", "surface", "solid"},
             ),
+        )
+        _carry_face_provenance(
+            result,
+            shell.get_faces(),
+            allow_orientation_change=True,
+            replace_local_bindings=False,
         )
         return cast(Solid, _surface_tag_output(result, tag_prefix))
     except Exception as e:
@@ -1240,6 +1253,8 @@ _DEFAULT_UNION_TOL_MAX = 1e-5
 
 
 _OP_MAKE_POINT_RVERTEX = "make_point_rvertex"
+_OP_LOAD_BREP_REGION_RSOLID = "load_brep_region_rsolid"
+_OP_LOAD_BREP_REGION_RSHELL = "load_brep_region_rshell"
 _OP_MAKE_LINE_REDGE = "make_line_redge"
 _OP_MAKE_CIRCLE_REDGE = "make_circle_redge"
 _OP_MAKE_THREE_POINT_ARC_REDGE = "make_three_point_arc_redge"
@@ -2126,6 +2141,15 @@ def _make_geo_selector(
         "kind": kind,
         "metadata_geo": _jsonable_geo_value(shape.get_metadata("geo", {})),
     }
+    provenance = shape.get_metadata("provenance")
+    if isinstance(shape, Face) and isinstance(provenance, dict):
+        artifact_sha256 = provenance.get("artifact_sha256")
+        source_face_id = provenance.get("source_face_id")
+        if isinstance(artifact_sha256, str) and isinstance(source_face_id, str):
+            selector["brep_region_ref"] = {
+                "artifact_sha256": artifact_sha256,
+                "source_face_id": source_face_id,
+            }
     # `source_shape` is intentionally not serialized as a source index. The
     # canonical selector is geometry-based; source lineage comes from graph inputs.
 
@@ -2500,6 +2524,7 @@ def _semantic_delta_for_output(
             _OP_MAKE_TRANSLATE_RSHAPE,
             _OP_MAKE_ROTATE_RSHAPE,
             _OP_MAKE_MIRROR_RSHAPE,
+            _OP_LOAD_BREP_REGION_RSOLID,
         }:
             if op in {
                 "extrude",
@@ -5473,6 +5498,280 @@ def make_face_from_sketch_rface(
             ],
             error=e,
         )
+
+
+def load_brep_region_rsolid(
+    path: str | Path,
+    sha256: str,
+    *,
+    tag_prefix: Optional[str] = None,
+) -> Solid:
+    """Load a hash-pinned, target-derived BREP region snapshot as one Solid.
+
+    The complete artifact SHA-256 is verified before native BREP decoding. In a
+    GraphSession, ``path`` must be relative and is replayed relative to the replay
+    process working directory. Model JSON records the locator and digest, not the
+    sidecar bytes.
+    """
+
+    try:
+        return cast(
+            Solid,
+            _load_brep_region_rshape(
+                path,
+                sha256,
+                root_kind="solid",
+                tag_prefix=tag_prefix,
+                replay_root=(Path.cwd() if get_active_session() is not None else None),
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="load_brep_region_rsolid",
+            what_happened="Failed to load the BREP region snapshot.",
+            possible_causes=[
+                "The snapshot path does not exist or is not readable.",
+                "The supplied SHA-256 does not match the snapshot bytes.",
+                "The snapshot is corrupt, unsupported, invalid, or not one solid.",
+            ],
+            how_to_fix=[
+                "Create the snapshot with copy_step_region_rpath(...).",
+                "Pass the SHA-256 of the complete .scadbrep file.",
+                "Keep the sidecar at the same path when replaying model JSON.",
+            ],
+            error=e,
+        )
+
+
+def _carry_face_provenance(
+    shape: Shell | Solid,
+    source_faces: Sequence[Face],
+    *,
+    result_face_indices: Optional[Sequence[int]] = None,
+    allow_orientation_change: bool = False,
+    replace_local_bindings: bool = True,
+) -> None:
+    result_faces = list(shape.get_faces())
+    if result_face_indices is None:
+        mapped_indices = []
+        for source in source_faces:
+            matches = [
+                index
+                for index, result in enumerate(result_faces)
+                if result.wrapped.IsSame(source.wrapped)
+            ]
+            if len(matches) != 1:
+                raise ValueError("face continuation mapping is incomplete or ambiguous")
+            mapped_indices.append(matches[0])
+    else:
+        mapped_indices = [int(index) for index in result_face_indices]
+    if len(mapped_indices) != len(source_faces) or len(set(mapped_indices)) != len(
+        result_faces
+    ):
+        raise ValueError("face continuation mapping is not one-to-one")
+    for source, result_index in zip(source_faces, mapped_indices):
+        if result_index < 0 or result_index >= len(result_faces):
+            raise ValueError("face continuation mapping contains an invalid result index")
+        face = result_faces[result_index]
+        provenance = source.get_metadata("provenance")
+        if (
+            isinstance(provenance, dict)
+            and provenance.get("construction") == "exact_transcription"
+            and not allow_orientation_change
+            and not face.wrapped.IsEqual(source.wrapped)
+        ):
+            raise ValueError("sewing modified an exact-transcription input face")
+        projected_bindings = [
+            binding
+            for binding in source._local_tag_bindings()
+            if lineage_policy_allows(binding.propagation, "continuation")
+        ]
+        if replace_local_bindings:
+            face._replace_local_tag_bindings(projected_bindings)
+        _attach_lineage_from_source(
+            source,
+            face,
+            derivation="continuation",
+            op="face_continuation",
+            coverage="complete",
+        )
+        if isinstance(provenance, dict):
+            face.set_metadata("provenance", dict(provenance))
+        face._set_runtime("semantic.lineage.coverage", "complete")
+
+
+def load_brep_region_rshell(
+    path: str | Path,
+    sha256: str,
+    *,
+    tag_prefix: Optional[str] = None,
+) -> Shell:
+    """Load a hash-pinned, target-derived BREP face region as one Shell.
+
+    The Shell keeps target-derived topology and is tagged with imported-sidecar
+    provenance. Use ordinary replayable surface operations to join it to fitted
+    or analytic feature faces. GraphSession requires a relative sidecar path.
+    """
+
+    try:
+        return cast(
+            Shell,
+            _load_brep_region_rshape(
+                path,
+                sha256,
+                root_kind="shell",
+                tag_prefix=tag_prefix,
+                replay_root=(Path.cwd() if get_active_session() is not None else None),
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="load_brep_region_rshell",
+            what_happened="Failed to load the BREP face-region snapshot.",
+            possible_causes=[
+                "The snapshot path or SHA-256 is incorrect.",
+                "The snapshot is corrupt, unsupported, invalid, or not one Shell.",
+            ],
+            how_to_fix=[
+                "Create a face-region snapshot with copy_step_region_rpath(..., face_ids=[...]).",
+                "Pass the SHA-256 of the complete .scadbrep file.",
+            ],
+            error=e,
+        )
+
+
+def _load_brep_region_rshape(
+    path: str | Path,
+    sha256: str,
+    *,
+    root_kind: str,
+    tag_prefix: Optional[str],
+    replay_root: Path | None,
+) -> Shell | Solid:
+    source_path = _brep_region_path(path, for_graph=replay_root is not None)
+    wrapped, manifest, canonical_hash = read_artifact(
+        source_path,
+        sha256,
+        expected_root_kind=cast(Any, root_kind),
+        replay_root=replay_root,
+    )
+    shape: Shell | Solid = Solid(wrapped) if root_kind == "solid" else Shell(wrapped)
+    shape._add_tag("imported")
+    shape._add_tag("sidecar")
+    shape._add_tag(root_kind)
+    normalized_prefix = (
+        normalize_tag(tag_prefix, strict=True) if tag_prefix is not None else None
+    )
+    if normalized_prefix is not None:
+        shape._apply_tag(f"{normalized_prefix}.{root_kind}", propagate=False)
+    shape.set_metadata(
+        "brep_region",
+        {
+            "artifact_sha256": canonical_hash,
+            "profile": manifest["profile"],
+            "provenance": manifest["provenance"],
+            "source_face_ids": manifest["region"].get("source_face_ids"),
+        },
+    )
+    _attach_brep_region_provenance(shape, manifest, canonical_hash)
+    op = (
+        _OP_LOAD_BREP_REGION_RSOLID
+        if root_kind == "solid"
+        else _OP_LOAD_BREP_REGION_RSHELL
+    )
+    return cast(
+        Shell | Solid,
+        _finalize_primitive_shape(
+            shape,
+            op=op,
+            params={
+                "path": source_path,
+                "sha256": canonical_hash,
+                "tag_prefix": normalized_prefix,
+            },
+            tags={"imported", "sidecar", root_kind},
+        ),
+    )
+
+
+def _attach_brep_region_provenance(
+    shape: Shell | Solid,
+    manifest: Mapping[str, Any],
+    artifact_sha256: str,
+) -> None:
+    source = manifest["source"]
+    region = manifest["region"]
+    evidence = {
+        "artifact_sha256": artifact_sha256,
+        "profile": manifest["profile"],
+        "source_sha256": source["content_hash"],
+        "source_name": source["name"],
+        "source_face_ids": region.get("source_face_ids"),
+        "construction": "exact_transcription",
+        "topology_origin": "retained",
+        "runtime_dependency": "embedded_target_derived",
+    }
+    root_binding = TagBinding(
+        tag="provenance.exact_transcription",
+        producer=TagProducer(TagProducerKind.IMPORTED_SIDECAR),
+        target=TagTarget(TagTargetKind.SCOPE_ROOT),
+        propagation=TagPropagation(
+            topology=TopologyPropagation.DOWNWARD,
+            lineage=LineagePolicy.CONTINUATION_FRAGMENT,
+        ),
+        evidence=TagEvidence(TagEvidenceKind.IMPORTED_SIDECAR, evidence),
+        certainty=TagCertainty.ASSERTED,
+        lifecycle=TagLifecycle.SNAPSHOT,
+        binding_id=f"tag_binding_{uuid.uuid5(uuid.NAMESPACE_URL, '|'.join(('simplecad.brep_region.root', artifact_sha256, str(region['kind'])))).hex}",
+    )
+    shape._add_tag_binding(root_binding)
+    source_face_ids = tuple(region.get("source_face_ids") or ())
+    for index, face in enumerate(shape.get_faces()):
+        face_evidence = {
+            **evidence,
+            "source_face_id": (
+                source_face_ids[index] if index < len(source_face_ids) else None
+            ),
+        }
+        face.set_metadata("provenance", face_evidence)
+        face._add_tag_binding(
+            TagBinding(
+                tag="provenance.exact_transcription",
+                producer=TagProducer(TagProducerKind.IMPORTED_SIDECAR),
+                target=TagTarget(TagTargetKind.SCOPE_ROOT),
+                propagation=TagPropagation(
+                    topology=TopologyPropagation.LOCAL,
+                    lineage=LineagePolicy.CONTINUATION_FRAGMENT,
+                ),
+                evidence=TagEvidence(
+                    TagEvidenceKind.IMPORTED_SIDECAR, face_evidence
+                ),
+                certainty=TagCertainty.ASSERTED,
+                lifecycle=TagLifecycle.SNAPSHOT,
+                binding_id=f"tag_binding_{uuid.uuid5(uuid.NAMESPACE_URL, '|'.join(('simplecad.brep_region.face', artifact_sha256, str(face_evidence['source_face_id'])))).hex}",
+            )
+        )
+        face._set_runtime("semantic.lineage.coverage", "complete")
+
+
+def _brep_region_path(path: str | Path, *, for_graph: bool) -> str:
+    source = Path(path)
+    if ":" in source.name:
+        raise ValueError(".scadbrep filenames must not contain ':'")
+    if for_graph and source.is_absolute():
+        raise ValueError(
+            "GraphSession requires a relative .scadbrep path so model JSON does "
+            "not record machine-specific absolute paths"
+        )
+    if for_graph and source.drive:
+        raise ValueError("GraphSession .scadbrep paths must not contain a drive")
+    if for_graph and ".." in source.parts:
+        raise ValueError(".scadbrep paths must not traverse parent directories")
+    if for_graph and "\\" in str(path):
+        raise ValueError("GraphSession .scadbrep paths must use '/' separators")
+    if source.suffix.lower() != ".scadbrep":
+        raise ValueError("path must end in .scadbrep")
+    return source.as_posix() if for_graph else str(source)
 
 
 def make_box_rsolid(

@@ -75,6 +75,7 @@ from .slices import (
     make_center_slice_specs_rslicespeclist,
 )
 from .persistence import validate_step_roundtrip_rdescriptor
+from .snapshots import copy_step_region_rpath
 from .topology_inspection import inspect_topology_rdescriptor
 
 __all__ = [
@@ -103,6 +104,7 @@ __all__ = [
     "compare_step_slices_rslicecomparison",
     "compare_step_to_inspection_rentityinspectionparity",
     "compare_steps_rbrepcomparison",
+    "copy_step_region_rpath",
     "evaluate_reconstruction_rdescriptor",
     "fit_face_analytic_rdescriptor",
     "index_shape_rbrepmodel",

@@ -42,6 +42,7 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "inspect/brep/render.py",
     "inspect/brep/section_tracking.py",
     "inspect/brep/slices.py",
+    "inspect/brep/snapshots.py",
     "inspect/brep/topology_inspection.py",
 )
 
@@ -81,6 +82,7 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "inspect/brep/render.py",
         "inspect/brep/section_tracking.py",
         "inspect/brep/slices.py",
+        "inspect/brep/snapshots.py",
         "inspect/brep/topology_inspection.py",
     }
 )

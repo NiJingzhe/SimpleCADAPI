@@ -122,12 +122,18 @@ Do not enable complete curve/surface definitions, directly traverse target
 entities to recover complete definitions, or add/modify SDK operations,
 inspection tools, plugins, or helper executables during the run.
 
+In `exact_brep_transcription`, declared target-derived regions may be copied to
+hash-pinned `.scadbrep` sidecars with `copy_step_region_rpath(...)`. Final replay
+may load those declared sidecars with `load_brep_region_rshell(...)` or
+`load_brep_region_rsolid(...)`, but must not read the target STEP.
+
 ## Hard Constraints
 
 1. Final geometry uses public SimpleCADAPI modeling interfaces.
 2. Do not edit SDK source, tests, tools, target files, or baselines.
 3. Final replay must not read/import the target STEP.
-4. Do not copy, encode, embed, or re-export target STEP bytes.
+4. Do not copy, encode, embed, or re-export target STEP bytes, except for
+   declared `.scadbrep` region snapshots in `exact_brep_transcription` mode.
 5. Declared numeric parameter files are allowed when authorized by the mode.
 6. Do not replace an open-shell target with a fabricated solid.
 7. Do not use network services or external CAD applications.

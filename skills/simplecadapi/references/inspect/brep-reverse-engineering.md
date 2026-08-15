@@ -54,6 +54,41 @@ image = brep.render_step_comparison_rpath(
 )
 ```
 
+In `exact_brep_transcription` work, selected target faces can be copied outside
+the modeling graph into a content-addressed `.scadbrep` sidecar:
+
+```python
+snapshot = brep.copy_step_region_rpath(
+    path="target.step",
+    output_path="freeform-body.scadbrep",
+    face_ids=["face:0", "face:1", "face:2"],
+)
+```
+
+The selected face IDs must form one connected, valid Shell. The snapshot keeps
+the existing carrier surfaces, trims, pcurves, shared edges/vertices,
+orientations, and tolerances. It does not infer feature history and remains
+target-derived. Omit `face_ids` to snapshot one complete valid Solid.
+
+The replayable modeling program loads the hash-pinned sidecar without reading
+the target STEP:
+
+```python
+import simplecadapi as scad
+
+copied = scad.load_brep_region_rshell(
+    path="freeform-body.scadbrep",
+    sha256="sha256:...",
+)
+```
+
+Model JSON records a relative sidecar path and SHA-256 but does not embed its
+bytes; replay therefore resolves that path from the replay working directory.
+GraphSession rejects absolute sidecar paths to avoid machine-specific model
+JSON. Native BREP bytes are exact for the snapshot's pinned OCCT profile, not a
+cross-version geometry hash. Use material and topology comparisons for
+acceptance.
+
 `inspect_step_rsummary` returns entity counts, bounding box, material
 volume/area, centroid, and surface/curve type statistics.
 `inspect_step_entity_rdescriptor` uses stable zero-based IDs (`body:0`,
@@ -127,6 +162,7 @@ case-by-case inspection code for the model:
 | Atomic STEP write/reload evidence | `validate_step_roundtrip_rdescriptor` |
 | Final exact-BREP gate | `compare_shapes_rbrepcomparison`, `compare_steps_rbrepcomparison` |
 | Shared-scale visual comparison | `render_step_comparison_rpath` |
+| Copy an exact connected face region | `copy_step_region_rpath`, then `load_brep_region_rshell` |
 
 Start from cheap, bounded facts; add boundary sampling, boolean difference,
 sections, rendering, or strict topology comparison only when the current

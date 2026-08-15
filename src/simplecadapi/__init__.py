@@ -145,6 +145,8 @@ from .operations import (
     shell_rsolid,
     # 其他
     linear_pattern_rsolidlist,
+    load_brep_region_rsolid,
+    load_brep_region_rshell,
     radial_pattern_rsolidlist,
 )
 from .surface import (
@@ -156,10 +158,10 @@ from .surface import (
     make_ruled_surface_rface,
     make_gordon_surface_rface,
     make_surface_patch_rface,
+    make_solid_from_shell_rsolid,
     loft_rshell,
     trim_surface_rface,
     sew_faces_rshell,
-    make_solid_from_shell_rsolid,
     free_boundaries_rwirelist,
     fill_holes_rshell,
 )
@@ -426,6 +428,8 @@ __all__ = [
     "make_angle_arc_redge",
     "make_angle_arc_rwire",
     "make_box_rsolid",
+    "load_brep_region_rsolid",
+    "load_brep_region_rshell",
     "make_circle_redge",
     "make_circle_rface",
     "make_circle_rwire",

@@ -280,6 +280,20 @@ class TestSurfaceApi(unittest.TestCase):
         self.assertIsInstance(replayed, scad.Face)
         self.assertIn("role.shell_face", scad.list_tags(replayed))
 
+    def test_sewing_does_not_copy_tags_with_no_lineage_policy(self):
+        box = scad.make_box_rsolid(1.0, 2.0, 3.0)
+        source = box.get_faces(0)
+        tagged = scad.apply_tag_rselection(
+            source,
+            [source],
+            "role.local_only",
+            lineage_policy=scad.LineagePolicy.NONE,
+        )
+
+        sewn = scad.sew_faces_rshell([tagged])
+
+        self.assertNotIn("role.local_only", scad.list_tags(sewn.get_faces(0)))
+
     def test_workplane_bezier_model_replay_preserves_geometry_and_tag(self):
         with scad.GraphSession() as session:
             with scad.Workplane(

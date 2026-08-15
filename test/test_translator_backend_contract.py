@@ -8,7 +8,7 @@ import unittest
 
 import simplecadapi as scad
 from simplecadapi.graph import GraphSession
-from simplecadapi.serializer import CANONICAL_OP_SET
+from simplecadapi.serializer import CANONICAL_OP_SET, _canonical_contract_payload
 from simplecadapi.translator.base import BaseTranslator
 from simplecadapi.translator.freecad_translator import FreeCADTranslator
 from simplecadapi.translator.freecad_translator.emitters.registry import (
@@ -104,6 +104,45 @@ class TestTranslatorBackendContract(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertIn('DOC_NAME = "ContractTest"', first)
         compile(first, "<generated-freecad-script>", "exec")
+
+    def test_translator_rejects_snapshot_operation_before_backend_emission(self):
+        import json
+
+        payload = {
+            "schema_version": "2.0",
+            "canonical_contract": _canonical_contract_payload(),
+            "graph": {
+                "schema_version": "2.0",
+                "graph_id": "snapshot",
+                "nodes": [
+                    {
+                        "node_id": "n1",
+                        "op": "load_brep_region_rsolid",
+                        "params": {
+                            "path": "body.scadbrep",
+                            "sha256": "sha256:" + "0" * 64,
+                        },
+                        "inputs": [],
+                        "output_count": 1,
+                        "tags": [],
+                    }
+                ],
+                "edges": [],
+            },
+            "leaf_ids": ["n1"],
+            "expression_graph": {"schema_version": "2.0", "nodes": []},
+            "tolerance_graph": {"schema_version": "1.0", "requirements": []},
+            "frame_graph": {},
+            "geometry_registry": [],
+            "semantic_entity_registry": [],
+            "sketch_profile_registry": [],
+            "semantic_delta_log": [],
+            "topology_delta_log": [],
+            "semantic_bindings": [],
+        }
+
+        with self.assertRaisesRegex(ValueError, "load_brep_region_rsolid"):
+            FreeCADTranslator().translate_model_json(json.dumps(payload))
 
 
 if __name__ == "__main__":
