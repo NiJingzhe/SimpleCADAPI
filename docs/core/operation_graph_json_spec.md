@@ -32,14 +32,14 @@
 ### 2.1 graph JSON
 
 - 导出版本：`schema_version = "2.0"`
-- 导入兼容规则：`import_graph_json()` 仅接受 `2.x`
-- 也就是说，适配器应把 graph payload 视为 `2.x` 系列 schema
+- 导入兼容规则：`import_graph_json()` 仅接受 exactly `2.0`
+- graph schema 的后续版本必须显式协商，不按 `2.x` 前缀自动接受
 
 ### 2.2 model JSON
 
 - 导出版本：`schema_version = "2.0"`
 - 导入兼容规则：`import_model_json()` 仅接受 exactly `2.0`
-- 当前 canonical contract 版本：`canonical_contract.contract_version = "2.0"`
+- 当前 canonical contract 版本：`canonical_contract.contract_version = "2.1"`
 
 ### 2.3 Contract Layers
 
@@ -49,7 +49,7 @@ SimpleCADAPI v2 明确区分三层契约：
 | --- | --- | --- |
 | source API | Python public functions such as `make_box_rsolid(...)`, `union_rsolid(...)`, `fillet_rsolid(...)` | 用户调用层；可以是 convenience API 或 macro API |
 | canonical graph op | `graph.nodes[].op` values inside graph/model JSON | interchange/replay 层；必须来自 frozen canonical op set |
-| model JSON schema | top-level model payload with `schema_version = "2.0"` and `canonical_contract.contract_version = "2.0"` | payload envelope 层；不得混用 draft/final-state version strings |
+| model JSON schema | top-level model payload with `schema_version = "2.0"` and `canonical_contract.contract_version = "2.1"` | payload envelope 层；不得混用 draft/final-state version strings |
 
 source API 名字不等于 canonical graph op 名字。Composite source API 可以展开为多个 canonical graph ops，例如 `make_box_rsolid(...)` 展开为 rectangle/face/extrude chain；model JSON schema 只规定 payload envelope 和 contract metadata。
 
@@ -889,7 +889,7 @@ fields when their target expression is unitless.
 
 ```json
 {
-  "contract_version": "2.0",
+  "contract_version": "2.1",
   "graph_roles": {
     "graph": "canonical_low_level_graph",
     "leaf_ids": "explicit_result_set"
@@ -909,6 +909,12 @@ fields when their target expression is unitless.
 - `replay_model_json()` 直接使用 `graph`
 - 多输出 graph 的最终结果集由 `leaf_ids` 显式声明
 - replay 默认 strict；permissive 仅通过 API 参数显式 opt-in
+- importer 仍识别冻结的 `2.0` contract，但 `2.0` graph 不得使用
+  `load_brep_region_rshell`、`load_brep_region_rsolid` 或
+  `make_solid_from_shell_rsolid`。
+- 为兼容早期 `2.0` model payload，importer 将缺失的
+  `canonical_contract` 视为最小 legacy `{"contract_version": "2.0"}`；
+  新导出的 model payload 仍必须显式包含完整 contract。
 
 ### 12.3 geometry_registry
 
@@ -989,6 +995,8 @@ New canonical profile nodes use the `make_*_r*` names listed in `canonical_contr
 当前 canonical low-level graph op set 固定为下面的 source-API-like op names。注意这些是 graph/model JSON 的 canonical op names，不是旧版短 op names：
 
 - `make_point_rvertex`
+- `load_brep_region_rshell`
+- `load_brep_region_rsolid`
 - `make_line_redge`
 - `make_circle_redge`
 - `make_three_point_arc_redge`
@@ -997,6 +1005,7 @@ New canonical profile nodes use the `make_*_r*` names listed in `canonical_contr
 - `make_helix_redge`
 - `make_wire_from_edges_rwire`
 - `make_face_from_wire_rface`
+- `make_face_from_wires_rface`
 - `make_sketch_rsketch`
 - `add_point_rsketch`
 - `add_line_rsketch`
@@ -1322,6 +1331,22 @@ Notes:
 - The promoted face/wire/edges carry `source_sketch`, `sketch_solve`, and sketch entity tags/metadata.
 
 ### 14.3 Primitive Solid Source APIs
+
+#### `load_brep_region_rshell`
+
+- Inputs: none
+- Outputs: 1 `Shell`
+- Params: `path`, `sha256`, `tag_prefix`
+- `path` locates a required external `.scadbrep` sidecar; `sha256` identifies
+  and verifies the complete artifact before native BREP decoding.
+
+#### `load_brep_region_rsolid`
+
+- Inputs: none
+- Outputs: 1 `Solid`
+- Params: `path`, `sha256`, `tag_prefix`
+- Model JSON does not embed the sidecar bytes. Replay fails closed when the file
+  is missing, changed, corrupt, or has the wrong root kind.
 
 #### `make_box_rsolid`
 

@@ -605,6 +605,15 @@ def _extract(shape: TopoDS_Shape, kind, caster):
 def sew_faces(
     faces: Sequence[TopoDS_Face], *, tolerance: float
 ) -> TopoDS_Shell:
+    shell, _ = sew_faces_with_history(faces, tolerance=tolerance)
+    return shell
+
+
+def sew_faces_with_history(
+    faces: Sequence[TopoDS_Face], *, tolerance: float
+) -> tuple[TopoDS_Shell, list[int]]:
+    """Sew faces and return each input face's unique result-face index."""
+
     sewing = BRepBuilderAPI_Sewing(float(tolerance), True, True, False, False)
     sewing.SetNonManifoldMode(False)
     sewing.SetLocalTolerancesMode(False)
@@ -621,18 +630,39 @@ def sew_faces(
     if shape.IsNull():
         raise ValueError("OCP sewing returned a null shape")
     if shape.ShapeType() == TopAbs_SHELL:
-        return TopoDS.Shell_s(shape)
-    if shape.ShapeType() == TopAbs_FACE:
-        return shell_from_face(TopoDS.Face_s(shape))
-    if len(faces_of(shape)) != len(faces):
-        raise ValueError("face sewing did not preserve every input face")
-    shells = _extract(shape, TopAbs_SHELL, TopoDS.Shell_s)
-    if len(shells) == 1:
-        return shells[0]
-    raise ValueError(
-        "faces do not sew into exactly one connected shell; "
-        f"OCP produced {len(shells)} shell components"
-    )
+        shell = TopoDS.Shell_s(shape)
+    elif shape.ShapeType() == TopAbs_FACE:
+        shell = shell_from_face(TopoDS.Face_s(shape))
+    else:
+        shells = _extract(shape, TopAbs_SHELL, TopoDS.Shell_s)
+        if len(shells) != 1:
+            raise ValueError(
+                "faces do not sew into exactly one connected shell; "
+                f"OCP produced {len(shells)} shell components"
+            )
+        shell = shells[0]
+
+    result_faces = faces_of(shell)
+    if len(result_faces) != len(faces):
+        raise ValueError(
+            "face sewing did not preserve every input face: "
+            f"expected {len(faces)}, got {len(result_faces)}"
+        )
+
+    result_indices: list[int] = []
+    for source in faces:
+        mapped = sewing.ModifiedSubShape(source)
+        if mapped.IsNull() or mapped.ShapeType() != TopAbs_FACE:
+            raise ValueError("face sewing history did not retain one input face")
+        matches = [
+            index for index, result in enumerate(result_faces) if result.IsSame(mapped)
+        ]
+        if len(matches) != 1:
+            raise ValueError("face sewing history is incomplete or ambiguous")
+        result_indices.append(matches[0])
+    if len(set(result_indices)) != len(result_faces):
+        raise ValueError("face sewing history is not one-to-one")
+    return shell, result_indices
 
 
 def shell_from_face(face: TopoDS_Face) -> TopoDS_Shell:

@@ -31,6 +31,20 @@ class BaseTranslator(ABC):
             raise ValueError(
                 "Translation requires model JSON with a non-empty canonical low-level graph"
             )
+        external_sidecar_ops = sorted(
+            {
+                node.op
+                for node in graph.nodes
+                if node.op
+                in {"load_brep_region_rshell", "load_brep_region_rsolid"}
+            }
+        )
+        if external_sidecar_ops:
+            raise ValueError(
+                f"{self.capabilities.display_name} does not support canonical "
+                "operation(s): "
+                + ", ".join(external_sidecar_ops)
+            )
         return self.translate_model_payload(payload, graph=graph)
 
     @abstractmethod

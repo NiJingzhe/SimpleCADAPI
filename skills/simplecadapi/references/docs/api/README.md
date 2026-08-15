@@ -210,6 +210,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [compare_step_slices_rslicecomparison](compare_step_slices_rslicecomparison.md) *(from inspect/brep/slices.py)* `inspection namespace`
 - [compare_step_to_inspection_rentityinspectionparity](compare_step_to_inspection_rentityinspectionparity.md) *(from inspect/brep/parity.py)* `inspection namespace`
 - [compare_steps_rbrepcomparison](compare_steps_rbrepcomparison.md) *(from inspect/brep/compare.py)* `inspection namespace`
+- [copy_step_region_rpath](copy_step_region_rpath.md) *(from inspect/brep/snapshots.py)* `inspection namespace`
 - [evaluate_reconstruction_rdescriptor](evaluate_reconstruction_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
 - [fit_face_analytic_rdescriptor](fit_face_analytic_rdescriptor.md) *(from inspect/brep/fitting.py)* `inspection namespace`
 - [index_shape_rbrepmodel](index_shape_rbrepmodel.md) *(from inspect/brep/model.py)* `inspection namespace`
@@ -320,6 +321,8 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [inspect_assembly_constraints_rconstraintreport](inspect_assembly_constraints_rconstraintreport.md) *(from operations.py)* `top-level`
 - [inspect_sketch_rsketchresult](inspect_sketch_rsketchresult.md) *(from operations.py)* `top-level`
 - [linear_pattern_rsolidlist](linear_pattern_rsolidlist.md) *(from operations.py)* `top-level`
+- [load_brep_region_rshell](load_brep_region_rshell.md) *(from operations.py)* `top-level`
+- [load_brep_region_rsolid](load_brep_region_rsolid.md) *(from operations.py)* `top-level`
 - [measure_constraint_residual_rconstraintresidual](measure_constraint_residual_rconstraintresidual.md) *(from operations.py)* `top-level`
 - [meta](meta.md) *(from ql.py)* `submodule:ql`
 - [not_](not_.md) *(from ql.py)* `submodule:ql`

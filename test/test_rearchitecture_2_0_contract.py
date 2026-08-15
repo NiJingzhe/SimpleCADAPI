@@ -281,7 +281,7 @@ class TestRearchitecture20IoContracts(unittest.TestCase):
 
         self.assertIn("canonical_contract", payload)
         contract = payload["canonical_contract"]
-        self.assertEqual(contract["contract_version"], "2.0")
+        self.assertEqual(contract["contract_version"], "2.1")
         self.assertEqual(contract["graph_roles"]["graph"], "canonical_low_level_graph")
         self.assertEqual(contract["graph_roles"]["leaf_ids"], "explicit_result_set")
         self.assertEqual(contract["replay_policy"]["preferred_graph"], "graph")
