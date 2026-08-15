@@ -6,6 +6,7 @@ import pytest
 
 import simplecadapi as scad
 from simplecadapi import ql
+from simplecadapi import scene
 
 
 def test_material_validation_and_assignment_are_separate_from_part_creation():
@@ -573,9 +574,9 @@ def test_boolean_named_face_connector_resolves_after_replay():
         tuple(replayed_face.get_center())
     )
 
-    package = scad.compile_scene(
+    package = scene.compile_scene(
         scene_id="boolean-named-connector",
-        roots=(scad.SceneRoot(root_id="main", value=replayed),),
+        roots=(scene.SceneRoot(root_id="main", value=replayed),),
     )
     snapshot = package.manifest["connectors"][0]
     asset = next(

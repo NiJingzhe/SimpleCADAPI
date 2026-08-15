@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplecad.dev/schemas/feature-graph-1.schema.json",
+  "title": "SimpleCAD FeatureGraphArtifact 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_kind",
+    "profile",
+    "owner",
+    "graph",
+    "result_node_ids",
+    "external_definitions",
+    "expression_graph",
+    "tolerance_graph",
+    "frame_graph",
+    "semantic_index",
+    "source_files",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "artifact_kind": {"const": "feature_graph"},
+    "profile": {"const": "simplecad-feature-graph-1"},
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["definition_kind", "definition_id", "revision"],
+      "properties": {
+        "definition_kind": {"enum": ["single_solid", "assembly"]},
+        "definition_id": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/revision"}
+      }
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema_version", "producer_version", "capabilities", "graph_id", "nodes", "edges"],
+      "properties": {
+        "schema_version": {"type": "string", "pattern": "^2\\."},
+        "producer_version": {"type": "string", "minLength": 1},
+        "capabilities": {"type": "object"},
+        "graph_id": {"$ref": "#/$defs/id"},
+        "nodes": {"type": "array", "maxItems": 1000000, "items": {"type": "object"}},
+        "edges": {"type": "array", "maxItems": 4000000, "items": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "string"}}}
+      }
+    },
+    "result_node_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "external_definitions": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": {"$ref": "#/$defs/externalDefinition"}
+    },
+    "expression_graph": {"type": "object"},
+    "tolerance_graph": {"type": "object"},
+    "frame_graph": {"type": "object"},
+    "semantic_index": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "geometry_registry",
+        "semantic_entity_registry",
+        "sketch_profile_registry",
+        "semantic_delta_log",
+        "topology_delta_log",
+        "semantic_bindings"
+      ],
+      "properties": {
+        "geometry_registry": {"type": "array", "items": {"type": "object"}},
+        "semantic_entity_registry": {"type": "array", "items": {"type": "object"}},
+        "sketch_profile_registry": {"type": "array", "items": {"type": "object"}},
+        "semantic_delta_log": {"type": "array", "items": {"type": "object"}},
+        "topology_delta_log": {"type": "array", "items": {"type": "object"}},
+        "semantic_bindings": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "source_files": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {"$ref": "#/$defs/sourceFile"}
+    },
+    "content_hash": {"$ref": "#/$defs/hash"}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"},
+    "revision": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"},
+    "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "externalDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["definition_kind", "definition_id", "revision", "content_hash"],
+      "properties": {
+        "definition_kind": {"enum": ["single_solid", "assembly"]},
+        "definition_id": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "content_hash": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "sourceFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_file_id", "display_path", "path_kind", "content_hash", "byte_length", "uri"],
+      "properties": {
+        "source_file_id": {"$ref": "#/$defs/hash"},
+        "display_path": {"$ref": "#/$defs/path"},
+        "path_kind": {"enum": ["project_relative", "external"]},
+        "content_hash": {"$ref": "#/$defs/hash"},
+        "byte_length": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "uri": {"type": "string", "pattern": "^sources/sha256/[0-9a-f]{64}\\.py$"}
+      }
+    }
+  }
+}

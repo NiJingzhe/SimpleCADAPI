@@ -5,6 +5,7 @@ import importlib.util
 import threading
 import time
 from pathlib import Path
+import sys
 import pytest
 
 import simplecadapi as scad
@@ -53,18 +54,20 @@ def test_part_reuses_runtime_in_process_and_restores_across_wrappers(
     assert memory_warm.cache_report.hit
     assert memory_warm.cache_report.part_lookups == 0
     assert memory_warm.cache_report.bytes_read == 0
-    assert memory_warm.session is cold.session
+    assert memory_warm.feature_graph is cold.feature_graph
     assert memory_warm.value is cold.value
     assert disk_warm.cache_report.hit
     assert disk_warm.cache_report.part_lookups == 1
     assert disk_warm.cache_report.bytes_read > 0
-    assert disk_warm.session is not cold.session
+    assert disk_warm.feature_graph is not cold.feature_graph
     assert disk_warm.value is not cold.value
     assert disk_warm.value.body is not cold.value.body
     assert disk_warm.value.body.get_volume() == pytest.approx(24.0)
     assert disk_warm.definition.canonical_bytes == cold.definition.canonical_bytes
-    assert disk_warm.model_json == cold.model_json
-    assert disk_warm.session.graph.to_dict() == cold.session.graph.to_dict()
+    assert disk_warm.feature_graph.canonical_bytes == cold.feature_graph.canonical_bytes
+    assert disk_warm.feature_graph.restore_session().graph.to_dict() == (
+        cold.feature_graph.restore_session().graph.to_dict()
+    )
     assert disk_warm.value.connector_ids() == ("mount",)
     assert disk_warm.definition.interface_hashes == cold.definition.interface_hashes
     assert scad.list_tags(shape=disk_warm.value.body) == scad.list_tags(
@@ -104,7 +107,9 @@ def test_part_accepts_solid_and_wraps_definition_id(tmp_path: Path) -> None:
 
     assert result.value.part_id == "solid_result"
     assert result.value.body.get_volume() == pytest.approx(6.0)
-    assert result.result_node_ids == result.session.result_node_ids
+    assert result.feature_graph.result_node_ids == (
+        result.feature_graph.restore_session().result_node_ids
+    )
 
 
 def test_part_deduplicates_concurrent_same_parameter_calls(tmp_path: Path) -> None:
@@ -152,7 +157,9 @@ def test_part_rejects_multiple_explicit_results(tmp_path: Path) -> None:
     def build():
         first = scad.make_box_rsolid(width=1.0, height=1.0, depth=1.0)
         second = scad.make_box_rsolid(width=2.0, height=2.0, depth=2.0)
-        scad.capture_result(value=(first, second))
+        session = scad.get_active_session()
+        assert session is not None
+        session.capture_result(value=(first, second))
         return second
 
     with pytest.raises(ArtifactValidationError, match="exactly one result node"):
@@ -221,6 +228,73 @@ def test_part_key_changes_with_arguments_and_file_bytes_not_mtime(
         )
         == 3
     )
+
+def test_part_helper_source_change_rebuilds_same_key_without_quarantine(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname='source-fixture'\nversion='1.0.0'\n",
+        encoding="utf-8",
+    )
+    helper_path = tmp_path / "cache_helper.py"
+    builder_path = tmp_path / "builder.py"
+    helper_path.write_text(
+        "import simplecadapi as scad\n"
+        "def make_body():\n"
+        "    return scad.make_box_rsolid(width=1.0, height=2.0, depth=3.0)\n",
+        encoding="utf-8",
+    )
+    builder_source = (
+        "import cache_helper\n"
+        "def build():\n"
+        "    return cache_helper.make_body()\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    _module, function = _load_function(builder_path, builder_source, "build")
+    policy = _policy(tmp_path / "cache")
+    first = scad.part(
+        id="helper_dependent",
+        cache=policy,
+        project_root=tmp_path,
+    )(function)()
+    first_key = first.cache_report.build_key
+    first_quarantine = scad.ContentAddressedStore(policy).stats().quarantined
+
+    encoded = scad.encode_part_definition(first.definition)
+    from simplecadapi.scene.archive import preflight_zip_bytes
+
+    archive = preflight_zip_bytes(encoded, manifest_name="part-definition.json")
+    feature_payload = archive.members[
+        "blobs/" + first.definition.feature_graph_ref.path
+    ]
+    archived_graph = scad.load_feature_graph_artifact(feature_payload)
+    helper_snapshot = next(
+        item for item in archived_graph.source_files if item.display_path == "cache_helper.py"
+    )
+    assert archived_graph.blobs[helper_snapshot.uri] == helper_path.read_bytes()
+
+    helper_path.write_text(
+        "import simplecadapi as scad\n"
+        "def make_body():\n"
+        "    # Deliberately changes helper bytes without changing builder bytes.\n"
+        "    return scad.make_box_rsolid(width=1.0, height=5.0, depth=3.0)\n",
+        encoding="utf-8",
+    )
+    importlib.invalidate_caches()
+    sys.modules.pop("cache_helper", None)
+    _module, changed_function = _load_function(builder_path, builder_source, "build")
+    changed = scad.part(
+        id="helper_dependent",
+        cache=policy,
+        project_root=tmp_path,
+    )(changed_function)()
+
+    assert changed.cache_report.build_key == first_key
+    assert not changed.cache_report.hit
+    assert changed.cache_report.miss_reason == "source_changed"
+    assert changed.value.body.get_volume() == pytest.approx(15.0)
+    assert scad.ContentAddressedStore(policy).stats().quarantined == first_quarantine
 
 
 def test_part_argument_normalizer_rejects_unknown_cycles_and_nonfinite(
@@ -299,25 +373,13 @@ def test_part_corrupt_payload_rebuilds_and_quarantines(tmp_path: Path) -> None:
     assert store.stats().quarantined >= 1
 
 
-def test_part_default_export_is_product_package(tmp_path: Path) -> None:
-    output = tmp_path / "out"
-
-    @scad.part(
-        id="exported",
-        cache=_policy(tmp_path / "cache"),
-        export_dir=output,
-    )
-    def build() -> scad.Solid:
-        return scad.make_box_rsolid(width=1.0, height=2.0, depth=3.0)
-
-    result = build()
-
-    assert set(result.artifact_paths) == {"product"}
-    assert result.artifact_paths["product"].name == "exported.scadpkg"
-    assert (
-        scad.load_product_package(result.artifact_paths["product"]).definition_id
-        == "exported"
-    )
+def test_part_rejects_legacy_export_dir(tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match="export_dir"):
+        scad.part(
+            id="exported",
+            cache=_policy(tmp_path / "cache"),
+            export_dir=tmp_path / "out",
+        )
 
 
 def test_part_definition_archive_round_trip_and_reexport(tmp_path: Path) -> None:
@@ -326,7 +388,10 @@ def test_part_definition_archive_round_trip_and_reexport(tmp_path: Path) -> None
         return scad.make_box_rsolid(width=2.0, height=3.0, depth=4.0)
 
     result = build()
-    first = result.export_definition(path=tmp_path / "first.part-definition.zip")
+    first = scad.export_part_definition(
+        result.definition,
+        tmp_path / "first.part-definition.zip",
+    )
     loaded = scad.load_part_definition(first)
     second = scad.export_part_definition(
         loaded,

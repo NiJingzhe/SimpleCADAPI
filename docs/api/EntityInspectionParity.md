@@ -10,7 +10,7 @@ class EntityInspectionParity(source: str | None, valid: bool, issues: tuple[str,
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.EntityInspectionParity(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.EntityInspectionParity(...)`; unavailable inside GraphSession
 
 ## Description
 

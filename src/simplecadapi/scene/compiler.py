@@ -36,7 +36,6 @@ from OCP.TopAbs import (
 )
 
 from ..core import Compound, Edge, Face, Solid, Vertex
-from ..graph import ModelResult
 from ..kernel.ocp_properties import center_of_mass
 from ..product import (
     Assembly,
@@ -166,7 +165,7 @@ def compile_scene(
     *,
     scene_id: str,
     roots: Sequence[SceneRoot],
-    source: SceneSource | ModelResult | None = None,
+    source: SceneSource | None = None,
     presentation: Any = None,
     options: SceneCompileOptions | None = None,
 ) -> CompiledScenePackage:
@@ -452,7 +451,7 @@ def _binding_status(source: SceneSource, definition_kind: str, frame: Mapping[st
 
 
 def _coerce_source(
-    source: SceneSource | ModelResult | None,
+    source: SceneSource | None,
     roots: Sequence[SceneRoot],
     *,
     embed_source: bool,
@@ -469,28 +468,6 @@ def _coerce_source(
             definition_id=source.definition_id,
             revision=source.revision,
             _graph=source._graph,
-        )
-    if isinstance(source, ModelResult):
-        try:
-            model_payload = json.loads(source.model_json)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("ModelResult.model_json is not valid JSON") from exc
-        live_graph_payload = json.loads(json.dumps(source.session.graph.to_dict()))
-        if model_payload.get("graph") != live_graph_payload:
-            raise ValueError(
-                "ModelResult session graph no longer matches its model JSON snapshot"
-            )
-        return SceneSource(
-            kind="model",
-            graph_id=source.session.graph.graph_id,
-            artifact_hash=_model_artifact_hash(source.model_json),
-            artifact_bytes=(
-                source.model_json.encode("utf-8") if embed_source else None
-            ),
-            _graph=source.session.graph,
-            _source_files=(
-                _collect_source_files(source.session.graph) if embed_source else ()
-            ),
         )
     return SceneSource(kind="manual", source_id=roots[0].root_id)
 
@@ -601,7 +578,7 @@ def _graph_output_ref(value: Any, *, source: SceneSource) -> tuple[str, int]:
         raise ValueError("model scene root must retain graph node ownership")
     graph = source._graph
     if graph is None:
-        raise ValueError("model scene source requires ModelResult graph evidence")
+        raise ValueError("model scene source requires GraphSession graph evidence")
     graph_id = getattr(node, "graph_id", None) or source.graph_id
     if graph_id != source.graph_id:
         raise ValueError("model scene root belongs to a different graph")
@@ -811,7 +788,7 @@ def _connector_source(
         }
     graph = source._graph
     if graph is None:
-        raise ValueError("model connector source requires ModelResult graph evidence")
+        raise ValueError("model connector source requires GraphSession graph evidence")
     owner_node_id, _output_slot = _graph_output_ref(owner, source=source)
     producer = _connector_producer(
         graph=graph,

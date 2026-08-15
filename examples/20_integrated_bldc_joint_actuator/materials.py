@@ -65,7 +65,6 @@ MATERIAL_SPECS = {
 }
 
 
-@scad.requires_session
 def make_actuator_material_rmaterial(*, key: str) -> scad.Material:
     """Create one material inside the caller's product graph when active."""
 
@@ -76,7 +75,6 @@ def make_actuator_material_rmaterial(*, key: str) -> scad.Material:
     return scad.make_material_rmaterial(**spec)
 
 
-@scad.requires_session
 def make_actuator_materials_rdict() -> dict[str, scad.Material]:
     """Create the materials used by Case 20."""
 

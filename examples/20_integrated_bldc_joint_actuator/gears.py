@@ -116,12 +116,9 @@ except ImportError:  # Support direct execution from this example directory.
     )
 
 
-@scad.requires_session
-def make_stage_ring_gear_rpart(
-    *,
-    stage: StageSpec,
-    material: scad.Material,
-) -> scad.Part:
+def make_stage_ring_gear_rpart(*,
+stage: StageSpec,
+material: scad.Material,) -> scad.Part:
     """Create one herringbone ring insert with a full housing support rim."""
 
     ring = scad.std.gear.make_herringbone_ring_gear_rsolid(
@@ -178,12 +175,9 @@ def make_stage_ring_gear_rpart(
     )
 
 
-@scad.requires_session
-def make_stage_planet_gear_rpart(
-    *,
-    stage: StageSpec,
-    material: scad.Material,
-) -> scad.Part:
+def make_stage_planet_gear_rpart(*,
+stage: StageSpec,
+material: scad.Material,) -> scad.Part:
     """Create one reusable herringbone planet with a standard-bearing seat."""
 
     planet = scad.std.gear.make_herringbone_gear_rsolid(
@@ -241,7 +235,6 @@ def make_stage_planet_gear_rpart(
     )
 
 
-@scad.requires_session
 def make_stage1_carrier_sun_rpart(*, material: scad.Material) -> scad.Part:
     """Create the first carrier and integral second-stage sun/shaft."""
 
@@ -332,12 +325,9 @@ def make_stage1_carrier_sun_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
-def make_output_carrier_flange_rpart(
-    *,
-    stage: StageSpec,
-    material: scad.Material,
-) -> scad.Part:
+def make_output_carrier_flange_rpart(*,
+stage: StageSpec,
+material: scad.Material,) -> scad.Part:
     """Create the second carrier, 16 mm bearing land, and output flange."""
 
     carrier = _make_carrier_body_rsolid(
@@ -450,7 +440,6 @@ def make_output_carrier_flange_rpart(
     )
 
 
-@scad.requires_session
 def make_planet_rplacement(*, stage: StageSpec, index: int) -> scad.Placement:
     """Place and visually phase one planet at its pitch center."""
 
@@ -477,18 +466,15 @@ def planet_center_xy(*, stage: StageSpec, index: int) -> tuple[float, float]:
     )
 
 
-@scad.requires_session
-def _make_carrier_body_rsolid(
-    *,
-    stage: StageSpec,
-    plate_bottom_z: float,
-    plate_thickness: float,
-    pin_bottom_z: float,
-    pin_radius: float,
-    hub_radius: float,
-    arm_width: float,
-    pad_radius: float,
-) -> scad.Solid:
+def _make_carrier_body_rsolid(*,
+stage: StageSpec,
+plate_bottom_z: float,
+plate_thickness: float,
+pin_bottom_z: float,
+pin_radius: float,
+hub_radius: float,
+arm_width: float,
+pad_radius: float,) -> scad.Solid:
     hub = scad.make_cylinder_rsolid(
         radius=hub_radius,
         height=plate_thickness,

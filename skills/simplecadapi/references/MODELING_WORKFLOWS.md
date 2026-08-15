@@ -7,11 +7,11 @@
 - Use the standard parts library first when a requested standard component is available and does not need complex custom geometry changes.
 - Start from profiles and reference geometry, then create solids with features such as extrude, revolve, loft, and sweep.
 - Use booleans and detail features after the base form is clear: cut openings, union intended merged bodies, then apply fillets, chamfers, or shell operations.
-- Use `@scad.part` for one physical single-solid product, `@scad.assemble` for explicit durable assembly definitions, and `@scad.model` only for replayable geometry flows that are not product build boundaries. `@scad.model` owns one `GraphSession`; use `@scad.requires_session` for child graph builders.
+- Use `@scad.part` for one physical single-solid product and `@scad.assemble` for explicit durable assembly definitions. Use an explicit `GraphSession` for replayable geometry flows.
 - Use QL for grounding and selection. Query the facts you need, such as face normals, centers, areas, edge lengths, curve types, and tags.
 - Use indexed child-geometry getters such as `get_edges(index)` and `get_faces(index)` when an indexed topology pick is intentional.
 - Use semantic tags for design intent and anchors. Keep numeric measurements and geometry facts in metadata or model JSON payloads.
-- Treat `ModelResult.model_json` as the interchange boundary for new model entry points. Use `export_model_json(session=...)` for lower-level direct sessions.
+- Treat `export_model_json(session=...)` as the interchange boundary for replayable geometry. Capture final outputs with `session.capture_result(...)` and replay with `replay_model_json(json_str=...)`.
 - Validate incrementally: after each major step, print small QL-derived facts such as selected face count, top face center, edge count, volume, or replay result count.
 - Read `references/docs/guides/cache-build-workflow.md` before configuring persistent cache or using `@scad.part`/`@scad.assemble`.
 
@@ -19,18 +19,15 @@
 
 ```python
 import simplecadapi as scad
+from simplecadapi import GraphSession, export_model_json, replay_model_json
 
-@scad.model(graph_id="bracket")
-def build_bracket():
+with GraphSession(graph_id="bracket") as session:
     body = scad.make_box_rsolid(width=20.0, height=10.0, depth=3.0)
-    scad.capture_result(value=body)
-    return body
+    session.capture_result(value=body)
+    payload = export_model_json(session=session)
 
-result = build_bracket()
-payload = result.model_json
-rebuilt = result.replay()
+rebuilt = replay_model_json(json_str=payload)
 ```
-
 ## 2) Build a durable cached part
 
 ```python
@@ -54,10 +51,8 @@ Use `@scad.assemble(definitions=(...))` in the single assembly file. Pass immuta
 import simplecadapi as scad
 ```
 
-## 4) Keep replay payloads as the interchange boundary
-
-- Prefer `export_model_json()` output instead of hand-written payloads.
-- Use `ModelResult.replay()` for a model invocation, or `replay_model_json(json_str=...)` when consuming standalone model JSON.
+- Prefer `export_model_json(session=...)` output instead of hand-written payloads.
+- Use `session.capture_result(...)` when the final output should not be inferred from all graph leaves, then use `replay_model_json(json_str=...)` when consuming standalone model JSON.
 - Use `import_model_json()` when consuming previously exported payloads.
 
 ## 5) Use standard parts when they fit
@@ -87,10 +82,10 @@ bearing = scad.std.bearing.make_ball_bearing_rassembly(
 
 ```python
 import simplecadapi as scad
+from simplecadapi import GraphSession, export_model_json, replay_model_json
 from simplecadapi import ql
 
-@scad.model(graph_id="swept_profile")
-def build_model():
+with GraphSession(graph_id="swept_profile") as session:
     profile = scad.make_circle_rface(center=(0, 0, 0), radius=1.0)
     body = scad.extrude_rsolid(
         profile=profile,
@@ -108,11 +103,10 @@ def build_model():
     print("end face center", end_face.get_center())
     path = scad.make_segment_rwire(start=(0, 0, 4), end=(0, 0, 8))
     swept = scad.sweep_rsolid(profile=end_face, path=path)
-    scad.capture_result(value=swept)
-    return swept
+    session.capture_result(value=swept)
+    payload = export_model_json(session=session)
 
-result = build_model()
-rebuilt = result.replay()
+rebuilt = replay_model_json(json_str=payload)
 print("rebuilt", len(rebuilt))
 ```
 

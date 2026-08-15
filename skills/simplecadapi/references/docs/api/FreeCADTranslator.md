@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class FreeCADTranslator(document_name: str = 'SimpleCADModel')
+class FreeCADTranslator(document_name: str = 'SimpleCADProduct')
 ```
 
 *Source: translator/freecad_translator/translator.py*
@@ -14,4 +14,4 @@ class FreeCADTranslator(document_name: str = 'SimpleCADModel')
 
 ## Description
 
-Public, stateless facade for FreeCAD script translation.
+Translate validated `.scadpkg` products into FreeCAD scripts.

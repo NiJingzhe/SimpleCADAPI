@@ -52,19 +52,21 @@ SimpleCAD package is imported, and must be assembled in one declared order.
 
 ## Translation And Export
 
-Translation is an in-memory operation. It consumes canonical model JSON or an
-already imported canonical payload and returns a `TranslationArtifact`.
+Translation is an in-memory operation over a validated product-package closure.
+It consumes `ProductPackageInput` and returns a `TranslationArtifact` containing
+the target script or native artifact description.
 
 Export is an effectful operation. It may write files, invoke an executable, or
-call a remote API. Those effects belong in `exporter.py`, not in the translator
-or emitters.
+call a remote API. Neutral product file effects belong in `simplecadapi.exporter`;
+backend-specific executable effects belong in the backend exporter module.
 
 Public naming follows these forms:
 
-- `translate_model_json_to_<artifact>` for in-memory conversion.
-- `export_model_json_to_<format>` for file or external-runtime output.
+- `translate_product_package_to_<artifact>` for in-memory product translation.
+- `export_product_package_to_<format>` for neutral product file output.
 
-Existing public names may remain as compatibility aliases.
+Standalone model JSON translation and export entrances are removed. Model JSON
+remains a graph replay and inspection format, not a downstream CAD contract.
 
 ## Dependencies
 

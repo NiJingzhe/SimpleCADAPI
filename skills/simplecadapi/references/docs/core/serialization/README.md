@@ -9,20 +9,19 @@ The long-form schema reference remains [`../operation_graph_json_spec.md`](../op
 ```python
 import json
 import simplecadapi as scad
+from simplecadapi import GraphSession, export_model_json, replay_model_json
 
-@scad.model(graph_id="drilled_block")
-def build_model():
+with GraphSession(graph_id="drilled_block") as session:
     body = scad.make_box_rsolid(width=10, height=6, depth=2)
     hole = scad.make_cylinder_rsolid(
         radius=1, height=4, bottom_face_center=(0, 0, -1)
     )
     result = scad.cut_rsolid(body, hole)
-    scad.capture_result(value=result)
-    return result
+    session.capture_result(value=result)
+    model_json = export_model_json(session=session)
 
-model = build_model()
-payload = json.loads(model.model_json)
-rebuilt = model.replay()
+payload = json.loads(model_json)
+rebuilt = replay_model_json(json_str=model_json)
 ```
 
 Inspect these fields:
@@ -36,15 +35,12 @@ Inspect these fields:
 - `payload["expression_graph"]`: expression DAG used by expression-backed parameters.
 - `payload["tolerance_graph"]`: dimension-chain requirements and validation evidence.
 
-For new top-level models, `ModelResult.model_json` is the preferred artifact
-accessor. Use `@scad.requires_session` for reusable builders and
-`scad.capture_result(...)` when the final output should not be inferred from
-all graph leaves. If a model invocation also needs durable CAD/viewer files,
-pass `export_dir=...` to `@scad.model`; its captured geometry/product values
-then produce one self-contained `<graph_id>.scene.zip`. It embeds
-`model/model.json`, mapped project-relative Python sources, and the evaluated
-render/selection assets. It does not create adjacent model/session JSON, STEP,
-STL, or FCStd files. No files are written when `export_dir` is omitted.
+Use `session.capture_result(...)` when the final output should not be inferred
+from all graph leaves, and treat `export_model_json(session=...)` as the
+interchange boundary for direct graph workflows. Durable CAD/viewer products use
+`@scad.part` or `@scad.assemble`, then `scad.capture(result, "out/product.scadpkg")`
+to build and write one canonical self-contained package. No files are written
+unless an export API is called.
 
 ## Important rule: source API is not always graph API
 

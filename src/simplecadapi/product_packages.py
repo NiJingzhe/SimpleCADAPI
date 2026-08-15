@@ -32,8 +32,14 @@ from .artifacts.canonical import (
 from .artifacts.part_definition import PartDefinition
 from .artifacts.part_io import encode_part_definition, load_part_definition
 from .scene.archive import canonical_zip_bytes, preflight_zip_bytes
+from .scene.product_scene import (
+    ProductSceneError,
+    compile_product_scene,
+    encode_product_scene,
+    read_scene_package,
+)
 
-PRODUCT_PACKAGE_SCHEMA_VERSION = "1.0"
+PRODUCT_PACKAGE_SCHEMA_VERSION = "2.0"
 _MANIFEST_NAME = "package.json"
 
 Definition = PartDefinition | AssemblyDefinition
@@ -93,6 +99,14 @@ class ProductPackage:
     def root_id(self) -> str:
         return self.root_definition.definition_id
 
+    @property
+    def scene_path(self) -> str:
+        return str(self.manifest["scene"]["path"])
+
+    @property
+    def scene_bytes(self) -> bytes:
+        return self.objects[self.scene_path]
+
 
 def _mark_package_validated(
     package: ProductPackage,
@@ -119,7 +133,7 @@ def _package_is_validated(
 @lru_cache(maxsize=1)
 def _schema() -> Mapping[str, Any]:
     resource = files("simplecadapi").joinpath(
-        "contracts", "product-package-1.schema.json"
+        "contracts", "product-package-2.schema.json"
     )
     schema = json.loads(resource.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
@@ -227,12 +241,26 @@ def _collect_definition_closure(
     return records, objects
 
 
-def _manifest(root_path: str, records: list[dict[str, Any]]) -> dict[str, Any]:
+def _manifest(
+    root_path: str,
+    records: list[dict[str, Any]],
+    scene_payload: bytes,
+    scene_id: str,
+    scene_revision: str,
+) -> dict[str, Any]:
     draft = {
         "schema_version": PRODUCT_PACKAGE_SCHEMA_VERSION,
         "artifact_kind": "product_package",
         "root": root_path,
         "objects": records,
+        "scene": {
+            "path": "scene/scene.zip",
+            "media_type": "application/vnd.simplecad.scene+zip",
+            "scene_id": scene_id,
+            "revision": scene_revision,
+            "sha256": sha256_bytes(scene_payload),
+            "byte_length": len(scene_payload),
+        },
     }
     return {**draft, "content_hash": content_hash(draft, omit=())}
 
@@ -242,7 +270,16 @@ def build_product_package(value: Any) -> ProductPackage:
 
     root = _coerce_definition(value)
     records, objects = _collect_definition_closure(root)
-    manifest = _manifest(_object_path(root), records)
+    scene = compile_product_scene(root)
+    scene_payload = encode_product_scene(scene)
+    objects["scene/scene.zip"] = scene_payload
+    manifest = _manifest(
+        _object_path(root),
+        records,
+        scene_payload,
+        str(scene.manifest["scene_id"]),
+        str(scene.manifest["revision"]),
+    )
     package = ProductPackage(manifest=manifest, objects=objects, root_definition=root)
     _mark_package_validated(package, DEFAULT_ARTIFACT_LIMITS)
     return package
@@ -270,6 +307,9 @@ def _validate_manifest(manifest: Mapping[str, Any]) -> None:
         raise ProductPackageError("product package object identities must be unique")
     if manifest["root"] not in set(paths):
         raise ProductPackageError("product package root does not resolve to an object")
+    scene_path = str(manifest["scene"]["path"])
+    if scene_path in set(paths):
+        raise ProductPackageError("scene path must not collide with a definition object")
     expected_hash = content_hash(
         {key: item for key, item in manifest.items() if key != "content_hash"},
         omit=(),
@@ -289,9 +329,10 @@ def _decode_definition_objects(
     if len(records) > limits.max_definitions:
         raise ProductPackageError("product package exceeds the definition limit")
     expected_paths = {str(item["path"]) for item in records}
-    if set(objects) != expected_paths:
+    scene_path = str(manifest["scene"]["path"])
+    if set(objects) != expected_paths | {scene_path}:
         raise ProductPackageError(
-            "product package member set differs from object records"
+            "product package member set differs from object and scene records"
         )
 
     decoded_by_path: dict[str, Definition] = {}
@@ -399,6 +440,43 @@ def _decode_definition_objects(
             validate_assembly_definition_graph(root, limits=limits)
         except ArtifactValidationError as exc:
             raise ProductPackageError(f"root assembly graph is invalid: {exc}") from exc
+
+    scene_record = manifest["scene"]
+    scene_payload = objects[scene_path]
+    if scene_record["byte_length"] != len(scene_payload):
+        raise ProductPackageError("embedded scene byte_length differs")
+    if scene_record["sha256"] != sha256_bytes(scene_payload):
+        raise ProductPackageError("embedded scene sha256 differs")
+    try:
+        scene = read_scene_package(scene_payload)
+    except (ProductSceneError, ValueError) as exc:
+        raise ProductPackageError(f"embedded scene is invalid: {exc}") from exc
+    if (
+        scene.manifest["scene_id"] != scene_record["scene_id"]
+        or scene.manifest["revision"] != scene_record["revision"]
+        or scene.manifest["scene_id"] != root.definition_id
+    ):
+        raise ProductPackageError("embedded scene identity differs")
+    packaged_identities = {
+        (
+            str(item["definition_kind"]),
+            str(item["definition_id"]),
+            str(item["revision"]),
+            str(item["content_hash"]),
+        )
+        for item in records
+    }
+    scene_identities = {
+        (
+            str(item["definition_kind"]),
+            str(item["definition_id"]),
+            str(item["revision"]),
+            str(item["content_hash"]),
+        )
+        for item in scene.manifest["definitions"]
+    }
+    if scene_identities != packaged_identities:
+        raise ProductPackageError("embedded scene definition closure differs")
     return root
 
 
@@ -432,12 +510,6 @@ def encode_product_package(package: ProductPackage) -> bytes:
     )
 
 
-def export_product_package(package: ProductPackage, path: str | Path) -> Path:
-    """Write one canonical self-contained `.scadpkg` archive."""
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(encode_product_package(package))
-    return destination
 
 
 def read_product_package(
@@ -482,7 +554,6 @@ __all__ = [
     "ProductPackageError",
     "build_product_package",
     "encode_product_package",
-    "export_product_package",
     "load_product_package",
     "read_product_package",
     "validate_product_package",

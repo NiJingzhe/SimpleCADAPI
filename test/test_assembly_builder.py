@@ -1,4 +1,5 @@
 from __future__ import annotations
+from copy import deepcopy
 
 from dataclasses import replace
 from pathlib import Path
@@ -6,7 +7,15 @@ from pathlib import Path
 import pytest
 
 import simplecadapi as scad
-from simplecadapi.artifacts.canonical import ArtifactValidationError, content_hash
+from simplecadapi.artifacts.canonical import (
+    ArtifactValidationError,
+    content_hash,
+    sha256_bytes,
+)
+from simplecadapi.artifacts.feature_graph import (
+    FEATURE_GRAPH_MEDIA_TYPE,
+    capture_feature_graph,
+)
 
 
 GENERATOR = {
@@ -157,7 +166,10 @@ def test_assemble_external_reference_round_trip_preserves_hierarchy_and_coupling
     ]
     assert scad.inspect_assembly_constraints_rconstraintreport(train.value).solved
 
-    output = pair.export_definition(path=tmp_path / "pair.assembly-definition.zip")
+    output = scad.export_assembly_definition(
+        pair.definition,
+        tmp_path / "pair.assembly-definition.zip",
+    )
     loaded = scad.load_assembly_definition(output)
     rebuilt = scad.materialize_definition(loaded)
 
@@ -308,6 +320,30 @@ def test_assembly_loader_reports_cycle_with_instance_path(tmp_path: Path) -> Non
         content_hash="sha256:" + "1" * 64,
         byte_length=0,
     )
+    with scad.GraphSession(graph_id="cycle_root") as session:
+        root = scad.make_assembly_rassembly(assembly_id="cycle_root")
+        session.capture_result(value=root)
+    feature_graph = capture_feature_graph(
+        session=session,
+        owner_definition_kind="assembly",
+        owner_definition_id="cycle_root",
+        owner_revision="r1",
+        project_root=Path(__file__).resolve().parents[1],
+        external_definitions=(
+            {
+                "definition_kind": cycle_ref.definition_kind,
+                "definition_id": cycle_ref.definition_id,
+                "revision": cycle_ref.revision,
+                "content_hash": cycle_ref.content_hash,
+            },
+        ),
+    )
+    feature_payload = scad.encode_feature_graph_artifact(feature_graph)
+    feature_path = (
+        "features/"
+        + feature_graph.content_hash.removeprefix("sha256:")
+        + ".feature-graph.zip"
+    )
     definition = scad.AssemblyDefinition(
         definition_id="cycle_root",
         revision="r1",
@@ -331,6 +367,13 @@ def test_assembly_loader_reports_cycle_with_instance_path(tmp_path: Path) -> Non
             bindings={},
             material=None,
         ),
+        feature_graph_ref=scad.BlobRef(
+            path=feature_path,
+            sha256=sha256_bytes(feature_payload),
+            byte_length=len(feature_payload),
+            media_type=FEATURE_GRAPH_MEDIA_TYPE,
+        ),
+        blobs={feature_path: feature_payload},
     )
     path = tmp_path / "cycle.assembly-definition.zip"
     path.write_bytes(scad.encode_assembly_definition(definition))
@@ -566,3 +609,87 @@ def test_nested_forwarded_connector_change_invalidates_parent_component(
     )
     assert changed.solve_report.dirty_relations == ("nested_fixed",)
     assert scad.inspect_assembly_constraints_rconstraintreport(changed.value).solved
+
+
+def test_assemble_owns_replayable_deterministic_feature_graph(tmp_path: Path) -> None:
+    policy = _policy(tmp_path / "cache")
+
+    @scad.part(id="graph_child", cache=policy)
+    def build_child() -> scad.Part:
+        return scad.make_part_rpart(
+            part_id="graph_child",
+            body=scad.make_box_rsolid(width=2.0, height=3.0, depth=4.0),
+        )
+
+    child = build_child()
+
+    @scad.assemble(id="graph_parent", definitions=(child,), cache=policy)
+    def build_parent() -> scad.Assembly:
+        assembly = scad.make_assembly_rassembly(assembly_id="graph_parent")
+        return scad.add_component_rassembly(
+            assembly=assembly,
+            item=child.value,
+            component_id="child",
+            placement=scad.identity_placement_rplacement(),
+        )
+
+    cold = build_parent()
+    warm = build_parent()
+    nodes = list(cold.feature_graph.graph["nodes"])
+    reference_nodes = [item for item in nodes if item["op"] == "reference_definition"]
+    terminal_nodes = [
+        item for item in nodes if item["op"] == "evaluate_assembly_definition"
+    ]
+
+    assert cold.feature_graph.owner_definition_kind == "assembly"
+    assert cold.feature_graph.owner_definition_id == "graph_parent"
+    assert cold.feature_graph.external_definitions == (
+        {
+            "definition_kind": child.definition.definition_kind,
+            "definition_id": child.definition.definition_id,
+            "revision": child.definition.revision,
+            "content_hash": child.definition.content_hash,
+        },
+    )
+    assert len(reference_nodes) == 1
+    assert reference_nodes[0]["params"]["definition_id"] == "graph_child"
+    assert len(terminal_nodes) == 1
+    assert cold.feature_graph.result_node_ids == (terminal_nodes[0]["node_id"],)
+    assert cold.feature_graph.canonical_bytes == warm.feature_graph.canonical_bytes
+
+    archived = scad.load_feature_graph_artifact(
+        cold.definition.blobs[cold.definition.feature_graph_ref.path]
+    )
+    assert archived.canonical_bytes == cold.feature_graph.canonical_bytes
+    replayed = cold.replay()
+    assert replayed.component_ids() == ("child",)
+    assert replayed.get_component("child").item.part_id == "graph_child"
+
+
+def test_assembly_feature_replay_tolerates_only_solver_scale_residual_drift(
+    tmp_path: Path,
+) -> None:
+    _base, _gear, train, _pair = _build_nested_gear_train(tmp_path)
+    external_definitions = train.definition.resolved_definitions
+
+    def with_translation_drift(drift: float):
+        graph = deepcopy(dict(train.feature_graph.graph))
+        terminal = next(
+            node
+            for node in graph["nodes"]
+            if node["op"] == "evaluate_assembly_definition"
+        )
+        terminal["params"]["constraint_report"]["residuals"][0][
+            "translation_error"
+        ] += drift
+        return replace(train.feature_graph, graph=graph, content_hash="")
+
+    replayed = with_translation_drift(5.0e-8).replay(
+        external_definitions=external_definitions
+    )
+    assert replayed[0].assembly_id == "gear_train"
+
+    with pytest.raises(ValueError, match="residual report differs"):
+        with_translation_drift(2.0e-7).replay(
+            external_definitions=external_definitions
+        )

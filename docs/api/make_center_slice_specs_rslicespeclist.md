@@ -10,7 +10,7 @@ def make_center_slice_specs_rslicespeclist(minimum: np.ndarray, maximum: np.ndar
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.make_center_slice_specs_rslicespeclist(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.make_center_slice_specs_rslicespeclist(...)`; unavailable inside GraphSession
 
 ## Description
 

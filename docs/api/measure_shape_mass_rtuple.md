@@ -10,7 +10,7 @@ def measure_shape_mass_rtuple(shape: TopoDS_Shape, kind: PropertyKind) -> tuple[
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.measure_shape_mass_rtuple(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.measure_shape_mass_rtuple(...)`; unavailable inside GraphSession
 
 ## Description
 

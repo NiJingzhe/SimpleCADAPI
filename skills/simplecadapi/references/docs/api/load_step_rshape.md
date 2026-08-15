@@ -10,7 +10,7 @@ def load_step_rshape(path: str | Path, *, require_single_root: bool = True, requ
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.load_step_rshape(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.load_step_rshape(...)`; unavailable inside GraphSession
 
 ## Description
 

@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 from ..core import Solid
 from ..tagging import TagBinding, TagLineageWitness, normalize_tag
+from ..topology import TopoKind, TopoRef, topo_ref_to_dict
 from .geometry_interface import (
     geometry_interface_fingerprint,
     stable_topology_entity_hash,
@@ -20,7 +21,7 @@ from .canonical import (
     validate_json_value,
 )
 
-_SNAPSHOT_VERSION = "3.0"
+_SNAPSHOT_VERSION = "4.0"
 _METADATA_EXCLUDED = {
     "graph",
     "topo_ref",
@@ -102,6 +103,13 @@ def _entity_key(entity: Any) -> tuple[str, str]:
 
 def _entity_key_map(entities: list[Any]) -> dict[int, tuple[str, str]]:
     return {id(entity): _entity_key(entity) for entity in entities}
+
+
+def _feature_output(entity: Any) -> dict[str, Any] | None:
+    ref = entity.runtime.get("topo.ref")
+    if not isinstance(ref, TopoRef):
+        return None
+    return topo_ref_to_dict(ref)
 
 def topology_entity_ref(solid: Solid, topo_id: str) -> dict[str, str]:
     """Return the immutable package reference for one topology entity."""
@@ -361,6 +369,7 @@ def capture_topology_snapshot(solid: Solid) -> dict[str, Any]:
                 "kind": kind,
                 "topo_id": entity.topo_id,
                 "geometry_hash": entity_geometry_hash,
+                "feature_output": _feature_output(entity),
                 "tags": sorted(entity.tags, key=lambda item: item.encode("utf-8")),
                 "tag_bindings": _rewrite_binding_identities(
                     [item.to_dict() for item in entity.tag_bindings], binding_identities
@@ -431,6 +440,7 @@ def _validate_snapshot(snapshot: Mapping[str, Any]) -> None:
         "kind",
         "topo_id",
         "geometry_hash",
+        "feature_output",
         "tags",
         "tag_bindings",
         "tag_lineage",
@@ -454,6 +464,42 @@ def _validate_snapshot(snapshot: Mapping[str, Any]) -> None:
                 "invalid or duplicate ID",
             )
         seen_ids.add(topo_id)
+        feature_output = entity["feature_output"]
+        if feature_output is not None:
+            if not isinstance(feature_output, Mapping) or set(feature_output) != {
+                "graph_id",
+                "node_id",
+                "output_slot",
+                "kind",
+                "topo_id",
+            }:
+                raise ArtifactValidationError(
+                    "topology_snapshot_invalid",
+                    f"/entities/{index}/feature_output",
+                    "invalid feature output reference",
+                )
+            if feature_output["kind"] != str(entity["kind"]).upper():
+                raise ArtifactValidationError(
+                    "topology_snapshot_invalid",
+                    f"/entities/{index}/feature_output/kind",
+                    "feature output kind differs from topology entity kind",
+                )
+            if (
+                not isinstance(feature_output["graph_id"], str)
+                or not feature_output["graph_id"]
+                or not isinstance(feature_output["node_id"], str)
+                or not feature_output["node_id"]
+                or isinstance(feature_output["output_slot"], bool)
+                or not isinstance(feature_output["output_slot"], int)
+                or feature_output["output_slot"] < 0
+                or not isinstance(feature_output["topo_id"], str)
+                or not feature_output["topo_id"]
+            ):
+                raise ArtifactValidationError(
+                    "topology_snapshot_invalid",
+                    f"/entities/{index}/feature_output",
+                    "feature output reference values are invalid",
+                )
         validate_json_value(entity["metadata"], f"/entities/{index}/metadata")
     name_index = snapshot["name_index"]
     if not isinstance(name_index, Mapping):
@@ -631,6 +677,22 @@ def restore_topology_snapshot(
         entity.tag_lineage[:] = lineage
         entity.metadata.clear()
         entity.metadata.update(deepcopy(dict(item["metadata"])))
+        feature_output = item["feature_output"]
+        if feature_output is None:
+            entity.runtime.pop("topo.ref", None)
+            entity.runtime.pop("topo.kind", None)
+            entity.runtime.pop("topo.id", None)
+        else:
+            ref = TopoRef(
+                graph_id=str(feature_output["graph_id"]),
+                node_id=str(feature_output["node_id"]),
+                output_slot=int(feature_output["output_slot"]),
+                kind=TopoKind[str(feature_output["kind"])],
+                topo_id=str(feature_output["topo_id"]),
+            )
+            entity.runtime["topo.ref"] = ref
+            entity.runtime["topo.kind"] = ref.kind.name
+            entity.runtime["topo.id"] = ref.topo_id
         entity.incident_face_ids.clear()
         entity.incident_face_ids.update(
             str(value) for value in item["incident_face_ids"]

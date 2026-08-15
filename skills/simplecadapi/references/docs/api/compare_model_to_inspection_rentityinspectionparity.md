@@ -10,7 +10,7 @@ def compare_model_to_inspection_rentityinspectionparity(model: BRepModel, report
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_model_to_inspection_rentityinspectionparity(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_model_to_inspection_rentityinspectionparity(...)`; unavailable inside GraphSession
 
 ## Description
 

@@ -15,7 +15,6 @@ import json
 import os
 import pprint
 import re
-import sys
 import tempfile
 import zlib
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
@@ -28,13 +27,8 @@ from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
 from OCP.TopAbs import TopAbs_SOLID
 from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
 
-from ...errors import raise_harness_error
 from ...operations import _make_geo_selector
-from ...serializer import (
-    _execute_graph,
-    _resolve_shape_from_geo_selector,
-    import_model_json,
-)
+from ...serializer import _execute_graph, _resolve_shape_from_geo_selector
 from ...topology import OperationGraph
 
 
@@ -184,9 +178,7 @@ def _dominant_result_node_id(
 
         if has_one_detail_result:
             detail_node_id = next(
-                node_id
-                for node_id, op in zip(node_ids, ops)
-                if op in detail_ops
+                node_id for node_id, op in zip(node_ids, ops) if op in detail_ops
             )
             volume_by_id = {
                 node_id: volume for node_id, _shape, volume in positive_shapes
@@ -260,10 +252,12 @@ def _canonical_union_passthroughs(graph: OperationGraph) -> Dict[str, int]:
         if output_descriptor is None:
             continue
         output_bbox, output_volume = output_descriptor
-        bbox_size = sum(
-            (output_bbox[index + 3] - output_bbox[index]) ** 2
-            for index in range(3)
-        ) ** 0.5
+        bbox_size = (
+            sum(
+                (output_bbox[index + 3] - output_bbox[index]) ** 2 for index in range(3)
+            )
+            ** 0.5
+        )
         bbox_tolerance = max(1.0e-7, bbox_size * 1.0e-7)
         volume_tolerance = max(1.0e-9, abs(output_volume) * 1.0e-8)
         matches: List[int] = []
@@ -272,10 +266,13 @@ def _canonical_union_passthroughs(graph: OperationGraph) -> Dict[str, int]:
             if input_descriptor is None:
                 continue
             input_bbox, input_volume = input_descriptor
-            bbox_error = sum(
-                (actual - expected) ** 2
-                for actual, expected in zip(input_bbox, output_bbox)
-            ) ** 0.5
+            bbox_error = (
+                sum(
+                    (actual - expected) ** 2
+                    for actual, expected in zip(input_bbox, output_bbox)
+                )
+                ** 0.5
+            )
             if (
                 bbox_error <= bbox_tolerance
                 and abs(input_volume - output_volume) <= volume_tolerance
@@ -287,10 +284,7 @@ def _canonical_union_passthroughs(graph: OperationGraph) -> Dict[str, int]:
 
 
 def _canonical_cut_descriptors(graph: OperationGraph) -> Dict[str, Dict[str, Any]]:
-    node_ids = [
-        node.node_id for node in graph.nodes
-        if node.op == "make_cut_rsolid"
-    ]
+    node_ids = [node.node_id for node in graph.nodes if node.op == "make_cut_rsolid"]
     if not node_ids:
         return {}
     try:
@@ -321,10 +315,7 @@ def _canonical_cut_descriptors(graph: OperationGraph) -> Dict[str, Dict[str, Any
 
 
 def _canonical_union_descriptors(graph: OperationGraph) -> Dict[str, Dict[str, Any]]:
-    node_ids = [
-        node.node_id for node in graph.nodes
-        if node.op == "make_union_rsolid"
-    ]
+    node_ids = [node.node_id for node in graph.nodes if node.op == "make_union_rsolid"]
     if not node_ids:
         return {}
     try:
@@ -403,9 +394,7 @@ def _canonical_union_input_indices(graph: OperationGraph) -> Dict[str, List[int]
             try:
                 common = BRepAlgoAPI_Common(output_shape, input_shape)
                 common.Build()
-                common_volume = (
-                    shape_volume(common.Shape()) if common.IsDone() else 0.0
-                )
+                common_volume = shape_volume(common.Shape()) if common.IsDone() else 0.0
             except Exception:
                 common_volume = 0.0
             if common_volume > max(1.0e-10, input_volume * 1.0e-8):
@@ -416,10 +405,7 @@ def _canonical_union_input_indices(graph: OperationGraph) -> Dict[str, List[int]
 
 
 def _canonical_loft_descriptors(graph: OperationGraph) -> Dict[str, Dict[str, Any]]:
-    loft_nodes = [
-        node for node in graph.nodes
-        if node.op == "make_loft_rsolid"
-    ]
+    loft_nodes = [node for node in graph.nodes if node.op == "make_loft_rsolid"]
     node_ids = [node.node_id for node in loft_nodes]
     if not node_ids:
         return {}
@@ -490,9 +476,7 @@ def _canonical_loft_descriptors(graph: OperationGraph) -> Dict[str, Dict[str, An
 
 def _canonical_sweep_descriptors(graph: OperationGraph) -> Dict[str, Dict[str, Any]]:
     sweep_ids = [
-        str(node.node_id)
-        for node in graph.nodes
-        if node.op == "make_sweep_rsolid"
+        str(node.node_id) for node in graph.nodes if node.op == "make_sweep_rsolid"
     ]
     if not sweep_ids:
         return {}
@@ -590,9 +574,7 @@ def _canonical_detail_edge_catalog(
         edges = []
         for canonical_index, edge in enumerate(source_edges):
             try:
-                selector = dict(
-                    _make_geo_selector(edge, source_shape=source_shape)
-                )
+                selector = dict(_make_geo_selector(edge, source_shape=source_shape))
             except Exception:
                 continue
             selector.pop("metadata_geo", None)
@@ -625,9 +607,7 @@ def _canonical_detail_edge_catalog(
                 )
                 if not selector:
                     raise RuntimeError("detail selector has no geometry")
-                selected_edge = _resolve_shape_from_geo_selector(
-                    source_shape, selector
-                )
+                selected_edge = _resolve_shape_from_geo_selector(source_shape, selector)
                 selected_indices.append(
                     next(
                         index
@@ -715,19 +695,13 @@ def _source_kernel_result_step_payload(
             and BRepCheck_Analyzer(wrapped).IsValid()
         )
         if not source_valid:
-            if (
-                node is None
-                or node.op != "make_chamfer_rsolid"
-                or not node.inputs
-            ):
+            if node is None or node.op != "make_chamfer_rsolid" or not node.inputs:
                 return None
             source_id = str(node.inputs[0].node_id)
             source_result = source_cache.get(source_id)
             if source_result is None:
                 try:
-                    source_results = _execute_graph(
-                        graph, [source_id], strict=True
-                    )
+                    source_results = _execute_graph(graph, [source_id], strict=True)
                 except Exception:
                     continue
                 if len(source_results) != 1:
@@ -800,26 +774,6 @@ class SolidWorksScriptTranslator:
         self._result_state_node_ids: Dict[str, List[str]] = {}
         self._active_result_state: Optional[str] = None
 
-    def translate_model_json_to_script(
-        self,
-        json_str: str,
-        *,
-        output_path: Optional[str] = None,
-    ) -> str:
-        payload = import_model_json(json_str)
-        graph = payload.get("graph")
-        if not isinstance(graph, OperationGraph):
-            raise ValueError(
-                "SolidWorks translation requires model JSON with a canonical low-level graph"
-            )
-        if graph.node_count == 0:
-            raise ValueError(
-                "SolidWorks translation requires model JSON with a non-empty canonical low-level graph"
-            )
-        return self.translate_model_payload_to_script(
-            payload, graph=graph, output_path=output_path
-        )
-
     def translate_model_payload_to_script(
         self,
         payload: Dict[str, Any],
@@ -884,11 +838,9 @@ class SolidWorksScriptTranslator:
                     separators=(",", ":"),
                     sort_keys=True,
                 ).encode("ascii")
-                payload_dict["solidworks_detail_edge_catalog_z"] = (
-                    base64.b64encode(
-                        zlib.compress(catalog_json, level=9)
-                    ).decode("ascii")
-                )
+                payload_dict["solidworks_detail_edge_catalog_z"] = base64.b64encode(
+                    zlib.compress(catalog_json, level=9)
+                ).decode("ascii")
 
         return (
             "from __future__ import annotations\n"
@@ -915,9 +867,7 @@ class SolidWorksScriptTranslator:
             f"ACTIVE_RESULT_STATE = {_py_literal(self._active_result_state)}\n"
             f"RESULT_NODE_IDS = {_py_literal(self._result_node_id_list)}\n"
             f"OUTPUT_PATH = {_json_ascii(os.path.abspath(output_path)) if output_path else 'None'}\n"
-            "\n"
-            + self._runtime_helpers()
-            + "\n"
+            "\n" + self._runtime_helpers() + "\n"
             "def main():\n"
             "    pythoncom.CoInitialize()\n"
             "    runtime = None\n"
@@ -970,8 +920,7 @@ class SolidWorksScriptTranslator:
                     "op": str(node.op),
                     "params": self._sanitize_payload_for_solidworks(params),
                     "inputs": [
-                        {"node_id": str(input_ref.node_id)}
-                        for input_ref in node.inputs
+                        {"node_id": str(input_ref.node_id)} for input_ref in node.inputs
                     ],
                 }
             )
@@ -4424,6 +4373,128 @@ class SimpleCADSolidWorksRuntime:
         params = node.get('params') or {}
         node_id = str(node.get('node_id'))
         inputs = self._input_ids(node)
+        if op == 'make_box_rsolid':
+            width = float(params.get('width', 0.0))
+            height = float(params.get('height', 0.0))
+            depth = float(params.get('depth', 0.0))
+            center = _v3(params.get('bottom_face_center') or (0.0, 0.0, 0.0))
+            x0, x1 = center[0] - width * 0.5, center[0] + width * 0.5
+            y0, y1 = center[1] - height * 0.5, center[1] + height * 0.5
+            z = center[2]
+            points = [(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)]
+            edges = [
+                {'kind': 'edge', 'type': 'line', 'start': points[index], 'end': points[(index + 1) % 4]}
+                for index in range(4)
+            ]
+            profile = {
+                'kind': 'face',
+                'outer': {'kind': 'wire', 'edges': edges},
+                'inners': [],
+                'normal': (0.0, 0.0, 1.0),
+            }
+            body = self._extrude_profile(
+                profile, {'direction': (0.0, 0.0, 1.0), 'distance': depth}, node_id
+            )
+            return self._set_output(node, {'kind': 'body', 'body': body})
+        if op == 'make_cylinder_rsolid':
+            center = _v3(params.get('bottom_face_center') or (0.0, 0.0, 0.0))
+            axis = _unit(params.get('axis') or (0.0, 0.0, 1.0))
+            radius = float(params.get('radius', 0.0))
+            profile = {
+                'kind': 'face',
+                'outer': {
+                    'kind': 'wire',
+                    'edges': [{
+                        'kind': 'edge',
+                        'type': 'circle',
+                        'center': center,
+                        'radius': radius,
+                        'normal': axis,
+                    }],
+                },
+                'inners': [],
+                'normal': axis,
+            }
+            body = self._extrude_profile(
+                profile,
+                {'direction': axis, 'distance': float(params.get('height', 0.0))},
+                node_id,
+            )
+            return self._set_output(node, {'kind': 'body', 'body': body})
+        if op == 'make_cone_rsolid':
+            bottom = _v3(params.get('bottom_face_center') or (0.0, 0.0, 0.0))
+            axis = _unit(params.get('axis') or (0.0, 0.0, 1.0))
+            top = _add(bottom, _mul(axis, float(params.get('height', 0.0))))
+            radial, _unused = _plane_axes(axis)
+            bottom_outer = _add(
+                bottom, _mul(radial, float(params.get('bottom_radius', 0.0)))
+            )
+            top_outer = _add(
+                top, _mul(radial, float(params.get('top_radius', 0.0)))
+            )
+            points = [bottom, bottom_outer, top_outer, top]
+            compact_points = []
+            for point in points:
+                if not compact_points or _distance(point, compact_points[-1]) > 1.0e-12:
+                    compact_points.append(point)
+            edges = [
+                {
+                    'kind': 'edge',
+                    'type': 'line',
+                    'start': compact_points[index],
+                    'end': compact_points[(index + 1) % len(compact_points)],
+                }
+                for index in range(len(compact_points))
+            ]
+            profile = {
+                'kind': 'face',
+                'outer': {'kind': 'wire', 'edges': edges},
+                'inners': [],
+                'normal': _unit(_cross(axis, radial)),
+            }
+            body = self._revolve_profile(
+                profile, {'origin': bottom, 'axis': axis, 'angle': 360.0}, node_id
+            )
+            return self._set_output(node, {'kind': 'body', 'body': body})
+        if op == 'make_sphere_rsolid':
+            center = _v3(params.get('center') or (0.0, 0.0, 0.0))
+            radius = float(params.get('radius', 0.0))
+            axis = (0.0, 0.0, 1.0)
+            radial = (1.0, 0.0, 0.0)
+            lower = _sub(center, _mul(axis, radius))
+            outer = _add(center, _mul(radial, radius))
+            upper = _add(center, _mul(axis, radius))
+            profile = {
+                'kind': 'face',
+                'outer': {
+                    'kind': 'wire',
+                    'edges': [
+                        {
+                            'kind': 'edge',
+                            'type': 'three_point_arc',
+                            'start': lower,
+                            'middle': outer,
+                            'end': upper,
+                        },
+                        {'kind': 'edge', 'type': 'line', 'start': upper, 'end': lower},
+                    ],
+                },
+                'inners': [],
+                'normal': (0.0, 1.0, 0.0),
+            }
+            body = self._revolve_profile(
+                profile, {'origin': center, 'axis': axis, 'angle': 360.0}, node_id
+            )
+            return self._set_output(node, {'kind': 'body', 'body': body})
+        if op == 'apply_tag_rselection':
+            value = self._first_output(inputs[0])
+            if isinstance(value, dict):
+                value = dict(value)
+                value.setdefault('tag_bindings', []).append(
+                    dict(params.get('tag_binding') or {})
+                )
+            return self._set_output(node, value)
+
 
         if op == 'make_line_redge':
             return self._set_output(node, {'kind': 'edge', 'type': 'line', 'start': _v3(params.get('start')), 'end': _v3(params.get('end'))})
@@ -4947,6 +5018,27 @@ class SimpleCADSolidWorksRuntime:
                     }
                 components.append(component)
             assembly['components'] = components
+            self.product_values[node_id] = assembly
+            return self._set_output(node, assembly)
+        if op == 'evaluate_assembly_definition':
+            assembly = dict(self._first_output(inputs[0]))
+            placements = {
+                str(record.get('instance_id') or ''): {
+                    'kind': 'placement',
+                    'params': dict(record.get('placement') or {}),
+                }
+                for record in (params.get('component_placements') or [])
+                if isinstance(record, dict)
+            }
+            components = []
+            for component in assembly.get('components') or []:
+                component = dict(component)
+                component_id = str(component.get('component_id') or '')
+                if component_id in placements:
+                    component['placement'] = placements[component_id]
+                components.append(component)
+            assembly['components'] = components
+            assembly['evaluation'] = params
             self.product_values[node_id] = assembly
             return self._set_output(node, assembly)
         if op == 'make_compound_from_assembly_rcompound':
@@ -10762,107 +10854,3 @@ class SimpleCADSolidWorksRuntime:
         ]
         return resolved if len(resolved) == len(result_names) else final_bodies
 '''
-
-
-def translate_model_json_to_solidworks_script(
-    json_str: str,
-    document_name: str = "SimpleCADModel",
-    *,
-    output_path: Optional[str] = None,
-    visible: bool = False,
-    source_kernel_fallback: bool = False,
-) -> str:
-    """Translate exported model JSON into a SolidWorks Python automation script.
-
-    The generated script traverses the canonical operation graph and maps graph
-    operations to SolidWorks COM API calls. Detail-feature selections use
-    geometric signatures rather than stored topology indices.
-    """
-
-    return SolidWorksScriptTranslator(
-        document_name=document_name,
-        visible=visible,
-        source_kernel_fallback=source_kernel_fallback,
-    ).translate_model_json_to_script(json_str, output_path=output_path)
-
-
-def translate_model_json_to_solidworks_step(
-    json_str: str,
-    output_path: str,
-    *,
-    document_name: str = "SimpleCADModel",
-    visible: bool = False,
-    python_exe: Optional[str] = None,
-    source_kernel_fallback: bool = False,
-) -> str:
-    """Run SolidWorks COM automation and export a STEP file."""
-
-    import subprocess
-
-    resolved_output_path = os.path.abspath(output_path)
-    script = translate_model_json_to_solidworks_script(
-        json_str,
-        document_name=document_name,
-        output_path=resolved_output_path,
-        visible=visible,
-        source_kernel_fallback=source_kernel_fallback,
-    )
-
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix="_simplecad_solidworks_export.py", delete=False, encoding="utf-8"
-    ) as handle:
-        temp_script_path = handle.name
-        handle.write(script)
-
-    env = os.environ.copy()
-    src_root = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "..")
-    )
-    env["PYTHONPATH"] = (
-        src_root
-        if not env.get("PYTHONPATH")
-        else src_root + os.pathsep + env["PYTHONPATH"]
-    )
-
-    try:
-        try:
-            completed = subprocess.run(
-                [python_exe or sys.executable, temp_script_path],
-                check=True,
-                text=True,
-                capture_output=True,
-                env=env,
-            )
-        except subprocess.CalledProcessError as exc:
-            raise RuntimeError(
-                "SolidWorks export script failed. "
-                f"stdout={exc.stdout!r} stderr={exc.stderr!r}"
-            ) from exc
-        if not os.path.exists(resolved_output_path) or os.path.getsize(resolved_output_path) <= 0:
-            raise RuntimeError(
-                "SolidWorks export completed without creating a non-empty STEP file. "
-                f"stdout={completed.stdout.strip()!r} stderr={completed.stderr.strip()!r}"
-            )
-        return output_path
-    except Exception as e:
-        raise_harness_error(
-            operation="translate_model_json_to_solidworks_step",
-            what_happened="Failed to execute the generated SolidWorks export script.",
-            possible_causes=[
-                "SolidWorks is not installed, not licensed, or its COM server is not registered.",
-                "pywin32 is unavailable in the Python interpreter used for the export.",
-                "The model JSON contains an operation not yet mapped to a stable SolidWorks COM call.",
-                "SolidWorks rejected a native feature, geometric selection, body boolean, or STEP SaveAs call.",
-            ],
-            how_to_fix=[
-                "Open SolidWorks once interactively and confirm it can create and save parts.",
-                "Inspect the generated script with translate_model_json_to_solidworks_script().",
-                "Run the same script manually with the same Python interpreter to inspect COM errors.",
-            ],
-            error=e,
-        )
-    finally:
-        try:
-            os.unlink(temp_script_path)
-        except OSError:
-            pass

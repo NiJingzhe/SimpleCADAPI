@@ -34,7 +34,7 @@ class PartDefinition:
     revision: str
     tolerance_profile: str
     generator: Mapping[str, Any]
-    model_ref: BlobRef
+    feature_graph_ref: BlobRef
     solid_cache_ref: BlobRef
     topology_snapshot_ref: BlobRef
     connectors: tuple[ConnectorInterface, ...]
@@ -51,6 +51,12 @@ class PartDefinition:
         repr=False,
     )
     _validated_body: Any = field(
+        default=None,
+        init=False,
+        compare=False,
+        repr=False,
+    )
+    _validated_feature_graph: Any = field(
         default=None,
         init=False,
         compare=False,
@@ -78,9 +84,9 @@ class PartDefinition:
             raise ArtifactValidationError(
                 "profile_invalid", "/tolerance_profile", "invalid tolerance profile"
             )
-        if not isinstance(self.model_ref, BlobRef):
+        if not isinstance(self.feature_graph_ref, BlobRef):
             raise ArtifactValidationError(
-                "reference_invalid", "/model_ref", "expected BlobRef"
+                "reference_invalid", "/feature_graph_ref", "expected BlobRef"
             )
         if not isinstance(self.solid_cache_ref, BlobRef):
             raise ArtifactValidationError(
@@ -191,8 +197,8 @@ class PartDefinition:
             "profile": self.profile,
             "generator": dict(self.generator),
             "definition": {
-                "kind": "feature_dag_snapshot",
-                "model_ref": self.model_ref.to_dict(),
+                "kind": "feature_graph",
+                "feature_graph_ref": self.feature_graph_ref.to_dict(),
             },
             "solid_cache": {
                 "evaluator_profile": "ocp-evaluated-solid-1",
@@ -232,8 +238,8 @@ class PartDefinition:
             revision=str(data["revision"]),
             tolerance_profile=str(data["tolerance_profile"]),
             generator=dict(data["generator"]),
-            model_ref=BlobRef.from_dict(
-                definition["model_ref"], "/definition/model_ref"
+            feature_graph_ref=BlobRef.from_dict(
+                definition["feature_graph_ref"], "/definition/feature_graph_ref"
             ),
             solid_cache_ref=BlobRef.from_dict(
                 cache["body_ref"], "/solid_cache/body_ref"
@@ -265,9 +271,11 @@ def mark_part_definition_validated(
     definition: PartDefinition,
     *,
     body: Any = None,
+    feature_graph: Any = None,
 ) -> None:
     object.__setattr__(definition, "_validated_manifest", definition.canonical_bytes)
     object.__setattr__(definition, "_validated_body", body)
+    object.__setattr__(definition, "_validated_feature_graph", feature_graph)
 
 
 def part_definition_is_validated(definition: PartDefinition) -> bool:
@@ -277,10 +285,18 @@ def part_definition_is_validated(definition: PartDefinition) -> bool:
 def take_validated_part_body(definition: PartDefinition) -> Any:
     if not part_definition_is_validated(definition):
         object.__setattr__(definition, "_validated_body", None)
+        object.__setattr__(definition, "_validated_feature_graph", None)
         return None
     body = definition._validated_body
     object.__setattr__(definition, "_validated_body", None)
     return body
+
+
+def validated_part_feature_graph(definition: PartDefinition) -> Any:
+    if not part_definition_is_validated(definition):
+        object.__setattr__(definition, "_validated_feature_graph", None)
+        return None
+    return definition._validated_feature_graph
 
 
 __all__ = ["PartDefinition"]

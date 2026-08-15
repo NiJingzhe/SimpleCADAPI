@@ -1,13 +1,15 @@
-"""Fusion 360 backend facade for canonical model translation."""
+"""Fusion 360 backend facade for product-package translation."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Sequence, Set
+from typing import Any, Dict, Sequence, Set
 
 from ...errors import ErrorGuidance
 from ...topology import OperationGraph
 from ..base import BaseTranslator
 from ..errors import TranslationRequestError
+from ..package_units import ProductPackageInput
+from ..product_graph import build_product_graph_view
 from ..types import BackendCapabilities, SupportLevel, TranslationArtifact
 from .capabilities import CAPABILITIES
 from .compiler import Fusion360ScriptTranslator
@@ -33,22 +35,16 @@ def _dependency_node_ids(
 
 
 class Fusion360Translator(BaseTranslator):
-    """Translate canonical model JSON into a Fusion 360 Python script."""
+    """Translate validated `.scadpkg` products into Fusion 360 scripts."""
 
     def __init__(
         self,
-        document_name: str = "SimpleCADModel",
-        result_node_ids: Optional[Sequence[str]] = None,
+        document_name: str = "SimpleCADProduct",
         *,
         selection_mode: str = "gsm",
         source_kernel_fallback: bool = False,
     ) -> None:
         self.document_name = str(document_name)
-        self.result_node_ids = (
-            tuple(str(node_id) for node_id in result_node_ids)
-            if result_node_ids is not None
-            else None
-        )
         self.selection_mode = str(selection_mode)
         self.source_kernel_fallback = bool(source_kernel_fallback)
 
@@ -56,18 +52,13 @@ class Fusion360Translator(BaseTranslator):
     def capabilities(self) -> BackendCapabilities:
         return CAPABILITIES
 
-    def _result_ids(
-        self, payload: Dict[str, Any], graph: OperationGraph
-    ) -> Sequence[str]:
-        if self.result_node_ids is not None:
-            return self.result_node_ids
-        leaf_ids = payload.get("leaf_ids")
-        if isinstance(leaf_ids, list) and leaf_ids:
-            return [str(node_id) for node_id in leaf_ids]
-        return [node.node_id for node in graph.leaf_nodes()]
-
-    def _preflight(self, payload: Dict[str, Any], graph: OperationGraph) -> None:
-        needed = _dependency_node_ids(graph, self._result_ids(payload, graph))
+    def _preflight(
+        self,
+        payload: Dict[str, Any],
+        graph: OperationGraph,
+        result_node_id: str,
+    ) -> None:
+        needed = _dependency_node_ids(graph, [result_node_id])
         unsupported = sorted(
             {
                 node.op
@@ -85,58 +76,48 @@ class Fusion360Translator(BaseTranslator):
             joined = ", ".join(unsupported)
             raise TranslationRequestError(
                 "fusion360",
-                "translate_model_payload",
+                "translate_product_package",
                 ErrorGuidance(
-                    what_happened=f"The result graph uses unsupported Fusion 360 operations: {joined}.",
+                    what_happened=(
+                        "The product package uses unsupported Fusion 360 "
+                        f"operations: {joined}."
+                    ),
                     possible_causes=(
-                        "The model uses canonical operations not implemented by the contributed runtime.",
+                        "A definition-owned Feature Graph uses operations not "
+                        "implemented by the Fusion 360 runtime.",
                     ),
                     how_to_fix=(
-                        "Lower the model to operations declared by fusion360_translator.CAPABILITIES.",
-                        "Use another translator backend for this model.",
+                        "Use operations declared by fusion360_translator.CAPABILITIES.",
+                        "Use another translator backend for this product.",
                     ),
                 ),
             )
 
-    def translate_model_payload_to_script(
+    def translate_product_package(
         self,
-        payload: Dict[str, Any],
-        *,
-        graph: Optional[OperationGraph] = None,
-    ) -> str:
-        source_graph = graph or payload.get("graph")
-        if not isinstance(source_graph, OperationGraph) or source_graph.node_count == 0:
-            raise ValueError(
-                "Fusion 360 translation requires a non-empty canonical graph"
-            )
-        self._preflight(payload, source_graph)
-        return Fusion360ScriptTranslator(
+        data: ProductPackageInput,
+        **_options: Any,
+    ) -> TranslationArtifact:
+        view = build_product_graph_view(data)
+        payload = view.model_payload()
+        self._preflight(payload, view.graph, view.root_result_node_id)
+        script = Fusion360ScriptTranslator(
             document_name=self.document_name,
-            result_node_ids=self.result_node_ids,
+            result_node_ids=[view.root_result_node_id],
             selection_mode=self.selection_mode,
             source_kernel_fallback=self.source_kernel_fallback,
-        ).translate_model_payload_to_script(payload, graph=source_graph)
-
-    def translate_model_json_to_script(self, json_str: str) -> str:
-        artifact = self.translate_model_json(json_str)
-        assert isinstance(artifact.content, str)
-        return artifact.content
-
-    def translate_model_payload(
-        self,
-        payload: Dict[str, Any],
-        *,
-        graph: Optional[OperationGraph] = None,
-    ) -> TranslationArtifact:
+        ).translate_model_payload_to_script(payload, graph=view.graph)
         return TranslationArtifact(
             backend_id="fusion360",
             target_id="fusion360_script",
             media_type="text/x-python",
             suggested_suffix=".py",
-            content=self.translate_model_payload_to_script(payload, graph=graph),
+            content=script,
             metadata={
                 "document_name": self.document_name,
-                "result_node_ids": self.result_node_ids,
+                "root_definition_id": view.root_definition_id,
+                "root_definition_kind": view.root_definition_kind,
+                "definition_ids": view.definition_ids,
                 "selection_mode": self.selection_mode,
                 "source_kernel_fallback": self.source_kernel_fallback,
                 "target_runtime_validated": False,

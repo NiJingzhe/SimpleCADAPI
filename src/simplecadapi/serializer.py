@@ -23,7 +23,7 @@ from __future__ import annotations
 import math
 from contextlib import nullcontext
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
 from .errors import raise_harness_error
 
@@ -71,7 +71,8 @@ from .kernel.ocp_properties import bounding_box
 
 MODEL_SCHEMA_VERSION = "2.0"
 CANONICAL_CONTRACT_VERSION = "2.0"
-
+_ASSEMBLY_TRANSLATION_RESIDUAL_ABS_TOLERANCE = 1.0e-7
+_ASSEMBLY_ANGULAR_RESIDUAL_ABS_TOLERANCE_DEGREES = 1.0e-6
 
 PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     # Core geometry ops that are recorded and replayable
@@ -523,6 +524,7 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_part_rpart",
     "make_assign_material_rpart",
     "make_assembly_rassembly",
+    "reference_definition",
     "make_add_component_rassembly",
     "make_place_component_rassembly",
     "make_compound_from_assembly_rcompound",
@@ -544,6 +546,7 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_belt_constraint_rassembly",
     "make_rack_pinion_constraint_rassembly",
     "make_solve_assembly_constraints_rassembly",
+    "evaluate_assembly_definition",
     "make_extrude_rsolid",
     "make_revolve_rsolid",
     "make_loft_rsolid",
@@ -2208,11 +2211,71 @@ def _validate_operation_output_evidence(
         )
 
 
+def _constraint_reports_match(
+    actual: Mapping[str, Any],
+    expected: Mapping[str, Any],
+) -> bool:
+    """Compare solved reports without rejecting harmless floating-point drift."""
+
+    report_fields = {
+        "solved",
+        "grounded_component_ids",
+        "solved_component_ids",
+        "unsolved_component_ids",
+        "residuals",
+    }
+    residual_fields = {
+        "constraint_id",
+        "translation_error",
+        "angular_error_degrees",
+        "within_tolerance",
+    }
+    if set(actual) != report_fields or set(expected) != report_fields:
+        return False
+    scalar_fields = report_fields - {"residuals"}
+    if any(actual[field] != expected[field] for field in scalar_fields):
+        return False
+    actual_residuals = actual["residuals"]
+    expected_residuals = expected["residuals"]
+    if not isinstance(actual_residuals, list) or not isinstance(expected_residuals, list):
+        return False
+    if len(actual_residuals) != len(expected_residuals):
+        return False
+    for actual_item, expected_item in zip(actual_residuals, expected_residuals):
+        if not isinstance(actual_item, Mapping) or not isinstance(expected_item, Mapping):
+            return False
+        if set(actual_item) != residual_fields or set(expected_item) != residual_fields:
+            return False
+        if actual_item["constraint_id"] != expected_item["constraint_id"]:
+            return False
+        if actual_item["within_tolerance"] != expected_item["within_tolerance"]:
+            return False
+        try:
+            translation_matches = math.isclose(
+                float(actual_item["translation_error"]),
+                float(expected_item["translation_error"]),
+                rel_tol=0.0,
+                abs_tol=_ASSEMBLY_TRANSLATION_RESIDUAL_ABS_TOLERANCE,
+            )
+            angular_matches = math.isclose(
+                float(actual_item["angular_error_degrees"]),
+                float(expected_item["angular_error_degrees"]),
+                rel_tol=0.0,
+                abs_tol=_ASSEMBLY_ANGULAR_RESIDUAL_ABS_TOLERANCE_DEGREES,
+            )
+        except (TypeError, ValueError):
+            return False
+        if not translation_matches or not angular_matches:
+            return False
+    return True
+
+
 def _execute_graph(
     graph: OperationGraph,
     leaf_node_ids: Optional[Sequence[str]] = None,
     *,
     strict: bool = True,
+    external_definitions: Mapping[str, Part | Assembly] | None = None,
 ) -> List[Any]:
     ctx = _ReplayContext(strict=strict)
     if graph.node_count == 0:
@@ -2260,6 +2323,97 @@ def _execute_graph(
 
             try:
                 with context_manager:
+                    if op_name == "reference_definition":
+                        ctx.require_params(
+                            node.node_id,
+                            op_name,
+                            params,
+                            (
+                                "definition_kind",
+                                "definition_id",
+                                "revision",
+                                "content_hash",
+                            ),
+                        )
+                        definition_id = str(params["definition_id"])
+                        value = (external_definitions or {}).get(definition_id)
+                        if value is None:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) cannot resolve definition {definition_id!r}"
+                            )
+                        expected_kind = (
+                            "single_solid" if isinstance(value, Part) else "assembly"
+                        )
+                        actual_id = (
+                            value.part_id if isinstance(value, Part) else value.assembly_id
+                        )
+                        if (
+                            actual_id != definition_id
+                            or expected_kind != params["definition_kind"]
+                            or value._get_runtime("definition.content_hash")
+                            != params["content_hash"]
+                        ):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) resolved definition identity differs"
+                            )
+                        _store_semantic_outputs(node, value)
+                        continue
+
+                    if op_name == "evaluate_assembly_definition":
+                        ctx.require_params(
+                            node.node_id,
+                            op_name,
+                            params,
+                            (
+                                "solver_profile",
+                                "component_placements",
+                                "constraint_report",
+                            ),
+                        )
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if assembly_outputs:
+                            authored = cast(Assembly, assembly_outputs[0])
+                            result = authored
+                            placements = params["component_placements"]
+                            if not isinstance(placements, list):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) component_placements must be an array"
+                                )
+                            authored_placements = authored._get_runtime(
+                                "assembly.authored_component_placements"
+                            )
+                            if authored_placements is None:
+                                authored_placements = {
+                                    component.component_id: component.placement.to_dict()
+                                    for component in authored.components
+                                }
+                            for item in placements:
+                                if not isinstance(item, dict) or set(item) != {
+                                    "instance_id",
+                                    "placement",
+                                }:
+                                    ctx.fail(
+                                        f"Graph node '{node.node_id}' ({op_name}) has invalid placement record"
+                                    )
+                                result = result.with_component_placement(
+                                    str(item["instance_id"]),
+                                    Placement(**dict(item["placement"])),
+                                )
+                            report = ops.inspect_assembly_constraints_rconstraintreport(
+                                assembly=result
+                            )
+                            if not _constraint_reports_match(
+                                report.to_dict(), params["constraint_report"]
+                            ):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) residual report differs"
+                                )
+                            result._set_runtime(
+                                "assembly.authored_component_placements",
+                                authored_placements,
+                            )
+                            _store_semantic_outputs(node, result)
+                        continue
                     if op_name == "apply_tag_rselection":
                         ctx.require_params(
                             node.node_id, op_name, params, ("tag_binding",)
@@ -3692,6 +3846,48 @@ def _execute_graph(
         leaf_results.extend(outputs[node_id])
 
     return leaf_results
+
+def replay_feature_graph(
+    artifact: Any,
+    *,
+    strict: bool = True,
+    external_definitions: Mapping[str, Any] | None = None,
+) -> List[Any]:
+    """Replay a durable FeatureGraphArtifact with immutable child definitions."""
+
+    from .artifacts.assembly_definition import AssemblyDefinition
+    from .artifacts.assembly_io import materialize_definition
+    from .artifacts.feature_graph import FeatureGraphArtifact
+    from .artifacts.part_definition import PartDefinition
+
+    if not isinstance(artifact, FeatureGraphArtifact):
+        raise TypeError("artifact must be a FeatureGraphArtifact")
+    provided = dict(external_definitions or {})
+    expected = {str(item["definition_id"]): item for item in artifact.external_definitions}
+    if set(provided) != set(expected):
+        raise ValueError("external definition resolver keys differ from feature graph")
+    runtime: Dict[str, Part | Assembly] = {}
+    for definition_id, record in expected.items():
+        definition = provided[definition_id]
+        if not isinstance(definition, (PartDefinition, AssemblyDefinition)):
+            raise TypeError("external resolver values must be durable definitions")
+        actual = {
+            "definition_kind": definition.definition_kind,
+            "definition_id": definition.definition_id,
+            "revision": definition.revision,
+            "content_hash": definition.content_hash,
+        }
+        if actual != dict(record):
+            raise ValueError(
+                f"external definition {definition_id!r} identity differs from feature graph"
+            )
+        runtime[definition_id] = materialize_definition(definition)
+    return _execute_graph(
+        OperationGraph.from_dict(dict(artifact.graph)),
+        artifact.result_node_ids,
+        strict=strict,
+        external_definitions=runtime,
+    )
 
 
 def replay_graph(graph: OperationGraph, *, strict: bool = True) -> List[Any]:

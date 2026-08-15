@@ -16,10 +16,7 @@ except ImportError:  # Support direct execution from this example directory.
     from materials import make_actuator_material_rmaterial
 
 
-@scad.requires_session
-def make_standard_planet_bearing_rassembly(
-    *, bearing_id: str, spec: BearingSpec, material: scad.Material
-) -> scad.Assembly:
+def make_standard_planet_bearing_rassembly(*, bearing_id: str, spec: BearingSpec, material: scad.Material) -> scad.Assembly:
     """Create a fused standard-library planet ball-bearing assembly."""
 
     return make_main_bearing_rassembly(
@@ -29,10 +26,7 @@ def make_standard_planet_bearing_rassembly(
     )
 
 
-@scad.requires_session
-def make_main_bearing_rassembly(
-    *, bearing_id: str, spec: BearingSpec, material: scad.Material
-) -> scad.Assembly:
+def make_main_bearing_rassembly(*, bearing_id: str, spec: BearingSpec, material: scad.Material) -> scad.Assembly:
     """Create a standard-library bearing with fused rolling elements."""
 
     bearing = scad.std.bearing.make_ball_bearing_rassembly(
@@ -61,14 +55,12 @@ def make_main_bearing_rassembly(
     return bearing
 
 
-@scad.requires_session
 def make_coaxial_bearing_rplacement(*, center_z: float) -> scad.Placement:
     """Place a standard bearing center plane on the actuator Z axis."""
 
     return make_z_rotation_rplacement(origin=(0.0, 0.0, center_z), angle_degrees=0.0)
 
 
-@scad.requires_session
 def make_planet_bearing_rplacement(*, stage: StageSpec, index: int) -> scad.Placement:
     """Place a standard planet bearing at the gear midplane."""
 
@@ -84,14 +76,11 @@ def make_planet_bearing_rplacement(*, stage: StageSpec, index: int) -> scad.Plac
     )
 
 
-@scad.requires_session
-def _make_bearing_ring_part_rpart(
-    *,
-    bearing_id: str,
-    spec: BearingSpec,
-    role: str,
-    material: scad.Material,
-) -> scad.Part:
+def _make_bearing_ring_part_rpart(*,
+bearing_id: str,
+spec: BearingSpec,
+role: str,
+material: scad.Material,) -> scad.Part:
     bearing = make_main_bearing_rassembly(
         bearing_id=bearing_id,
         spec=spec,

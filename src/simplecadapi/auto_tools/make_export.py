@@ -110,8 +110,6 @@ ALIAS_RULES = {
     "union_rsolid": "union",
     "cut_rsolid": "cut",
     "intersect_rsolid": "intersect",
-    "export_step": "to_step",
-    "export_stl": "to_stl",
 }
 
 

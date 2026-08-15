@@ -40,8 +40,8 @@ class AssemblyDefinition:
     grounded_instance_ids: tuple[str, ...]
     public_connectors: tuple[ConnectorInterface, ...]
     interface_hashes: InterfaceHashes
+    feature_graph_ref: BlobRef
     solved_snapshot: Mapping[str, Any] | None = None
-    model_ref: BlobRef | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
     content_hash: str = ""
     blobs: Mapping[str, bytes] = field(default_factory=dict, compare=False, repr=False)
@@ -55,6 +55,12 @@ class AssemblyDefinition:
         repr=False,
     )
     _validated_limits: Any = field(
+        default=None,
+        init=False,
+        compare=False,
+        repr=False,
+    )
+    _validated_feature_graph: Any = field(
         default=None,
         init=False,
         compare=False,
@@ -202,9 +208,9 @@ class AssemblyDefinition:
             )
         if self.solved_snapshot is not None:
             validate_json_value(self.solved_snapshot, "/solved_snapshot")
-        if self.model_ref is not None and not isinstance(self.model_ref, BlobRef):
+        if not isinstance(self.feature_graph_ref, BlobRef):
             raise ArtifactValidationError(
-                "reference_invalid", "/model_ref", "expected BlobRef or null"
+                "reference_invalid", "/feature_graph_ref", "expected BlobRef"
             )
         generator = dict(self.generator)
         expected_generator = {
@@ -271,9 +277,7 @@ class AssemblyDefinition:
             "solved_snapshot": (
                 dict(solved_snapshot) if solved_snapshot is not None else None
             ),
-            "model_ref": (
-                self.model_ref.to_dict() if self.model_ref is not None else None
-            ),
+            "feature_graph_ref": self.feature_graph_ref.to_dict(),
             "metadata": dict(self.metadata),
         }
 
@@ -323,10 +327,8 @@ class AssemblyDefinition:
                 if data["solved_snapshot"] is not None
                 else None
             ),
-            model_ref=(
-                BlobRef.from_dict(data["model_ref"], "/model_ref")
-                if data["model_ref"] is not None
-                else None
+            feature_graph_ref=BlobRef.from_dict(
+                data["feature_graph_ref"], "/feature_graph_ref"
             ),
             metadata=dict(data["metadata"]),
             content_hash=str(data["content_hash"]),
@@ -337,9 +339,12 @@ class AssemblyDefinition:
 def mark_assembly_definition_validated(
     definition: AssemblyDefinition,
     limits: Any,
+    *,
+    feature_graph: Any = None,
 ) -> None:
     object.__setattr__(definition, "_validated_manifest", definition.canonical_bytes)
     object.__setattr__(definition, "_validated_limits", limits)
+    object.__setattr__(definition, "_validated_feature_graph", feature_graph)
 
 
 def assembly_definition_is_validated(
@@ -350,6 +355,12 @@ def assembly_definition_is_validated(
         definition._validated_limits == limits
         and definition._validated_manifest == definition.canonical_bytes
     )
+
+def validated_assembly_feature_graph(definition: AssemblyDefinition) -> Any:
+    if definition._validated_manifest != definition.canonical_bytes:
+        object.__setattr__(definition, "_validated_feature_graph", None)
+        return None
+    return definition._validated_feature_graph
 
 
 __all__ = ["AssemblyDefinition"]

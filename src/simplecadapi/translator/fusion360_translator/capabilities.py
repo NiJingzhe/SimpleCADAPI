@@ -16,6 +16,10 @@ from ..types import (
 BACKEND_NAME = "fusion360"
 
 _GEOMETRY_OPS = {
+    "make_box_rsolid",
+    "make_cylinder_rsolid",
+    "make_cone_rsolid",
+    "make_sphere_rsolid",
     "make_line_redge",
     "make_circle_redge",
     "make_three_point_arc_redge",
@@ -50,6 +54,7 @@ _PRODUCT_OPS = {
     "make_assign_material_rpart",
     "make_assembly_rassembly",
     "make_add_component_rassembly",
+    "evaluate_assembly_definition",
     "make_place_component_rassembly",
     "make_compound_from_assembly_rcompound",
     "make_face_connector_rconnector",
@@ -66,6 +71,7 @@ _PRODUCT_OPS = {
     "make_revolute_constraint_rassembly",
     "make_prismatic_constraint_rassembly",
     "make_solve_assembly_constraints_rassembly",
+    "apply_tag_rselection",
 }
 
 OP_SUPPORT: Dict[str, OperationCapability] = {
@@ -95,7 +101,7 @@ for _op in _PRODUCT_OPS:
 CAPABILITIES = BackendCapabilities(
     backend_id=BACKEND_NAME,
     display_name="Fusion360",
-    input_schema_versions=("2.0",),
+    input_schema_versions=("product-package-2.0",),
     targets=(
         TranslationTarget(
             target_id="fusion360_script",
@@ -105,7 +111,6 @@ CAPABILITIES = BackendCapabilities(
             requires_external_runtime=True,
             option_names=(
                 "document_name",
-                "result_node_ids",
                 "selection_mode",
                 "source_kernel_fallback",
             ),

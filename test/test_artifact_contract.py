@@ -1,8 +1,10 @@
 import json
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
+import simplecadapi as scad
 from simplecadapi.artifacts.assembly_definition import AssemblyDefinition
 from simplecadapi.artifacts.canonical import (
     ArtifactValidationError,
@@ -10,6 +12,10 @@ from simplecadapi.artifacts.canonical import (
     content_hash,
     sha256_bytes,
     validate_relative_path,
+)
+from simplecadapi.artifacts.feature_graph import (
+    capture_feature_graph,
+    encode_feature_graph_artifact,
 )
 from simplecadapi.artifacts.part_definition import PartDefinition
 from simplecadapi.artifacts.references import BlobRef, InterfaceHashes
@@ -33,12 +39,36 @@ EMPTY_HASH = content_hash({}, omit=())
 def _blob(path, payload, media_type):
     return BlobRef(path, sha256_bytes(payload), len(payload), media_type)
 
+def _feature_graph_blob(definition_id: str, definition_kind: str):
+    with scad.GraphSession(graph_id=definition_id) as session:
+        body = scad.make_box_rsolid(width=1.0, height=1.0, depth=1.0)
+        session.capture_result(value=body)
+    artifact = capture_feature_graph(
+        session=session,
+        owner_definition_kind=definition_kind,
+        owner_definition_id=definition_id,
+        owner_revision="r1",
+        project_root=Path(__file__).resolve().parents[1],
+    )
+    payload = encode_feature_graph_artifact(artifact)
+    path = (
+        "features/"
+        + artifact.content_hash.removeprefix("sha256:")
+        + ".feature-graph.zip"
+    )
+    return _blob(
+        path,
+        payload,
+        "application/vnd.simplecad.feature-graph+zip",
+    ), payload
+
 
 def _part_definition():
-    model = canonical_bytes({"model": "fixture"})
+    feature_ref, feature_payload = _feature_graph_blob(
+        "fixture_part", "single_solid"
+    )
     body = b"fixture-brep"
     topology = canonical_bytes({"topology": "fixture"})
-    model_ref = _blob("model/model.json", model, "application/json")
     body_ref = _blob("body/body.brep", body, "application/vnd.opencascade.brep")
     topology_ref = _blob("topology/snapshot.json", topology, "application/json")
     return PartDefinition(
@@ -46,7 +76,7 @@ def _part_definition():
         revision="r1",
         tolerance_profile="simplecad-default",
         generator=GENERATOR,
-        model_ref=model_ref,
+        feature_graph_ref=feature_ref,
         solid_cache_ref=body_ref,
         topology_snapshot_ref=topology_ref,
         connectors=(),
@@ -58,11 +88,18 @@ def _part_definition():
             bindings={},
             material=None,
         ),
-        blobs={model_ref.path: model, body_ref.path: body, topology_ref.path: topology},
+        blobs={
+            feature_ref.path: feature_payload,
+            body_ref.path: body,
+            topology_ref.path: topology,
+        },
     )
 
 
 def _assembly_definition():
+    feature_ref, feature_payload = _feature_graph_blob(
+        "fixture_assembly", "assembly"
+    )
     return AssemblyDefinition(
         definition_id="fixture_assembly",
         revision="r1",
@@ -79,7 +116,9 @@ def _assembly_definition():
             bindings={},
             material=None,
         ),
+        feature_graph_ref=feature_ref,
         solved_snapshot={"component_placements": []},
+        blobs={feature_ref.path: feature_payload},
     )
 
 

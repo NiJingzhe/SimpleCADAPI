@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class PartBuildResult(value: Part, definition: PartDefinition, session: GraphSession, result_node_ids: tuple[str, ...], model_json: str, session_json: str, cache_report: CacheReport, interface_diff: PartInterfaceDiff | None = None, artifact_paths: Mapping[str, Path] = field(default_factory=dict))
+class PartBuildResult(value: Part, definition: PartDefinition, feature_graph: FeatureGraphArtifact, cache_report: CacheReport, interface_diff: PartInterfaceDiff | None = None)
 ```
 
 *Source: build/results.py*
@@ -14,4 +14,4 @@ class PartBuildResult(value: Part, definition: PartDefinition, session: GraphSes
 
 ## Description
 
-Runtime Part plus its durable definition, graph, and cache evidence.
+Runtime Part plus its durable definition, feature DAG, and cache evidence.

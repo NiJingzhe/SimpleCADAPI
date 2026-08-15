@@ -105,6 +105,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             backend_root.mkdir(parents=True)
             (backend_root / "api.py").write_text("", encoding="utf-8")
             (backend_root / "translator.py").write_text("", encoding="utf-8")
+            (backend_root / "types.py").write_text("", encoding="utf-8")
 
             resolved = auto_docs_gen._default_source_files(package_root)
 
@@ -120,6 +121,10 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             self.assertIn("translator/freecad_translator/api.py", resolved_names)
             self.assertIn(
                 "translator/freecad_translator/translator.py",
+                resolved_names,
+            )
+            self.assertIn(
+                "translator/freecad_translator/types.py",
                 resolved_names,
             )
             self.assertIn("inspect/brep/inspect.py", resolved_names)
@@ -138,6 +143,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             self.assertIn("build/assembly_builder.py", resolved_names)
             self.assertIn("build/dependencies.py", resolved_names)
             self.assertIn("build/results.py", resolved_names)
+            self.assertIn("capture.py", resolved_names)
             self.assertIn("cache/policy.py", resolved_names)
             self.assertIn("cache/store.py", resolved_names)
 
@@ -152,6 +158,8 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             )
             names = {api.name for api in generator.extract_apis()}
             for name in (
+                "capture",
+                "CaptureResult",
                 "assemble",
                 "file_input",
                 "part",
@@ -201,7 +209,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             self.assertIn("## STEP/BREP Inspection", readme)
             self.assertIn("`inspection namespace`", readme)
             self.assertIn("from simplecadapi.inspect import brep", page)
-            self.assertIn("unavailable inside GraphSession/@model", page)
+            self.assertIn("unavailable inside GraphSession", page)
 
     def test_default_stdlib_source_files_include_standard_modules(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

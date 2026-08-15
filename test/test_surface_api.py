@@ -74,7 +74,7 @@ class TestSurfaceApi(unittest.TestCase):
                 [scad.SurfaceBoundary(edge) for edge in edges],
                 tag_prefix="patch",
             )
-            scad.capture_result(value=[gordon, patch])
+            session.capture_result(value=[gordon, patch])
 
         replayed = scad.replay_model_json(scad.export_model_json(session))
         self.assertEqual(len(replayed), 2)
@@ -95,7 +95,7 @@ class TestSurfaceApi(unittest.TestCase):
                 end_wire_tag="anchor.outlet",
                 side_faces_tag="group.side",
             )
-            scad.capture_result(value=open_shell)
+            session.capture_result(value=open_shell)
 
         replayed = scad.replay_model_json(scad.export_model_json(session), strict=True)[0]
         self.assertIsInstance(replayed, scad.Shell)
@@ -131,7 +131,7 @@ class TestSurfaceApi(unittest.TestCase):
             )
             shell = scad.sew_faces_rshell([face])
             boundaries = scad.free_boundaries_rwirelist(shell)
-            scad.capture_result(value=boundaries)
+            session.capture_result(value=boundaries)
 
         replayed = scad.replay_model_json(scad.export_model_json(session))
         self.assertEqual(len(boundaries), 1)

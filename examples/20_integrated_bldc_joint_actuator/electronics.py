@@ -55,12 +55,9 @@ POWER_CAN_TERMINAL_CENTER = (11.0, 0.0)
 MOSFET_ANGLES = (22.5, 67.5, 112.5, 202.5, 247.5, 292.5)
 
 
-@scad.requires_session
-def make_integrated_controller_rassembly(
-    *,
-    pcb_material: scad.Material,
-    terminal_material: scad.Material,
-) -> scad.Assembly:
+def make_integrated_controller_rassembly(*,
+pcb_material: scad.Material,
+terminal_material: scad.Material,) -> scad.Assembly:
     """Build the circular ESC with six power devices and two service terminals."""
 
     pcb = _make_controller_pcb_rpart(material=pcb_material)
@@ -161,7 +158,6 @@ def make_integrated_controller_rassembly(
     return controller
 
 
-@scad.requires_session
 def _make_controller_pcb_rpart(*, material: scad.Material) -> scad.Part:
     board = scad.make_cylinder_rsolid(
         radius=PCB_RADIUS,
@@ -274,7 +270,6 @@ def _make_controller_pcb_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
 def _make_mosfet_package_rpart(*, material: scad.Material) -> scad.Part:
     package = scad.make_box_rsolid(
         width=4.0,
@@ -296,15 +291,12 @@ def _make_mosfet_package_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
-def _make_terminal_block_rpart(
-    *,
-    part_id: str,
-    name: str,
-    width: float,
-    pin_count: int,
-    material: scad.Material,
-) -> scad.Part:
+def _make_terminal_block_rpart(*,
+part_id: str,
+name: str,
+width: float,
+pin_count: int,
+material: scad.Material,) -> scad.Part:
     terminal_tag_prefix = part_id.replace("_", ".")
     body = scad.make_box_rsolid(
         width=width,

@@ -165,12 +165,7 @@ from .kernel.ocp_booleans import (
     solids_of,
 )
 from .kernel.ocp_topology import faces_of as faces_of_ocp
-from .kernel.ocp_export import (
-    export_step_shapes,
-    export_stl_shape,
-    make_compound,
-    make_compound_always,
-)
+from .kernel.ocp_export import make_compound_always
 from .kernel.ocp_surfaces import (
     fill_shell_holes as fill_shell_holes_ocp,
     fit_point_grid_surface,
@@ -9045,7 +9040,7 @@ _EXPORTABLE_TYPES = (Compound, Solid, Shell, Face, Wire, Edge, Vertex)
 def _normalize_shape_input(
     shapes: Union[AnyShape, Sequence[AnyShape]],
 ) -> List[AnyShape]:
-    """Normalize export input into a flat list of shapes."""
+    """Normalize rendering input into a flat list of shapes."""
 
     if isinstance(shapes, _EXPORTABLE_TYPES):
         return [shapes]
@@ -9057,109 +9052,12 @@ def _normalize_shape_input(
         return normalized
 
     raise ValueError(
-        "export functions accept Compound, Solid, Shell, Face, Wire, Edge, Vertex, or nested sequences of those types"
+        "rendering accepts Compound, Solid, Shell, Face, Wire, Edge, Vertex, or nested sequences of those types"
     )
 
 
-def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> None:
-    """Export shapes to STEP.
-
-    Args:
-        shapes: A single exportable shape or any nested sequence of exportable
-            shapes. Lists of Solid are supported directly, including pattern or
-            explicitly collected multi-shape results.
-        filename: Output STEP file path.
-
-    Returns:
-        None: Writes the provided shapes into one STEP file.
-
-    Usage:
-        Use this function when you want to export one shape or many shapes into the
-        same STEP file. Passing `List[Solid]` is valid for pattern outputs or
-        explicit shape collections. Boolean operations return a single `Solid`.
-
-    Examples:
-        main_body = make_box_rsolid(10, 4, 4, bottom_face_center=(0, 0, 0))
-        left_cap = make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0))
-        right_cap = make_sphere_rsolid(2.0, center=(12.0, 2.0, 2.0))
-        body = union_rsolid(main_body, [left_cap, right_cap])
-
-        export_step(body, "rounded_bar.step")
-    """
-    try:
-        shape_list = _normalize_shape_input(shapes)
-
-        export_step_shapes([shape.wrapped for shape in shape_list], filename)
-    except Exception as e:
-        _wrap_public_api_error(
-            operation="export_step",
-            what_happened="Failed to export the shape set to STEP.",
-            possible_causes=[
-                "One or more inputs are not exportable SimpleCAD shapes.",
-                "The output path is invalid or not writable.",
-                "The exporter rejected the provided geometry.",
-            ],
-            how_to_fix=[
-                "Pass Compound, Solid, Shell, Face, Wire, Edge, Vertex, or sequences of those types.",
-                "Use a writable file path ending in .step or .stp.",
-                "If export still fails, inspect each input shape individually.",
-            ],
-            error=e,
-        )
 
 
-def export_stl(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> None:
-    """Export shapes to STL.
-
-    Args:
-        shapes: A single Compound, Solid, or Face, or any nested sequence of those.
-            Lists of Solid are supported directly, including pattern or explicitly
-            collected multi-shape results.
-        filename: Output STL file path.
-
-    Returns:
-        None: Writes the provided shapes into one STL file.
-
-    Usage:
-        Use this function when you want to export one compound, solid, or face into
-        the same STL file. Passing `List[Solid]` is valid for pattern outputs or
-        explicit shape collections. Boolean operations return a single `Solid`.
-
-    Examples:
-        main_body = make_box_rsolid(10, 4, 4, bottom_face_center=(0, 0, 0))
-        left_cap = make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0))
-        right_cap = make_sphere_rsolid(2.0, center=(12.0, 2.0, 2.0))
-        body = union_rsolid(main_body, [left_cap, right_cap])
-
-        export_stl(body, "rounded_bar.stl")
-    """
-    try:
-        shape_list = _normalize_shape_input(shapes)
-
-        for shape in shape_list:
-            if not isinstance(shape, (Compound, Solid, Shell, Face)):
-                raise ValueError(
-                    "export_stl accepts only Compound, Solid, Shell, and Face geometry"
-                )
-        export_stl_shape(
-            make_compound([shape.wrapped for shape in shape_list]), filename
-        )
-    except Exception as e:
-        _wrap_public_api_error(
-            operation="export_stl",
-            what_happened="Failed to export the shape set to STL.",
-            possible_causes=[
-                "One or more inputs are not Solid or Face objects.",
-                "The output path is invalid or not writable.",
-                "The exporter rejected the provided geometry.",
-            ],
-            how_to_fix=[
-                "Pass Solid or Face objects, or sequences of them.",
-                "Use a writable file path ending in .stl.",
-                "If export still fails, isolate which shape triggers the exporter error.",
-            ],
-            error=e,
-        )
 
 
 def render_screenshot_rpath(

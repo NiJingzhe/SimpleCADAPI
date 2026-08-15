@@ -13,15 +13,6 @@ def _named_document_group(name, label):
     return group
 
 
-def _construction_group():
-    global CONSTRUCTION_GROUP
-    if CONSTRUCTION_GROUP is None:
-        CONSTRUCTION_GROUP = _named_document_group(
-            "SimpleCADConstruction", "SimpleCAD Construction"
-        )
-    return CONSTRUCTION_GROUP
-
-
 def _material_library_group():
     global MATERIAL_LIBRARY_GROUP
     if MATERIAL_LIBRARY_GROUP is None:
@@ -199,23 +190,10 @@ def _hide_all_origin_trees():
             _set_visibility(nested, False)
 
 
-def _move_to_construction_group(obj):
-    group = _construction_group()
-    for candidate in [obj] + list(getattr(obj, "OutListRecursive", []) or []):
-        if candidate is None:
-            continue
-        if getattr(candidate, "TypeId", "") in {
-            "App::Origin",
-            "App::Line",
-            "App::Plane",
-            "App::Point",
-        }:
-            continue
-        _add_to_group(group, candidate)
-        _set_visibility(candidate, False)
-        _set_tree_visibility(candidate, False)
-    _set_visibility(group, False)
-    _set_tree_visibility(group, False)
+def _hide_all_connector_datums():
+    for obj in list(getattr(doc, "Objects", []) or []):
+        if _is_connector_object(obj):
+            _set_visibility(obj, False)
 
 
 def _hide_product_source_definition(product_item):
@@ -229,19 +207,55 @@ def _hide_product_source_definition(product_item):
     _hide_origin_tree(container)
 
 
-def _make_part_body_copy(part_container, source_obj, source_node_id):
+def _part_feature_history(source_obj):
+    ordered = []
+    seen = set()
+
+    def visit(obj):
+        if obj is None or not hasattr(obj, "Name"):
+            return
+        marker = id(obj)
+        if marker in seen:
+            return
+        seen.add(marker)
+        for dependency in list(getattr(obj, "OutList", []) or []):
+            visit(dependency)
+        if not hasattr(obj, "Shape"):
+            return
+        if getattr(obj, "TypeId", "") in {
+            "App::Part",
+            "Assembly::AssemblyObject",
+            "Assembly::AssemblyLink",
+        }:
+            return
+        ordered.append(obj)
+
+    visit(source_obj)
+    return ordered
+
+
+def _adopt_part_feature_history(part_container, source_obj, source_node_id):
     doc.recompute()
     if source_obj is None or not hasattr(source_obj, "Shape"):
-        raise RuntimeError("Part body source has no shape")
-    body = part_container.newObject("Part::Feature", "Body")
-    body.Label = "Body"
-    body.Shape = source_obj.Shape.copy()
-    _ensure_string_property(body, "SimpleCADSourceBodyNodeId")
-    body.SimpleCADSourceBodyNodeId = str(source_node_id)
-    _attach_tag_metadata_for_node(body, source_node_id)
-    _set_visibility(body, True)
-    _move_to_construction_group(source_obj)
-    return body
+        raise RuntimeError("Part body source has no shape-bearing feature")
+    history = _part_feature_history(source_obj)
+    if not history or source_obj not in history:
+        raise RuntimeError("Part body source has no materialized feature history")
+    for feature in history:
+        try:
+            part_container.addObject(feature)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not attach FreeCAD feature {feature.Name!r} to part history"
+            ) from exc
+        _set_tree_visibility(feature, True)
+        _set_visibility(feature, feature is source_obj)
+    _ensure_string_property(part_container, "SimpleCADBodyNodeId")
+    part_container.SimpleCADBodyNodeId = str(source_node_id)
+    _ensure_link_property(part_container, "SimpleCADBodyFeature")
+    part_container.SimpleCADBodyFeature = source_obj
+    _attach_tag_metadata_for_node(source_obj, source_node_id)
+    return source_obj
 
 
 def _make_assembly_component_link(

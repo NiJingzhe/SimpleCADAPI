@@ -5,7 +5,8 @@
   reusable prompt for controlled, comparable STEP reconstruction trials.
 - [Persistent Cache and Product Build Workflow](cache-build-workflow.md):
   durable `@part`/`@assemble` boundaries, PRT reuse, unified cache policy,
-  incremental invalidation, diagnostics, repair, and maintenance.
+  diagnostics, `.scadpkg` delivery, FreeCAD/AP242 targets, and optional Gmsh
+  volume meshing.
 
 The corresponding runnable module and examples live in:
 

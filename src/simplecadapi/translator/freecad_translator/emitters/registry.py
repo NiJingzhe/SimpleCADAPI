@@ -11,6 +11,8 @@ EMITTER_METHOD_BY_OP: Dict[str, str] = {
     "make_cylinder_rsolid": "_emit_primitives",
     "make_cone_rsolid": "_emit_primitives",
     "make_sphere_rsolid": "_emit_primitives",
+    "reference_definition": "_emit_products",
+    "evaluate_assembly_definition": "_emit_products",
     "make_material_rmaterial": "_emit_products",
     "make_placement_rplacement": "_emit_products",
     "make_identity_placement_rplacement": "_emit_products",

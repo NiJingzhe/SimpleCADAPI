@@ -1,4 +1,4 @@
-"""Contract tests shared by translator backends."""
+"""Contract tests shared by product-package translator backends."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from pathlib import Path
 import unittest
 
 import simplecadapi as scad
-from simplecadapi.graph import GraphSession
 from simplecadapi.serializer import CANONICAL_OP_SET
 from simplecadapi.translator.base import BaseTranslator
 from simplecadapi.translator.freecad_translator import FreeCADTranslator
@@ -28,8 +27,11 @@ class TestTranslatorBackendContract(unittest.TestCase):
             / "simplecadapi"
             / "translator"
         )
-        backend_dirs = sorted(translator_root.glob("*_translator"))
-        self.assertTrue(backend_dirs)
+        backend_dirs = sorted(
+            path
+            for path in translator_root.glob("*_translator")
+            if (path / "__init__.py").is_file()
+        )
 
         for backend_dir in backend_dirs:
             for filename in (
@@ -92,18 +94,49 @@ class TestTranslatorBackendContract(unittest.TestCase):
         self.assertTrue(runtime_source)
         compile(runtime_source, "<freecad-runtime>", "exec")
 
-    def test_freecad_translator_is_reusable_and_emits_valid_python(self):
-        with GraphSession() as session:
-            scad.make_box_rsolid(1.0, 2.0, 3.0)
+    def test_all_translators_are_reusable_for_product_packages(self):
+        cache = scad.CachePolicy(mode="off")
 
-        model_json = scad.export_model_json(session)
-        translator = FreeCADTranslator(document_name="ContractTest")
-        first = translator.translate_model_json_to_script(model_json)
-        second = translator.translate_model_json_to_script(model_json)
+        @scad.part(id="contract_part", cache=cache)
+        def build_part() -> scad.Part:
+            body = scad.make_box_rsolid(1.0, 2.0, 3.0)
+            return scad.make_part_rpart("contract_part", body)
 
-        self.assertEqual(first, second)
-        self.assertIn('DOC_NAME = "ContractTest"', first)
-        compile(first, "<generated-freecad-script>", "exec")
+        package = scad.build_product_package(build_part())
+
+        from simplecadapi import translator
+
+        for backend_name in translator.__all__:
+            backend = getattr(translator, backend_name)
+            translator_class = getattr(
+                backend, f"{backend.CAPABILITIES.display_name}Translator"
+            )
+            instance = translator_class(document_name="ContractTest")
+            first = instance.translate_product_package(package)
+            second = instance.translate_product_package(package)
+
+            self.assertEqual(first.content, second.content, backend_name)
+            self.assertEqual(first.metadata["root_definition_id"], "contract_part")
+            self.assertEqual(
+                backend.CAPABILITIES.input_schema_versions,
+                ("product-package-2.0",),
+            )
+            compile(first.content, f"<{backend_name}-script>", "exec")
+
+    def test_translator_public_surfaces_do_not_expose_model_json(self):
+        from simplecadapi import translator
+
+        for backend_name in translator.__all__:
+            backend = getattr(translator, backend_name)
+            self.assertFalse(
+                any("model_json" in name for name in backend.__all__),
+                backend_name,
+            )
+            self.assertFalse(
+                any("ScriptTranslator" in name for name in backend.__all__),
+                backend_name,
+            )
+
 
 
 if __name__ == "__main__":

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplecad.dev/schemas/scene-2.0.schema.json",
+  "title": "SimpleCAD Scene 2.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scene_id", "revision", "units", "roots", "definitions", "geometry_assets", "entity_assets", "product_assets", "feature_graph_assets", "source_assets", "nodes", "connectors", "joints", "feature_index", "source_index", "connector_index", "joint_index", "camera", "extensions"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "scene_id": {"$ref": "#/$defs/id"},
+    "revision": {"$ref": "#/$defs/hash"},
+    "units": {"const": "mm"},
+    "roots": {"type": "array", "minItems": 1, "maxItems": 25000, "items": {"$ref": "#/$defs/id"}},
+    "definitions": {"type": "array", "minItems": 1, "maxItems": 25000, "items": {"$ref": "#/$defs/definition"}},
+    "geometry_assets": {"type": "array", "minItems": 1, "maxItems": 25000, "items": {"$ref": "#/$defs/asset"}},
+    "entity_assets": {"type": "array", "minItems": 1, "maxItems": 25000, "items": {"$ref": "#/$defs/asset"}},
+    "product_assets": {"type": "array", "minItems": 1, "maxItems": 25000, "items": {"$ref": "#/$defs/productAsset"}},
+    "feature_graph_assets": {"type": "array", "minItems": 1, "maxItems": 25000, "items": {"$ref": "#/$defs/featureGraphAsset"}},
+    "source_assets": {"type": "array", "maxItems": 25000, "items": {"$ref": "#/$defs/sourceAsset"}},
+    "nodes": {"type": "array", "minItems": 1, "maxItems": 1000000, "items": {"$ref": "#/$defs/node"}},
+    "connectors": {"type": "array", "maxItems": 1000000, "items": {"$ref": "#/$defs/connector"}},
+    "joints": {"type": "array", "maxItems": 1000000, "items": {"$ref": "#/$defs/joint"}},
+    "feature_index": {"type": "array", "minItems": 1, "maxItems": 1000000, "items": {"$ref": "#/$defs/feature"}},
+    "source_index": {"type": "array", "maxItems": 1000000, "items": {"$ref": "#/$defs/sourceIndex"}},
+    "connector_index": {"type": "array", "maxItems": 1000000, "items": {"$ref": "#/$defs/connectorIndex"}},
+    "joint_index": {"type": "array", "maxItems": 1000000, "items": {"$ref": "#/$defs/jointIndex"}},
+    "camera": {"$ref": "#/$defs/camera"},
+    "extensions": {"type": "object", "additionalProperties": true}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z][A-Za-z0-9_.:/-]*$"},
+    "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "uri": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"},
+    "vec3": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+    "transform": {
+      "type": "object", "additionalProperties": false,
+      "required": ["origin", "x_axis", "y_axis", "z_axis"],
+      "properties": {"origin": {"$ref": "#/$defs/vec3"}, "x_axis": {"$ref": "#/$defs/vec3"}, "y_axis": {"$ref": "#/$defs/vec3"}, "z_axis": {"$ref": "#/$defs/vec3"}}
+    },
+    "asset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["asset_id", "uri", "media_type", "sha256", "byte_length"],
+      "properties": {"asset_id": {"$ref": "#/$defs/hash"}, "uri": {"$ref": "#/$defs/uri"}, "media_type": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/hash"}, "byte_length": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}}
+    },
+    "definition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["definition_id", "definition_kind", "revision", "content_hash", "product_asset_id", "feature_graph_asset_id"],
+      "properties": {"definition_id": {"$ref": "#/$defs/id"}, "definition_kind": {"enum": ["single_solid", "assembly"]}, "revision": {"type": "string", "minLength": 1}, "content_hash": {"$ref": "#/$defs/hash"}, "product_asset_id": {"$ref": "#/$defs/hash"}, "feature_graph_asset_id": {"$ref": "#/$defs/hash"}}
+    },
+    "productAsset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["asset_id", "uri", "media_type", "sha256", "byte_length", "definition_id", "definition_kind", "revision", "content_hash"],
+      "properties": {"asset_id": {"$ref": "#/$defs/hash"}, "uri": {"$ref": "#/$defs/uri"}, "media_type": {"enum": ["application/vnd.simplecad.part-definition+zip", "application/vnd.simplecad.assembly-definition+zip"]}, "sha256": {"$ref": "#/$defs/hash"}, "byte_length": {"type": "integer", "minimum": 0}, "definition_id": {"$ref": "#/$defs/id"}, "definition_kind": {"enum": ["single_solid", "assembly"]}, "revision": {"type": "string", "minLength": 1}, "content_hash": {"$ref": "#/$defs/hash"}}
+    },
+    "featureGraphAsset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["asset_id", "uri", "media_type", "sha256", "byte_length", "definition_id", "graph_id", "graph_revision"],
+      "properties": {"asset_id": {"$ref": "#/$defs/hash"}, "uri": {"$ref": "#/$defs/uri"}, "media_type": {"const": "application/vnd.simplecad.feature-graph+zip"}, "sha256": {"$ref": "#/$defs/hash"}, "byte_length": {"type": "integer", "minimum": 0}, "definition_id": {"$ref": "#/$defs/id"}, "graph_id": {"$ref": "#/$defs/id"}, "graph_revision": {"$ref": "#/$defs/hash"}}
+    },
+    "sourceAsset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_asset_id", "uri", "sha256", "byte_length", "media_type", "display_name"],
+      "properties": {"source_asset_id": {"$ref": "#/$defs/hash"}, "uri": {"$ref": "#/$defs/uri"}, "sha256": {"$ref": "#/$defs/hash"}, "byte_length": {"type": "integer", "minimum": 0}, "media_type": {"type": "string", "minLength": 1}, "display_name": {"type": "string", "minLength": 1, "maxLength": 4096}}
+    },
+    "node": {
+      "type": "object", "additionalProperties": false,
+      "required": ["node_id", "parent_node_id", "display_name", "node_kind", "definition_id", "definition_kind", "component_id", "instance_id", "transform", "geometry_asset_id", "entity_asset_id", "material_id", "properties"],
+      "properties": {"node_id": {"$ref": "#/$defs/id"}, "parent_node_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/id"}]}, "display_name": {"type": "string"}, "node_kind": {"enum": ["part", "assembly", "solid"]}, "definition_id": {"$ref": "#/$defs/id"}, "definition_kind": {"enum": ["single_solid", "assembly"]}, "component_id": {"type": ["string", "null"]}, "instance_id": {"type": ["string", "null"]}, "transform": {"$ref": "#/$defs/transform"}, "geometry_asset_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/hash"}]}, "entity_asset_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/hash"}]}, "material_id": {"type": ["string", "null"]}, "properties": {"type": "object", "additionalProperties": true}}
+    },
+    "connector": {
+      "type": "object", "additionalProperties": false,
+      "required": ["connector_snapshot_id", "node_id", "definition_id", "definition_kind", "connector_id", "name", "anchor_kind", "local_frame", "binding", "forwarded_from", "source_feature_id"],
+      "properties": {"connector_snapshot_id": {"$ref": "#/$defs/id"}, "node_id": {"$ref": "#/$defs/id"}, "definition_id": {"$ref": "#/$defs/id"}, "definition_kind": {"enum": ["single_solid", "assembly"]}, "connector_id": {"$ref": "#/$defs/id"}, "name": {"type": "string"}, "anchor_kind": {"enum": ["explicit", "geometry", "forwarded"]}, "local_frame": {"$ref": "#/$defs/transform"}, "binding": {"type": ["object", "null"]}, "forwarded_from": {"type": ["object", "null"]}, "source_feature_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/id"}]}}
+    },
+    "connectorRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["definition_id", "component_id", "instance_id", "connector_id", "connector_snapshot_id"],
+      "properties": {"definition_id": {"$ref": "#/$defs/id"}, "component_id": {"$ref": "#/$defs/id"}, "instance_id": {"$ref": "#/$defs/id"}, "connector_id": {"$ref": "#/$defs/id"}, "connector_snapshot_id": {"$ref": "#/$defs/id"}}
+    },
+    "joint": {
+      "type": "object", "additionalProperties": false,
+      "required": ["joint_id", "assembly_definition_id", "joint_type", "connector_a", "connector_b", "parameters", "limits", "source_feature_id"],
+      "properties": {"joint_id": {"$ref": "#/$defs/id"}, "assembly_definition_id": {"$ref": "#/$defs/id"}, "joint_type": {"enum": ["fixed", "revolute", "prismatic", "cylindrical", "planar", "ball"]}, "connector_a": {"$ref": "#/$defs/connectorRef"}, "connector_b": {"$ref": "#/$defs/connectorRef"}, "parameters": {"type": "object", "additionalProperties": true}, "limits": {"type": ["object", "null"], "additionalProperties": true}, "source_feature_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/id"}]}}
+    },
+    "feature": {
+      "type": "object", "additionalProperties": false,
+      "required": ["feature_id", "definition_id", "graph_id", "node_id", "op", "label", "parameters", "input_feature_ids", "output_count", "source_spans"],
+      "properties": {"feature_id": {"$ref": "#/$defs/id"}, "definition_id": {"$ref": "#/$defs/id"}, "graph_id": {"$ref": "#/$defs/id"}, "node_id": {"$ref": "#/$defs/id"}, "op": {"type": "string", "minLength": 1}, "label": {"type": ["string", "null"]}, "parameters": {"type": "object", "additionalProperties": true}, "input_feature_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}}, "output_count": {"type": "integer", "minimum": 1}, "source_spans": {"type": "array", "items": {"$ref": "#/$defs/sourceSpan"}}}
+    },
+    "sourceSpan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_asset_id", "uri", "start_line", "end_line", "symbol"],
+      "properties": {"source_asset_id": {"$ref": "#/$defs/hash"}, "uri": {"$ref": "#/$defs/uri"}, "start_line": {"type": "integer", "minimum": 1}, "end_line": {"type": "integer", "minimum": 1}, "symbol": {"type": ["string", "null"]}}
+    },
+    "sourceIndex": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_index_id", "source_asset_id", "uri", "definition_id", "feature_id", "start_line", "end_line", "symbol"],
+      "properties": {"source_index_id": {"$ref": "#/$defs/id"}, "source_asset_id": {"$ref": "#/$defs/hash"}, "uri": {"$ref": "#/$defs/uri"}, "definition_id": {"$ref": "#/$defs/id"}, "feature_id": {"$ref": "#/$defs/id"}, "start_line": {"type": "integer", "minimum": 1}, "end_line": {"type": "integer", "minimum": 1}, "symbol": {"type": ["string", "null"]}}
+    },
+    "connectorIndex": {
+      "type": "object", "additionalProperties": false,
+      "required": ["connector_index_id", "definition_id", "node_id", "connector_id", "connector_snapshot_id", "source_feature_id"],
+      "properties": {"connector_index_id": {"$ref": "#/$defs/id"}, "definition_id": {"$ref": "#/$defs/id"}, "node_id": {"$ref": "#/$defs/id"}, "connector_id": {"$ref": "#/$defs/id"}, "connector_snapshot_id": {"$ref": "#/$defs/id"}, "source_feature_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/id"}]}}
+    },
+    "jointIndex": {
+      "type": "object", "additionalProperties": false,
+      "required": ["joint_index_id", "assembly_definition_id", "joint_id", "source_feature_id"],
+      "properties": {"joint_index_id": {"$ref": "#/$defs/id"}, "assembly_definition_id": {"$ref": "#/$defs/id"}, "joint_id": {"$ref": "#/$defs/id"}, "source_feature_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/id"}]}}
+    },
+    "camera": {
+      "type": "object", "additionalProperties": false,
+      "required": ["target", "position", "up", "near", "far", "fit_mode", "margin"],
+      "properties": {"target": {"$ref": "#/$defs/vec3"}, "position": {"$ref": "#/$defs/vec3"}, "up": {"$ref": "#/$defs/vec3"}, "near": {"type": "number", "exclusiveMinimum": 0}, "far": {"type": "number", "exclusiveMinimum": 0}, "fit_mode": {"enum": ["bounds", "selection"]}, "margin": {"type": "number", "minimum": 0, "maximum": 10}}
+    }
+  }
+}
