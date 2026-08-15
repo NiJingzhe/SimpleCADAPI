@@ -5,13 +5,14 @@ from OCP.BRep import BRep_Builder
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
+    BRepBuilderAPI_MakeVertex,
     BRepBuilderAPI_MakeWire,
 )
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
-from OCP.TopAbs import TopAbs_VERTEX
+from OCP.TopAbs import TopAbs_FACE, TopAbs_VERTEX
 from OCP.TopExp import TopExp
 from OCP.TopTools import TopTools_IndexedMapOfShape
-from OCP.TopoDS import TopoDS, TopoDS_Compound
+from OCP.TopoDS import TopoDS, TopoDS_Compound, TopoDS_Edge, TopoDS_Shell
 from OCP.gp import gp_Pnt
 
 from simplecadapi.inspect import brep
@@ -42,6 +43,24 @@ def _three_faces_sharing_one_edge():
     return compound
 
 
+def _compound(*shapes):
+    compound = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(compound)
+    for shape in shapes:
+        builder.Add(compound, shape)
+    return compound
+
+
+def _orphan_degenerate_edge():
+    edge = TopoDS_Edge()
+    builder = BRep_Builder()
+    builder.MakeEdge(edge)
+    builder.Add(edge, BRepBuilderAPI_MakeVertex(gp_Pnt(3.0, 3.0, 3.0)).Vertex())
+    builder.Degenerated(edge, True)
+    return edge
+
+
 def test_inspect_topology_distinguishes_validity_from_closed_manifoldness():
     box = brep.inspect_topology_rdescriptor(
         BRepPrimAPI_MakeBox(2.0, 3.0, 4.0).Shape()
@@ -70,6 +89,8 @@ def test_inspect_topology_distinguishes_validity_from_closed_manifoldness():
         "orphan": 0,
         "seam": 0,
     }
+    assert box["edge_evidence_counts"] == {"degenerate": 0, "orphan": 0}
+    assert box["orphan_vertex_count"] == 0
     assert box["shells"] == [
         {
             "shell_index": 0,
@@ -135,3 +156,47 @@ def test_inspect_topology_keeps_validity_independent_from_closed_manifoldness():
     assert report["valid"] is False
     assert report["closed_manifold"] is True
     assert report["edge_classification_counts"]["manifold"] == 12
+
+
+def test_closed_manifold_requires_edge_and_shell_orientation():
+    box = BRepPrimAPI_MakeBox(1.0, 1.0, 1.0).Shape()
+    faces = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(box, TopAbs_FACE, faces)
+    shell = TopoDS_Shell()
+    builder = BRep_Builder()
+    builder.MakeShell(shell)
+    for index in range(1, faces.Extent() + 1):
+        face = TopoDS.Face_s(faces.FindKey(index))
+        builder.Add(shell, face.Reversed() if index == 1 else face)
+
+    report = brep.inspect_topology_rdescriptor(shell)
+
+    assert report["shells"][0]["closed"] is True
+    assert report["shells"][0]["orientation_status"] != "BRepCheck_NoError"
+    assert report["edge_classification_counts"]["orientation_defect"] > 0
+    assert report["closed_manifold"] is False
+
+
+@pytest.mark.parametrize(
+    ("orphan", "edge_evidence", "orphan_vertex_count"),
+    [
+        (BRepBuilderAPI_MakeVertex(gp_Pnt(3.0, 3.0, 3.0)).Vertex(), None, 1),
+        (_orphan_degenerate_edge(), {"degenerate": 1, "orphan": 1}, 0),
+    ],
+)
+def test_closed_manifold_rejects_mixed_dimensional_orphan_topology(
+    orphan, edge_evidence, orphan_vertex_count
+):
+    report = brep.inspect_topology_rdescriptor(
+        _compound(BRepPrimAPI_MakeBox(1.0, 1.0, 1.0).Shape(), orphan)
+    )
+
+    assert report["closed_manifold"] is False
+    assert report["orphan_vertex_count"] == orphan_vertex_count
+    if edge_evidence is not None:
+        assert report["edge_evidence_counts"] == edge_evidence
+        problem = next(
+            item for item in report["problem_edges"] if item["degenerated"]
+        )
+        assert problem["classification"] == "degenerate"
+        assert problem["orphan"] is True

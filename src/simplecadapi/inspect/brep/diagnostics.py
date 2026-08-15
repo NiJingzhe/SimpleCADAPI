@@ -14,13 +14,14 @@ import numpy as np
 from OCP.BRep import BRep_Builder, BRep_Tool
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Section
 from OCP.BRepBuilderAPI import (
+    BRepBuilderAPI_MakeFace,
     BRepBuilderAPI_MakeVertex,
 )
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
 from OCP.GeomAPI import GeomAPI_ProjectPointOnSurf
-from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID, TopAbs_VERTEX
 from OCP.TopExp import TopExp
 from OCP.TopTools import TopTools_IndexedMapOfShape, TopTools_ListOfShape
 from OCP.TopoDS import TopoDS, TopoDS_Compound, TopoDS_Shape
@@ -798,6 +799,34 @@ def compare_material_region_rdescriptor(
 ) -> dict[str, Any]:
     """Compute directional material differences inside one axis-aligned ROI."""
 
+    staging_paths: list[Path] = []
+    try:
+        return _compare_material_region_rdescriptor(
+            target,
+            current,
+            region_min=region_min,
+            region_max=region_max,
+            boolean_tolerance=boolean_tolerance,
+            output_directory=output_directory,
+            max_components=max_components,
+            staging_paths=staging_paths,
+        )
+    finally:
+        for staging in staging_paths:
+            shutil.rmtree(staging, ignore_errors=True)
+
+
+def _compare_material_region_rdescriptor(
+    target: ModelInput,
+    current: ModelInput,
+    *,
+    region_min: Sequence[float],
+    region_max: Sequence[float],
+    boolean_tolerance: float | None,
+    output_directory: str | Path | None,
+    max_components: int,
+    staging_paths: list[Path],
+) -> dict[str, Any]:
     if len(region_min) != 3 or len(region_max) != 3:
         raise ValueError("region_min and region_max must contain three coordinates")
     minimum = np.asarray(region_min, dtype=float)
@@ -837,6 +866,7 @@ def compare_material_region_rdescriptor(
                 raise ValueError("localized material export would overwrite an input STEP")
         output.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=".localized-material-", dir=output))
+        staging_paths.append(staging)
     roi = BRepPrimAPI_MakeBox(gp_Pnt(*minimum), gp_Pnt(*maximum)).Shape()
     target_local = _common_shape(target_material, roi, boolean_tolerance)
     current_local = _common_shape(current_material, roi, boolean_tolerance)
@@ -964,8 +994,6 @@ def compare_material_region_rdescriptor(
                     staged.replace(destination)
                     published.append(destination)
                     difference["exported_files"][category] = str(destination)
-            for backup in backups.values():
-                backup.unlink()
         except Exception:
             for destination in published:
                 if destination.exists():
@@ -974,8 +1002,11 @@ def compare_material_region_rdescriptor(
                 if backup.exists():
                     backup.replace(output / filename)
             raise
-        finally:
-            shutil.rmtree(staging, ignore_errors=True)
+        for backup in backups.values():
+            try:
+                backup.unlink()
+            except OSError:
+                pass
     return {
         "report_version": 1,
         "tool": "compare_material_region_rdescriptor",
@@ -1009,6 +1040,43 @@ def _section_shape(
     if not operation.IsDone():
         raise BRepEntityError("OpenCascade section operation failed")
     return operation.Shape()
+
+
+def _plane_intersects_model(
+    model: BRepModel,
+    origin: Sequence[float],
+    normal: Sequence[float],
+    tolerance: float,
+) -> bool:
+    plane = gp_Pln(gp_Pnt(*origin), gp_Dir(*normal))
+    bounds = _bounding_box(model.root)
+    corners = np.asarray(
+        [
+            (x_value, y_value, z_value)
+            for x_value in (bounds["min"][0], bounds["max"][0])
+            for y_value in (bounds["min"][1], bounds["max"][1])
+            for z_value in (bounds["min"][2], bounds["max"][2])
+        ],
+        dtype=float,
+    )
+    relative = corners - np.asarray(origin, dtype=float)
+    position = plane.Position()
+    x_direction = np.asarray(position.XDirection().Coord(), dtype=float)
+    y_direction = np.asarray(position.YDirection().Coord(), dtype=float)
+    x_coordinates = relative @ x_direction
+    y_coordinates = relative @ y_direction
+    # Very small bounded plane faces are treated as boundary-only by OCP's
+    # distance solver. Keep the witness face comfortably above kernel confusion.
+    margin = max(float(bounds["diagonal"]) * 0.01, tolerance * 100.0, 1.0e-5)
+    plane_face = BRepBuilderAPI_MakeFace(
+        plane,
+        float(np.min(x_coordinates) - margin),
+        float(np.max(x_coordinates) + margin),
+        float(np.min(y_coordinates) - margin),
+        float(np.max(y_coordinates) + margin),
+    ).Face()
+    source = _material_shape(model) if model.bodies else model.root
+    return _exact_distance(source, plane_face)["distance"] <= tolerance
 
 
 def _flatten_section_samples(section: Mapping[str, Any]) -> np.ndarray:
@@ -1047,7 +1115,11 @@ def compare_sections_rdescriptor(
     tolerance: float = 1.0e-7,
     samples_per_edge: int = 32,
 ) -> dict[str, Any]:
-    """Compare target and current contour geometry on one physical plane."""
+    """Compare target and current contour geometry on one physical plane.
+
+    Empty results use a bounded OCP shape-plane intersection, sized from the
+    root bounds, to distinguish true emptiness from dropped section edges.
+    """
 
     from .queries import inspect_section_rdescriptor
 
@@ -1082,29 +1154,12 @@ def compare_sections_rdescriptor(
     target_points = _flatten_section_samples(target_section)
     current_points = _flatten_section_samples(current_section)
 
-    def plane_may_cross(model: BRepModel) -> bool:
-        origin = np.asarray(plane_origin, dtype=float)
-        normal = np.asarray(plane_normal, dtype=float)
-        normal /= np.linalg.norm(normal)
-        bounded_entities = model.bodies or model.faces or (model.root,)
-        boxes = [_bounding_box(entity) for entity in bounded_entities]
-        for box in boxes:
-            corners = np.asarray(
-                [
-                    (x_value, y_value, z_value)
-                    for x_value in (box["min"][0], box["max"][0])
-                    for y_value in (box["min"][1], box["max"][1])
-                    for z_value in (box["min"][2], box["max"][2])
-                ],
-                dtype=float,
-            )
-            distances = (corners - origin) @ normal
-            if float(np.min(distances)) <= tolerance and float(np.max(distances)) >= -tolerance:
-                return True
-        return False
-
-    target_unresolved = not target_section["edge_count"] and plane_may_cross(target_model)
-    current_unresolved = not current_section["edge_count"] and plane_may_cross(current_model)
+    target_unresolved = not target_section["edge_count"] and _plane_intersects_model(
+        target_model, plane_origin, plane_normal, tolerance
+    )
+    current_unresolved = not current_section["edge_count"] and _plane_intersects_model(
+        current_model, plane_origin, plane_normal, tolerance
+    )
     section_generation_unresolved = target_unresolved or current_unresolved
 
     if target_section["edge_count"] and current_section["edge_count"]:
