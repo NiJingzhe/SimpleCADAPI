@@ -20,7 +20,7 @@ GUIDE_INDEX_MIRROR = ROOT / "skills/simplecadapi/references/docs/guides/README.m
 def test_reconstruction_prompt_is_a_compact_versioned_contract() -> None:
     text = PROMPT.read_text(encoding="utf-8")
 
-    assert len(text.splitlines()) <= 300
+    assert len(text.splitlines()) <= 350
     assert "Contract ID:" in text
     assert "Contract version: `2.1`" in text
     assert "## Precedence" in text
@@ -41,6 +41,8 @@ def test_reconstruction_prompt_is_a_compact_versioned_contract() -> None:
     assert "STRICT_MATERIAL_TOLERANCE_MM3 = {positive number}" in text
     assert "add/modify SDK operations" in text
     assert "Participant replay may execute only `ENTRYPOINT`" in text
+    assert "not a boolean" in text
+    assert "`require_nonempty` must be a" in text
 
 
 def test_reconstruction_prompt_requires_actual_strict_material_proof() -> None:
@@ -65,6 +67,24 @@ def test_reconstruction_prompt_has_monotonic_and_open_shell_classification() -> 
     assert "open_shell_equivalence_unproved" in text
     assert "fabricated_solid_for_open_shell" in text
     assert "material timeout" in text.lower()
+
+
+def test_reconstruction_prompt_documents_evaluator_schemas_units_and_trust() -> None:
+    text = PROMPT.read_text(encoding="utf-8")
+
+    assert "### Evaluator Stage Schema And Units" in text
+    assert "`elapsed_seconds`" in text
+    assert "`checks.hard_gate=true`" in text
+    assert "volume in mm3" in text
+    assert "area in mm2" in text
+    assert "diagnostic only" in text
+    assert "unmodified process-local results" in text
+    assert "serialized or rebuilt" in text
+    assert "SHA-256 bindings" in text
+    assert "participant-declared kind or validity is not evidence" in text
+    assert "zero solids, at least one shell explicitly reported open" in text
+    assert "claimed" in text.lower()
+    assert "strict stage status cannot establish it" in text.lower()
 
 
 def test_prompt_and_strategy_skill_mirrors_are_exact() -> None:

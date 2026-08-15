@@ -188,7 +188,9 @@ Each `SECTIONS` item has this closed schema:
 ```
 
 Section IDs must be unique and match `[A-Za-z0-9][A-Za-z0-9_.-]*`; normals
-must be non-zero, tolerances positive, and `samples_per_edge >= 4`.
+must be non-zero, tolerances positive, `samples_per_edge` must be a JSON integer
+(not a boolean) with `samples_per_edge >= 4`, and `require_nonempty` must be a
+JSON boolean.
 
 ## Mechanical Gates
 
@@ -257,6 +259,50 @@ Assign exactly one classification. Higher-tier failure never erases a proven low
   classify it as `approximation` instead.
 
 Never upgrade from render, global property, sampled boundary, or section metrics.
+
+`classify_benchmark_result` receives the unmodified process-local results from
+`inspect_benchmark_step` and `run_comparison_bundle`; serialized or rebuilt
+mappings are untrusted. Their path and SHA-256 bindings must still match the
+current target and candidate files. Candidate
+validity and solid/shell kind come from inspection `valid` and `counts` fields;
+an open shell requires zero solids, at least one shell explicitly reported open,
+and at least one face;
+participant-declared kind or validity is not evidence. `exact_brep` additionally
+requires the strict report's STEP-validity, directional-volume, geometric
+point-set, geometry-labelled incidence, and hard-gate fields to agree. A claimed
+strict stage status cannot establish it.
+
+### Evaluator Stage Schema And Units
+
+Worker-stage envelopes record `status`, `gate_passed`, `elapsed_seconds`,
+`report`, `report_path`, and `error`. Completed comparison stages add boolean
+`checks`; non-run stages add `reason`; aggregate `sections` uses `reports` with
+one worker envelope per unique section ID. Status is `passed`, `failed`,
+`error`, `skipped`, or `not_applicable`. `global` and `material` always appear;
+`boundary` and `sections` appear only when diagnostics are requested; `strict`
+always appears but runs only for a solid after proven material equality when
+strict topology is requested.
+
+- `global`: bounding-box/centroid lengths in mm, area in mm2, volume in mm3,
+  integer topology counts, and dimensionless relative deltas.
+- `material`: directional missing/excess volumes and tolerance in mm3, Boolean
+  and volume-balance validity, and tri-state `strict_point_set_equal`;
+  `relative_total_difference` is dimensionless.
+- `boundary`: sampled-to-exact distances, approximate Hausdorff, p95, and linear
+  deflection in mm. It is diagnostic only.
+- `sections`: plane coordinates, tolerance, perimeter, and Hausdorff in mm;
+  material area in mm2; integer sample/edge counts; relative area error is
+  dimensionless. The aggregate contains one stage envelope per unique section ID.
+- `strict`: directional differences and Boolean tolerance in mm3, geometric
+  tolerance in mm, validity, graph counts, point-set equality, labelled-incidence
+  isomorphism, and `hard_gate_passed`; exact classification also requires
+  trusted envelope check `checks.hard_gate=true`.
+
+Evaluator configuration, baseline/target paths and hashes, worker reports,
+inspection reports, and representation checks are trusted-harness evidence.
+Participant source and declared parameters are submission inputs, while its
+self-reported evaluation, kind, validity, stage status, renders, and logs are
+untrusted claims or diagnostics.
 
 ## Artifact Contract
 

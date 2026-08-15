@@ -161,6 +161,55 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             self.assertIn("from simplecadapi.inspect import brep", page)
             self.assertIn("unavailable inside GraphSession/@model", page)
 
+    def test_evaluator_api_docs_preserve_schemas_units_and_trust_boundaries(self):
+        class EvaluationDocGenerator(auto_docs_gen.APIDocumentGenerator):
+            def _module_name_for(self, file_path):
+                return "inverse_engineer/brep/evaluation.py"
+
+        project_root = MODULE_PATH.parents[3]
+        source_file = (
+            project_root / "src/simplecadapi/inverse_engineer/brep/evaluation.py"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir) / "docs/api"
+            generator = EvaluationDocGenerator(
+                source_files=[source_file],
+                output_dirs=[output_dir],
+                quiet=True,
+            )
+            generator.extract_apis()
+            generator.generate_markdown_docs()
+
+            readme = (output_dir / "README.md").read_text(encoding="utf-8")
+            bundle = (output_dir / "run_comparison_bundle.md").read_text(
+                encoding="utf-8"
+            )
+            classify = (output_dir / "classify_benchmark_result.md").read_text(
+                encoding="utf-8"
+            )
+            section = (output_dir / "SectionEvaluationConfig.md").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertIn("## Reconstruction Evaluation", readme)
+            self.assertIn("`reverse-engineering evaluator`", readme)
+            self.assertIn("from simplecadapi.inverse_engineer.brep import", bundle)
+            self.assertNotIn("top-level:", bundle)
+            self.assertIn("Report schemas and units", bundle)
+            self.assertIn("cubic millimetres", bundle)
+            self.assertIn("checks.hard_gate", bundle)
+            self.assertIn(
+                "diagnostic, never equality proof",
+                " ".join(bundle.split()),
+            )
+            self.assertIn("unmodified, process-local result", classify)
+            self.assertIn("at least one unique face", classify)
+            self.assertIn(
+                "not just a claimed stage status",
+                " ".join(classify.split()),
+            )
+            self.assertIn("strictly boolean", section)
+
     def test_default_stdlib_source_files_include_standard_modules(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             package_root = Path(tmp_dir) / "src/simplecadapi"

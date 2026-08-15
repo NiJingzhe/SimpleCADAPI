@@ -398,6 +398,12 @@ class APIDocumentGenerator:
         return set()
 
     def _import_surface_for(self, name: str, module_name: str) -> str:
+        if module_name == "inverse_engineer/brep/evaluation.py":
+            return (
+                "reverse-engineering evaluator: `from simplecadapi.inverse_engineer.brep "
+                f"import {name}`"
+            )
+
         if name in self.exported_names:
             return f"top-level: `from simplecadapi import {name}`"
 
@@ -412,12 +418,6 @@ class APIDocumentGenerator:
             return (
                 "inspection namespace: `from simplecadapi.inspect import brep` "
                 f"then `brep.{name}(...)`; unavailable inside GraphSession/@model"
-            )
-
-        if module_name == "inverse_engineer/brep/evaluation.py":
-            return (
-                "reverse-engineering evaluator: `from simplecadapi.inverse_engineer.brep "
-                f"import {name}`"
             )
 
         module_stem = module_name.removesuffix(".py")
@@ -573,6 +573,7 @@ class APIDocumentGenerator:
             "Advanced Features": [],
             "Evolve": [],
             "STEP/BREP Inspection": [],
+            "Reconstruction Evaluation": [],
             "Other": [],
         }
 
@@ -581,6 +582,10 @@ class APIDocumentGenerator:
 
             if api.source_file.startswith("inspect/brep/"):
                 categories["STEP/BREP Inspection"].append(api)
+                continue
+
+            if api.source_file == "inverse_engineer/brep/evaluation.py":
+                categories["Reconstruction Evaluation"].append(api)
                 continue
 
             if api.source_file == "evolve.py":
@@ -641,6 +646,7 @@ class APIDocumentGenerator:
             "- Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.",
             "- Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession` or `@model`.",
             "- Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.",
+            "- Entries marked `reverse-engineering evaluator` are available through `simplecadapi.inverse_engineer.brep`; their acceptance inputs and reports belong to the trusted harness, not participant code.",
             "",
         ]
 
@@ -657,6 +663,8 @@ class APIDocumentGenerator:
                     surface_info = " `inspection namespace`"
                 elif api.source_file.startswith("translator/"):
                     surface_info = " `translator backend`"
+                elif api.source_file == "inverse_engineer/brep/evaluation.py":
+                    surface_info = " `reverse-engineering evaluator`"
                 else:
                     surface_info = f" `submodule:{api.source_file.removesuffix('.py')}`"
                 doc_filename = api.doc_filename or f"{api.name}.md"
