@@ -14,4 +14,11 @@ def trim_surface_rface(carrier: Face, outer: Wire, holes: Sequence[Wire] = (), *
 
 ## Description
 
-Trim a carrier Face with projected 3D boundary wires.
+Trim a carrier Face to exactly one connected Face.
+
+Existing carrier bounds and holes are preserved by intersecting them with
+the requested closed, simple outer loop and optional closed, simple holes.
+Empty or disconnected intersections are rejected. Every trim curve must
+lie on the carrier within ``tolerance``. Periodic carriers do not support
+holes; their outer loop must fit within one seam period without crossing
+the seam.

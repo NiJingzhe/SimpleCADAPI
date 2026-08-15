@@ -585,6 +585,27 @@ class TaggedMixin:
         self._tag_lineage[:] = list(source._tag_lineage)
         self._refresh_tag_cache(recursive=True)
 
+    def _copy_semantic_state_from(self, source: "TaggedMixin") -> None:
+        if not isinstance(source, TaggedMixin):
+            raise TypeError("source must be a TaggedMixin")
+        self._tag_bindings[:] = list(source._tag_bindings)
+        self._tag_lineage[:] = list(source._tag_lineage)
+        self._metadata = deepcopy(
+            {
+                key: value
+                for key, value in source._metadata.items()
+                if key not in {"graph", "topo_ref"}
+            }
+        )
+        self._runtime = deepcopy(
+            {
+                key: value
+                for key, value in source._runtime.items()
+                if not key.startswith(("graph.", "topo.", "mesh."))
+            }
+        )
+        self._refresh_tag_cache(recursive=True)
+
     def _replace_local_tag_bindings(self, bindings: Iterable[TagBinding]) -> None:
         retained = [
             binding
