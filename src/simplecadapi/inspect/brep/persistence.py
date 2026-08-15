@@ -42,6 +42,24 @@ def _topology_count(report: dict[str, Any], name: str) -> int:
     return int(report["edge_classification_counts"].get(name, 0))
 
 
+def _edge_evidence_count(report: dict[str, Any], name: str) -> int:
+    return int(report["edge_evidence_counts"].get(name, 0))
+
+
+def _shell_fact_counts(report: dict[str, Any]) -> dict[str, int]:
+    shells = report["shells"]
+    return {
+        "closed": sum(bool(shell["closed"]) for shell in shells),
+        "open": sum(not bool(shell["closed"]) for shell in shells),
+        "oriented": sum(
+            shell["orientation_status"] == "BRepCheck_NoError" for shell in shells
+        ),
+        "orientation_defect": sum(
+            shell["orientation_status"] != "BRepCheck_NoError" for shell in shells
+        ),
+    }
+
+
 def _compact_summary(value: dict[str, Any]) -> dict[str, Any]:
     result = dict(value)
     result.pop("bodies", None)
@@ -56,6 +74,7 @@ def _compact_topology(value: dict[str, Any]) -> dict[str, Any]:
         "shells",
         "internal_face_ids",
         "external_face_ids",
+        "orphan_vertex_ids",
     ):
         result.pop(key, None)
     return result
@@ -73,8 +92,11 @@ def validate_step_roundtrip_rdescriptor(
     """Atomically write and reload STEP, publishing only a verified result.
 
     Relative tolerance bounds volume and surface-area drift. Position tolerance,
-    in model length units, bounds centroid distance and bounding-box coordinate
-    drift. The returned descriptor records each measured delta.
+    in model length units, bounds centroid distance and both material and root
+    bounding-box coordinate drift. The returned descriptor records each
+    measured delta. Topology acceptance compares defect counts and shell facts,
+    preserving existing open topology while rejecting newly introduced defects
+    and shell closure, orientation, or closed-manifold regressions.
     """
 
     if (
@@ -137,11 +159,24 @@ def validate_step_roundtrip_rdescriptor(
             "relative_surface_area": relative_area,
             "centroid_distance": float(math.dist(before["centroid"], after["centroid"])),
             "bounding_box_max_coordinate_delta": max(
-                abs(float(after["bounding_box"][side][axis]) - float(before["bounding_box"][side][axis]))
+                abs(
+                    float(after["bounding_box"][side][axis])
+                    - float(before["bounding_box"][side][axis])
+                )
+                for side in ("min", "max")
+                for axis in range(3)
+            ),
+            "root_bounding_box_max_coordinate_delta": max(
+                abs(
+                    float(after["root_bounding_box"][side][axis])
+                    - float(before["root_bounding_box"][side][axis])
+                )
                 for side in ("min", "max")
                 for axis in range(3)
             ),
         }
+        shell_facts_before = _shell_fact_counts(topology_before)
+        shell_facts_after = _shell_fact_counts(topology_after)
         topology_deltas = {
             "faces": int(after["face_count"] - before["face_count"]),
             "edges": int(after["edge_count"] - before["edge_count"]),
@@ -150,9 +185,35 @@ def validate_step_roundtrip_rdescriptor(
             - _topology_count(topology_before, "free"),
             "non_manifold_edges": _topology_count(topology_after, "non_manifold")
             - _topology_count(topology_before, "non_manifold"),
-            "degenerate_edges": _topology_count(topology_after, "degenerate")
-            - _topology_count(topology_before, "degenerate"),
+            "degenerate_edges": _edge_evidence_count(topology_after, "degenerate")
+            - _edge_evidence_count(topology_before, "degenerate"),
+            "orphan_edges": _edge_evidence_count(topology_after, "orphan")
+            - _edge_evidence_count(topology_before, "orphan"),
+            "orientation_defect_edges": _topology_count(
+                topology_after, "orientation_defect"
+            )
+            - _topology_count(topology_before, "orientation_defect"),
+            "orphan_vertices": int(topology_after["orphan_vertex_count"])
+            - int(topology_before["orphan_vertex_count"]),
+            "closed_shells": shell_facts_after["closed"]
+            - shell_facts_before["closed"],
+            "open_shells": shell_facts_after["open"] - shell_facts_before["open"],
+            "oriented_shells": shell_facts_after["oriented"]
+            - shell_facts_before["oriented"],
+            "shell_orientation_defects": shell_facts_after["orientation_defect"]
+            - shell_facts_before["orientation_defect"],
+            "closed_manifold": int(bool(topology_after["closed_manifold"]))
+            - int(bool(topology_before["closed_manifold"])),
         }
+        shell_closure_regressed = bool(topology_before["shells"]) and (
+            topology_deltas["closed_shells"] < 0
+            or topology_deltas["open_shells"] > 0
+            or len(topology_after["shells"]) < len(topology_before["shells"])
+        )
+        shell_orientation_regressed = bool(topology_before["shells"]) and (
+            topology_deltas["oriented_shells"] < 0
+            or topology_deltas["shell_orientation_defects"] > 0
+        )
         passed = (
             bool(before["valid"])
             and bool(after["valid"])
@@ -168,9 +229,25 @@ def validate_step_roundtrip_rdescriptor(
             and abs(relative_area) <= relative_property_tolerance
             and property_deltas["centroid_distance"] <= position_tolerance
             and property_deltas["bounding_box_max_coordinate_delta"] <= position_tolerance
-            and topology_deltas["free_edges"] == 0
-            and topology_deltas["non_manifold_edges"] == 0
-            and topology_deltas["degenerate_edges"] == 0
+            and property_deltas["root_bounding_box_max_coordinate_delta"]
+            <= position_tolerance
+            and all(
+                topology_deltas[name] <= 0
+                for name in (
+                    "free_edges",
+                    "non_manifold_edges",
+                    "degenerate_edges",
+                    "orphan_edges",
+                    "orientation_defect_edges",
+                    "orphan_vertices",
+                )
+            )
+            and not shell_closure_regressed
+            and not shell_orientation_regressed
+            and (
+                not topology_before["closed_manifold"]
+                or topology_after["closed_manifold"]
+            )
         )
         output_replaced = False
         if passed:

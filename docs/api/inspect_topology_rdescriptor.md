@@ -18,3 +18,5 @@ Report topology use counts independently from generic BREP validity.
 
 Edge classifications use face-local occurrences, so a seam used twice by
 one face is distinct from a free edge that merely has one unique ancestor.
+``edge_evidence_counts`` preserves degenerate-and-orphan combinations;
+``orphan_vertex_count`` and ``orphan_vertex_ids`` report isolated vertices.

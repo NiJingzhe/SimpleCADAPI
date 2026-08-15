@@ -17,5 +17,8 @@ def validate_step_roundtrip_rdescriptor(model_or_shape: ModelInput, output_path:
 Atomically write and reload STEP, publishing only a verified result.
 
 Relative tolerance bounds volume and surface-area drift. Position tolerance,
-in model length units, bounds centroid distance and bounding-box coordinate
-drift. The returned descriptor records each measured delta.
+in model length units, bounds centroid distance and both material and root
+bounding-box coordinate drift. The returned descriptor records each
+measured delta. Topology acceptance compares defect counts and shell facts,
+preserving existing open topology while rejecting newly introduced defects
+and shell closure, orientation, or closed-manifold regressions.

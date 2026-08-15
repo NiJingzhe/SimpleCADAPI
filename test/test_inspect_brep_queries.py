@@ -141,6 +141,29 @@ def test_section_of_box_returns_one_closed_contour_with_area():
     assert len(contour["samples_2d"][0]) == 2
 
 
+def test_section_can_be_scoped_to_one_face():
+    model = _model()
+    face_id = next(
+        f"face:{index}"
+        for index in range(len(model.faces))
+        if model.describe_entity(f"face:{index}")["bounding_box"]["max"][0]
+        == pytest.approx(0.0)
+    )
+
+    section = inspect_section_rdescriptor(
+        model,
+        origin=(0.0, 0.0, 1.0),
+        normal=(0.0, 0.0, 1.0),
+        face_ids=[face_id],
+    )
+
+    assert section["scope"]["face_ids"] == [face_id]
+    assert section["edge_count"] == 1
+    assert section["closed_contour_count"] == 0
+    assert section["open_contour_count"] == 1
+    assert section["contours"][0]["length_exact"] == pytest.approx(3.0)
+
+
 def test_section_requires_enough_samples_to_classify_curved_contours():
     model = index_shape_rbrepmodel(BRepPrimAPI_MakeCylinder(5.0, 10.0).Shape())
     with pytest.raises(ValueError, match="at least four"):

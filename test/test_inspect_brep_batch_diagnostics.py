@@ -8,7 +8,7 @@ from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeFace,
     BRepBuilderAPI_MakeWire,
 )
-from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeSphere
 from OCP.TopoDS import TopoDS_Compound
 from OCP.gp import gp_Pnt
 
@@ -186,3 +186,48 @@ def test_compare_sections_batch_accepts_identical_empty_bodyless_gap():
     assert comparison["section_generation_unresolved"] is False
     assert comparison["empty_section_mismatch"] is False
     assert comparison["hausdorff_approximation"] == pytest.approx(0.0)
+
+
+def test_compare_sections_batch_accepts_plane_through_sphere_bounds_but_not_sphere():
+    sphere = BRepPrimAPI_MakeSphere(1.0).Shape()
+    offset = 1.2 / math.sqrt(3.0)
+
+    report = brep.compare_sections_batch_rdescriptor(
+        sphere,
+        sphere,
+        sections=[
+            {
+                "section_id": "oblique-empty",
+                "origin": [offset, offset, offset],
+                "normal": [1.0, 1.0, 1.0],
+            }
+        ],
+    )
+
+    comparison = report["sections"][0]["comparison"]
+    assert report["sections"][0]["target"]["edge_count"] == 0
+    assert comparison["section_generation_unresolved"] is False
+    assert comparison["empty_section_mismatch"] is False
+    assert comparison["hausdorff_approximation"] == pytest.approx(0.0)
+
+
+def test_compare_sections_batch_does_not_claim_equal_at_oblique_tangency():
+    target = BRepPrimAPI_MakeSphere(1.0).Shape()
+    current = BRepPrimAPI_MakeSphere(0.5).Shape()
+    offset = 1.0 / math.sqrt(3.0)
+
+    report = brep.compare_sections_batch_rdescriptor(
+        target,
+        current,
+        sections=[
+            {
+                "section_id": "oblique-tangent",
+                "origin": [offset, offset, offset],
+                "normal": [1.0, 1.0, 1.0],
+            }
+        ],
+    )
+
+    comparison = report["sections"][0]["comparison"]
+    assert comparison["section_generation_unresolved"] is True
+    assert comparison["hausdorff_approximation"] is None

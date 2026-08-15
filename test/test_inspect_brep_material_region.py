@@ -101,18 +101,22 @@ def test_compare_material_region_supports_multi_body_material_unions():
     first = BRepPrimAPI_MakeBox(2.0, 2.0, 2.0).Shape()
     second = BRepPrimAPI_MakeBox(gp_Pnt(5.0, 0.0, 0.0), 2.0, 2.0, 2.0).Shape()
     target = _compound(first, second)
-    current = _compound(first, second)
 
     report = brep.compare_material_region_rdescriptor(
         target,
-        current,
+        first,
         region_min=(-1.0, -1.0, -1.0),
         region_max=(8.0, 3.0, 3.0),
     )
 
     assert report["localized_target_volume"] == pytest.approx(16.0)
-    assert report["localized_current_volume"] == pytest.approx(16.0)
-    assert report["locally_equal"] is True
+    assert report["localized_current_volume"] == pytest.approx(8.0)
+    assert report["missing_material"]["volume"] == pytest.approx(8.0)
+    assert report["missing_material"]["component_count"] == 1
+    assert report["missing_material"]["components"][0]["centroid"] == pytest.approx(
+        [6.0, 1.0, 1.0]
+    )
+    assert report["locally_equal"] is False
 
 
 def test_compare_material_region_large_roi_does_not_hide_difference():
@@ -245,3 +249,108 @@ def test_compare_material_region_rejects_invalid_zero_volume_solid():
             region_min=(0.0, 0.0, 0.0),
             region_max=(1.0, 1.0, 1.0),
         )
+
+
+@pytest.mark.parametrize(
+    ("failure", "function_name"),
+    [
+        ("crop", "_common_shape"),
+        ("boolean", "_cut_shape"),
+        ("component", "_component_summary"),
+        ("export", "export_step_shapes"),
+    ],
+)
+def test_compare_material_region_cleans_staging_after_failure(
+    tmp_path, monkeypatch, failure, function_name
+):
+    from simplecadapi.inspect.brep import diagnostics
+
+    target = BRepPrimAPI_MakeBox(2.0, 2.0, 2.0).Shape()
+    current = BRepPrimAPI_MakeBox(1.0, 1.0, 1.0).Shape()
+
+    def fail(*args, **kwargs):
+        raise RuntimeError(f"{failure} failed")
+
+    monkeypatch.setattr(diagnostics, function_name, fail)
+
+    with pytest.raises(RuntimeError, match=f"{failure} failed"):
+        diagnostics.compare_material_region_rdescriptor(
+            target,
+            current,
+            region_min=(0.0, 0.0, 0.0),
+            region_max=(2.0, 2.0, 2.0),
+            output_directory=tmp_path,
+        )
+
+    assert not list(tmp_path.glob(".localized-material-*"))
+
+
+def test_compare_material_region_rolls_back_publication_failure(
+    tmp_path, monkeypatch
+):
+    target = BRepPrimAPI_MakeBox(2.0, 2.0, 2.0).Shape()
+    current = BRepPrimAPI_MakeBox(gp_Pnt(1.0, 0.0, 0.0), 2.0, 2.0, 2.0).Shape()
+    missing = tmp_path / "missing_material.step"
+    excess = tmp_path / "excess_material.step"
+    missing.write_bytes(b"previous missing")
+    excess.write_bytes(b"previous excess")
+    original_replace = type(missing).replace
+
+    def fail_second_publication(path, target_path):
+        destination = type(path)(target_path)
+        if (
+            path.name == "excess_material.step"
+            and path.parent.name.startswith(".localized-material-")
+            and destination.parent == tmp_path
+        ):
+            raise RuntimeError("publication failed")
+        return original_replace(path, target_path)
+
+    monkeypatch.setattr(type(missing), "replace", fail_second_publication)
+
+    with pytest.raises(RuntimeError, match="publication failed"):
+        brep.compare_material_region_rdescriptor(
+            target,
+            current,
+            region_min=(0.0, 0.0, 0.0),
+            region_max=(3.0, 2.0, 2.0),
+            output_directory=tmp_path,
+        )
+
+    assert missing.read_bytes() == b"previous missing"
+    assert excess.read_bytes() == b"previous excess"
+    assert not list(tmp_path.glob(".localized-material-*"))
+
+
+def test_compare_material_region_keeps_publication_when_backup_cleanup_fails(
+    tmp_path, monkeypatch
+):
+    target = BRepPrimAPI_MakeBox(2.0, 2.0, 2.0).Shape()
+    current = BRepPrimAPI_MakeBox(gp_Pnt(1.0, 0.0, 0.0), 2.0, 2.0, 2.0).Shape()
+    missing = tmp_path / "missing_material.step"
+    excess = tmp_path / "excess_material.step"
+    missing.write_bytes(b"previous missing")
+    excess.write_bytes(b"previous excess")
+    original_unlink = type(missing).unlink
+
+    def fail_backup_cleanup(path, *args, **kwargs):
+        if path.name == "previous-excess_material.step":
+            raise OSError("cleanup failed")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(missing), "unlink", fail_backup_cleanup)
+
+    report = brep.compare_material_region_rdescriptor(
+        target,
+        current,
+        region_min=(0.0, 0.0, 0.0),
+        region_max=(3.0, 2.0, 2.0),
+        output_directory=tmp_path,
+    )
+
+    assert report["locally_equal"] is False
+    assert missing.is_file()
+    assert excess.is_file()
+    assert missing.read_bytes() != b"previous missing"
+    assert excess.read_bytes() != b"previous excess"
+    assert not list(tmp_path.glob(".localized-material-*"))

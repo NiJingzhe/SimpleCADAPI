@@ -83,6 +83,8 @@ def inspect_topology_rdescriptor(
 
     Edge classifications use face-local occurrences, so a seam used twice by
     one face is distinct from a free edge that merely has one unique ancestor.
+    ``edge_evidence_counts`` preserves degenerate-and-orphan combinations;
+    ``orphan_vertex_count`` and ``orphan_vertex_ids`` report isolated vertices.
     """
 
     if max_problem_edges < 1:
@@ -132,6 +134,7 @@ def inspect_topology_rdescriptor(
             explorer.Next()
 
     classification_counts: Counter[str] = Counter()
+    evidence_counts: Counter[str] = Counter()
     use_histogram: Counter[int] = Counter()
     problem_edges = []
     for edge_index, (edge, edge_uses) in enumerate(zip(model.edges, uses)):
@@ -140,10 +143,13 @@ def inspect_topology_rdescriptor(
         orientations = [item["orientation"] for item in edge_uses]
         unique_faces = sorted({item["face_id"] for item in edge_uses})
         degenerate = bool(BRep_Tool.Degenerated_s(edge))
+        orphan = use_count == 0
         seam = edge_index in seam_edges
+        evidence_counts["degenerate"] += degenerate
+        evidence_counts["orphan"] += orphan
         if degenerate:
             classification = "degenerate"
-        elif use_count == 0:
+        elif orphan:
             classification = "orphan"
         elif use_count == 1:
             classification = "free"
@@ -170,6 +176,7 @@ def inspect_topology_rdescriptor(
                     "face_ids": unique_faces,
                     "orientations": orientations,
                     "degenerated": degenerate,
+                    "orphan": orphan,
                     "seam": seam,
                     "tolerance": float(BRep_Tool.Tolerance_s(edge)),
                 }
@@ -201,6 +208,20 @@ def inspect_topology_rdescriptor(
             "seam",
         )
     }
+    edge_evidence_counts = {
+        name: evidence_counts.get(name, 0) for name in ("degenerate", "orphan")
+    }
+    edge_vertex_indices: set[int] = set()
+    for edge in model.edges:
+        for vertex in _mapped_shapes(edge, TopAbs_VERTEX):
+            vertex_index = model._maps["vertex"].FindIndex(vertex) - 1
+            if vertex_index >= 0:
+                edge_vertex_indices.add(vertex_index)
+    orphan_vertex_ids = [
+        f"vertex:{index}"
+        for index in range(len(model.vertices))
+        if index not in edge_vertex_indices
+    ]
     valid = bool(BRepCheck_Analyzer(root).IsValid())
     closed_manifold = (
         bool(shell_reports)
@@ -210,8 +231,10 @@ def inspect_topology_rdescriptor(
         )
         and not any(
             ordered_counts[name]
-            for name in ("free", "non_manifold", "orientation_defect", "orphan")
+            for name in ("free", "non_manifold", "orientation_defect")
         )
+        and not edge_evidence_counts["orphan"]
+        and not orphan_vertex_ids
     )
     return {
         "model_path": model.source,
@@ -230,6 +253,9 @@ def inspect_topology_rdescriptor(
             str(count): total for count, total in sorted(use_histogram.items())
         },
         "edge_classification_counts": ordered_counts,
+        "edge_evidence_counts": edge_evidence_counts,
+        "orphan_vertex_count": len(orphan_vertex_ids),
+        "orphan_vertex_ids": orphan_vertex_ids,
         "wire_counts": {
             "closed": wire_counts.get("closed", 0),
             "open": wire_counts.get("open", 0),
@@ -258,8 +284,8 @@ def inspect_topology_rdescriptor(
         "interpretation": (
             "valid checks the OpenCascade geometric BREP contract; "
             "closed_manifold independently requires closed, consistently oriented "
-            "shells and no free, orphan, orientation-defect, or more-than-two-use "
-            "edges."
+            "shells, no free, orphan, orientation-defect, or more-than-two-use "
+            "edges, and no isolated vertices."
         ),
     }
 
