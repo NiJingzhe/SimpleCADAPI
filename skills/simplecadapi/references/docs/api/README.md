@@ -6,7 +6,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 - Entries marked `top-level` are exported from `simplecadapi` and can be imported with `from simplecadapi import <name>`.
 - Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.
-- Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession` or `@model`.
+- Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession`.
 - Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.
 
 ## Basic Creation
@@ -91,22 +91,20 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 ## Export
 
-- [export_product_package](export_product_package.md) *(from product_packages.py)* `top-level`
-- [export_step](export_step.md) *(from operations.py)* `top-level`
-- [export_stl](export_stl.md) *(from operations.py)* `top-level`
+- [ProductSTEPExportReport](ProductSTEPExportReport.md) *(from exporter/step.py)* `exporter namespace`
+- [ProductSTLExportReport](ProductSTLExportReport.md) *(from exporter/stl.py)* `exporter namespace`
+- [export_product_package_to_step](export_product_package_to_step.md) *(from exporter/step.py)* `exporter namespace`
+- [export_product_package_to_stl](export_product_package_to_stl.md) *(from exporter/stl.py)* `exporter namespace`
 
 ## Translator Backends
 
-- [FreeCADScriptTranslator](FreeCADScriptTranslator.md) *(from translator/freecad_translator/translator.py)* `translator backend`
 - [FreeCADTranslator](FreeCADTranslator.md) *(from translator/freecad_translator/translator.py)* `translator backend`
 - [Fusion360Translator](Fusion360Translator.md) *(from translator/fusion360_translator/translator.py)* `translator backend`
 - [SolidWorksTranslator](SolidWorksTranslator.md) *(from translator/solidworks_translator/translator.py)* `translator backend`
-- [export_model_json_to_fcstd](export_model_json_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
-- [export_model_json_to_solidworks_step](export_model_json_to_solidworks_step.md) *(from translator/solidworks_translator/api.py)* `translator backend`
-- [translate_model_json_to_fcstd](translate_model_json_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
-- [translate_model_json_to_freecad_script](translate_model_json_to_freecad_script.md) *(from translator/freecad_translator/api.py)* `translator backend`
-- [translate_model_json_to_fusion360_script](translate_model_json_to_fusion360_script.md) *(from translator/fusion360_translator/api.py)* `translator backend`
-- [translate_model_json_to_solidworks_script](translate_model_json_to_solidworks_script.md) *(from translator/solidworks_translator/api.py)* `translator backend`
+- [translate_product_package_to_fcstd](translate_product_package_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
+- [translate_product_package_to_freecad_script](translate_product_package_to_freecad_script.md) *(from translator/freecad_translator/api.py)* `translator backend`
+- [translate_product_package_to_fusion360_script](translate_product_package_to_fusion360_script.md) *(from translator/fusion360_translator/api.py)* `translator backend`
+- [translate_product_package_to_solidworks_script](translate_product_package_to_solidworks_script.md) *(from translator/solidworks_translator/api.py)* `translator backend`
 
 ## Math Helpers
 
@@ -116,8 +114,6 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 ## Modeling Graph and Replay
 
 - [GraphSession](GraphSession.md) *(from graph.py)* `top-level`
-- [ModelResult](ModelResult.md) *(from graph.py)* `top-level`
-- [capture_result](capture_result.md) *(from graph.py)* `top-level`
 - [export_graph_json](export_graph_json.md) *(from serializer.py)* `top-level`
 - [export_model_json](export_model_json.md) *(from serializer.py)* `top-level`
 - [export_session_json](export_session_json.md) *(from serializer.py)* `top-level`
@@ -125,10 +121,8 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [import_graph_json](import_graph_json.md) *(from serializer.py)* `top-level`
 - [import_model_json](import_model_json.md) *(from serializer.py)* `top-level`
 - [import_session_json](import_session_json.md) *(from serializer.py)* `top-level`
-- [model](model.md) *(from graph.py)* `top-level`
 - [replay_graph](replay_graph.md) *(from serializer.py)* `top-level`
 - [replay_model_json](replay_model_json.md) *(from serializer.py)* `top-level`
-- [requires_session](requires_session.md) *(from graph.py)* `top-level`
 - [suspend_graph_recording](suspend_graph_recording.md) *(from graph.py)* `top-level`
 
 ## Expressions and Parameters
@@ -256,6 +250,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 ## Other
 
 - [Assembly](Assembly.md) *(from product.py)* `top-level`
+- [CaptureResult](CaptureResult.md) *(from capture.py)* `top-level`
 - [Component](Component.md) *(from product.py)* `top-level`
 - [Connector](Connector.md) *(from product.py)* `top-level`
 - [ConnectorAnchor](ConnectorAnchor.md) *(from product.py)* `top-level`
@@ -291,6 +286,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [and_](and_.md) *(from ql.py)* `submodule:ql`
 - [assign_material_rpart](assign_material_rpart.md) *(from operations.py)* `top-level`
 - [build_product_package](build_product_package.md) *(from product_packages.py)* `top-level`
+- [capture](capture.md) *(from capture.py)* `top-level`
 - [constrain_angle_rsketch](constrain_angle_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_coincident_rsketch](constrain_coincident_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_collinear_rsketch](constrain_collinear_rsketch.md) *(from operations.py)* `top-level`

@@ -1,9 +1,9 @@
 export const BASE_LIMITS = {
   zip_members: 50_000,
-  input_archive_bytes: 256 * 1024 * 1024,
-  canonical_archive_bytes: 256 * 1024 * 1024,
+  input_archive_bytes: 512 * 1024 * 1024,
+  canonical_archive_bytes: 512 * 1024 * 1024,
   total_uncompressed_bytes: 1024 * 1024 * 1024,
-  one_member_bytes: 256 * 1024 * 1024,
+  one_member_bytes: 512 * 1024 * 1024,
   scene_json_bytes: 32 * 1024 * 1024,
   entity_json_bytes: 64 * 1024 * 1024,
   model_json_bytes: 64 * 1024 * 1024,

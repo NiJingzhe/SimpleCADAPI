@@ -146,10 +146,21 @@ def build_external_reference_gear_train() -> scad.AssemblyBuildResult:
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     result = build_external_reference_gear_train()
-    path = result.export_definition(
-        path=OUT_DIR / "nested_external_reference_gear_trains.assembly-definition.zip"
+    package_path = OUT_DIR / "nested_external_reference_gear_trains.scadpkg"
+    scad.capture(result, package_path)
+    step_path = OUT_DIR / "nested_external_reference_gear_trains.step"
+    fcstd_path = OUT_DIR / "nested_external_reference_gear_trains.FCStd"
+    step_report = scad.exporter.export_product_package_to_step(package_path, step_path)
+    scad.translator.freecad_translator.translate_product_package_to_fcstd(
+        package_path,
+        str(fcstd_path),
+        document_name="NestedExternalReferenceGearTrains",
     )
-    loaded = scad.load_assembly_definition(path)
+    definition_path = scad.export_assembly_definition(
+        result.definition,
+        OUT_DIR / "nested_external_reference_gear_trains.assembly-definition.zip",
+    )
+    loaded = scad.load_product_package(package_path)
     rebuilt = scad.materialize_definition(loaded)
     nested = rebuilt.get_component("train_left").item
     report = scad.inspect_assembly_constraints_rconstraintreport(nested)
@@ -162,7 +173,10 @@ def main() -> None:
         f"definition_refs={len(loaded.definition_refs)} "
         f"content_hash={loaded.content_hash}"
     )
-    print(f"artifact={path}")
+    print(f"definition_artifact={definition_path}")
+    print(f"product_package={package_path}")
+    print(f"step={step_report.output_path}")
+    print(f"fcstd={fcstd_path}")
 
 
 if __name__ == "__main__":

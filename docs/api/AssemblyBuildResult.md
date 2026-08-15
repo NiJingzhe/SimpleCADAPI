@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class AssemblyBuildResult(value: Assembly, definition: AssemblyDefinition, model_json: str, solve_report: AssemblySolveReport, artifact_paths: Mapping[str, Path] = field(default_factory=dict))
+class AssemblyBuildResult(value: Assembly, definition: AssemblyDefinition, feature_graph: FeatureGraphArtifact, solve_report: AssemblySolveReport)
 ```
 
 *Source: build/results.py*
@@ -14,4 +14,4 @@ class AssemblyBuildResult(value: Assembly, definition: AssemblyDefinition, model
 
 ## Description
 
-Runtime Assembly plus its external-reference durable definition.
+Runtime Assembly plus its durable definition, feature DAG, and solve evidence.

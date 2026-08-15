@@ -61,7 +61,7 @@ from .topology import (
     TopoEvent,
     TopoRoleEntry,
 )
-from .topology import SemanticDelta
+from .topology import SemanticDelta, SemanticRef
 from .topology import TopoKind, TopoRef, topo_ref_to_dict
 from .core import Compound, Edge, Face, Shell, Solid, Vertex, Wire, get_current_cs
 from .product import Assembly, Part
@@ -102,7 +102,12 @@ class GraphSession:
         print(session.graph.topological_order())
     """
 
-    def __init__(self, graph_id: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        graph_id: Optional[str] = None,
+        *,
+        allow_external_definitions: bool = False,
+    ) -> None:
         self.graph = OperationGraph(graph_id=graph_id)
         self.expression_graph = ExpressionGraph()
         self.tolerance_graph = ToleranceGraph(self.expression_graph)
@@ -113,6 +118,9 @@ class GraphSession:
         self._captured_values: List[Any] = []
 
         self._object_id_counters: Dict[str, int] = {}
+        self._external_definition_nodes: Dict[int, OperationNode] = {}
+        self._external_definition_nodes_by_id: Dict[str, OperationNode] = {}
+        self._allow_external_definitions = bool(allow_external_definitions)
 
     def start(self) -> None:
         if self._active_session_token is not None:
@@ -137,6 +145,64 @@ class GraphSession:
         next_value = self._object_id_counters.get(prefix, 0) + 1
         self._object_id_counters[prefix] = next_value
         return f"{prefix}_{next_value:08x}"
+
+    def register_external_definition(
+        self,
+        *,
+        value: Part | Assembly,
+        definition_kind: str,
+        definition_id: str,
+        revision: str,
+        content_hash: str,
+    ) -> OperationNode:
+        """Represent one immutable child definition without importing its DAG."""
+
+        marker = id(value)
+        existing = self._external_definition_nodes.get(marker)
+        if existing is not None:
+            return existing
+        expected_id = value.part_id if isinstance(value, Part) else value.assembly_id
+        expected_kind = "single_solid" if isinstance(value, Part) else "assembly"
+        if expected_id != definition_id or expected_kind != definition_kind:
+            raise ValueError("external definition runtime identity differs")
+        node = self.graph.add_node(
+            op="reference_definition",
+            params={
+                "definition_kind": definition_kind,
+                "definition_id": definition_id,
+                "revision": revision,
+                "content_hash": content_hash,
+            },
+            output_count=1,
+            semantic_delta=SemanticDelta(
+                created=(
+                    SemanticRef(
+                        graph_id="pending",
+                        node_id="pending",
+                        entity_type="ExternalDefinition",
+                        entity_id=definition_id,
+                    ),
+                ),
+                metadata={
+                    "definition_kind": definition_kind,
+                    "revision": revision,
+                    "content_hash": content_hash,
+                },
+            ),
+        )
+        self._external_definition_nodes[marker] = node
+        self._external_definition_nodes_by_id[definition_id] = node
+        return node
+
+    def external_definition_node(self, value: Any) -> OperationNode | None:
+        direct = self._external_definition_nodes.get(id(value))
+        if direct is not None:
+            return direct
+        if isinstance(value, Part):
+            return self._external_definition_nodes_by_id.get(value.part_id)
+        if isinstance(value, Assembly):
+            return self._external_definition_nodes_by_id.get(value.assembly_id)
+        return None
 
     def require_tolerance(
         self,
@@ -259,38 +325,6 @@ class GraphSession:
                 )
 
 
-@dataclass(frozen=True)
-class ModelResult:
-    """The value and durable graph artifacts produced by ``@model``."""
-
-    value: Any
-    session: GraphSession
-    result_node_ids: Tuple[str, ...]
-    model_json: str
-    session_json: str
-    artifact_paths: Mapping[str, Path] = field(default_factory=dict)
-
-    def replay(self, *, strict: bool = True) -> List[Any]:
-        """Replay the captured canonical model result."""
-
-        from .serializer import replay_model_json
-
-        return replay_model_json(json_str=self.model_json, strict=strict)
-
-    def export_artifacts(
-        self,
-        *,
-        output_dir: str | Path,
-        formats: Optional[Sequence[str]] = None,
-    ) -> "ModelResult":
-        """Export explicitly selected model, product, and scene artifacts.
-
-        A generic ``@model`` keeps the historical ``scene`` default. Product
-        packages are opt-in until the dedicated ``@part``/``@assemble``
-        decorators land.
-        """
-
-        return _export_model_artifacts(self, output_dir=output_dir, formats=formats)
 
 
 def get_active_session() -> Optional[GraphSession]:
@@ -371,214 +405,6 @@ def _graph_nodes_in_value(value: Any, *, deep: bool = False) -> Iterable[Operati
         yield node
 
 
-def capture_result(*, value: Any) -> Any:
-    """Capture *value* as an explicit result in the active model session."""
-
-    session = get_active_session()
-    if session is None:
-        raise RuntimeError(
-            "No active GraphSession. capture_result() must be called inside "
-            "@model or an active GraphSession."
-        )
-    return session.capture_result(value=value)
-
-
-def model(
-    func: Optional[Callable[_P, _R]] = None,
-    *,
-    graph_id: Optional[str] = None,
-    export_dir: str | Path | None = None,
-) -> Union[
-    Callable[[Callable[_P, _R]], Callable[_P, ModelResult]],
-    Callable[_P, ModelResult],
-]:
-    """Decorate a top-level model function with one owned ``GraphSession``."""
-
-    def decorate(fn: Callable[_P, _R]) -> Callable[_P, ModelResult]:
-        if inspect.iscoroutinefunction(fn):
-            raise TypeError(
-                "@model does not support async functions; keep CAD model "
-                "construction synchronous"
-            )
-
-        @wraps(fn)
-        def wrapped(*args: _P.args, **kwargs: _P.kwargs) -> ModelResult:
-            active = get_active_session()
-            if active is not None:
-                raise RuntimeError(
-                    "@model cannot be nested inside an active GraphSession; "
-                    "use @requires_session for child builders."
-                )
-            session = GraphSession(graph_id=graph_id)
-            with session:
-                value = fn(*args, **kwargs)
-                session.validate_graph_ownership(value)
-                if not session.has_explicit_results:
-                    session.capture_result(value=value)
-                from .serializer import export_model_json, export_session_json
-
-                result_node_ids = session.result_node_ids
-                model_json = export_model_json(
-                    session=session, result_node_ids=result_node_ids
-                )
-                session_json = export_session_json(session=session)
-            result = ModelResult(
-                value=value,
-                session=session,
-                result_node_ids=result_node_ids,
-                model_json=model_json,
-                session_json=session_json,
-            )
-            return (
-                result.export_artifacts(output_dir=export_dir)
-                if export_dir is not None
-                else result
-            )
-
-        return wrapped
-
-    if func is None:
-        return decorate
-    return decorate(func)
-
-
-def _export_model_artifacts(
-    result: ModelResult,
-    *,
-    output_dir: str | Path,
-    formats: Optional[Sequence[str]] = None,
-) -> ModelResult:
-    from .scene import (
-        SceneCompileOptions,
-        SceneRoot,
-        SceneSource,
-        compile_scene,
-        export_scene,
-    )
-
-    requested = _normalize_export_formats(formats)
-    destination = Path(output_dir)
-    destination.mkdir(parents=True, exist_ok=True)
-    stem = result.session.graph.graph_id
-    values = _captured_export_values(result.session.captured_values)
-    products = [value for value in values if isinstance(value, (Part, Assembly))]
-    shapes = [value for value in values if isinstance(value, (Solid, Compound))]
-    paths: Dict[str, Path] = {}
-    if "scene" in requested:
-        scene_values = products or shapes
-        if not scene_values:
-            raise ValueError("scene export requires a captured renderable value")
-        roots = tuple(
-            SceneRoot(root_id=f"capture-{index}", value=value)
-            for index, value in enumerate(scene_values)
-        )
-        scene_source: Any = result
-        embed_source = True
-        package = compile_scene(
-            scene_id=stem,
-            roots=roots,
-            source=scene_source,
-            options=SceneCompileOptions(embed_source=embed_source),
-        )
-        scene_path = destination / f"{stem}.scene.zip"
-        export_scene(package=package, path=scene_path)
-        paths["scene"] = scene_path
-    if "model" in requested:
-        model_path = destination / f"{stem}.model.json"
-        model_path.write_text(result.model_json, encoding="utf-8")
-        paths["model"] = model_path
-    if "session" in requested:
-        session_path = destination / f"{stem}.session.json"
-        session_path.write_text(result.session_json, encoding="utf-8")
-        paths["session"] = session_path
-    return ModelResult(
-        value=result.value,
-        session=result.session,
-        result_node_ids=result.result_node_ids,
-        model_json=result.model_json,
-        session_json=result.session_json,
-        artifact_paths=paths,
-    )
-
-
-def _normalize_export_formats(formats: Optional[Sequence[str]]) -> Tuple[str, ...]:
-    requested = (
-        ("scene",) if formats is None else tuple(str(item).lower() for item in formats)
-    )
-    allowed = {"scene", "model", "session"}
-    unknown = sorted(set(requested) - allowed)
-    if unknown:
-        raise ValueError(
-            "unknown @model export format(s): "
-            + ", ".join(unknown)
-            + "; durable product packages are exported from @part/@assemble results"
-        )
-    if len(set(requested)) != len(requested):
-        raise ValueError("export formats must not contain duplicates")
-    if not requested:
-        raise ValueError("export formats must not be empty")
-    return requested
-
-
-def _captured_export_values(values: Iterable[Any]) -> List[Any]:
-    result: List[Any] = []
-    seen: Set[int] = set()
-
-    def visit(value: Any) -> None:
-        if value is None or id(value) in seen:
-            return
-        if isinstance(value, (str, bytes, int, float, bool)):
-            return
-        seen.add(id(value))
-        if isinstance(value, (Part, Assembly, Solid, Compound)):
-            result.append(value)
-            return
-        if isinstance(value, (list, tuple, set, frozenset)):
-            for item in value:
-                visit(item)
-            return
-        if is_dataclass(value):
-            for data_field in fields(value):
-                if not data_field.name.startswith("_"):
-                    visit(getattr(value, data_field.name))
-
-    for value in values:
-        visit(value)
-    return result
-
-
-def requires_session(
-    func: Optional[Callable[_P, _R]] = None,
-) -> Union[
-    Callable[[Callable[_P, _R]], Callable[_P, _R]],
-    Callable[_P, _R],
-]:
-    """Decorate a builder that must reuse the caller's active GraphSession."""
-
-    def decorate(fn: Callable[_P, _R]) -> Callable[_P, _R]:
-        if inspect.iscoroutinefunction(fn):
-            raise TypeError(
-                "@requires_session does not support async functions; keep CAD "
-                "construction synchronous"
-            )
-
-        @wraps(fn)
-        def wrapped(*args: _P.args, **kwargs: _P.kwargs) -> _R:
-            session = get_active_session()
-            if session is None:
-                raise RuntimeError(
-                    f"{fn.__name__} requires an active GraphSession; call it "
-                    "from a @model function or inside `with GraphSession():`."
-                )
-            value = fn(*args, **kwargs)
-            session.validate_graph_ownership(value)
-            return value
-
-        return wrapped
-
-    if func is None:
-        return decorate
-    return decorate(func)
 
 
 def _normalize_output_shapes(outputs: Any) -> List[Any]:
@@ -589,14 +415,18 @@ def _normalize_output_shapes(outputs: Any) -> List[Any]:
     return [outputs]
 
 
-def _extract_input_nodes(inputs: Optional[Iterable[Any]]) -> List[OperationNode]:
+def _extract_input_nodes(
+    inputs: Optional[Iterable[Any]], session: GraphSession
+) -> List[OperationNode]:
     if not inputs:
         return []
 
     nodes: List[OperationNode] = []
     seen: Set[str] = set()
     for obj in inputs:
-        for node, _graph_id in _graph_nodes_with_ids(obj):
+        external = session.external_definition_node(obj)
+        candidates = ((external, session.graph.graph_id),) if external else _graph_nodes_with_ids(obj)
+        for node, _graph_id in candidates:
             if node.node_id in seen:
                 continue
             seen.add(node.node_id)
@@ -608,6 +438,22 @@ def _validate_input_graph_ownership(
     inputs: Optional[Iterable[Any]], session: GraphSession
 ) -> None:
     for value in inputs or ():
+        if session.external_definition_node(value) is not None:
+            continue
+        if session._allow_external_definitions and isinstance(value, (Part, Assembly)):
+            definition_id = value.part_id if isinstance(value, Part) else value.assembly_id
+            definition_kind = "single_solid" if isinstance(value, Part) else "assembly"
+            revision = value._get_runtime("definition.revision")
+            content_hash = value._get_runtime("definition.content_hash")
+            if isinstance(revision, str) and isinstance(content_hash, str):
+                session.register_external_definition(
+                    value=value,
+                    definition_kind=definition_kind,
+                    definition_id=definition_id,
+                    revision=revision,
+                    content_hash=content_hash,
+                )
+                continue
         session.validate_graph_ownership(value)
         if isinstance(value, (Part, Assembly)) and _graph_node_and_id(value) is None:
             raise ValueError(
@@ -1067,7 +913,7 @@ def record_operation_if_active(
     output_list = _normalize_output_shapes(outputs)
     input_list = list(input_shapes or ())
     _validate_input_graph_ownership(input_list, session)
-    input_nodes = _extract_input_nodes(input_list)
+    input_nodes = _extract_input_nodes(input_list, session)
     node_id = session.graph.allocate_node_id()
     canonical_topo_delta = _canonicalize_recorded_topo_delta(
         topo_delta,

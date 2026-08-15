@@ -10,7 +10,7 @@ class SliceSpec(plane: SlicePlane, value: float, label: str | None = None)
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.SliceSpec(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.SliceSpec(...)`; unavailable inside GraphSession
 
 ## Description
 

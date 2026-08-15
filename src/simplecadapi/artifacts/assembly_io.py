@@ -28,6 +28,7 @@ from .assembly_definition import (
     AssemblyDefinition,
     assembly_definition_is_validated,
     mark_assembly_definition_validated,
+    validated_assembly_feature_graph,
 )
 from .brep import read_brep_solid
 from .canonical import (
@@ -47,6 +48,7 @@ from .topology_snapshot import (
     restore_topology_snapshot,
     validate_connector_entity_bindings,
 )
+from .feature_graph import load_feature_graph_artifact
 from .validation import parse_artifact_json, validate_artifact_blobs
 
 _ASSEMBLY_DEFINITION_MANIFEST = "assembly-definition.json"
@@ -67,7 +69,7 @@ def definition_archive_name(definition: PartDefinition | AssemblyDefinition) -> 
 
 
 def encode_assembly_definition(definition: AssemblyDefinition) -> bytes:
-    """Encode one assembly manifest and only its own audit blobs."""
+    """Encode one assembly manifest and its definition-local graph blob."""
 
     if not isinstance(definition, AssemblyDefinition):
         raise TypeError("definition must be an AssemblyDefinition")
@@ -100,8 +102,8 @@ def decode_assembly_definition(
         archive.members[_ASSEMBLY_DEFINITION_MANIFEST],
         kind="assembly_definition",
     )
-    model_ref = manifest["model_ref"]
-    expected_paths = set() if model_ref is None else {str(model_ref["path"])}
+    feature_graph_ref = manifest["feature_graph_ref"]
+    expected_paths = {str(feature_graph_ref["path"])}
     expected_members = {
         _ASSEMBLY_DEFINITION_MANIFEST,
         *(_BLOB_PREFIX + path for path in expected_paths),
@@ -199,7 +201,7 @@ def validate_assembly_definition_graph(
     identities: dict[str, tuple[str, str]] = {}
     visited: set[tuple[str, str]] = set()
     active: list[tuple[str, str]] = []
-    validated_nodes: list[AssemblyDefinition] = []
+    validated_nodes: list[tuple[AssemblyDefinition, Any]] = []
 
     def visit(node: AssemblyDefinition, trace: tuple[str, ...]) -> None:
         if len(trace) > limits.max_nested_depth:
@@ -227,6 +229,19 @@ def validate_assembly_definition_graph(
         active.append(node_key)
         try:
             validate_artifact_blobs(node.to_dict(), node.blobs)
+            feature_graph = load_feature_graph_artifact(
+                node.blobs[node.feature_graph_ref.path]
+            )
+            if (
+                feature_graph.owner_definition_kind != node.definition_kind
+                or feature_graph.owner_definition_id != node.definition_id
+                or feature_graph.owner_revision != node.revision
+            ):
+                raise ArtifactValidationError(
+                    "graph_owner_invalid",
+                    "/feature_graph_ref",
+                    "feature graph owner differs from AssemblyDefinition identity",
+                )
             refs = {item.definition_id: item for item in node.definition_refs}
             resolved = dict(node.resolved_definitions)
             if set(resolved) != set(refs):
@@ -288,6 +303,30 @@ def validate_assembly_definition_graph(
                     )
                 identities[child.definition_id] = identity
                 connector_sets[child.definition_id] = _connector_ids(child)
+            graph_refs = tuple(
+                (
+                    str(item["definition_kind"]),
+                    str(item["definition_id"]),
+                    str(item["revision"]),
+                    str(item["content_hash"]),
+                )
+                for item in feature_graph.external_definitions
+            )
+            definition_refs = tuple(
+                (
+                    item.definition_kind,
+                    item.definition_id,
+                    item.revision,
+                    item.content_hash,
+                )
+                for item in node.definition_refs
+            )
+            if graph_refs != definition_refs:
+                raise ArtifactValidationError(
+                    "reference_identity_mismatch",
+                    "/feature_graph_ref/external_definitions",
+                    "feature graph external definitions differ from assembly refs",
+                )
 
             for relation_index, relation in enumerate(node.relations):
                 for side in ("connector_a", "connector_b"):
@@ -335,7 +374,7 @@ def validate_assembly_definition_graph(
                         )
                     visit(child, child_trace)
             visited.add(node_key)
-            validated_nodes.append(node)
+            validated_nodes.append((node, feature_graph))
         finally:
             active.pop()
 
@@ -344,9 +383,13 @@ def validate_assembly_definition_graph(
         definition.content_hash,
     )
     visit(definition, ())
+    for node, feature_graph in validated_nodes:
+        mark_assembly_definition_validated(
+            node,
+            limits,
+            feature_graph=feature_graph,
+        )
 
-    for node in validated_nodes:
-        mark_assembly_definition_validated(node, limits)
 
 
 def assembly_definition_graph_is_validated(
@@ -683,6 +726,7 @@ def materialize_definition(
             )
             value._set_runtime("definition.content_hash", node.content_hash)
             value._set_runtime("definition.kind", node.definition_kind)
+            value._set_runtime("definition.revision", node.revision)
             cache[key] = value
             return value
 
@@ -753,6 +797,7 @@ def materialize_definition(
             )
         restored._set_runtime("definition.content_hash", node.content_hash)
         restored._set_runtime("definition.kind", node.definition_kind)
+        restored._set_runtime("definition.revision", node.revision)
         cache[key] = restored
         return restored
 

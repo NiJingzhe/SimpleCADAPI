@@ -10,7 +10,7 @@ def index_shape_rbrepmodel(shape: TopoDS_Shape, *, source: str | Path | None = N
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.index_shape_rbrepmodel(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.index_shape_rbrepmodel(...)`; unavailable inside GraphSession
 
 ## Description
 

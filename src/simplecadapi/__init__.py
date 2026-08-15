@@ -1,6 +1,6 @@
 """SimpleCAD API: a simplified OCP-native Python CAD modeling API."""
 
-from . import inspect, math, ql, std, surface, translator, verifier
+from . import exporter, inspect, math, ql, std, surface, translator, verifier
 from .artifacts import (
     ArtifactLimits,
     ArtifactValidationError,
@@ -8,23 +8,27 @@ from .artifacts import (
     BlobRef,
     ConnectorInterface,
     FileInputSnapshot,
+    FeatureGraphArtifact,
     InterfaceHashes,
     MaterialRef,
     PartDefinition,
     PartInstance,
     PartInterfaceDiff,
     PartInterfaceSnapshot,
+    SourceFileSnapshot,
     PartRef,
     decode_assembly_definition,
     diff_part_interfaces,
     encode_assembly_definition,
     encode_part_definition,
+    encode_feature_graph_artifact,
     export_assembly_definition,
     export_part_definition,
     geometry_interface_descriptor,
     geometry_interface_fingerprint,
     load_assembly_definition,
     load_latest_part_state,
+    load_feature_graph_artifact,
     load_part_definition,
     materialize_definition,
     update_latest_part_state,
@@ -92,11 +96,7 @@ from .expr import (
 )
 from .graph import (
     GraphSession,
-    ModelResult,
-    capture_result,
     get_active_session,
-    model,
-    requires_session,
     suspend_graph_recording,
 )
 from .math import BSplineFitResult, fit_cubic_bspline_control_points
@@ -143,8 +143,6 @@ from .operations import (  # 基础几何创建; 变换操作; 3D操作; 标签�
     constrain_vertical_rsketch,
     cut_rsolid,
     explain_tag,
-    export_step,
-    export_stl,
     extrude_rsolid,
     fillet_rsolid,
     forward_connector_rassembly,
@@ -236,36 +234,16 @@ from .product import (
     Placement,
     ScalarLimit,
 )
+from .capture import CaptureResult, capture
 from .product_packages import (
     PRODUCT_PACKAGE_SCHEMA_VERSION,
     ProductPackage,
     ProductPackageError,
     build_product_package,
     encode_product_package,
-    export_product_package,
     load_product_package,
     read_product_package,
     validate_product_package,
-)
-from .scene import (
-    CanonicalEdgeBlock,
-    CanonicalTriangleBlock,
-    CompiledScenePackage,
-    RenderEdgeMesh,
-    RenderGroup,
-    RenderMesh,
-    SceneCompileOptions,
-    SceneRoot,
-    SceneSource,
-    build_edge_mesh,
-    build_render_mesh,
-    cad_direction_to_gltf,
-    cad_to_gltf,
-    compile_scene,
-    export_scene,
-    solid_asset_bounds,
-    write_line_glb,
-    write_triangle_glb,
 )
 from .serializer import (
     export_graph_json,
@@ -429,11 +407,9 @@ cut = cut_rsolid
 intersect = intersect_rsolid
 union = union_rsolid
 
-# 导出别名
-to_step = export_step
-to_stl = export_stl
 
 __all__ = [
+    "exporter",
     # 核心类
     "CoordinateSystem",
     "SimpleWorkplane",
@@ -580,8 +556,6 @@ __all__ = [
     "union_rsolid",
     "make_2d_union_rface",
     # 导出
-    "export_step",
-    "export_stl",
     "replay_model_json",
     "render_screenshot_rpath",
     # 高级特征操作
@@ -600,13 +574,8 @@ __all__ = [
     "std",
     "translator",
     "verifier",
-    # Graph/session + serialization APIs
     "GraphSession",
-    "ModelResult",
-    "capture_result",
     "get_active_session",
-    "model",
-    "requires_session",
     "assemble",
     "AssemblyBuildResult",
     "AssemblySolveReport",
@@ -621,12 +590,13 @@ __all__ = [
     "replay_graph",
     "export_session_json",
     "import_session_json",
+    "CaptureResult",
+    "capture",
     "PRODUCT_PACKAGE_SCHEMA_VERSION",
     "ProductPackage",
     "ProductPackageError",
     "build_product_package",
     "encode_product_package",
-    "export_product_package",
     "read_product_package",
     "validate_product_package",
     "load_product_package",
@@ -639,6 +609,10 @@ __all__ = [
     "FileInput",
     "FileInputSnapshot",
     "InterfaceHashes",
+    "FeatureGraphArtifact",
+    "SourceFileSnapshot",
+    "encode_feature_graph_artifact",
+    "load_feature_graph_artifact",
     "MaterialRef",
     "PartInterfaceDiff",
     "PartInterfaceSnapshot",
@@ -763,24 +737,6 @@ __all__ = [
     "SemanticRef",
     "SemanticDelta",
     "SimpleCADError",
-    "CompiledScenePackage",
-    "CanonicalEdgeBlock",
-    "CanonicalTriangleBlock",
-    "RenderEdgeMesh",
-    "RenderGroup",
-    "RenderMesh",
-    "SceneCompileOptions",
-    "SceneRoot",
-    "SceneSource",
-    "compile_scene",
-    "export_scene",
-    "build_edge_mesh",
-    "build_render_mesh",
-    "cad_direction_to_gltf",
-    "cad_to_gltf",
-    "solid_asset_bounds",
-    "write_line_glb",
-    "write_triangle_glb",
     "Assembly",
     "Component",
     "Connector",
@@ -827,8 +783,6 @@ __all__ = [
     "intersect",
     "revolve",
     "rotate",
-    "to_step",
-    "to_stl",
     "translate",
     "union",
 ]

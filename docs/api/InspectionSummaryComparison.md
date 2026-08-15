@@ -10,7 +10,7 @@ class InspectionSummaryComparison(volume_delta: float, surface_area_delta: float
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.InspectionSummaryComparison(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.InspectionSummaryComparison(...)`; unavailable inside GraphSession
 
 ## Description
 

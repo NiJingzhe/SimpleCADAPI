@@ -38,7 +38,8 @@
 - Fix the output flange to the stage 2 carrier/output shaft.
 - Add external gear constraints from each sun to its planets using `add_gear_constraint_rassembly`.
 - Add internal ring-to-planet mesh constraints using same-direction `add_belt_constraint_rassembly` with ring and planet pitch radii.
-- Use `GraphSession`, `export_session_json`, `export_model_json`, `import_model_json`, and `replay_model_json` in the build script for replayable output.
+- Build every physical single-solid component through `@scad.part`, preserve the reusable bearing as a nested `@scad.assemble`, and build the reducer root through `@scad.assemble` with explicit immutable definitions.
+- Export `compact_two_stage_planetary_reducer.scadpkg` as the primary product; derive optional model/session JSON and STEP artifacts from the same durable feature DAG and validate strict product replay.
 - Ground every build step with concise QL-backed prints: part face counts, volumes, tags, bearing component counts, gear radii, constraint residuals, replay counts, and exported file paths.
 
 ## Validation Assumptions

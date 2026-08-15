@@ -8,10 +8,7 @@ from pathlib import Path
 import simplecadapi as scad
 
 try:
-    from .assembly import (
-        build_integrated_bldc_joint_actuator as build_durable_actuator,
-        make_integrated_bldc_joint_actuator_rassembly,
-    )
+    from .assembly import build_integrated_bldc_joint_actuator as build_durable_actuator
     from .common import ground_compound
     from .dimensions import (
         MOTOR_AIR_GAP,
@@ -23,12 +20,8 @@ try:
         TOTAL_REDUCTION,
         validate_design_dimensions,
     )
-    from .materials import make_actuator_materials_rdict
 except ImportError:  # Support direct execution from this example directory.
-    from assembly import (
-        build_integrated_bldc_joint_actuator as build_durable_actuator,
-        make_integrated_bldc_joint_actuator_rassembly,
-    )
+    from assembly import build_integrated_bldc_joint_actuator as build_durable_actuator
     from common import ground_compound
     from dimensions import (
         MOTOR_AIR_GAP,
@@ -40,7 +33,6 @@ except ImportError:  # Support direct execution from this example directory.
         TOTAL_REDUCTION,
         validate_design_dimensions,
     )
-    from materials import make_actuator_materials_rdict
 
 
 sys.setrecursionlimit(30000)
@@ -55,54 +47,16 @@ def build_integrated_bldc_joint_actuator() -> scad.AssemblyBuildResult:
     return build_durable_actuator()
 
 
-@scad.model(graph_id="integrated_50mm_bldc_joint_actuator")
-def _build_integrated_bldc_joint_actuator_model():
-    """Build canonical graph JSON for STEP and FreeCAD translator coverage."""
-
-    validate_design_dimensions()
-    materials = make_actuator_materials_rdict()
-    assembly = make_integrated_bldc_joint_actuator_rassembly(materials=materials)
-    preview = scad.make_compound_from_assembly_rcompound(assembly=assembly)
-    preview = scad.apply_tag(
-        shape=preview,
-        tag="scene.integrated.bldc.joint.actuator.preview",
-    )
-    ground_compound(label="integrated_actuator_preview", compound=preview)
-    scad.capture_result(value=(assembly, preview))
-    return assembly, preview
-
-
-def export_translator_artifacts() -> tuple[Path, Path, Path]:
-    """Build the separate canonical graph and run the FreeCAD backend."""
-
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    model_path = OUT_DIR / "integrated_bldc_joint_actuator.model.json"
-    session_path = OUT_DIR / "integrated_bldc_joint_actuator.session.json"
-    fcstd_path = OUT_DIR / "integrated_bldc_joint_actuator.FCStd"
-    model_result = _build_integrated_bldc_joint_actuator_model()
-    model_path.write_text(model_result.model_json, encoding="utf-8")
-    session_path.write_text(model_result.session_json, encoding="utf-8")
-    scad.translator.freecad_translator.translate_model_json_to_fcstd(
-        json_str=model_result.model_json,
-        output_path=str(fcstd_path.resolve()),
-        document_name="Integrated50mmBLDCJointActuator",
-        freecad_cmd=None,
-    )
-    return model_path, session_path, fcstd_path
-
-
 def main() -> None:
-    """Generate and verify the self-contained product package and STEP output."""
+    """Generate and verify synchronized package, AP242 STEP, and FCStd output."""
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     package_path = OUT_DIR / "integrated_bldc_joint_actuator.scadpkg"
     step_path = OUT_DIR / "integrated_bldc_joint_actuator.step"
+    fcstd_path = OUT_DIR / "integrated_bldc_joint_actuator.FCStd"
     product_result = build_integrated_bldc_joint_actuator()
     assembly = product_result.value
-    scad.export_product_package(
-        scad.build_product_package(product_result),
-        package_path,
-    )
+    scad.capture(product_result, package_path)
     packaged_definition = scad.load_product_package(package_path)
     rebuilt = scad.materialize_definition(packaged_definition)
     if not isinstance(rebuilt, scad.Assembly):
@@ -111,7 +65,13 @@ def main() -> None:
         raise RuntimeError("product package replay changed the assembly identity")
     preview = scad.make_compound_from_assembly_rcompound(assembly=assembly)
     ground_compound(label="durable_actuator_preview", compound=preview)
-    scad.export_step(shapes=preview, filename=str(step_path))
+    step_report = scad.exporter.export_product_package_to_step(package_path,
+    step_path,)
+    scad.translator.freecad_translator.translate_product_package_to_fcstd(
+        package_path,
+        str(fcstd_path),
+        document_name="IntegratedBLDCJointActuator",
+    )
 
     print(f"envelope_diameter={PACKAGE_RADIUS * 2.0:.1f}")
     print(f"structural_length={PACKAGE_TOP_Z - PACKAGE_STRUCTURAL_BOTTOM_Z:.1f}")
@@ -124,7 +84,8 @@ def main() -> None:
     print(f"preview_solids={len(preview.get_solids())}")
     print(f"preview_volume={preview.get_volume():.3f}")
     print(f"product_package={package_path}")
-    print(f"step={step_path}")
+    print(f"step={step_report.output_path}")
+    print(f"fcstd={fcstd_path}")
 
 
 if __name__ == "__main__":

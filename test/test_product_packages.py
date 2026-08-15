@@ -113,18 +113,23 @@ def test_part_package_wraps_canonical_prt_and_preserves_naming_binding(
 ) -> None:
     part = _build_named_part(tmp_path)
     package = scad.build_product_package(part)
-    path = scad.export_product_package(package, tmp_path / "box.scadpkg")
+    payload = scad.encode_product_package(package)
 
-    loaded_package = scad.read_product_package(path)
-    loaded_definition = scad.load_product_package(path)
+    loaded_package = scad.read_product_package(payload)
+    loaded_definition = scad.load_product_package(payload)
     rebuilt = scad.materialize_definition(loaded_definition)
 
     assert loaded_package.root_kind == "single_solid"
     assert loaded_package.root_id == "box"
     assert isinstance(loaded_definition, scad.PartDefinition)
     assert rebuilt.part_id == "box"
-    assert len(loaded_package.objects) == 1
-    assert next(iter(loaded_package.objects)).endswith(".part-definition.zip")
+    definition_paths = [
+        path for path in loaded_package.objects if path.startswith("objects/")
+    ]
+    assert len(definition_paths) == 1
+    assert definition_paths[0].endswith(".part-definition.zip")
+    assert loaded_package.scene_path == "scene/scene.zip"
+    assert loaded_package.scene_path in loaded_package.objects
 
     topology = parse_canonical_json(
         loaded_definition.blobs[loaded_definition.topology_snapshot_ref.path]
@@ -169,8 +174,8 @@ def test_nested_assembly_package_preserves_hierarchy_relations_and_dedup(
 ) -> None:
     part, child, root = _build_nested_assembly(tmp_path)
     package = scad.build_product_package(root)
-    path = scad.export_product_package(package, tmp_path / "root.scadpkg")
-    loaded = scad.load_product_package(path)
+    payload = scad.encode_product_package(package)
+    loaded = scad.load_product_package(payload)
     rebuilt = scad.materialize_definition(loaded)
 
     assert isinstance(loaded, scad.AssemblyDefinition)
@@ -237,8 +242,11 @@ def test_product_package_rejects_mutation_missing_and_unreachable_objects(
         )
 
     extra_part = _build_named_part(tmp_path, "unused")
-    extra_path = next(iter(scad.build_product_package(extra_part).objects))
-    extra_payload = scad.build_product_package(extra_part).objects[extra_path]
+    extra_package = scad.build_product_package(extra_part)
+    extra_path = next(
+        path for path in extra_package.objects if path.endswith(".part-definition.zip")
+    )
+    extra_payload = extra_package.objects[extra_path]
     objects = {**package.objects, extra_path: extra_payload}
     records = [
         *package.manifest["objects"],
@@ -254,10 +262,11 @@ def test_product_package_rejects_mutation_missing_and_unreachable_objects(
     ]
     records.sort(key=lambda item: item["path"])
     draft = {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "artifact_kind": "product_package",
         "root": package.root_path,
         "objects": records,
+        "scene": dict(package.manifest["scene"]),
     }
     manifest = {
         **draft,
@@ -275,13 +284,13 @@ def test_product_package_rejects_mutation_missing_and_unreachable_objects(
         )
 
 
-def test_product_package_reexport_is_byte_identical(tmp_path: Path) -> None:
+def test_product_package_encode_round_trip_is_byte_identical(tmp_path: Path) -> None:
     package = scad.build_product_package(_build_named_part(tmp_path))
-    first = scad.export_product_package(package, tmp_path / "first.scadpkg")
+    first = scad.encode_product_package(package)
     loaded = scad.read_product_package(first)
-    second = scad.export_product_package(loaded, tmp_path / "second.scadpkg")
+    second = scad.encode_product_package(loaded)
 
-    assert first.read_bytes() == second.read_bytes()
+    assert first == second
 
 
 def test_validated_package_skips_repeated_decode_validation(
@@ -427,46 +436,33 @@ def test_replaced_part_definition_does_not_inherit_validation(
         scad.encode_part_definition(mutated)
 
 
-def test_build_result_default_exports_unified_product_package(tmp_path: Path) -> None:
+def test_capture_function_exports_unified_product_package(tmp_path: Path) -> None:
     part = _build_named_part(tmp_path, "exported")
-    exported = part.export_artifacts(output_dir=tmp_path / "out")
+    path = tmp_path / "out" / "exported.scadpkg"
+    captured = scad.capture(part, path)
 
-    assert set(exported.artifact_paths) == {"product"}
-    assert exported.artifact_paths["product"].name == "exported.scadpkg"
-    loaded = scad.load_product_package(exported.artifact_paths["product"])
+    assert path.is_file()
+    assert path.read_bytes() == captured.package_bytes
+    loaded = scad.load_product_package(path)
     assert isinstance(loaded, scad.PartDefinition)
     assert loaded.definition_id == "exported"
 
 
-def test_assembly_build_result_exports_unified_product_package(tmp_path: Path) -> None:
+def test_capture_assembly_exports_unified_product_package(tmp_path: Path) -> None:
     _part, _child, root = _build_nested_assembly(tmp_path)
-    exported = root.export_artifacts(output_dir=tmp_path / "out")
+    path = tmp_path / "out" / "root.scadpkg"
+    captured = scad.capture(root, path)
 
-    assert set(exported.artifact_paths) == {"product"}
-    assert exported.artifact_paths["product"].name == "root.scadpkg"
-    loaded = scad.load_product_package(exported.artifact_paths["product"])
+    assert path.is_file()
+    assert path.read_bytes() == captured.package_bytes
+    loaded = scad.load_product_package(path)
     assert isinstance(loaded, scad.AssemblyDefinition)
     assert loaded.definition_id == "root"
 
 
-@pytest.mark.parametrize("format_name", ["part", "prt", "assembly", "asm"])
-def test_build_results_reject_legacy_product_formats(
-    tmp_path: Path,
-    format_name: str,
-) -> None:
-    part, _child, root = _build_nested_assembly(tmp_path)
+def test_capture_rejects_legacy_keyword_signature(tmp_path: Path) -> None:
+    part = _build_named_part(tmp_path, "no_keyword_compatibility")
+    path = tmp_path / "out" / "no_keyword_compatibility.scadpkg"
 
-    with pytest.raises(ValueError, match="only the 'product' format"):
-        part.export_artifacts(output_dir=tmp_path, formats=(format_name,))
-    with pytest.raises(ValueError, match="only the 'product' format"):
-        root.export_artifacts(output_dir=tmp_path, formats=(format_name,))
-
-
-def test_model_result_does_not_export_runtime_product_packages(tmp_path: Path) -> None:
-    @scad.model(graph_id="runtime_model")
-    def build_model() -> scad.Part:
-        body = scad.make_box_rsolid(width=1.0, height=2.0, depth=3.0)
-        return scad.make_part_rpart("runtime_part", body)
-
-    with pytest.raises(ValueError, match="@part/@assemble"):
-        build_model().export_artifacts(output_dir=tmp_path, formats=("prt",))
+    with pytest.raises(TypeError, match="positional-only"):
+        scad.capture(value=part, path=path)

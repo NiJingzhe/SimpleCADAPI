@@ -10,7 +10,7 @@ class BRepEntityError
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.BRepEntityError(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.BRepEntityError(...)`; unavailable inside GraphSession
 
 ## Description
 

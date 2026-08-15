@@ -10,7 +10,7 @@ class BRepComparison(target: str | None, candidate: str | None, target_minus_can
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.BRepComparison(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.BRepComparison(...)`; unavailable inside GraphSession
 
 ## Description
 

@@ -260,9 +260,11 @@ class TestRearchitecture20IoContracts(unittest.TestCase):
         self.assertGreaterEqual(payload["graph"].node_count, 1)
         self.assertGreaterEqual(payload["expression_graph"].node_count, 1)
 
-    def test_step_export_still_exists_as_final_geometry_export(self):
-        self.assertTrue(hasattr(scad, "export_step"))
-        self.assertTrue(hasattr(scad, "export_stl"))
+    def test_step_and_stl_exports_require_product_package_boundary(self):
+        self.assertFalse(hasattr(scad, "export_step"))
+        self.assertFalse(hasattr(scad, "export_stl"))
+        self.assertTrue(hasattr(scad.exporter, "export_product_package_to_step"))
+        self.assertTrue(hasattr(scad.exporter, "export_product_package_to_stl"))
 
     def test_model_json_export_exists_as_canonical_seed(self):
         r = scad.var("r", 2.0)

@@ -75,6 +75,8 @@ _CANONICAL_OPS = (
     "make_part_rpart",
     "make_assign_material_rpart",
     "make_assembly_rassembly",
+    "reference_definition",
+    "evaluate_assembly_definition",
     "make_add_component_rassembly",
     "make_place_component_rassembly",
     "make_compound_from_assembly_rcompound",
@@ -204,7 +206,7 @@ OP_SUPPORT["apply_tag_rselection"] = OperationCapability(
 CAPABILITIES = BackendCapabilities(
     backend_id=BACKEND_NAME,
     display_name="FreeCAD",
-    input_schema_versions=("2.0",),
+    input_schema_versions=("product-package-2.0",),
     targets=(
         TranslationTarget(
             target_id="freecad_script",

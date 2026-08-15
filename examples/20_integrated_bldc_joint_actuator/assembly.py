@@ -167,10 +167,7 @@ except ImportError:  # Support direct execution from this example directory.
     )
 
 
-@scad.requires_session
-def make_integrated_bldc_joint_actuator_rassembly(
-    *, materials: dict[str, scad.Material]
-) -> scad.Assembly:
+def make_integrated_bldc_joint_actuator_rassembly(*, materials: dict[str, scad.Material]) -> scad.Assembly:
     """Build and solve the complete compact 50 mm joint actuator."""
 
     component_specs = make_integrated_bldc_joint_actuator_components_rtuple(
@@ -196,10 +193,7 @@ def make_integrated_bldc_joint_actuator_rassembly(
     return actuator
 
 
-@scad.requires_session
-def make_integrated_bldc_joint_actuator_components_rtuple(
-    *, materials: dict[str, scad.Material]
-) -> tuple[tuple[str, scad.Part | scad.Assembly, scad.Placement, str], ...]:
+def make_integrated_bldc_joint_actuator_components_rtuple(*, materials: dict[str, scad.Material]) -> tuple[tuple[str, scad.Part | scad.Assembly, scad.Placement, str], ...]:
     """Build the actuator component inventory without creating a parent assembly."""
 
     print(

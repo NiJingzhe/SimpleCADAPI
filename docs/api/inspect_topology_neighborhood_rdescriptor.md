@@ -10,7 +10,7 @@ def inspect_topology_neighborhood_rdescriptor(model_or_path: BRepModel | TopoDS_
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_topology_neighborhood_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_topology_neighborhood_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

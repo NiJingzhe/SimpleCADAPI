@@ -10,7 +10,7 @@ def inspect_shape_rbrepinspection(shape: TopoDS_Shape, *, source: str | Path | N
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_shape_rbrepinspection(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_shape_rbrepinspection(...)`; unavailable inside GraphSession
 
 ## Description
 

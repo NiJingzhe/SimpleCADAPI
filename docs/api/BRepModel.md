@@ -10,7 +10,7 @@ class BRepModel(root: TopoDS_Shape, source: str | None, bodies: tuple[TopoDS_Sol
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.BRepModel(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.BRepModel(...)`; unavailable inside GraphSession
 
 ## Description
 

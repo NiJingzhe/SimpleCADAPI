@@ -216,6 +216,80 @@ def _simplecad_display_name(*, node_id, op, params, tags, semantic_delta):
     return f"{_op_label_token(op)} {node_id}"
 
 
+def _assignment_operation_token(op):
+    token = str(op or "")
+    if token.startswith("make_"):
+        token = token[5:]
+    for suffix in (
+        "_rsolid",
+        "_rface",
+        "_rwire",
+        "_redge",
+        "_rvertex",
+        "_rshape",
+        "_rsketch",
+        "_rassembly",
+        "_rpart",
+        "_rcompound",
+        "_rselection",
+    ):
+        if token.endswith(suffix):
+            token = token[: -len(suffix)]
+            break
+    return " ".join(token.replace("_", " ").split()).strip().lower()
+
+
+def _assignment_target_words(target):
+    return (
+        " ".join(str(target or "").replace("_", " ").replace(".", " ").split())
+        .strip()
+        .lower()
+    )
+
+
+def _apply_graph_assignment_name(objects, *, node_id, assignment_targets, op):
+    targets = [
+        " ".join(str(value).split()).strip()
+        for value in list(assignment_targets or [])
+        if str(value).strip() and str(value).strip() != "_"
+    ]
+    if not targets:
+        return objects
+    operation = _assignment_operation_token(op)
+    target = _assignment_target_words(targets[0])
+    if not target:
+        return objects
+    display_name = target
+    if operation and not target.endswith(operation):
+        display_name = f"{target} {operation}"
+    values = objects if isinstance(objects, (list, tuple)) else [objects]
+    for obj in values:
+        if obj is None or not hasattr(obj, "addProperty"):
+            continue
+        type_id = str(getattr(obj, "TypeId", ""))
+        if str(getattr(obj, "SimpleCADNodeId", "")) != str(node_id):
+            continue
+        if type_id in {
+            "App::Part",
+            "App::Link",
+            "Assembly::AssemblyObject",
+            "Assembly::AssemblyLink",
+            "App::FeaturePython",
+        }:
+            continue
+        _ensure_string_list_property(obj, "SimpleCADAssignmentTargets")
+        _ensure_string_property(obj, "SimpleCADAssignmentName")
+        obj.SimpleCADAssignmentTargets = targets
+        obj.SimpleCADAssignmentName = display_name
+        _ensure_string_property(obj, "SimpleCADDisplayName")
+        obj.SimpleCADDisplayName = display_name
+        try:
+            obj.Label = display_name
+        except Exception:
+            pass
+    return objects
+
+
 def _attach_simplecad_metadata(
     obj,
     *,

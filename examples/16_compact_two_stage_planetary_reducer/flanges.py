@@ -47,7 +47,6 @@ from dimensions import (
 )
 
 
-@scad.requires_session
 def make_input_flange_rpart(*, material: scad.Material) -> scad.Part:
     """Create the reducer input flange part with six bolt holes."""
 
@@ -92,7 +91,6 @@ def make_input_flange_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
 def make_output_flange_rpart(*, material: scad.Material) -> scad.Part:
     """Create the reducer output flange part with realistic mounting detail."""
 
@@ -126,7 +124,6 @@ def make_output_flange_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
 def _make_output_flange_solid_rsolid(*, tag_prefix: str) -> scad.Solid:
     """Build the sealed actuator-style output flange.
 
@@ -312,21 +309,18 @@ def _make_output_flange_solid_rsolid(*, tag_prefix: str) -> scad.Solid:
     return flange
 
 
-@scad.requires_session
-def _make_n_hole_flange_solid_rsolid(
-    *,
-    flange_outer_diameter: float,
-    flange_inner_diameter: float,
-    flange_thickness: float,
-    boss_outer_diameter: float,
-    boss_height: float,
-    hole_diameter: float,
-    hole_circle_diameter: float,
-    hole_count: int,
-    counterbore_diameter: float | None = None,
-    counterbore_depth: float = 0.0,
-    tag_prefix: str,
-) -> scad.Solid:
+def _make_n_hole_flange_solid_rsolid(*,
+flange_outer_diameter: float,
+flange_inner_diameter: float,
+flange_thickness: float,
+boss_outer_diameter: float,
+boss_height: float,
+hole_diameter: float,
+hole_circle_diameter: float,
+hole_count: int,
+counterbore_diameter: float | None = None,
+counterbore_depth: float = 0.0,
+tag_prefix: str,) -> scad.Solid:
     """Build a flange without edge-pick features so FreeCAD export is stable."""
 
     outer = scad.make_cylinder_rsolid(

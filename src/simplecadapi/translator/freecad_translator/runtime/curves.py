@@ -6,7 +6,9 @@ def _local_line_from_edge(obj, origin, x_axis, y_axis):
     projected_len = float((end - start).Length)
     source_len = float((_vec(end_3d) - _vec(start_3d)).Length)
     if source_len > 1e-9 and projected_len <= 1e-9:
-        raise RuntimeError('Projected non-zero edge collapsed to zero length; sketch frame is not coplanar with the source wire')
+        raise RuntimeError(
+            "Projected non-zero edge collapsed to zero length; sketch frame is not coplanar with the source wire"
+        )
     return Part.LineSegment(
         start,
         end,
@@ -43,10 +45,8 @@ def _periodic_axis_x(axis, kernel_x_axis=None, kernel_y_axis=None):
             Part.Circle(App.Vector(0.0, 0.0, 0.0), z_axis, 1.0).XAxis
         )
     projected = x_axis - z_axis * float(x_axis.dot(z_axis))
-    if float(getattr(projected, 'Length', 0.0)) <= 1e-12:
-        projected = Part.Circle(
-            App.Vector(0.0, 0.0, 0.0), z_axis, 1.0
-        ).XAxis
+    if float(getattr(projected, "Length", 0.0)) <= 1e-12:
+        projected = Part.Circle(App.Vector(0.0, 0.0, 0.0), z_axis, 1.0).XAxis
     return _normalized_vec(projected)
 
 
@@ -55,27 +55,27 @@ def _periodic_axis_rotation(axis, kernel_x_axis=None, kernel_y_axis=None):
     x_axis = _periodic_axis_x(z_axis, kernel_x_axis, kernel_y_axis)
     y_axis = _normalized_vec(z_axis.cross(x_axis))
     x_axis = _normalized_vec(y_axis.cross(z_axis))
-    return App.Rotation(x_axis, y_axis, z_axis, 'ZXY')
+    return App.Rotation(x_axis, y_axis, z_axis, "ZXY")
 
 
 def _kernel_circle_from_params(params, param_exprs):
     normal = (
-        _resolve_vec3_param(params, param_exprs, 'normal')
-        if 'normal' in params
+        _resolve_vec3_param(params, param_exprs, "normal")
+        if "normal" in params
         else (0.0, 0.0, 1.0)
     )
     circle = Part.Circle(
-        _vec(_resolve_vec3_param(params, param_exprs, 'center')),
+        _vec(_resolve_vec3_param(params, param_exprs, "center")),
         _vec(normal),
-        float(_resolve_param_value(params, param_exprs, 'radius')),
+        float(_resolve_param_value(params, param_exprs, "radius")),
     )
     dynamic_normal = _contains_expr_refs(
-        param_exprs.get('normal') if isinstance(param_exprs, dict) else None
+        param_exprs.get("normal") if isinstance(param_exprs, dict) else None
     )
     circle.XAxis = _periodic_axis_x(
         normal,
-        None if dynamic_normal else params.get('_kernel_x_axis'),
-        None if dynamic_normal else params.get('_kernel_y_axis'),
+        None if dynamic_normal else params.get("_kernel_x_axis"),
+        None if dynamic_normal else params.get("_kernel_y_axis"),
     )
     return circle
 
@@ -139,25 +139,31 @@ def _local_angle_arc(
     ea = float(end_angle)
     mid_angle = 0.5 * (sa + ea)
     start_local = _local_point_on_frame(
-        _vec_tuple(_angle_arc_world_point(
-            circle_center, radius, sa, normal, kernel_x_axis, kernel_y_axis
-        )),
+        _vec_tuple(
+            _angle_arc_world_point(
+                circle_center, radius, sa, normal, kernel_x_axis, kernel_y_axis
+            )
+        ),
         origin,
         x_axis,
         y_axis,
     )
     mid_local = _local_point_on_frame(
-        _vec_tuple(_angle_arc_world_point(
-            circle_center, radius, mid_angle, normal, kernel_x_axis, kernel_y_axis
-        )),
+        _vec_tuple(
+            _angle_arc_world_point(
+                circle_center, radius, mid_angle, normal, kernel_x_axis, kernel_y_axis
+            )
+        ),
         origin,
         x_axis,
         y_axis,
     )
     end_local = _local_point_on_frame(
-        _vec_tuple(_angle_arc_world_point(
-            circle_center, radius, ea, normal, kernel_x_axis, kernel_y_axis
-        )),
+        _vec_tuple(
+            _angle_arc_world_point(
+                circle_center, radius, ea, normal, kernel_x_axis, kernel_y_axis
+            )
+        ),
         origin,
         x_axis,
         y_axis,
@@ -166,38 +172,49 @@ def _local_angle_arc(
 
 
 def _bspline_curve_from_params(params, transform_point=None, context=None):
-    exact_params = params.get('_freecad_exact_bspline')
+    exact_params = params.get("_freecad_exact_bspline")
     source = exact_params or params
 
     def mapped_point(point):
         point3 = tuple(point) + (0.0,) if len(tuple(point)) == 2 else tuple(point)
-        world = _vec(point3) if exact_params is not None else _surface_context_point(point3, context)
+        world = (
+            _vec(point3)
+            if exact_params is not None
+            else _surface_context_point(point3, context)
+        )
         return transform_point(world) if transform_point is not None else world
 
-    poles = [mapped_point(point) for point in source.get('control_points') or []]
-    if not poles and source.get('points'):
-        poles = [mapped_point(point) for point in source.get('points') or []]
+    poles = [mapped_point(point) for point in source.get("control_points") or []]
+    if not poles and source.get("points"):
+        poles = [mapped_point(point) for point in source.get("points") or []]
         if len(poles) < 2:
-            raise RuntimeError('B-spline has fewer than two points')
+            raise RuntimeError("B-spline has fewer than two points")
         curve = Part.BSplineCurve()
         curve.interpolate(
             Points=poles,
-            PeriodicFlag=bool(source.get('periodic', False)),
-            Tolerance=float(source.get('tolerance', 1.0e-6)),
+            PeriodicFlag=bool(source.get("periodic", False)),
+            Tolerance=float(source.get("tolerance", 1.0e-6)),
         )
         return curve
     if not poles:
-        raise RuntimeError('B-spline has no control points')
-    mults = tuple(int(value) for value in (source.get('multiplicities') or []))
-    knots = tuple(float(value) for value in (source.get('knots') or []))
-    degree = int(source.get('degree', 3))
-    periodic = bool(source.get('periodic', False))
-    weights = source.get('weights')
+        raise RuntimeError("B-spline has no control points")
+    mults = tuple(int(value) for value in (source.get("multiplicities") or []))
+    knots = tuple(float(value) for value in (source.get("knots") or []))
+    degree = int(source.get("degree", 3))
+    periodic = bool(source.get("periodic", False))
+    weights = source.get("weights")
     curve = Part.BSplineCurve()
     if weights is None:
         curve.buildFromPolesMultsKnots(poles, mults, knots, periodic, degree)
     else:
-        curve.buildFromPolesMultsKnots(poles, mults, knots, periodic, degree, tuple(float(value) for value in weights))
+        curve.buildFromPolesMultsKnots(
+            poles,
+            mults,
+            knots,
+            periodic,
+            degree,
+            tuple(float(value) for value in weights),
+        )
     return curve
 
 
@@ -223,16 +240,16 @@ def _spine_object(node_id):
         return cached
     obj = GRAPH_NODES[node_id]
     try:
-        shape = getattr(obj, 'Shape', None)
+        shape = getattr(obj, "Shape", None)
     except Exception:
         shape = None
     if not _shape_is_null(shape):
         return obj
     meta = GRAPH_METADATA.get(node_id, {})
-    if str(meta.get('op', '')) == 'make_wire_from_edges_rwire':
-        edge_ids = list(meta.get('inputs') or [])
+    if str(meta.get("op", "")) == "make_wire_from_edges_rwire":
+        edge_ids = list(meta.get("inputs") or [])
         if edge_ids:
-            fallback = doc.addObject('Part::Feature', f'make_spine_wire_{node_id}')
+            fallback = doc.addObject("Part::Feature", f"make_spine_wire_{node_id}")
             fallback.Shape = _wire_shape_from_edge_objects(edge_ids)
             _set_visibility(fallback, False)
             GRAPH_SPINE_OBJECTS[node_id] = fallback
@@ -241,6 +258,6 @@ def _spine_object(node_id):
 
 
 def _build_face_from_source(source_obj, name):
-    face_obj = doc.addObject('Part::Face', name)
+    face_obj = doc.addObject("Part::Face", name)
     face_obj.Sources = [source_obj]
     return face_obj

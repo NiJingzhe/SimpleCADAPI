@@ -61,10 +61,10 @@ fixture = build_fixture()
 print(fixture.solve_report.component_hits, fixture.solve_report.component_misses)
 ```
 
-`@scad.part` and `@scad.assemble` are top-level product boundaries and cannot be
-nested inside an active `GraphSession`. Continue to use `@scad.model` plus
-`@scad.requires_session` for a replayable geometry flow that is not a durable
-part/assembly definition.
+`@scad.part` and `@scad.assemble` are top-level product boundaries and each owns
+its definition-local `GraphSession`; they cannot be nested inside another active
+session. Use an explicit `GraphSession` for lower-level replayable geometry that
+is not a durable part or assembly definition.
 
 
 ## Policy
@@ -121,23 +121,68 @@ format.
 
 ## Product package export
 
-`PartBuildResult` and `AssemblyBuildResult` export one public product format:
-the canonical self-contained `.scadpkg` archive. It contains a thin
-`package.json` manifest plus the complete content-addressed closure of canonical
-`PartDefinition` and `AssemblyDefinition` archives. Repeated definitions are
-stored once; assembly instances and relations remain in the ASM definitions.
+`PartBuildResult` and `AssemblyBuildResult` are captured and written as one
+canonical product package by a single API call:
 
 ```python
-part_package = warm.export_artifacts(output_dir="out")
-assembly_package = fixture.export_artifacts(output_dir="out")
+scad.capture(warm, "out/part.scadpkg")
+scad.capture(fixture, "out/assembly.scadpkg")
 
-root = scad.load_product_package(assembly_package.artifact_paths["product"])
+root = scad.load_product_package("out/assembly.scadpkg")
 rebuilt = scad.materialize_definition(root)
 ```
 
-Use `build_product_package(...)`, `export_product_package(...)`,
-`read_product_package(...)`, and `load_product_package(...)` for explicit
-package handling. `validate_product_package(...)` verifies every object hash and
-size, the complete recursive definition graph, cycle/depth limits, and rejects
-missing or unreferenced objects. Keep `export_definition(...)` only for low-level
-definition exchange or inspection; it is not the product delivery format.
+Use `build_product_package(...)`, `encode_product_package(...)`,
+`read_product_package(...)`, and `load_product_package(...)` only for explicit
+in-memory package handling. `validate_product_package(...)` verifies every object
+hash and size, the complete recursive definition graph, cycle/depth limits, and
+rejects missing or unreferenced objects. Use `export_part_definition(...)` or
+`export_assembly_definition(...)` only for low-level definition exchange or
+inspection; neither is the product delivery format.
+
+## Downstream CAD and mesh targets
+
+Keep `.scadpkg` as the canonical SimpleCAD delivery artifact. Choose a
+downstream target from the consumer contract:
+
+| Target | Use when | Preserved contract | Boundary |
+| --- | --- | --- | --- |
+| `.scadpkg` | Rebuild, replay, cache, or further SimpleCAD editing is required | Complete durable definition closure, feature graphs, source snapshots, topology, connectors, constraints, and materials | SimpleCAD-specific archive |
+| `.FCStd` | A FreeCAD user needs an editable native document | Definition-owned, dependency-first native feature graphs; final body links; repeated instances; nested assemblies; names; solved placements; materials; connectors; constraints; grounding; revision; and content hashes | Requires FreeCADCmd/FreeCAD |
+| AP242 `.step` | Neutral CAD exchange or downstream OpenCASCADE tooling is required | Evaluated BREP, product hierarchy, shared definitions, occurrence names/placements, materials, colors, density, and named SimpleCAD property payloads | Canonical feature history is not reconstructed as AP242 features |
+
+```python
+package_path = assembly_package.artifact_paths["product"]
+
+fcstd_path = scad.translator.freecad_translator.translate_product_package_to_fcstd(
+    package_path,
+    "out/product.FCStd",
+)
+step_report = scad.exporter.export_product_package_to_step(
+    package_path,
+    "out/product.step",
+)
+stl_report = scad.exporter.export_product_package_to_stl(
+    package_path,
+    "out/product.stl",
+)
+print(step_report.definition_ids, step_report.occurrence_count)
+print(stl_report.solid_count, stl_report.stl_triangle_count)
+```
+
+AP242 definition and occurrence metadata is stored in one standard
+`PROPERTY_DEFINITION_REPRESENTATION`. Its named
+`DESCRIPTIVE_REPRESENTATION_ITEM` records use
+`SimpleCAD:definition:<kind>:<definition_id>` and
+`SimpleCAD:occurrence:<parent_definition_id>:<component_id>`. Each description
+is canonical sorted JSON containing durable IDs, revision, content hash,
+connectors, constraints, grounding, name, and solved placement.
+`ProductSTEPExportReport` reports the schema, definition IDs, occurrence
+count, material IDs, metadata item count, and explicit limitations.
+
+For tetrahedral meshing, install `simplecadapi[gmsh]` and run
+`examples/12_ap242_gmsh_volume_mesh.py`. The example exports one `.scadpkg`,
+converts it to AP242 STEP, imports it with Gmsh's OpenCASCADE kernel, rejects
+imports with no 3D volumes, generates a dimension-3 mesh, writes `.msh`, and
+always finalizes Gmsh. Gmsh remains optional and is never imported by the core
+SDK or the product exporters.

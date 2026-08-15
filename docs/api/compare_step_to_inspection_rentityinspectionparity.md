@@ -10,7 +10,7 @@ def compare_step_to_inspection_rentityinspectionparity(step_path: str | Path, re
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_step_to_inspection_rentityinspectionparity(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_step_to_inspection_rentityinspectionparity(...)`; unavailable inside GraphSession
 
 ## Description
 

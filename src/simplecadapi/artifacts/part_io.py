@@ -17,6 +17,7 @@ from .topology_snapshot import (
     validate_connector_entity_bindings,
 )
 from .validation import parse_artifact_json, validate_artifact_blobs
+from .feature_graph import load_feature_graph_artifact
 from ..scene.archive import canonical_zip_bytes, preflight_zip_bytes
 
 _PART_DEFINITION_MANIFEST = "part-definition.json"
@@ -56,7 +57,7 @@ def load_part_definition(
         kind="part_definition",
     )
     expected_paths = {
-        str(manifest["definition"]["model_ref"]["path"]),
+        str(manifest["definition"]["feature_graph_ref"]["path"]),
         str(manifest["solid_cache"]["body_ref"]["path"]),
         str(manifest["topology_snapshot_ref"]["path"]),
     }
@@ -76,13 +77,30 @@ def load_part_definition(
     blobs = {path: archive.members[_BLOB_PREFIX + path] for path in expected_paths}
     definition = PartDefinition.from_dict(manifest, blobs=blobs)
     validate_artifact_blobs(definition.to_dict(), definition.blobs)
+    feature_graph = load_feature_graph_artifact(
+        definition.blobs[definition.feature_graph_ref.path]
+    )
+    if (
+        feature_graph.owner_definition_kind != definition.definition_kind
+        or feature_graph.owner_definition_id != definition.definition_id
+        or feature_graph.owner_revision != definition.revision
+    ):
+        raise ArtifactValidationError(
+            "graph_owner_invalid",
+            "/definition/feature_graph_ref",
+            "feature graph owner differs from PartDefinition identity",
+        )
     body = read_brep_solid(definition.blobs[definition.solid_cache_ref.path])
     restore_topology_snapshot(
         body,
         definition.blobs[definition.topology_snapshot_ref.path],
     )
     validate_connector_entity_bindings(body, definition.connectors)
-    mark_part_definition_validated(definition, body=body)
+    mark_part_definition_validated(
+        definition,
+        body=body,
+        feature_graph=feature_graph,
+    )
     return definition
 
 

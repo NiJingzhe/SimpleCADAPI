@@ -114,7 +114,6 @@ print(json.dumps({
             "ProductPackageError": product_packages.ProductPackageError,
             "build_product_package": product_packages.build_product_package,
             "encode_product_package": product_packages.encode_product_package,
-            "export_product_package": product_packages.export_product_package,
             "load_product_package": product_packages.load_product_package,
             "read_product_package": product_packages.read_product_package,
             "validate_product_package": product_packages.validate_product_package,
@@ -129,7 +128,46 @@ print(json.dumps({
             "build_assembly_package",
             "load_part_package",
             "load_assembly_package",
+            "export_product_package",
         ):
             with self.subTest(legacy_name=legacy_name):
                 self.assertNotIn(legacy_name, scad.__all__)
                 self.assertFalse(hasattr(scad, legacy_name))
+
+        self.assertFalse(hasattr(product_packages, "export_product_package"))
+
+    def test_scene_implementation_is_not_top_level_product_api(self):
+        import simplecadapi as scad
+        from simplecadapi import scene
+
+        internal_scene_names = (
+            "CanonicalEdgeBlock",
+            "CanonicalTriangleBlock",
+            "CompiledScenePackage",
+            "ProductSceneError",
+            "ProductScenePackage",
+            "RenderEdgeMesh",
+            "RenderGroup",
+            "RenderMesh",
+            "SceneCompileOptions",
+            "SceneRoot",
+            "SceneSource",
+            "build_edge_mesh",
+            "build_render_mesh",
+            "cad_direction_to_gltf",
+            "cad_to_gltf",
+            "compile_product_scene",
+            "compile_scene",
+            "encode_product_scene",
+            "export_scene",
+            "read_scene_package",
+            "solid_asset_bounds",
+            "validate_product_scene_package",
+            "write_line_glb",
+            "write_triangle_glb",
+        )
+        for name in internal_scene_names:
+            with self.subTest(name=name):
+                self.assertNotIn(name, scad.__all__)
+                self.assertFalse(hasattr(scad, name))
+                self.assertTrue(hasattr(scene, name))

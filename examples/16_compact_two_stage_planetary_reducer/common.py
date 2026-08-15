@@ -9,12 +9,9 @@ import simplecadapi as scad
 from simplecadapi import ql
 
 
-@scad.requires_session
-def make_z_rotation_rplacement(
-    *,
-    origin: tuple[float, float, float],
-    angle_degrees: float,
-) -> scad.Placement:
+def make_z_rotation_rplacement(*,
+origin: tuple[float, float, float],
+angle_degrees: float,) -> scad.Placement:
     """Return a placement rotated about the local Z axis."""
 
     angle_radians = math.radians(angle_degrees)
@@ -27,16 +24,13 @@ def make_z_rotation_rplacement(
     )
 
 
-@scad.requires_session
-def make_annular_cylinder_rsolid(
-    *,
-    outer_radius: float,
-    inner_radius: float,
-    height: float,
-    bottom_z: float,
-    tag_prefix: str,
-    tag: str,
-) -> scad.Solid:
+def make_annular_cylinder_rsolid(*,
+outer_radius: float,
+inner_radius: float,
+height: float,
+bottom_z: float,
+tag_prefix: str,
+tag: str,) -> scad.Solid:
     """Create a single hollow cylindrical solid with a through bore."""
 
     if inner_radius <= 0.0 or outer_radius <= inner_radius:
@@ -63,17 +57,14 @@ def make_annular_cylinder_rsolid(
     return annular
 
 
-@scad.requires_session
-def make_axis_connector_rconnector(
-    *,
-    connector_id: str,
-    solid: scad.Solid,
-    center_xy: tuple[float, float],
-    target_z: float,
-    normal_z: float,
-    name: str | None = None,
-    flip: bool = False,
-) -> scad.Connector:
+def make_axis_connector_rconnector(*,
+connector_id: str,
+solid: scad.Solid,
+center_xy: tuple[float, float],
+target_z: float,
+normal_z: float,
+name: str | None = None,
+flip: bool = False,) -> scad.Connector:
     """Create a face connector on the axial face nearest the requested center."""
 
     face = _axis_face(
@@ -91,15 +82,12 @@ def make_axis_connector_rconnector(
     )
 
 
-@scad.requires_session
-def make_axis_part_rpart(
-    *,
-    part_id: str,
-    solid: scad.Solid,
-    name: str,
-    connector_specs: Iterable[dict[str, object]],
-    material: scad.Material | None = None,
-) -> scad.Part:
+def make_axis_part_rpart(*,
+part_id: str,
+solid: scad.Solid,
+name: str,
+connector_specs: Iterable[dict[str, object]],
+material: scad.Material | None = None,) -> scad.Part:
     """Wrap a solid as a Part and attach axial face connectors."""
 
     part = scad.make_part_rpart(part_id=part_id, body=solid, name=name)
@@ -122,14 +110,11 @@ def make_axis_part_rpart(
     return part
 
 
-@scad.requires_session
-def add_placement_axis_connector_rpart(
-    *,
-    part: scad.Part,
-    connector_id: str,
-    origin: tuple[float, float, float],
-    name: str | None = None,
-) -> scad.Part:
+def add_placement_axis_connector_rpart(*,
+part: scad.Part,
+connector_id: str,
+origin: tuple[float, float, float],
+name: str | None = None,) -> scad.Part:
     """Attach a topology-free axis connector at an explicit local placement."""
 
     connector = scad.make_placement_connector_rconnector(
@@ -140,7 +125,6 @@ def add_placement_axis_connector_rpart(
     return scad.add_connector_rpart(part=part, connector=connector)
 
 
-@scad.requires_session
 def _apply_tags(shape: scad.Solid, tags: Iterable[str]) -> scad.Solid:
     """Apply normalized tags through the public SimpleCAD tag API."""
 

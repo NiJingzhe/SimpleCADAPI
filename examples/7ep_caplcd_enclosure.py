@@ -69,7 +69,8 @@ WINDOW_Y = 80.0
 @scad.part(
     id="caplcd_enclosure_7ep",
     revision="1.0.0",
-    export_dir=OUT_DIR,
+    inputs=(scad.file_input(path="examples/7ep_caplcd_enclosure.py"),),
+    cache="auto",
 )
 def build_enclosure():
     tray = _build_tray()
@@ -274,6 +275,16 @@ def _build_tray():
 
 if __name__ == "__main__":
     result = build_enclosure()
+    package_path = OUT_DIR / "caplcd_enclosure_7ep.scadpkg"
+    scad.capture(result, package_path)
+    step_path = OUT_DIR / "caplcd_enclosure_7ep.step"
+    fcstd_path = OUT_DIR / "caplcd_enclosure_7ep.FCStd"
+    step_report = scad.exporter.export_product_package_to_step(package_path, step_path)
+    scad.translator.freecad_translator.translate_product_package_to_fcstd(
+        package_path,
+        str(fcstd_path),
+        document_name="CaplcdEnclosure7EP",
+    )
     print("replay count", len(result.replay()))
     print("tray volume", round(result.value.body.get_volume(), 1))
     print("geometry interface", result.definition.interface_hashes.geometry)
@@ -281,3 +292,6 @@ if __name__ == "__main__":
         "interface diff",
         result.interface_diff.to_dict() if result.interface_diff is not None else None,
     )
+    print("product package", package_path)
+    print("step", step_report.output_path)
+    print("fcstd", fcstd_path)

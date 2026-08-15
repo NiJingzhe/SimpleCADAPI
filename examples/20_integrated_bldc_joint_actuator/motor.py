@@ -82,12 +82,9 @@ except ImportError:  # Support direct execution from this example directory.
     )
 
 
-@scad.requires_session
-def make_bldc_stator_rassembly(
-    *,
-    steel_material: scad.Material,
-    copper_material: scad.Material,
-) -> scad.Assembly:
+def make_bldc_stator_rassembly(*,
+steel_material: scad.Material,
+copper_material: scad.Material,) -> scad.Assembly:
     """Build a laminated 12-slot stator and twelve fixed winding packs."""
 
     core = _make_stator_core_rpart(material=steel_material)
@@ -145,12 +142,9 @@ def make_bldc_stator_rassembly(
     return stator
 
 
-@scad.requires_session
-def make_bldc_rotor_rassembly(
-    *,
-    steel_material: scad.Material,
-    magnet_material: scad.Material,
-) -> scad.Assembly:
+def make_bldc_rotor_rassembly(*,
+steel_material: scad.Material,
+magnet_material: scad.Material,) -> scad.Assembly:
     """Build the rotor, bonded magnets, shaft, and integrated stage-1 sun."""
 
     core = _make_rotor_shaft_sun_rpart(material=steel_material)
@@ -214,7 +208,6 @@ def make_bldc_rotor_rassembly(
     return rotor
 
 
-@scad.requires_session
 def _make_stator_core_rpart(*, material: scad.Material) -> scad.Part:
     yoke = make_annulus_rsolid(
         outer_radius=MOTOR_STATOR_OUTER_RADIUS,
@@ -287,7 +280,6 @@ def _make_stator_core_rpart(*, material: scad.Material) -> scad.Part:
     return part
 
 
-@scad.requires_session
 def _make_winding_pack_rpart(*, material: scad.Material) -> scad.Part:
     side_depth = MOTOR_STATOR_TOP_Z - MOTOR_STATOR_BOTTOM_Z + 0.4
     side_bottom_z = MOTOR_STATOR_BOTTOM_Z - 0.2
@@ -343,7 +335,6 @@ def _make_winding_pack_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
 def _make_rotor_shaft_sun_rpart(*, material: scad.Material) -> scad.Part:
     shaft_bottom_z = REAR_BEARING_CENTER_Z - 3.0
     shaft = scad.make_cylinder_rsolid(
@@ -419,7 +410,6 @@ def _make_rotor_shaft_sun_rpart(*, material: scad.Material) -> scad.Part:
     return part
 
 
-@scad.requires_session
 def _make_rotor_magnet_rpart(*, material: scad.Material) -> scad.Part:
     half_width = MOTOR_MAGNET_TANGENTIAL_WIDTH / 2.0
     outer_x = (MOTOR_MAGNET_OUTER_RADIUS**2 - half_width**2) ** 0.5

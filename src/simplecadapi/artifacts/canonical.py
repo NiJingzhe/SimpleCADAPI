@@ -11,11 +11,11 @@ from typing import Any, Mapping
 
 from ..scene.canonical import canonical_json_bytes, parse_canonical_json, parse_strict_json
 
-ARTIFACT_SCHEMA_VERSION = "1.0"
-PART_DEFINITION_PROFILE = "simplecad-part-definition-1"
-ASSEMBLY_DEFINITION_PROFILE = "simplecad-assembly-definition-1"
+ARTIFACT_SCHEMA_VERSION = "2.0"
+PART_DEFINITION_PROFILE = "simplecad-part-definition-2"
+ASSEMBLY_DEFINITION_PROFILE = "simplecad-assembly-definition-2"
 SOLID_EVALUATOR_PROFILE = "ocp-evaluated-solid-1"
-TOPOLOGY_SNAPSHOT_PROFILE = "ocp-stable-topology-3"
+TOPOLOGY_SNAPSHOT_PROFILE = "ocp-stable-topology-4"
 _ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,255}$")
 _HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REVISION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")

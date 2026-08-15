@@ -10,7 +10,7 @@ class BRepInspection(source: str | None, valid: bool, counts: dict[str, int], bo
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.BRepInspection(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.BRepInspection(...)`; unavailable inside GraphSession
 
 ## Description
 

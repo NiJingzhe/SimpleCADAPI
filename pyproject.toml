@@ -49,6 +49,9 @@ collision = [
 inspect = [
     "matplotlib>=3.7.0",
 ]
+gmsh = [
+    "gmsh>=4.15,<5",
+]
 
 [project.urls]
 Homepage = "https://github.com/NiJingzhe/SimpleCADAPI"
@@ -94,6 +97,9 @@ dev = [
     "trimesh>=4.11.3",
     "datamodel-code-generator==0.32.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["test", "tests"]
 
 [project.scripts]
 evolve = "simplecadapi.auto_tools.evolution:main"

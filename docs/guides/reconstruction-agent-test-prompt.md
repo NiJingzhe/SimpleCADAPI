@@ -294,7 +294,7 @@ The program must:
 - run in a fresh process;
 - export `{CASE_NAME}_rebuilt.step` under `OUTPUT_DIR`;
 - produce a valid BREP;
-- use `@scad.model` and strict replay when supported;
+- record supported feature operations in an explicit `GraphSession` and verify strict replay;
 - clearly label exact transcription, fitting, and approximation.
 
 Prefer compact design intent over arbitrary point clouds. Do not describe a

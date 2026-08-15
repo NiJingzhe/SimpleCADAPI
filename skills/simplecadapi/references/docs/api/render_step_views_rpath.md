@@ -10,7 +10,7 @@ def render_step_views_rpath(step_path: str | Path, output_path: str | Path, **kw
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.render_step_views_rpath(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.render_step_views_rpath(...)`; unavailable inside GraphSession
 
 ## Description
 

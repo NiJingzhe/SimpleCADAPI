@@ -10,7 +10,7 @@ def clear_step_model_cache_rnone() -> None
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.clear_step_model_cache_rnone(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.clear_step_model_cache_rnone(...)`; unavailable inside GraphSession
 
 ## Description
 

@@ -10,13 +10,10 @@ from common import make_z_rotation_rplacement
 from dimensions import BearingSpec, PLANET_COUNT, StageSpec
 
 
-@scad.requires_session
-def make_radial_ball_bearing_rassembly(
-    *,
-    bearing_id: str,
-    spec: BearingSpec,
-    tag_prefix: str,
-) -> scad.Assembly:
+def make_radial_ball_bearing_rassembly(*,
+bearing_id: str,
+spec: BearingSpec,
+tag_prefix: str,) -> scad.Assembly:
     """Create a standard radial ball bearing assembly for reducer placement."""
 
     bearing = scad.std.bearing.make_ball_bearing_rassembly(
@@ -48,14 +45,12 @@ def make_radial_ball_bearing_rassembly(
     return bearing
 
 
-@scad.requires_session
 def make_coaxial_bearing_rplacement(*, z: float) -> scad.Placement:
     """Return a coaxial bearing placement at the requested axial center."""
 
     return make_z_rotation_rplacement(origin=(0.0, 0.0, z), angle_degrees=0.0)
 
 
-@scad.requires_session
 def make_planet_bearing_rplacements(*, stage: StageSpec) -> list[scad.Placement]:
     """Return placed bearing placements centered in all planets of one stage."""
 

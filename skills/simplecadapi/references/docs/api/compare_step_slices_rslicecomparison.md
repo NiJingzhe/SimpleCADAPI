@@ -10,7 +10,7 @@ def compare_step_slices_rslicecomparison(target_path: str | Path, candidate_path
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_step_slices_rslicecomparison(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_step_slices_rslicecomparison(...)`; unavailable inside GraphSession
 
 ## Description
 

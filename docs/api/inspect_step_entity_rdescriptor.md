@@ -10,7 +10,7 @@ def inspect_step_entity_rdescriptor(path: str | Path, entity_id: str, *, include
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_step_entity_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_step_entity_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

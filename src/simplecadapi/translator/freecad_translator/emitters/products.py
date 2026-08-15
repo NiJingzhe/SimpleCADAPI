@@ -47,6 +47,33 @@ class ProductEmitterMixin:
                 f"{var_name} = _register_graph_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(source_node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
 
+        if node.op == "reference_definition":
+            return [
+                f"{var_name}_definition_id = str({rp}.get('definition_id', ''))",
+                f"{var_name}_record = DEFINITION_REGISTRY.get({var_name}_definition_id)",
+                f"if not isinstance({var_name}_record, dict): raise RuntimeError('Missing translated definition ' + repr({var_name}_definition_id))",
+                f"if str({var_name}_record.get('definition_kind')) != str({rp}.get('definition_kind')) or str({var_name}_record.get('revision')) != str({rp}.get('revision')) or str({var_name}_record.get('content_hash')) != str({rp}.get('content_hash')): raise RuntimeError('Translated definition identity differs for ' + repr({var_name}_definition_id))",
+                f"{var_name} = {var_name}_record['product']",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {var_name}",
+                f"{var_name} = _register_graph_value({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+        if node.op == "evaluate_assembly_definition" and len(inputs) >= 1:
+            return [
+                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
+                f"{var_name}_placements = {{str(item.get('instance_id')): item.get('placement') or {{}} for item in list({rp}.get('component_placements') or []) if isinstance(item, dict)}}",
+                f"{var_name}_components = []",
+                f"for _component in {var_name}_assembly.get('components', []):",
+                f"    _component = dict(_component)",
+                f"    _component_id = str(_component.get('component_id'))",
+                f"    if _component_id in {var_name}_placements:",
+                f"        _component['placement'] = {var_name}_placements[_component_id]",
+                f"        _set_component_link_placement(_component['link'], _component.get('item') or {{}}, _component['placement'])",
+                f"    {var_name}_components.append(_component)",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['components'] = {var_name}_components",
+                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+            ]
+
         if node.op == "make_material_rmaterial":
             return [
                 f"{var_name} = dict({rp})",
@@ -68,8 +95,7 @@ class ProductEmitterMixin:
                 f"{var_name} = doc.addObject('App::Part', {_json_ascii(object_name)})",
                 f"{var_name}.Label = str({rp}.get('name') or {rp}.get('part_id') or {_json_ascii(object_name)})",
                 f"{var_name}_source_body = GRAPH_NODES[{_json_ascii(inputs[0])}]",
-                f"{var_name}_body = _make_part_body_copy({var_name}, {var_name}_source_body, {_json_ascii(inputs[0])})",
-                f"{var_name}.addObject({var_name}_body)",
+                f"{var_name}_body = _adopt_part_feature_history({var_name}, {var_name}_source_body, {_json_ascii(inputs[0])})",
                 f"_ensure_string_property({var_name}, 'SimpleCADPartId')",
                 f"{var_name}.SimpleCADPartId = str({rp}.get('part_id', ''))",
                 f"_hide_origin_tree({var_name})",

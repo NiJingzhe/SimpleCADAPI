@@ -24,7 +24,7 @@ export type EntityId = string;
  * This interface was referenced by `EntityDocument`'s JSON-Schema
  * via the `definition` "source".
  */
-export type Source = ModelOutput | ModelTopology | ImportedPrimitive | Unbound;
+export type Source = ModelOutput | ModelTopology | PackageGeometry | ImportedPrimitive | Unbound;
 /**
  * This interface was referenced by `EntityDocument`'s JSON-Schema
  * via the `definition` "productId".
@@ -142,6 +142,16 @@ export interface ModelTopology {
   output_slot: SafeInteger;
   topology_kind: "SOLID" | "FACE" | "EDGE" | "VERTEX";
   topo_id: string;
+}
+/**
+ * This interface was referenced by `EntityDocument`'s JSON-Schema
+ * via the `definition` "packageGeometry".
+ */
+export interface PackageGeometry {
+  kind: "package_geometry";
+  package_kind: "part_package" | "assembly_package";
+  package_revision: Hash;
+  definition_id: ProductId;
 }
 /**
  * This interface was referenced by `EntityDocument`'s JSON-Schema

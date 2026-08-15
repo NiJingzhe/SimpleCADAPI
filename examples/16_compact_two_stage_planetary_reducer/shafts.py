@@ -8,7 +8,6 @@ from common import _apply_tags, add_placement_axis_connector_rpart, make_axis_pa
 from dimensions import INPUT_BEARING_Z, INPUT_FLANGE_TOP_Z, INPUT_SHAFT_RADIUS, STAGE_1
 
 
-@scad.requires_session
 def make_input_shaft_rpart(*, material: scad.Material) -> scad.Part:
     """Create the input shaft linking the input flange and stage 1 sun."""
 

@@ -10,7 +10,7 @@ def inspect_step_components_rdescriptorlist(step_path: str | Path) -> list[dict[
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_step_components_rdescriptorlist(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_step_components_rdescriptorlist(...)`; unavailable inside GraphSession
 
 ## Description
 

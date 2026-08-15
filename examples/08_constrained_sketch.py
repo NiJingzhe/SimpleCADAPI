@@ -6,7 +6,7 @@ Run from the repository root with:
 Generated files:
     examples/out/constrained_sketch.model.json
     examples/out/constrained_sketch.step
-    examples/out/constrained_sketch.fcstd
+    examples/out/constrained_sketch.FCStd
 
 When the intent is a sketch/profile, use the sketch APIs. Concrete geometry
 APIs remain for paths, pure geometry, and lowering targets.
@@ -20,11 +20,11 @@ from pathlib import Path
 import simplecadapi as scad
 
 
-OUT = Path("examples/out")
+OUT = Path(__file__).resolve().parent / "out" / "constrained_sketch"
 MODEL_JSON_PATH = OUT / "constrained_sketch.model.json"
+SESSION_JSON_PATH = OUT / "constrained_sketch.session.json"
 STEP_PATH = OUT / "constrained_sketch.step"
-FCSTD_PATH = OUT / "constrained_sketch.fcstd"
-FREECAD_CMD = Path("/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd")
+FCSTD_PATH = OUT / "constrained_sketch.FCStd"
 
 
 def _solve_and_report(name: str, sketch: scad.Sketch) -> None:
@@ -53,7 +53,6 @@ def _solve_and_report(name: str, sketch: scad.Sketch) -> None:
     )
 
 
-@scad.requires_session
 def _promote_face(name: str, sketch: scad.Sketch):
     _solve_and_report(name=name, sketch=sketch)
     return scad.make_face_from_sketch_rface(
@@ -62,7 +61,6 @@ def _promote_face(name: str, sketch: scad.Sketch):
     )
 
 
-@scad.requires_session
 def make_rect_profile(name, x0, y0, width, height):
     sketch = scad.make_sketch_rsketch(name=name, plane="XY")
 
@@ -154,7 +152,6 @@ def make_rect_profile(name, x0, y0, width, height):
     return _promote_face(name=name, sketch=sketch)
 
 
-@scad.requires_session
 def make_circle_profile(name, center_x, center_y, radius, circle_id):
     sketch = scad.make_sketch_rsketch(name=name, plane="XY")
     sketch = scad.add_point_rsketch(
@@ -178,7 +175,6 @@ def make_circle_profile(name, center_x, center_y, radius, circle_id):
     return _promote_face(name=name, sketch=sketch)
 
 
-@scad.requires_session
 def make_guided_diamond_profile(name, center_x, center_y, width, height, guide_gap):
     half_w = width / 2.0
     half_h = height / 2.0
@@ -263,7 +259,6 @@ def make_guided_diamond_profile(name, center_x, center_y, width, height, guide_g
     return _promote_face(name=name, sketch=sketch)
 
 
-@scad.requires_session
 def make_curve_guided_relief_profile(name, center_x, center_y, radius, guide_span):
     sketch = scad.make_sketch_rsketch(name=name, plane="XY")
 
@@ -374,8 +369,7 @@ def make_curve_guided_relief_profile(name, center_x, center_y, radius, guide_spa
     return _promote_face(name=name, sketch=sketch)
 
 
-@scad.model(graph_id="constrained_sketch")
-def build_model():
+def _build_model_body():
     plate_w = scad.var(name="plate_w", default=96.0, comment="plate width")
     plate_h = scad.var(name="plate_h", default=54.0, comment="plate height")
     plate_t = scad.var(name="plate_t", default=6.0, comment="plate thickness")
@@ -604,7 +598,6 @@ def build_model():
         shape=part,
         tag="demo.constrained_sketch_bracket",
     )
-    scad.capture_result(value=part)
     return {
         "part": part,
         "plate_profile": plate_profile,
@@ -613,73 +606,81 @@ def build_model():
     }
 
 
-def main() -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
-    result = build_model()
-    data = result.value
-    MODEL_JSON_PATH.write_text(result.model_json, encoding="utf-8")
-
-    rebuilt = result.replay()
-    scad.export_step(shapes=rebuilt, filename=str(STEP_PATH))
-
-    freecad_cmd = str(FREECAD_CMD) if FREECAD_CMD.exists() else None
-    scad.translator.freecad_translator.translate_model_json_to_fcstd(
-        json_str=result.model_json,
-        output_path=str(FCSTD_PATH),
-        document_name="SimpleCADConstrainedSketchDemo",
-        freecad_cmd=freecad_cmd,
+def _profile_entity_tags(profile: scad.Face) -> list[str]:
+    return sorted(
+        tag
+        for edge in scad.ql.select(items=profile.get_edges())
+        .where(scad.ql.tag(pattern="sketch_entity.*"))
+        .all()
+        for tag in scad.list_tags(shape=edge)
+        if tag.startswith("sketch_entity.")
     )
 
-    payload = json.loads(result.model_json)
+
+@scad.part(
+    id="constrained_sketch",
+    revision="1.0.0",
+    cache="off",
+    project_root=Path(__file__).resolve().parents[1],
+)
+def build_constrained_sketch_part() -> scad.Part:
+    data = _build_model_body()
+    part = scad.make_part_rpart(
+        part_id="constrained_sketch",
+        body=data["part"],
+        name="Constrained sketch bracket",
+    )
+    part.set_metadata(
+        "example.profile_entity_tags",
+        {
+            "plate": _profile_entity_tags(data["plate_profile"]),
+            "diamond": _profile_entity_tags(data["diamond_profile"]),
+            "curve": _profile_entity_tags(data["curve_relief_profile"]),
+        },
+    )
+    return part
+
+
+def build_model():
+    result = build_constrained_sketch_part()
+    session = result.feature_graph.restore_session()
+    return result, scad.export_model_json(session), scad.export_session_json(session)
+
+
+def main() -> None:
+    OUT.mkdir(parents=True, exist_ok=True)
+    result, model_json, session_json = build_model()
+    MODEL_JSON_PATH.write_text(model_json, encoding="utf-8")
+    SESSION_JSON_PATH.write_text(session_json, encoding="utf-8")
+    package_path = OUT / "constrained_sketch.scadpkg"
+    scad.capture(result, package_path)
+    step_report = scad.exporter.export_product_package_to_step(package_path, STEP_PATH)
+    scad.translator.freecad_translator.translate_product_package_to_fcstd(
+        package_path,
+        str(FCSTD_PATH),
+        document_name="SimpleCADConstrainedSketchDemo",
+    )
+
+    payload = json.loads(model_json)
     ops = [node["op"] for node in payload["graph"]["nodes"]]
     promotion_nodes = [
         node
         for node in payload["graph"]["nodes"]
-        if node["op"]
-        in {"make_face_from_sketch_rface", "make_wire_from_sketch_rwire"}
+        if node["op"] in {"make_face_from_sketch_rface", "make_wire_from_sketch_rwire"}
     ]
     diamond_promotion = next(
         node
         for node in promotion_nodes
         if node["params"]["sketch"].get("name") == "guided_diamond_pocket"
     )
-    diamond_constraints = diamond_promotion["params"]["sketch"].get(
-        "constraints",
-        [],
-    )
+    diamond_constraints = diamond_promotion["params"]["sketch"].get("constraints", [])
     curve_promotion = next(
         node
         for node in promotion_nodes
         if node["params"]["sketch"].get("name") == "curve_guided_relief"
     )
-    curve_constraints = curve_promotion["params"]["sketch"].get(
-        "constraints",
-        [],
-    )
-    sketch_entity_tags = sorted(
-        tag
-        for edge in scad.ql.select(items=data["plate_profile"].get_edges())
-        .where(scad.ql.tag(pattern="sketch_entity.*"))
-        .all()
-        for tag in scad.list_tags(shape=edge)
-        if tag.startswith("sketch_entity.")
-    )
-    diamond_entity_tags = sorted(
-        tag
-        for edge in scad.ql.select(items=data["diamond_profile"].get_edges())
-        .where(scad.ql.tag(pattern="sketch_entity.*"))
-        .all()
-        for tag in scad.list_tags(shape=edge)
-        if tag.startswith("sketch_entity.")
-    )
-    curve_entity_tags = sorted(
-        tag
-        for edge in scad.ql.select(items=data["curve_relief_profile"].get_edges())
-        .where(scad.ql.tag(pattern="sketch_entity.*"))
-        .all()
-        for tag in scad.list_tags(shape=edge)
-        if tag.startswith("sketch_entity.")
-    )
+    curve_constraints = curve_promotion["params"]["sketch"].get("constraints", [])
+    entity_tags = result.part.get_metadata("example.profile_entity_tags")
 
     print("graph_nodes", len(ops))
     print("sketch_ops", sum(1 for op in ops if "sketch" in op))
@@ -687,14 +688,12 @@ def main() -> None:
     print(
         "promotion_solve_snapshots",
         sum(
-            1
-            for node in promotion_nodes
-            if "solve_snapshot" in node.get("params", {})
+            1 for node in promotion_nodes if "solve_snapshot" in node.get("params", {})
         ),
     )
     print("contains_public_solve_node", "make_solve_sketch_rsketchresult" in ops)
-    print("plate_sketch_entity_tags", sketch_entity_tags)
-    print("diamond_sketch_entity_tags", diamond_entity_tags)
+    print("plate_sketch_entity_tags", entity_tags["plate"])
+    print("diamond_sketch_entity_tags", entity_tags["diamond"])
     print("diamond_constraint_count", len(diamond_constraints))
     print(
         "diamond_parallel_equal_constraints",
@@ -704,7 +703,7 @@ def main() -> None:
             if constraint.get("kind") in {"parallel", "equal_length"}
         ),
     )
-    print("curve_sketch_entity_tags", curve_entity_tags)
+    print("curve_sketch_entity_tags", entity_tags["curve"])
     print("curve_constraint_count", len(curve_constraints))
     print(
         "curve_tangent_equal_radius_constraints",
@@ -715,10 +714,12 @@ def main() -> None:
             in {"tangent", "equal_radius", "concentric", "point_on"}
         ),
     )
-    print("volume", round(data["part"].get_volume(), 3))
+    print("volume", round(result.part.body.get_volume(), 3))
     print("wrote", MODEL_JSON_PATH)
-    print("wrote", STEP_PATH)
+    print("wrote", SESSION_JSON_PATH)
+    print("wrote", step_report.output_path)
     print("wrote", FCSTD_PATH)
+    print("product_package", package_path)
 
 
 if __name__ == "__main__":

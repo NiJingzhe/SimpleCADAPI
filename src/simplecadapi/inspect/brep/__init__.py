@@ -135,8 +135,7 @@ def _outside_model_graph(function):
         if _get_active_session() is not None:
             raise RuntimeError(
                 "simplecadapi.inspect.brep tools cannot run inside an active "
-                "GraphSession or @model function; inspect exported geometry "
-                "outside the modeling script"
+                "GraphSession; inspect exported geometry outside the modeling script"
             )
         return function(*args, **kwargs)
 

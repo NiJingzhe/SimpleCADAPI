@@ -10,7 +10,7 @@ def compare_entities_rdescriptor(target: ModelInput, target_entity_id: str, curr
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_entities_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_entities_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

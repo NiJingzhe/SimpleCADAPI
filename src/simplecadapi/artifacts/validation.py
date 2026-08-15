@@ -22,8 +22,8 @@ from .canonical import (
 
 _ARTIFACT_KINDS = {"part_definition", "assembly_definition"}
 _SCHEMA_FILES = {
-    "part_definition": "part-definition-1.schema.json",
-    "assembly_definition": "assembly-definition-1.schema.json",
+    "part_definition": "part-definition-2.schema.json",
+    "assembly_definition": "assembly-definition-2.schema.json",
 }
 
 
@@ -129,7 +129,7 @@ def parse_artifact_json(
 def _blob_refs(manifest: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
     if manifest["artifact_kind"] == "part_definition":
         refs = [
-            ("/definition/model_ref", manifest["definition"]["model_ref"]),
+            ("/definition/feature_graph_ref", manifest["definition"]["feature_graph_ref"]),
             ("/solid_cache/body_ref", manifest["solid_cache"]["body_ref"]),
             ("/topology_snapshot_ref", manifest["topology_snapshot_ref"]),
         ]
@@ -137,8 +137,7 @@ def _blob_refs(manifest: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]
         if material is not None:
             refs.append(("/material_ref", material))
         return refs
-    model_ref = manifest["model_ref"]
-    return [] if model_ref is None else [("/model_ref", model_ref)]
+    return [("/feature_graph_ref", manifest["feature_graph_ref"])]
 
 
 def validate_artifact_blobs(

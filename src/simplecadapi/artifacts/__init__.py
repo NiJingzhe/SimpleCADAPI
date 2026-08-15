@@ -15,6 +15,12 @@ from .canonical import (
     ArtifactLimits,
     ArtifactValidationError,
 )
+from .feature_graph import (
+    FeatureGraphArtifact,
+    SourceFileSnapshot,
+    encode_feature_graph_artifact,
+    load_feature_graph_artifact,
+)
 from .geometry_interface import (
     geometry_interface_descriptor,
     geometry_interface_fingerprint,
@@ -50,6 +56,10 @@ __all__ = [
     "AssemblyDefinition",
     "BlobRef",
     "PartInterfaceDiff",
+    "FeatureGraphArtifact",
+    "SourceFileSnapshot",
+    "encode_feature_graph_artifact",
+    "load_feature_graph_artifact",
     "PartInterfaceSnapshot",
     "decode_assembly_definition",
     "encode_assembly_definition",

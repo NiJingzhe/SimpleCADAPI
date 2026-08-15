@@ -108,7 +108,6 @@ except ImportError:  # Support direct execution from this example directory.
     )
 
 
-@scad.requires_session
 def make_motor_shell_rpart(*, material: scad.Material) -> scad.Part:
     """Create the stator sleeve, front attachment land, and rear columns."""
 
@@ -200,7 +199,6 @@ def make_motor_shell_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
 def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
     """Create the reducer sleeve and front motor-bearing bulkhead."""
 
@@ -325,7 +323,6 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
 def make_rear_bearing_spider_rpart(*, material: scad.Material) -> scad.Part:
     """Create a four-arm removable rear motor-bearing support."""
 
@@ -404,7 +401,6 @@ def make_rear_bearing_spider_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
 def make_rear_electronics_cover_rpart(*, material: scad.Material) -> scad.Part:
     """Create the rear cover with PCB standoffs and terminal apertures."""
 
@@ -526,7 +522,6 @@ def make_rear_electronics_cover_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
 def make_output_bearing_cap_rpart(*, material: scad.Material) -> scad.Part:
     """Create the removable paired-bearing cartridge and front cap."""
 

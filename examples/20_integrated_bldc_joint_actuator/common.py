@@ -19,7 +19,6 @@ PART_INPUTS = tuple(
 )
 
 
-@scad.requires_session
 def apply_tags(*, shape: scad.Solid, tags: Iterable[str]) -> scad.Solid:
     """Apply semantic tags through the public functional API."""
 
@@ -29,16 +28,13 @@ def apply_tags(*, shape: scad.Solid, tags: Iterable[str]) -> scad.Solid:
     return tagged
 
 
-@scad.requires_session
-def make_annulus_rsolid(
-    *,
-    outer_radius: float,
-    inner_radius: float,
-    bottom_z: float,
-    height: float,
-    tag_prefix: str,
-    tags: Iterable[str],
-) -> scad.Solid:
+def make_annulus_rsolid(*,
+outer_radius: float,
+inner_radius: float,
+bottom_z: float,
+height: float,
+tag_prefix: str,
+tags: Iterable[str],) -> scad.Solid:
     """Create a strict single-solid annular cylinder."""
 
     outer = scad.make_cylinder_rsolid(
@@ -61,15 +57,12 @@ def make_annulus_rsolid(
     return apply_tags(shape=annulus, tags=tags)
 
 
-@scad.requires_session
-def make_axis_part_rpart(
-    *,
-    part_id: str,
-    body: scad.Solid,
-    name: str,
-    material: scad.Material,
-    connectors: Iterable[tuple[str, tuple[float, float, float], str]],
-) -> scad.Part:
+def make_axis_part_rpart(*,
+part_id: str,
+body: scad.Solid,
+name: str,
+material: scad.Material,
+connectors: Iterable[tuple[str, tuple[float, float, float], str]],) -> scad.Part:
     """Create a single-body part with stable placement-based axis datums."""
 
     part = scad.make_part_rpart(part_id=part_id, body=body, name=name)
@@ -105,12 +98,9 @@ def z_rotation_placement(
     )
 
 
-@scad.requires_session
-def make_z_rotation_rplacement(
-    *,
-    origin: tuple[float, float, float],
-    angle_degrees: float,
-) -> scad.Placement:
+def make_z_rotation_rplacement(*,
+origin: tuple[float, float, float],
+angle_degrees: float,) -> scad.Placement:
     """Build a replayable Z rotation in the caller's graph session."""
 
     return z_rotation_placement(origin=origin, angle_degrees=angle_degrees)
@@ -125,17 +115,14 @@ def radial_centers(*, count: int, radius: float, angle_offset: float = 0.0):
         yield index, angle_degrees, (radius * math.cos(angle), radius * math.sin(angle))
 
 
-@scad.requires_session
-def make_axial_hole_cutters_rsolids(
-    *,
-    count: int,
-    pcd: float,
-    hole_radius: float,
-    bottom_z: float,
-    height: float,
-    tag_prefix: str,
-    angle_offset: float = 0.0,
-) -> list[scad.Solid]:
+def make_axial_hole_cutters_rsolids(*,
+count: int,
+pcd: float,
+hole_radius: float,
+bottom_z: float,
+height: float,
+tag_prefix: str,
+angle_offset: float = 0.0,) -> list[scad.Solid]:
     """Create equally spaced axial hole cutters."""
 
     cutters = []
