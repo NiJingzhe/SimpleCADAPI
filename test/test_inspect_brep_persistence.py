@@ -44,6 +44,65 @@ def test_validate_step_roundtrip_reports_persistence_and_topology(tmp_path):
     json.dumps(result, allow_nan=False)
 
 
+@pytest.mark.parametrize("drift", ["centroid", "bounding_box"])
+def test_roundtrip_does_not_publish_position_drift(tmp_path, monkeypatch, drift):
+    from simplecadapi.inspect.brep import persistence
+
+    output = tmp_path / "position.step"
+    sentinel = b"do-not-replace"
+    output.write_bytes(sentinel)
+    original_index = persistence.index_shape_rbrepmodel
+    index_calls = 0
+
+    def drifting_index(*args, **kwargs):
+        nonlocal index_calls
+        index_calls += 1
+        model = original_index(*args, **kwargs)
+        if index_calls == 1:
+            return model
+        original_summary = model.summary
+
+        def summary():
+            result = original_summary()
+            if drift == "centroid":
+                result["centroid"][0] += 0.1
+            else:
+                result["bounding_box"]["min"][0] += 0.1
+                result["bounding_box"]["max"][0] += 0.1
+            return result
+
+        model.summary = summary
+        return model
+
+    monkeypatch.setattr(persistence, "index_shape_rbrepmodel", drifting_index)
+
+    result = persistence.validate_step_roundtrip_rdescriptor(
+        BRepPrimAPI_MakeBox(1.0, 1.0, 1.0).Shape(), output
+    )
+
+    assert result["passed"] is False
+    assert result["output_replaced"] is False
+    delta_name = (
+        "centroid_distance"
+        if drift == "centroid"
+        else "bounding_box_max_coordinate_delta"
+    )
+    assert result["property_deltas"][delta_name] == pytest.approx(0.1)
+    assert output.read_bytes() == sentinel
+
+
+@pytest.mark.parametrize("position_tolerance", [-1.0, float("nan"), float("inf")])
+def test_validate_step_roundtrip_rejects_invalid_position_tolerance(
+    tmp_path, position_tolerance
+):
+    with pytest.raises(ValueError, match="position_tolerance must be finite"):
+        brep.validate_step_roundtrip_rdescriptor(
+            BRepPrimAPI_MakeBox(1.0, 1.0, 1.0).Shape(),
+            tmp_path / "invalid.step",
+            position_tolerance=position_tolerance,
+        )
+
+
 def test_validate_step_roundtrip_preserves_open_face_semantics(tmp_path):
     result = brep.validate_step_roundtrip_rdescriptor(
         _open_face(), tmp_path / "face.step"

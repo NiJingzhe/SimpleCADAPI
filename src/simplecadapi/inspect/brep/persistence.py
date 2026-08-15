@@ -66,16 +66,24 @@ def validate_step_roundtrip_rdescriptor(
     output_path: str | Path,
     *,
     relative_property_tolerance: float = 1.0e-7,
+    position_tolerance: float = 1.0e-6,
     protected_input_paths: tuple[str | Path, ...] = (),
     compact: bool = True,
 ) -> dict[str, Any]:
-    """Atomically write and reload STEP, publishing only a verified result."""
+    """Atomically write and reload STEP, publishing only a verified result.
+
+    Relative tolerance bounds volume and surface-area drift. Position tolerance,
+    in model length units, bounds centroid distance and bounding-box coordinate
+    drift. The returned descriptor records each measured delta.
+    """
 
     if (
         not math.isfinite(relative_property_tolerance)
         or relative_property_tolerance < 0.0
     ):
         raise ValueError("relative_property_tolerance must be finite and non-negative")
+    if not math.isfinite(position_tolerance) or position_tolerance < 0.0:
+        raise ValueError("position_tolerance must be finite and non-negative")
     destination = Path(output_path).expanduser().resolve()
     if destination.suffix.lower() not in {".step", ".stp"}:
         raise ValueError("output_path must end in .step or .stp")
@@ -128,6 +136,11 @@ def validate_step_roundtrip_rdescriptor(
             "surface_area": area_delta,
             "relative_surface_area": relative_area,
             "centroid_distance": float(math.dist(before["centroid"], after["centroid"])),
+            "bounding_box_max_coordinate_delta": max(
+                abs(float(after["bounding_box"][side][axis]) - float(before["bounding_box"][side][axis]))
+                for side in ("min", "max")
+                for axis in range(3)
+            ),
         }
         topology_deltas = {
             "faces": int(after["face_count"] - before["face_count"]),
@@ -153,6 +166,8 @@ def validate_step_roundtrip_rdescriptor(
             and before["vertex_count"] == after["vertex_count"]
             and abs(relative_volume) <= relative_property_tolerance
             and abs(relative_area) <= relative_property_tolerance
+            and property_deltas["centroid_distance"] <= position_tolerance
+            and property_deltas["bounding_box_max_coordinate_delta"] <= position_tolerance
             and topology_deltas["free_edges"] == 0
             and topology_deltas["non_manifold_edges"] == 0
             and topology_deltas["degenerate_edges"] == 0
