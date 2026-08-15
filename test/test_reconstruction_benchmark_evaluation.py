@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from types import SimpleNamespace
+import subprocess
+import sys
+import time
 import pytest
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
 
 import simplecadapi as scad
 from simplecadapi.inverse_engineer.brep import evaluation as benchmark_evaluation
 from simplecadapi.kernel.ocp_export import export_step_shapes
+
+
+_TRUSTED_TEST_PATH = Path(__file__).resolve()
 
 
 def _config(*, target_kind: str = "solid") -> benchmark_evaluation.EvaluationConfig:
@@ -62,23 +68,156 @@ def _strict_material_report(*, supported: bool = True) -> dict:
     }
 
 
+def _inspection(
+    *,
+    valid: bool = True,
+    solid: int = 1,
+    shell: int = 1,
+    open_shell: int | None = None,
+) -> dict:
+    payload = {
+        "status": "passed" if valid else "failed",
+        "gate_passed": valid,
+        "elapsed_seconds": 0.01,
+        "report": {
+            "source": "candidate.step",
+            "valid": valid,
+            "counts": {
+                "solid": solid,
+                "shell": shell,
+                "open_shell": (
+                    open_shell if open_shell is not None else int(solid == 0 and shell > 0)
+                ),
+                "closed_shell": shell - (
+                    open_shell if open_shell is not None else int(solid == 0 and shell > 0)
+                ),
+                "face_occurrences": 6,
+                "edge_occurrences": 24,
+                "vertex_occurrences": 48,
+                "unique_faces": 6,
+                "unique_edges": 12,
+                "unique_vertices": 8,
+            },
+        },
+        "report_path": "evaluation/inspection/report.json",
+        "error": None,
+    }
+    return benchmark_evaluation._seal_trusted_evidence(
+        payload,
+        evidence_kind="inspection",
+        context={
+            "candidate_path": str(_TRUSTED_TEST_PATH),
+            "candidate_sha256": benchmark_evaluation._file_sha256(
+                _TRUSTED_TEST_PATH
+            ),
+        },
+    )
+
+
+def _strict_report(**overrides) -> dict:
+    report = {
+        "target_minus_candidate_volume": 0.0,
+        "candidate_minus_target_volume": 0.0,
+        "same_geometric_point_set": True,
+        "geometry_labelled_incidence_graph_isomorphic": True,
+        "target_graph_nodes_edges": [26, 48],
+        "candidate_graph_nodes_edges": [26, 48],
+        "geometric_tolerance": 1.0e-7,
+        "boolean_volume_tolerance": 1.0e-9,
+        "hard_gate_passed": True,
+        "diagnostics": {
+            "step_validity": {"target": True, "candidate": True},
+            "topology_counts": {
+                "target": {"face": 6, "edge": 12, "vertex": 8},
+                "candidate": {"face": 6, "edge": 12, "vertex": 8},
+            },
+            "face_edge_topology": {
+                "target": [
+                    {"edge_ids": [f"edge:{index}" for index in range(4)]}
+                    for _ in range(6)
+                ],
+                "candidate": [
+                    {"edge_ids": [f"edge:{index}" for index in range(4)]}
+                    for _ in range(6)
+                ],
+            },
+        },
+    }
+    report.update(overrides)
+    return report
+
+
+def _strict_stage(**report_overrides) -> dict:
+    return {
+        "status": "passed",
+        "gate_passed": True,
+        "checks": {"hard_gate": True},
+        "report": _strict_report(**report_overrides),
+    }
+
+
+def _write_placeholder_steps(tmp_path: Path) -> tuple[Path, Path]:
+    target = tmp_path / "target.step"
+    candidate = tmp_path / "candidate.step"
+    target.write_bytes(b"target")
+    candidate.write_bytes(b"candidate")
+    return target, candidate
+
+
 def _classify(**overrides):
+    inspection_was_supplied = "candidate_inspection" in overrides
     arguments = {
         "replay_succeeded": True,
         "persistence_succeeded": True,
         "baseline_integrity_passed": True,
         "candidate_bytes_equal_target": False,
-        "candidate_valid": True,
         "target_kind": "solid",
-        "candidate_kind_matches": True,
-        "candidate_has_solid": True,
-        "candidate_has_shell": True,
+        "candidate_inspection": _inspection(),
         "stages": {},
         "strict_topology_requested": False,
         "parameter_representation_required": False,
         "parameter_representation_passed": None,
     }
     arguments.update(overrides)
+    inspection_context = benchmark_evaluation._trusted_evidence_context(
+        arguments["candidate_inspection"],
+        evidence_kind="inspection",
+    )
+    stages_context = benchmark_evaluation._trusted_evidence_context(
+        arguments["stages"],
+        evidence_kind="comparison_bundle",
+    )
+    if (
+        stages_context is not None
+        and inspection_context is not None
+        and not inspection_was_supplied
+    ):
+        arguments["candidate_inspection"] = benchmark_evaluation._seal_trusted_evidence(
+            arguments["candidate_inspection"],
+            evidence_kind="inspection",
+            context={
+                "candidate_path": stages_context["candidate_path"],
+                "candidate_sha256": stages_context["candidate_sha256"],
+            },
+        )
+    if not isinstance(arguments["stages"], benchmark_evaluation._TrustedEvidence):
+        arguments["stages"] = benchmark_evaluation._seal_trusted_evidence(
+            arguments["stages"],
+            evidence_kind="comparison_bundle",
+            context={
+                "target_path": str(_TRUSTED_TEST_PATH),
+                "target_sha256": benchmark_evaluation._file_sha256(
+                    _TRUSTED_TEST_PATH
+                ),
+                "candidate_path": str(_TRUSTED_TEST_PATH),
+                "candidate_sha256": benchmark_evaluation._file_sha256(
+                    _TRUSTED_TEST_PATH
+                ),
+                "config": {"target_kind": arguments["target_kind"]},
+                "diagnostics": False,
+                "strict_topology": arguments["strict_topology_requested"],
+            },
+        )
     return benchmark_evaluation.classify_benchmark_result(**arguments)
 
 
@@ -109,10 +248,11 @@ def test_comparison_bundle_requests_strict_bidirectional_material(
         raise AssertionError(kwargs["name"])
 
     monkeypatch.setattr(benchmark_evaluation, "_stage", fake_stage)
+    target, candidate = _write_placeholder_steps(tmp_path)
     stages = benchmark_evaluation.run_comparison_bundle(
         _config(),
-        target_path=tmp_path / "target.step",
-        candidate_path=tmp_path / "candidate.step",
+        target_path=target,
+        candidate_path=candidate,
         output_directory=tmp_path / "evaluation",
     )
 
@@ -137,6 +277,68 @@ def test_evaluation_config_validates_closed_contract() -> None:
             normal=(0.0, 0.0, 1.0),
             samples_per_edge=3,
         )
+
+
+@pytest.mark.parametrize("value", [True, 4.0, "4"])
+def test_section_samples_per_edge_requires_an_integer(value) -> None:
+    with pytest.raises(TypeError, match="samples_per_edge must be an integer"):
+        benchmark_evaluation.SectionEvaluationConfig(
+            section_id="center",
+            origin=(0.0, 0.0, 0.0),
+            normal=(0.0, 0.0, 1.0),
+            samples_per_edge=value,
+        )
+
+
+@pytest.mark.parametrize("value", [1, 0, "true", None])
+def test_section_require_nonempty_requires_a_bool(value) -> None:
+    with pytest.raises(TypeError, match="require_nonempty must be a bool"):
+        benchmark_evaluation.SectionEvaluationConfig(
+            section_id="center",
+            origin=(0.0, 0.0, 0.0),
+            normal=(0.0, 0.0, 1.0),
+            require_nonempty=value,
+        )
+
+
+@pytest.mark.parametrize("value", [True, 16.0, "16"])
+def test_boundary_max_samples_requires_an_integer(value) -> None:
+    with pytest.raises(TypeError, match="boundary_max_samples must be an integer"):
+        benchmark_evaluation.EvaluationConfig(boundary_max_samples=value)
+
+
+@pytest.mark.parametrize(
+    ("config_type", "field"),
+    [
+        (benchmark_evaluation.EvaluationConfig, "stage_timeout_seconds"),
+        (benchmark_evaluation.EvaluationConfig, "global_max_bbox_delta"),
+        (benchmark_evaluation.EvaluationConfig, "strict_material_tolerance"),
+        (benchmark_evaluation.SectionEvaluationConfig, "tolerance"),
+        (benchmark_evaluation.SectionEvaluationConfig, "max_hausdorff"),
+    ],
+)
+def test_numeric_config_fields_reject_booleans(config_type, field) -> None:
+    kwargs = {field: True}
+    if config_type is benchmark_evaluation.SectionEvaluationConfig:
+        kwargs.update(
+            section_id="center",
+            origin=(0.0, 0.0, 0.0),
+            normal=(0.0, 0.0, 1.0),
+        )
+
+    with pytest.raises(ValueError, match=field):
+        config_type(**kwargs)
+
+
+def test_evaluation_config_rejects_duplicate_section_ids() -> None:
+    section = benchmark_evaluation.SectionEvaluationConfig(
+        section_id="center",
+        origin=(0.0, 0.0, 0.0),
+        normal=(0.0, 0.0, 1.0),
+    )
+
+    with pytest.raises(ValueError, match="section IDs must be unique"):
+        benchmark_evaluation.EvaluationConfig(sections=(section, section))
 
 
 def test_identical_solids_produce_real_strict_material_proof(
@@ -186,10 +388,11 @@ def test_non_strict_material_estimate_cannot_prove_point_set_equality(
         }
 
     monkeypatch.setattr(benchmark_evaluation, "_stage", fake_stage)
+    target, candidate = _write_placeholder_steps(tmp_path)
     stages = benchmark_evaluation.run_comparison_bundle(
         _config(),
-        target_path=tmp_path / "target.step",
-        candidate_path=tmp_path / "candidate.step",
+        target_path=target,
+        candidate_path=candidate,
         output_directory=tmp_path / "evaluation",
     )
 
@@ -217,10 +420,11 @@ def test_valid_strict_material_residual_proves_point_sets_differ(
         }
 
     monkeypatch.setattr(benchmark_evaluation, "_stage", fake_stage)
+    target, candidate = _write_placeholder_steps(tmp_path)
     stages = benchmark_evaluation.run_comparison_bundle(
         _config(),
-        target_path=tmp_path / "target.step",
-        candidate_path=tmp_path / "candidate.step",
+        target_path=target,
+        candidate_path=candidate,
         output_directory=tmp_path / "evaluation",
     )
 
@@ -251,10 +455,11 @@ def test_material_proof_survives_unavailable_global_report(
         }
 
     monkeypatch.setattr(benchmark_evaluation, "_stage", fake_stage)
+    target, candidate = _write_placeholder_steps(tmp_path)
     stages = benchmark_evaluation.run_comparison_bundle(
         _config(),
-        target_path=tmp_path / "target.step",
-        candidate_path=tmp_path / "candidate.step",
+        target_path=target,
+        candidate_path=candidate,
         output_directory=tmp_path / "evaluation",
     )
 
@@ -304,8 +509,7 @@ def test_failed_material_stage_cannot_claim_strict_equality() -> None:
 def test_valid_open_shell_is_approximation_when_equivalence_is_unproved() -> None:
     result = _classify(
         target_kind="open_shell",
-        candidate_has_solid=False,
-        candidate_has_shell=True,
+        candidate_inspection=_inspection(solid=0, shell=1),
         stages={
             "global": {"status": "passed", "gate_passed": True},
             "material": {"status": "not_applicable", "gate_passed": True},
@@ -336,10 +540,8 @@ def test_real_open_shell_reloads_and_classifies_without_fabricating_material(
     )
     report = inspection["report"]
     result = _classify(
-        candidate_valid=inspection["status"] == "passed",
         target_kind="open_shell",
-        candidate_has_solid=bool(report["counts"]["solid"]),
-        candidate_has_shell=bool(report["counts"]["shell"]),
+        candidate_inspection=inspection,
         stages={
             "global": {"status": "passed", "gate_passed": True},
             "material": {"status": "not_applicable", "gate_passed": True},
@@ -396,13 +598,16 @@ def test_strict_comparison_accepts_identical_multi_root_steps(tmp_path: Path) ->
     assert stages["material"]["strict_point_set_equal"] is True
     assert stages["strict"]["status"] == "passed"
     assert stages["strict"]["report"]["hard_gate_passed"] is True
+    assert _classify(
+        stages=stages,
+        strict_topology_requested=True,
+    ) == {"classification": "exact_brep", "reasons": []}
 
 
 def test_open_shell_target_rejects_a_fabricated_solid() -> None:
     result = _classify(
         target_kind="open_shell",
-        candidate_has_solid=True,
-        candidate_has_shell=True,
+        candidate_inspection=_inspection(solid=1, shell=1),
         stages={"global": {"status": "passed", "gate_passed": True}},
     )
 
@@ -441,11 +646,7 @@ def test_missing_parameter_representation_does_not_erase_geometry_equivalence() 
                 "gate_passed": True,
                 "strict_point_set_equal": True,
             },
-            "strict": {
-                "status": "passed",
-                "gate_passed": True,
-                "report": {"hard_gate_passed": True},
-            },
+            "strict": _strict_stage(),
         },
         strict_topology_requested=True,
         parameter_representation_required=True,
@@ -461,9 +662,7 @@ def test_missing_parameter_representation_does_not_erase_geometry_equivalence() 
 def test_open_shell_target_requires_a_shell_candidate() -> None:
     result = _classify(
         target_kind="open_shell",
-        candidate_kind_matches=False,
-        candidate_has_solid=False,
-        candidate_has_shell=False,
+        candidate_inspection=_inspection(solid=0, shell=0),
         stages={"global": {"status": "passed", "gate_passed": True}},
     )
 
@@ -475,9 +674,7 @@ def test_open_shell_target_requires_a_shell_candidate() -> None:
 
 def test_solid_target_requires_a_solid_candidate() -> None:
     result = _classify(
-        candidate_kind_matches=False,
-        candidate_has_solid=False,
-        candidate_has_shell=True,
+        candidate_inspection=_inspection(solid=0, shell=1),
         stages={"global": {"status": "passed", "gate_passed": True}},
     )
 
@@ -487,17 +684,30 @@ def test_solid_target_requires_a_solid_candidate() -> None:
     }
 
 
-def test_candidate_kind_evidence_must_agree_with_shape_counts() -> None:
+def test_open_shell_kind_is_derived_from_trusted_inspection_counts() -> None:
     result = _classify(
         target_kind="open_shell",
-        candidate_kind_matches=True,
-        candidate_has_solid=False,
-        candidate_has_shell=False,
+        candidate_inspection=_inspection(solid=0, shell=0),
     )
 
     assert result == {
         "classification": "unsupported_or_incomplete",
         "reasons": ["candidate_kind_mismatch"],
+    }
+
+
+def test_open_shell_target_rejects_an_empty_shell_count_claim() -> None:
+    inspection = _inspection(solid=0, shell=1)
+    inspection["report"]["counts"]["unique_faces"] = 0
+
+    result = _classify(
+        target_kind="open_shell",
+        candidate_inspection=inspection,
+    )
+
+    assert result == {
+        "classification": "unsupported_or_incomplete",
+        "reasons": ["candidate_inspection_untrusted"],
     }
 
 
@@ -551,7 +761,7 @@ def test_required_parameter_representation_can_reach_exact_brep() -> None:
                 "gate_passed": True,
                 "strict_point_set_equal": True,
             },
-            "strict": {"status": "passed", "gate_passed": True},
+            "strict": _strict_stage(),
         },
         strict_topology_requested=True,
         parameter_representation_required=True,
@@ -559,6 +769,230 @@ def test_required_parameter_representation_can_reach_exact_brep() -> None:
     )
 
     assert result == {"classification": "exact_brep", "reasons": []}
+
+
+def test_unsealed_reports_cannot_reach_exact_brep() -> None:
+    result = benchmark_evaluation.classify_benchmark_result(
+        replay_succeeded=True,
+        persistence_succeeded=True,
+        baseline_integrity_passed=True,
+        candidate_bytes_equal_target=False,
+        target_kind="solid",
+        candidate_inspection=dict(_inspection()),
+        stages={
+            "material": {
+                "status": "passed",
+                "gate_passed": True,
+                "strict_point_set_equal": True,
+            },
+            "strict": _strict_stage(),
+        },
+        strict_topology_requested=True,
+        parameter_representation_required=False,
+        parameter_representation_passed=None,
+    )
+
+    assert result == {
+        "classification": "unsupported_or_incomplete",
+        "reasons": ["candidate_inspection_untrusted"],
+    }
+
+
+def test_mutated_strict_report_invalidates_trusted_bundle() -> None:
+    stages = benchmark_evaluation._seal_trusted_evidence(
+        {
+            "material": {
+                "status": "passed",
+                "gate_passed": True,
+                "strict_point_set_equal": True,
+            },
+            "strict": _strict_stage(),
+        },
+        evidence_kind="comparison_bundle",
+        context={
+            "target_path": str(_TRUSTED_TEST_PATH),
+            "target_sha256": benchmark_evaluation._file_sha256(_TRUSTED_TEST_PATH),
+            "candidate_path": str(_TRUSTED_TEST_PATH),
+            "candidate_sha256": benchmark_evaluation._file_sha256(
+                _TRUSTED_TEST_PATH
+            ),
+            "config": {"target_kind": "solid"},
+            "diagnostics": False,
+            "strict_topology": True,
+        },
+    )
+    stages["strict"]["report"]["target_minus_candidate_volume"] = 1.0
+
+    result = _classify(stages=stages, strict_topology_requested=True)
+
+    assert result == {
+        "classification": "approximation",
+        "reasons": ["comparison_evidence_untrusted"],
+    }
+
+
+def test_comparison_bundle_must_match_inspected_candidate() -> None:
+    stages = benchmark_evaluation._seal_trusted_evidence(
+        {},
+        evidence_kind="comparison_bundle",
+        context={
+            "target_path": str(_TRUSTED_TEST_PATH),
+            "target_sha256": benchmark_evaluation._file_sha256(_TRUSTED_TEST_PATH),
+            "candidate_path": "another.step",
+            "candidate_sha256": "sha256:not-the-inspection-input",
+            "config": {"target_kind": "solid"},
+            "diagnostics": False,
+            "strict_topology": False,
+        },
+    )
+
+    result = _classify(stages=stages, candidate_inspection=_inspection())
+
+    assert result == {
+        "classification": "approximation",
+        "reasons": ["comparison_evidence_context_mismatch"],
+    }
+
+
+def test_changed_candidate_invalidates_exact_evidence(tmp_path: Path) -> None:
+    target = tmp_path / "target.step"
+    candidate = tmp_path / "candidate.step"
+    export_step_shapes([BRepPrimAPI_MakeBox(1.0, 1.0, 1.0).Shape()], str(target))
+    export_step_shapes([BRepPrimAPI_MakeBox(1.0, 1.0, 1.0).Shape()], str(candidate))
+    inspection = benchmark_evaluation.inspect_benchmark_step(
+        candidate,
+        name="candidate-inspection",
+        output_directory=tmp_path / "inspection",
+        timeout_seconds=30.0,
+    )
+    stages = benchmark_evaluation.run_comparison_bundle(
+        _config(),
+        target_path=target,
+        candidate_path=candidate,
+        output_directory=tmp_path / "comparison",
+        strict_topology=True,
+    )
+    export_step_shapes([BRepPrimAPI_MakeBox(2.0, 1.0, 1.0).Shape()], str(candidate))
+
+    result = benchmark_evaluation.classify_benchmark_result(
+        replay_succeeded=True,
+        persistence_succeeded=True,
+        baseline_integrity_passed=True,
+        candidate_bytes_equal_target=False,
+        target_kind="solid",
+        candidate_inspection=inspection,
+        stages=stages,
+        strict_topology_requested=True,
+        parameter_representation_required=False,
+        parameter_representation_passed=None,
+    )
+
+    assert result == {
+        "classification": "approximation",
+        "reasons": ["comparison_evidence_inputs_changed"],
+    }
+
+
+def test_claimed_strict_stage_status_cannot_reach_exact_brep() -> None:
+    result = _classify(
+        stages={
+            "material": {
+                "status": "passed",
+                "gate_passed": True,
+                "strict_point_set_equal": True,
+            },
+            "strict": {"status": "passed", "gate_passed": True},
+        },
+        strict_topology_requested=True,
+    )
+
+    assert result == {
+        "classification": "geometry_equivalent",
+        "reasons": ["strict_topology_unproved"],
+    }
+
+
+def test_strict_report_without_trusted_checks_cannot_reach_exact_brep() -> None:
+    strict = _strict_stage()
+    strict.pop("checks")
+    result = _classify(
+        stages={
+            "material": {
+                "status": "passed",
+                "gate_passed": True,
+                "strict_point_set_equal": True,
+            },
+            "strict": strict,
+        },
+        strict_topology_requested=True,
+    )
+
+    assert result == {
+        "classification": "geometry_equivalent",
+        "reasons": ["strict_topology_unproved"],
+    }
+
+
+def test_strict_report_must_contain_consistent_exact_brep_evidence() -> None:
+    result = _classify(
+        stages={
+            "material": {
+                "status": "passed",
+                "gate_passed": True,
+                "strict_point_set_equal": True,
+            },
+            "strict": _strict_stage(
+                geometry_labelled_incidence_graph_isomorphic=False,
+            ),
+        },
+        strict_topology_requested=True,
+    )
+
+    assert result == {
+        "classification": "geometry_equivalent",
+        "reasons": ["strict_topology_unproved"],
+    }
+
+
+def test_failed_strict_report_needs_trusted_evidence_to_disprove_topology() -> None:
+    result = _classify(
+        stages={
+            "material": {
+                "status": "passed",
+                "gate_passed": True,
+                "strict_point_set_equal": True,
+            },
+            "strict": {
+                "status": "failed",
+                "gate_passed": False,
+                "report": {
+                    "same_geometric_point_set": True,
+                    "hard_gate_passed": False,
+                },
+            },
+        },
+        strict_topology_requested=True,
+    )
+
+    assert result == {
+        "classification": "geometry_equivalent",
+        "reasons": ["strict_stage_conflicts_with_material_proof"],
+    }
+
+
+def test_malformed_inspection_cannot_claim_candidate_validity_or_kind() -> None:
+    inspection = _inspection(solid=0, shell=1)
+    inspection["report"]["counts"]["shell"] = True
+
+    result = _classify(
+        target_kind="open_shell",
+        candidate_inspection=inspection,
+    )
+
+    assert result == {
+        "classification": "unsupported_or_incomplete",
+        "reasons": ["candidate_inspection_untrusted"],
+    }
 
 
 def test_stage_resolves_relative_output_before_switching_worker_cwd(
@@ -569,7 +1003,13 @@ def test_stage_resolves_relative_output_before_switching_worker_cwd(
     output = Path("evaluation")
     output.mkdir()
 
-    def fake_run(command, **kwargs):
+    class FakeProcess:
+        returncode = 0
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    def fake_popen(command, **kwargs):
         request_path = Path(command[-2])
         report_path = Path(command[-1])
         assert request_path.is_absolute()
@@ -577,9 +1017,10 @@ def test_stage_resolves_relative_output_before_switching_worker_cwd(
         assert request_path.parent == report_path.parent
         assert request_path.parent.parent == (tmp_path / "evaluation")
         report_path.write_text("{}", encoding="utf-8")
-        return SimpleNamespace(returncode=0)
+        return FakeProcess()
 
-    monkeypatch.setattr(benchmark_evaluation.subprocess, "run", fake_run)
+    monkeypatch.setattr(benchmark_evaluation.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(benchmark_evaluation, "_create_windows_job", lambda: None)
     result = benchmark_evaluation._stage(
         name="global",
         request={"task": "global"},
@@ -610,13 +1051,20 @@ def test_stage_writes_inside_fresh_exclusive_subdirectories(
     output.mkdir()
     report_directories = []
 
-    def fake_run(command, **kwargs):
+    class FakeProcess:
+        returncode = 0
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    def fake_popen(command, **kwargs):
         report_path = Path(command[-1])
         report_directories.append(report_path.parent)
         report_path.write_text("{}", encoding="utf-8")
-        return SimpleNamespace(returncode=0)
+        return FakeProcess()
 
-    monkeypatch.setattr(benchmark_evaluation.subprocess, "run", fake_run)
+    monkeypatch.setattr(benchmark_evaluation.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(benchmark_evaluation, "_create_windows_job", lambda: None)
     for _ in range(2):
         benchmark_evaluation._stage(
             name="global",
@@ -628,3 +1076,152 @@ def test_stage_writes_inside_fresh_exclusive_subdirectories(
 
     assert len(set(report_directories)) == 2
     assert all(path.parent == output for path in report_directories)
+
+
+def test_stage_returns_structured_failure_when_process_cannot_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_start(*args, **kwargs):
+        raise OSError("executable not found")
+
+    monkeypatch.setattr(benchmark_evaluation.subprocess, "Popen", fail_start)
+
+    result = benchmark_evaluation._stage(
+        name="global",
+        request={"task": "global"},
+        output_directory=tmp_path,
+        timeout_seconds=1.0,
+        python_executable="missing-python",
+    )
+
+    assert result["status"] == "error"
+    assert result["gate_passed"] is False
+    assert result["report"] is None
+    assert "failed to start: executable not found" in result["error"]
+
+
+def test_stage_returns_structured_failure_when_process_isolation_cannot_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_job_creation():
+        raise OSError("job unavailable")
+
+    monkeypatch.setattr(
+        benchmark_evaluation,
+        "_create_windows_job",
+        fail_job_creation,
+    )
+
+    result = benchmark_evaluation._stage(
+        name="global",
+        request={"task": "global"},
+        output_directory=tmp_path,
+        timeout_seconds=1.0,
+        python_executable="python",
+    )
+
+    assert result["status"] == "error"
+    assert result["gate_passed"] is False
+    assert result["report"] is None
+    assert "failed to start: job unavailable" in result["error"]
+
+
+def test_stage_timeout_terminates_the_process_tree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    terminated = []
+
+    class TimedOutProcess:
+        pid = 123
+        returncode = None
+
+        def wait(self, timeout=None):
+            if timeout is not None:
+                raise subprocess.TimeoutExpired("worker", timeout)
+            self.returncode = -9
+            return self.returncode
+
+    process = TimedOutProcess()
+    monkeypatch.setattr(
+        benchmark_evaluation.subprocess,
+        "Popen",
+        lambda *args, **kwargs: process,
+    )
+    monkeypatch.setattr(benchmark_evaluation, "_create_windows_job", lambda: None)
+    monkeypatch.setattr(
+        benchmark_evaluation,
+        "_terminate_process_tree",
+        lambda current, windows_job=None: terminated.append(current),
+    )
+
+    result = benchmark_evaluation._stage(
+        name="global",
+        request={"task": "global"},
+        output_directory=tmp_path,
+        timeout_seconds=0.01,
+        python_executable="python",
+    )
+
+    assert terminated == [process]
+    assert result["status"] == "error"
+    assert "timed out" in result["error"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job Object contract")
+def test_windows_worker_starts_suspended_before_job_assignment() -> None:
+    creationflags = benchmark_evaluation._process_group_options()["creationflags"]
+
+    assert creationflags & benchmark_evaluation._CREATE_SUSPENDED
+    assert creationflags & subprocess.CREATE_NEW_PROCESS_GROUP
+
+
+def test_process_tree_termination_kills_a_spawned_descendant(tmp_path: Path) -> None:
+    ready_path = tmp_path / "ready.txt"
+    survivor_path = tmp_path / "survivor.txt"
+    child_code = (
+        "import pathlib,sys,time;"
+        "time.sleep(1.0);"
+        "pathlib.Path(sys.argv[1]).write_text('survived',encoding='utf-8')"
+    )
+    parent_code = (
+        "import os,pathlib,subprocess,sys,time;"
+        "child=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[3]],"
+        "start_new_session=os.name!='nt');"
+        "pathlib.Path(sys.argv[2]).write_text(str(child.pid),encoding='utf-8');"
+        "time.sleep(30)"
+    )
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            parent_code,
+            child_code,
+            str(ready_path),
+            str(survivor_path),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        **benchmark_evaluation._process_group_options(),
+    )
+    windows_job = benchmark_evaluation._create_windows_job()
+    try:
+        benchmark_evaluation._assign_process_to_windows_job(windows_job, process)
+        benchmark_evaluation._resume_windows_process(windows_job, process)
+        deadline = time.monotonic() + 5.0
+        while not ready_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert ready_path.exists(), "parent did not spawn its descendant"
+
+        benchmark_evaluation._terminate_process_tree(process, windows_job)
+        process.wait(timeout=10.0)
+        time.sleep(1.2)
+
+        assert not survivor_path.exists()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10.0)
+        benchmark_evaluation._close_windows_job(windows_job)

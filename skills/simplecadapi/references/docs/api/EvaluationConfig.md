@@ -15,3 +15,9 @@ class EvaluationConfig(target_kind: str = 'solid', stage_timeout_seconds: float 
 ## Description
 
 Closed configuration contract for trusted reconstruction evaluation.
+
+Timeout fields are seconds. Linear and Hausdorff tolerances are millimetres,
+``strict_material_tolerance`` is cubic millimetres, and relative errors are
+dimensionless ratios. ``boundary_max_samples`` is an integer sample count.
+Paths and this configuration belong to the trusted evaluator; participant
+output must not be allowed to replace them.

@@ -15,3 +15,8 @@ class SectionEvaluationConfig(section_id: str, origin: tuple[float, float, float
 ## Description
 
 One bounded section gate used by trusted reconstruction evaluation.
+
+Coordinates, tolerances, and Hausdorff limits are millimetres; area error is
+a dimensionless ratio. ``samples_per_edge`` is an integer sample count and
+``require_nonempty`` is strictly boolean. Section IDs must be unique within
+an ``EvaluationConfig``.

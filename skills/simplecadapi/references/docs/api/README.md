@@ -8,6 +8,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.
 - Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession` or `@model`.
 - Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.
+- Entries marked `reverse-engineering evaluator` are available through `simplecadapi.inverse_engineer.brep`; their acceptance inputs and reports belong to the trusted harness, not participant code.
 
 ## Basic Creation
 
@@ -241,10 +242,16 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [track_section_contours_rdescriptor](track_section_contours_rdescriptor.md) *(from inspect/brep/section_tracking.py)* `inspection namespace`
 - [validate_step_roundtrip_rdescriptor](validate_step_roundtrip_rdescriptor.md) *(from inspect/brep/persistence.py)* `inspection namespace`
 
-## Other
+## Reconstruction Evaluation
 
 - [EvaluationConfig](EvaluationConfig.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
 - [SectionEvaluationConfig](SectionEvaluationConfig.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
+- [classify_benchmark_result](classify_benchmark_result.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
+- [inspect_benchmark_step](inspect_benchmark_step.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
+- [run_comparison_bundle](run_comparison_bundle.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
+
+## Other
+
 - [Assembly](Assembly.md) *(from product.py)* `top-level`
 - [Component](Component.md) *(from product.py)* `top-level`
 - [Connector](Connector.md) *(from product.py)* `top-level`
@@ -278,7 +285,6 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [add_revolute_constraint_rassembly](add_revolute_constraint_rassembly.md) *(from operations.py)* `top-level`
 - [and_](and_.md) *(from ql.py)* `submodule:ql`
 - [assign_material_rpart](assign_material_rpart.md) *(from operations.py)* `top-level`
-- [classify_benchmark_result](classify_benchmark_result.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
 - [constrain_angle_rsketch](constrain_angle_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_coincident_rsketch](constrain_coincident_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_collinear_rsketch](constrain_collinear_rsketch.md) *(from operations.py)* `top-level`
@@ -311,7 +317,6 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [get_sketch_point_rsketchref](get_sketch_point_rsketchref.md) *(from operations.py)* `top-level`
 - [ground_component_rassembly](ground_component_rassembly.md) *(from operations.py)* `top-level`
 - [identity_placement_rplacement](identity_placement_rplacement.md) *(from operations.py)* `top-level`
-- [inspect_benchmark_step](inspect_benchmark_step.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
 - [inspect_assembly_constraints_rconstraintreport](inspect_assembly_constraints_rconstraintreport.md) *(from operations.py)* `top-level`
 - [inspect_sketch_rsketchresult](inspect_sketch_rsketchresult.md) *(from operations.py)* `top-level`
 - [linear_pattern_rsolidlist](linear_pattern_rsolidlist.md) *(from operations.py)* `top-level`
@@ -325,7 +330,6 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [place_component_rassembly](place_component_rassembly.md) *(from operations.py)* `top-level`
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
-- [run_comparison_bundle](run_comparison_bundle.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
 - [select](select.md) *(from ql.py)* `submodule:ql`
 - [sew_faces_rshell](sew_faces_rshell.md) *(from operations.py)* `top-level`
 - [shells](shells.md) *(from ql.py)* `submodule:ql`
