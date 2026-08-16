@@ -27,7 +27,9 @@ the evidence. ``exact_brep`` requires the strict report's
 validity, directional-volume, point-set, and incidence evidence, not just a
 claimed stage status. It also requires the trusted envelope's
 ``checks.hard_gate``. Parameter-representation evidence is supplied by the
-trusted case harness when that additional gate is required.
+trusted case harness when that additional gate is required. Global
+properties, sampled boundary distances, and bounded section probes are
+diagnostics and are ignored by classification.
 
 The result schema is ``{"classification": str, "reasons": list[str]}``.
 Classifications are ``unsupported_or_incomplete``, ``approximation``,

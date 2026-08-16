@@ -16,8 +16,10 @@ class EvaluationConfig(target_kind: str = 'solid', stage_timeout_seconds: float 
 
 Closed configuration contract for trusted reconstruction evaluation.
 
-Timeout fields are seconds. Linear and Hausdorff tolerances are millimetres,
-``strict_material_tolerance`` is cubic millimetres, and relative errors are
-dimensionless ratios. ``boundary_max_samples`` is an integer sample count.
+Timeout fields are seconds. ``strict_material_tolerance`` is cubic
+millimetres, while boundary linear deflection and strict geometric tolerance
+are millimetres. ``boundary_max_samples`` is an integer measurement control.
 Paths and this configuration belong to the trusted evaluator; participant
-output must not be allowed to replace them.
+output must not be allowed to replace them. Aggregate and sampled metrics are
+diagnostic and have no acceptance thresholds. The ``global_max_*`` and
+``boundary_max_*`` fields are deprecated compatibility inputs and are ignored.

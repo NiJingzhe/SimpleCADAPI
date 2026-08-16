@@ -91,10 +91,11 @@ evidence decides reconstruction quality.
 
 When Sketch promotion may change measured geometry, build Wire and Sketch from
 one parameter source, compare closure/area/bounds/segmentation first, then replay
-complete candidates in fresh processes. Run strict material or bounded boundary
-checks only after cheap evidence agrees. Prefer compact design intent over
-arbitrary point clouds, and never label a polyline or fitted Loft as exact NURBS
-transcription.
+complete candidates in fresh processes. Use cheap aggregate and bounded sampled
+diagnostics to falsify hypotheses or localize differences, never as acceptance
+gates. The trusted evaluator still runs strict material evidence for every solid
+target. Prefer compact design intent over arbitrary point clouds, and never label
+a polyline or fitted Loft as exact NURBS transcription.
 
 ## Boolean Discipline
 
@@ -119,7 +120,7 @@ clipping constructions, or Boolean workarounds that obscure the failing feature.
 
 Use expensive operations only when justified:
 
-- strict material comparison only for plausible final solids;
+- strict material comparison for every solid submitted to trusted evaluation;
 - sampled boundary distance to localize approximation, not prove equality;
 - material difference regions only from a strict component-bearing result;
 - exact BREP comparison only after lower-tier geometry proof.
