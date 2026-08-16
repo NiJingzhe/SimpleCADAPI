@@ -14,9 +14,10 @@ class SectionEvaluationConfig(section_id: str, origin: tuple[float, float, float
 
 ## Description
 
-One bounded section gate used by trusted reconstruction evaluation.
+One bounded diagnostic section probe used by reconstruction evaluation.
 
-Coordinates, tolerances, and Hausdorff limits are millimetres; area error is
-a dimensionless ratio. ``samples_per_edge`` is an integer sample count and
-``require_nonempty`` is strictly boolean. Section IDs must be unique within
-an ``EvaluationConfig``.
+Coordinates and tolerance are millimetres, and ``samples_per_edge`` is an
+integer measurement control. Section IDs must be unique within an
+``EvaluationConfig``. Section results are diagnostics, not acceptance gates.
+``require_nonempty``, ``max_hausdorff``, and ``max_relative_area_error`` are
+deprecated compatibility inputs and do not affect stage status.

@@ -184,6 +184,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             bundle = (output_dir / "run_comparison_bundle.md").read_text(
                 encoding="utf-8"
             )
+            config = (output_dir / "EvaluationConfig.md").read_text(encoding="utf-8")
             classify = (output_dir / "classify_benchmark_result.md").read_text(
                 encoding="utf-8"
             )
@@ -202,13 +203,64 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 "diagnostic, never equality proof",
                 " ".join(bundle.split()),
             )
+            self.assertIn("diagnostics and never affect classification", bundle)
+            self.assertIn("status ``completed``", bundle)
+            self.assertIn("``gate_passed=None``", bundle)
+            self.assertIn("strict bidirectional", bundle)
+            self.assertIn("non-fuzzy bidirectional Cut residual volumes", bundle)
+            self.assertIn("mass-property comparison", bundle)
+            for deprecated in (
+                "global_max_bbox_delta",
+                "global_max_centroid_distance",
+                "global_max_relative_volume_error",
+                "global_max_relative_area_error",
+                "boundary_max_hausdorff",
+                "boundary_max_p95",
+            ):
+                self.assertIn(deprecated, config)
+            self.assertIn("deprecated compatibility inputs and are ignored", config)
+            self.assertIn("strict_material_tolerance", config)
+            self.assertIn("boundary_linear_deflection", config)
+            self.assertIn("boundary_max_samples", config)
+            self.assertIn("strict_geometric_tolerance", config)
             self.assertIn("unmodified, process-local result", classify)
+            self.assertIn("ignored by classification", classify)
             self.assertIn("at least one unique face", classify)
             self.assertIn(
                 "not just a claimed stage status",
                 " ".join(classify.split()),
             )
-            self.assertIn("strictly boolean", section)
+            self.assertIn("bounded diagnostic section probe", section)
+            self.assertIn("not acceptance gates", section)
+            self.assertIn("require_nonempty", section)
+            self.assertIn("max_hausdorff", section)
+            self.assertIn("max_relative_area_error", section)
+            self.assertIn("deprecated compatibility inputs", section)
+            self.assertIn("do not affect stage status", section)
+
+    def test_persistence_api_docs_distinguish_roundtrip_from_target_similarity(self):
+        class PersistenceDocGenerator(auto_docs_gen.APIDocumentGenerator):
+            def _module_name_for(self, file_path):
+                return "inspect/brep/persistence.py"
+
+        project_root = MODULE_PATH.parents[3]
+        source_file = project_root / "src/simplecadapi/inspect/brep/persistence.py"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir) / "docs/api"
+            generator = PersistenceDocGenerator(
+                source_files=[source_file],
+                output_dirs=[output_dir],
+                quiet=True,
+            )
+            generator.extract_apis()
+            generator.generate_markdown_docs()
+
+            persistence = (
+                output_dir / "validate_step_roundtrip_rdescriptor.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("candidate-before/after volume and surface-area", persistence)
+            self.assertIn("STEP serialization integrity checks", persistence)
+            self.assertIn("not candidate-to-target", persistence)
 
     def test_default_stdlib_source_files_include_standard_modules(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -2,7 +2,7 @@
 
 Contract ID: `simplecadapi.reconstruction-agent-test`
 
-Contract version: `2.1`
+Contract version: `2.2`
 
 This is the normative run contract for controlled STEP-to-SimpleCADAPI
 reconstruction. Modeling tactics are advisory and live in
@@ -23,7 +23,7 @@ OUTPUT_DIR = {OUTPUT_DIR}
 CASE_NAME = {CASE_NAME}
 CASE_MANIFEST = {relative path|null}
 ALLOWED_INPUTS = {JSON array of direct-child filenames}
-PROMPT_VERSION = 2.1
+PROMPT_VERSION = 2.2
 OBJECTIVE = {best_effort|geometry_equivalent|exact_brep}
 TARGET_PATH = {direct-child STEP filename}
 TARGET_KIND = {solid|open_shell}
@@ -35,14 +35,8 @@ MAX_FAILED_ATTEMPTS = {positive integer}
 TOTAL_TIMEOUT_SECONDS = {positive number}
 STAGE_TIMEOUT_SECONDS = {positive number}
 MATERIAL_TIMEOUT_SECONDS = {positive number}
-GLOBAL_MAX_BBOX_DELTA_MM = {non-negative number}
-GLOBAL_MAX_CENTROID_DISTANCE_MM = {non-negative number}
-GLOBAL_MAX_RELATIVE_VOLUME_ERROR = {non-negative number}
-GLOBAL_MAX_RELATIVE_AREA_ERROR = {non-negative number}
 BOUNDARY_LINEAR_DEFLECTION_MM = {positive number}
 BOUNDARY_MAX_SAMPLES = {integer >= 16}
-BOUNDARY_MAX_HAUSDORFF_MM = {non-negative number}
-BOUNDARY_MAX_P95_MM = {non-negative number}
 SECTIONS = {JSON array using the schema below}
 STRICT_TOPOLOGY = {true|false}
 PARAMETER_REPRESENTATION_REQUIRED = {true|false}
@@ -169,7 +163,7 @@ history.
    valid BREP before counting a complete iteration.
 5. Validate STEP write/reload. Record property and topology drift; do not publish
    an invalid roundtrip.
-6. Run cheap global checks, then only diagnostics that answer the next question.
+6. Inspect cheap global diagnostics, then only probes that answer the next question.
 7. Attempt the strongest applicable acceptance proof within budget.
 8. Atomically promote the best valid iteration to the configured final paths.
 
@@ -185,17 +179,13 @@ Each `SECTIONS` item has this closed schema:
   "origin": [0.0, 0.0, 0.0],
   "normal": [0.0, 0.0, 1.0],
   "tolerance": 1e-7,
-  "samples_per_edge": 16,
-  "require_nonempty": true,
-  "max_hausdorff": 0.1,
-  "max_relative_area_error": 0.01
+  "samples_per_edge": 16
 }
 ```
 
 Section IDs must be unique and match `[A-Za-z0-9][A-Za-z0-9_.-]*`; normals
 must be non-zero, tolerances positive, `samples_per_edge` must be a JSON integer
-(not a boolean) with `samples_per_edge >= 4`, and `require_nonempty` must be a
-JSON boolean.
+(not a boolean) with `samples_per_edge >= 4`.
 
 ## Mechanical Gates
 
@@ -211,8 +201,11 @@ JSON boolean.
 
 Write to a temporary sibling STEP, reload it with the public BREP loader, and
 publish only after validation. Record before/after validity, root kind, bodies,
-shells, faces, edges, vertices, edge classes, volume, area, centroid, and
-whether publication occurred.
+shells, faces, edges, vertices, edge classes, volume, total surface area,
+centroid, material bounds, root bounds, and whether publication occurred. These
+candidate-before/after measurements are serialization integrity checks. They are
+not candidate-to-target similarity metrics and do not establish reconstruction
+equivalence.
 
 ### Strict Material Proof For Solids
 
@@ -232,12 +225,20 @@ excess_material.volume < STRICT_MATERIAL_TOLERANCE_MM3
 A common-volume estimate, fuzzy Boolean, timeout, invalid Boolean result, or
 missing directional Cut cannot prove equality. A material timeout leaves a valid
 solid eligible for `approximation`; it is not `unsupported_or_incomplete`.
+For regular solids, non-fuzzy bidirectional Cut residual volumes establish
+tolerance-bounded material equivalence. They are not aggregate mass-property
+comparisons and do not prove topology, representation, or literal boundary
+identity.
 
 ### Exact BREP Proof
 
 Requires proven geometry equivalence plus geometry-labelled Face/Edge/Vertex
 incidence isomorphism and every case-required representation check. Evaluate it
 only when requested and after lower-tier proof succeeds.
+This is exactness under the evaluator's declared tolerance and evidence schema;
+it does not recover or prove original CAD feature history. Any required
+representation check must be defined by the trusted case manifest, not supplied
+as a participant claim.
 
 ### Open Shells
 
@@ -264,6 +265,9 @@ Assign exactly one classification. Higher-tier failure never erases a proven low
   classify it as `approximation` instead.
 
 Never upgrade from render, global property, sampled boundary, or section metrics.
+Global, boundary, and section metrics, including aggregate volume, total surface
+area, bounding box, centroid, sampled distance, and section area, are diagnostics
+for falsification and localization only. They never affect classification.
 
 `classify_benchmark_result` receives the unmodified process-local results from
 `inspect_benchmark_step` and `run_comparison_bundle`; serialized or rebuilt
@@ -280,16 +284,20 @@ strict stage status cannot establish it.
 ### Evaluator Stage Schema And Units
 
 Worker-stage envelopes record `status`, `gate_passed`, `elapsed_seconds`,
-`report`, `report_path`, and `error`. Completed comparison stages add boolean
-`checks`; non-run stages add `reason`; aggregate `sections` uses `reports` with
-one worker envelope per unique section ID. Status is `passed`, `failed`,
-`error`, `skipped`, or `not_applicable`. `global` and `material` always appear;
-`boundary` and `sections` appear only when diagnostics are requested; `strict`
-always appears but runs only for a solid after proven material equality when
-strict topology is requested.
+`report`, `report_path`, and `error`. Successful global, boundary, individual
+section, and aggregate-section diagnostics use `status=completed` and no
+acceptance `checks`; worker errors remain `error` and retain their error details.
+Every diagnostic envelope uses `gate_passed=null`, including on error. Completed
+material and strict acceptance stages add boolean `checks` and use `passed` or
+`failed`. Non-run stages add `reason`;
+aggregate `sections` uses `reports` with one worker envelope per unique section
+ID. `global` and `material` always appear; `boundary` and `sections` appear only
+when diagnostics are requested; `strict` always appears but runs only for a
+solid after proven material equality when strict topology is requested.
 
-- `global`: bounding-box/centroid lengths in mm, area in mm2, volume in mm3,
-  integer topology counts, and dimensionless relative deltas.
+- `global`: bounding-box/centroid lengths in mm, total surface area in mm2,
+  aggregate volume in mm3, integer topology counts, and dimensionless relative
+  deltas. It is diagnostic only.
 - `material`: directional missing/excess volumes and tolerance in mm3, Boolean
   and volume-balance validity, and tri-state `strict_point_set_equal`;
   `relative_total_difference` is dimensionless.
@@ -298,6 +306,7 @@ strict topology is requested.
 - `sections`: plane coordinates, tolerance, perimeter, and Hausdorff in mm;
   material area in mm2; integer sample/edge counts; relative area error is
   dimensionless. The aggregate contains one stage envelope per unique section ID.
+  Sections are bounded diagnostic probes only.
 - `strict`: directional differences and Boolean tolerance in mm3, geometric
   tolerance in mm, validity, graph counts, point-set equality, labelled-incidence
   isomorphism, and `hard_gate_passed`; exact classification also requires
@@ -343,7 +352,7 @@ Report concisely:
 - complete and failed iteration counts plus budget status;
 - final construction and replay command;
 - target kind, validity, and STEP roundtrip result;
-- strict material status for solids or boundary-proof status for open shells;
+- strict material status for solids or boundary diagnostic status for open shells;
 - exact-topology status when requested;
 - provenance summary and target runtime dependency;
 - measured diagnostics and unresolved blockers;

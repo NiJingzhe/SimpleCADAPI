@@ -16,21 +16,19 @@ from simplecadapi.kernel.ocp_export import export_step_shapes
 _TRUSTED_TEST_PATH = Path(__file__).resolve()
 
 
-def _config(*, target_kind: str = "solid") -> benchmark_evaluation.EvaluationConfig:
+def _config(
+    *,
+    target_kind: str = "solid",
+    sections: tuple[benchmark_evaluation.SectionEvaluationConfig, ...] = (),
+) -> benchmark_evaluation.EvaluationConfig:
     return benchmark_evaluation.EvaluationConfig(
         target_kind=target_kind,
         stage_timeout_seconds=30.0,
         material_timeout_seconds=90.0,
-        global_max_bbox_delta=1.0e-6,
-        global_max_centroid_distance=1.0e-6,
-        global_max_relative_volume_error=1.0e-6,
-        global_max_relative_area_error=1.0e-6,
         strict_material_tolerance=1.0e-9,
         boundary_linear_deflection=1.0,
         boundary_max_samples=32,
-        boundary_max_hausdorff=1.0e-6,
-        boundary_max_p95=1.0e-6,
-        sections=(),
+        sections=sections,
         strict_geometric_tolerance=1.0e-7,
     )
 
@@ -257,7 +255,145 @@ def test_comparison_bundle_requests_strict_bidirectional_material(
     )
 
     assert [request["task"] for request in requests] == ["global", "material"]
+    assert stages["global"]["status"] == "completed"
+    assert stages["global"]["gate_passed"] is None
+    assert "checks" not in stages["global"]
     assert stages["material"]["strict_point_set_equal"] is True
+
+
+def test_large_global_differences_do_not_gate_or_skip_strict_material(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = []
+    global_stage = _global_stage()
+    global_stage["report"].update(
+        {
+            "bounding_box": {"max_absolute_coordinate_delta": 1.0e9},
+            "centroid": {"distance": 1.0e9},
+            "surface_area": {"relative_delta": 1.0e9},
+            "material_body_count": {"delta": 99},
+            "volume": {
+                "target": 24.0,
+                "current": 2.4e10,
+                "absolute_delta": 2.4e10 - 24.0,
+                "relative_delta": 1.0e9 - 1.0,
+            },
+        }
+    )
+
+    def fake_stage(**kwargs):
+        requests.append(kwargs["request"])
+        if kwargs["name"] == "global":
+            return global_stage
+        if kwargs["name"] == "material":
+            return {
+                "status": "completed",
+                "gate_passed": None,
+                "elapsed_seconds": 0.01,
+                "report": _strict_material_report(),
+                "report_path": None,
+                "error": None,
+            }
+        raise AssertionError(kwargs["name"])
+
+    monkeypatch.setattr(benchmark_evaluation, "_stage", fake_stage)
+    target, candidate = _write_placeholder_steps(tmp_path)
+    stages = benchmark_evaluation.run_comparison_bundle(
+        _config(),
+        target_path=target,
+        candidate_path=candidate,
+        output_directory=tmp_path / "evaluation",
+    )
+
+    assert [request["task"] for request in requests] == ["global", "material"]
+    assert stages["global"]["status"] == "completed"
+    assert stages["global"]["gate_passed"] is None
+    assert "checks" not in stages["global"]
+    assert stages["material"]["status"] == "passed"
+    assert stages["material"]["gate_passed"] is True
+    assert stages["material"]["relative_total_difference"] == pytest.approx(0.0)
+
+
+def test_sampled_mismatches_are_diagnostics_and_do_not_change_classification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    section = benchmark_evaluation.SectionEvaluationConfig(
+        section_id="center",
+        origin=(0.0, 0.0, 0.0),
+        normal=(0.0, 0.0, 1.0),
+        samples_per_edge=4,
+    )
+
+    def fake_stage(**kwargs):
+        if kwargs["name"] == "global":
+            return _global_stage()
+        if kwargs["name"] == "material":
+            return {
+                "status": "completed",
+                "gate_passed": None,
+                "elapsed_seconds": 0.01,
+                "report": _strict_material_report(),
+                "report_path": None,
+                "error": None,
+            }
+        if kwargs["name"] == "boundary":
+            return {
+                "status": "completed",
+                "gate_passed": None,
+                "elapsed_seconds": 0.01,
+                "report": {
+                    "symmetric": {"hausdorff_approximation": 1.0e9},
+                    "target_to_current": {"statistics": {"p95": 1.0e9}},
+                    "current_to_target": {"statistics": {"p95": 1.0e9}},
+                },
+                "report_path": None,
+                "error": None,
+            }
+        if kwargs["name"] == "section-center":
+            return {
+                "status": "completed",
+                "gate_passed": None,
+                "elapsed_seconds": 0.01,
+                "report": {
+                    "target": {"material_area": 100.0, "edge_count": 4},
+                    "current": {"material_area": 0.0, "edge_count": 0},
+                    "comparison": {
+                        "empty_section_mismatch": True,
+                        "hausdorff_approximation": 1.0e9,
+                    },
+                },
+                "report_path": None,
+                "error": None,
+            }
+        raise AssertionError(kwargs["name"])
+
+    monkeypatch.setattr(benchmark_evaluation, "_stage", fake_stage)
+    target, candidate = _write_placeholder_steps(tmp_path)
+    stages = benchmark_evaluation.run_comparison_bundle(
+        _config(sections=(section,)),
+        target_path=target,
+        candidate_path=candidate,
+        output_directory=tmp_path / "evaluation",
+        diagnostics=True,
+    )
+
+    boundary = stages["boundary"]
+    section_stage = stages["sections"]["reports"][0]
+    assert boundary["status"] == "completed"
+    assert boundary["gate_passed"] is None
+    assert "checks" not in boundary
+    assert section_stage["status"] == "completed"
+    assert section_stage["gate_passed"] is None
+    assert section_stage["relative_area_error"] == pytest.approx(1.0)
+    assert "checks" not in section_stage
+    assert stages["sections"]["status"] == "completed"
+    assert stages["sections"]["gate_passed"] is None
+    assert _classify(stages=stages) == {
+        "classification": "geometry_equivalent",
+        "reasons": ["strict_topology_not_requested"],
+    }
 
 
 def test_evaluation_config_validates_closed_contract() -> None:
@@ -270,6 +406,32 @@ def test_evaluation_config_validates_closed_contract() -> None:
     config = benchmark_evaluation.EvaluationConfig(sections=(section,))
 
     assert config.sections == (section,)
+    assert tuple(config.__dataclass_fields__) == (
+        "target_kind",
+        "stage_timeout_seconds",
+        "material_timeout_seconds",
+        "global_max_bbox_delta",
+        "global_max_centroid_distance",
+        "global_max_relative_volume_error",
+        "global_max_relative_area_error",
+        "strict_material_tolerance",
+        "boundary_linear_deflection",
+        "boundary_max_samples",
+        "boundary_max_hausdorff",
+        "boundary_max_p95",
+        "sections",
+        "strict_geometric_tolerance",
+    )
+    assert tuple(section.__dataclass_fields__) == (
+        "section_id",
+        "origin",
+        "normal",
+        "tolerance",
+        "samples_per_edge",
+        "require_nonempty",
+        "max_hausdorff",
+        "max_relative_area_error",
+    )
     with pytest.raises(ValueError, match="at least four"):
         benchmark_evaluation.SectionEvaluationConfig(
             section_id="invalid",
@@ -277,6 +439,28 @@ def test_evaluation_config_validates_closed_contract() -> None:
             normal=(0.0, 0.0, 1.0),
             samples_per_edge=3,
         )
+
+
+def test_deprecated_diagnostic_thresholds_are_accepted_but_ignored() -> None:
+    config = benchmark_evaluation.EvaluationConfig(
+        global_max_bbox_delta=0.0,
+        global_max_centroid_distance=0.0,
+        global_max_relative_volume_error=0.0,
+        global_max_relative_area_error=0.0,
+        boundary_max_hausdorff=0.0,
+        boundary_max_p95=0.0,
+    )
+    section = benchmark_evaluation.SectionEvaluationConfig(
+        section_id="legacy",
+        origin=(0.0, 0.0, 0.0),
+        normal=(0.0, 0.0, 1.0),
+        require_nonempty=True,
+        max_hausdorff=0.0,
+        max_relative_area_error=0.0,
+    )
+
+    assert config.global_max_bbox_delta == 0.0
+    assert section.max_hausdorff == 0.0
 
 
 @pytest.mark.parametrize("value", [True, 4.0, "4"])
@@ -290,17 +474,6 @@ def test_section_samples_per_edge_requires_an_integer(value) -> None:
         )
 
 
-@pytest.mark.parametrize("value", [1, 0, "true", None])
-def test_section_require_nonempty_requires_a_bool(value) -> None:
-    with pytest.raises(TypeError, match="require_nonempty must be a bool"):
-        benchmark_evaluation.SectionEvaluationConfig(
-            section_id="center",
-            origin=(0.0, 0.0, 0.0),
-            normal=(0.0, 0.0, 1.0),
-            require_nonempty=value,
-        )
-
-
 @pytest.mark.parametrize("value", [True, 16.0, "16"])
 def test_boundary_max_samples_requires_an_integer(value) -> None:
     with pytest.raises(TypeError, match="boundary_max_samples must be an integer"):
@@ -311,10 +484,8 @@ def test_boundary_max_samples_requires_an_integer(value) -> None:
     ("config_type", "field"),
     [
         (benchmark_evaluation.EvaluationConfig, "stage_timeout_seconds"),
-        (benchmark_evaluation.EvaluationConfig, "global_max_bbox_delta"),
         (benchmark_evaluation.EvaluationConfig, "strict_material_tolerance"),
         (benchmark_evaluation.SectionEvaluationConfig, "tolerance"),
-        (benchmark_evaluation.SectionEvaluationConfig, "max_hausdorff"),
     ],
 )
 def test_numeric_config_fields_reject_booleans(config_type, field) -> None:
@@ -397,6 +568,8 @@ def test_non_strict_material_estimate_cannot_prove_point_set_equality(
     )
 
     assert stages["material"]["strict_point_set_equal"] is None
+    assert stages["material"]["status"] == "failed"
+    assert stages["material"]["gate_passed"] is False
     assert stages["material"]["checks"]["strict_equality_supported"] is False
 
 
@@ -429,6 +602,43 @@ def test_valid_strict_material_residual_proves_point_sets_differ(
     )
 
     assert stages["material"]["strict_point_set_equal"] is False
+    assert stages["material"]["status"] == "failed"
+    assert stages["material"]["gate_passed"] is False
+    assert stages["material"]["checks"]["strict_missing_material"] is False
+
+
+def test_invalid_material_boolean_remains_a_failed_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = _strict_material_report()
+    report["boolean_result_valid"] = False
+
+    def fake_stage(**kwargs):
+        if kwargs["name"] == "global":
+            return _global_stage()
+        return {
+            "status": "completed",
+            "gate_passed": None,
+            "elapsed_seconds": 0.01,
+            "report": report,
+            "report_path": None,
+            "error": None,
+        }
+
+    monkeypatch.setattr(benchmark_evaluation, "_stage", fake_stage)
+    target, candidate = _write_placeholder_steps(tmp_path)
+    stages = benchmark_evaluation.run_comparison_bundle(
+        _config(),
+        target_path=target,
+        candidate_path=candidate,
+        output_directory=tmp_path / "evaluation",
+    )
+
+    assert stages["material"]["status"] == "failed"
+    assert stages["material"]["gate_passed"] is False
+    assert stages["material"]["strict_point_set_equal"] is None
+    assert stages["material"]["checks"]["boolean_result_valid"] is False
 
 
 def test_material_proof_survives_unavailable_global_report(
@@ -523,6 +733,26 @@ def test_valid_open_shell_is_approximation_when_equivalence_is_unproved() -> Non
     }
 
 
+def test_open_shell_still_requires_trusted_comparison_evidence() -> None:
+    result = benchmark_evaluation.classify_benchmark_result(
+        replay_succeeded=True,
+        persistence_succeeded=True,
+        baseline_integrity_passed=True,
+        candidate_bytes_equal_target=False,
+        target_kind="open_shell",
+        candidate_inspection=_inspection(solid=0, shell=1),
+        stages={},
+        strict_topology_requested=False,
+        parameter_representation_required=False,
+        parameter_representation_passed=None,
+    )
+
+    assert result == {
+        "classification": "approximation",
+        "reasons": ["comparison_evidence_untrusted"],
+    }
+
+
 def test_real_open_shell_reloads_and_classifies_without_fabricating_material(
     tmp_path: Path,
 ) -> None:
@@ -538,14 +768,17 @@ def test_real_open_shell_reloads_and_classifies_without_fabricating_material(
         output_directory=tmp_path / "evaluation",
         timeout_seconds=30.0,
     )
+    stages = benchmark_evaluation.run_comparison_bundle(
+        _config(target_kind="open_shell"),
+        target_path=candidate,
+        candidate_path=candidate,
+        output_directory=tmp_path / "comparison",
+    )
     report = inspection["report"]
     result = _classify(
         target_kind="open_shell",
         candidate_inspection=inspection,
-        stages={
-            "global": {"status": "passed", "gate_passed": True},
-            "material": {"status": "not_applicable", "gate_passed": True},
-        },
+        stages=stages,
     )
 
     assert report["counts"]["solid"] == 0

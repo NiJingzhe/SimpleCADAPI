@@ -96,12 +96,13 @@ def _file_sha256(path: str | Path) -> str:
 
 @dataclass(frozen=True)
 class SectionEvaluationConfig:
-    """One bounded section gate used by trusted reconstruction evaluation.
+    """One bounded diagnostic section probe used by reconstruction evaluation.
 
-    Coordinates, tolerances, and Hausdorff limits are millimetres; area error is
-    a dimensionless ratio. ``samples_per_edge`` is an integer sample count and
-    ``require_nonempty`` is strictly boolean. Section IDs must be unique within
-    an ``EvaluationConfig``.
+    Coordinates and tolerance are millimetres, and ``samples_per_edge`` is an
+    integer measurement control. Section IDs must be unique within an
+    ``EvaluationConfig``. Section results are diagnostics, not acceptance gates.
+    ``require_nonempty``, ``max_hausdorff``, and ``max_relative_area_error`` are
+    deprecated compatibility inputs and do not affect stage status.
     """
 
     section_id: str
@@ -109,6 +110,7 @@ class SectionEvaluationConfig:
     normal: tuple[float, float, float]
     tolerance: float = 1.0e-7
     samples_per_edge: int = 16
+    # Deprecated compatibility inputs. Section comparisons remain diagnostic.
     require_nonempty: bool = True
     max_hausdorff: float = 0.1
     max_relative_area_error: float = 0.01
@@ -146,16 +148,20 @@ class SectionEvaluationConfig:
 class EvaluationConfig:
     """Closed configuration contract for trusted reconstruction evaluation.
 
-    Timeout fields are seconds. Linear and Hausdorff tolerances are millimetres,
-    ``strict_material_tolerance`` is cubic millimetres, and relative errors are
-    dimensionless ratios. ``boundary_max_samples`` is an integer sample count.
+    Timeout fields are seconds. ``strict_material_tolerance`` is cubic
+    millimetres, while boundary linear deflection and strict geometric tolerance
+    are millimetres. ``boundary_max_samples`` is an integer measurement control.
     Paths and this configuration belong to the trusted evaluator; participant
-    output must not be allowed to replace them.
+    output must not be allowed to replace them. Aggregate and sampled metrics are
+    diagnostic and have no acceptance thresholds. The ``global_max_*`` and
+    ``boundary_max_*`` fields are deprecated compatibility inputs and are ignored.
     """
 
     target_kind: str = "solid"
     stage_timeout_seconds: float = 120.0
     material_timeout_seconds: float = 300.0
+    # Deprecated compatibility inputs. These values are intentionally ignored;
+    # aggregate and sampled metrics are diagnostic-only.
     global_max_bbox_delta: float = 0.1
     global_max_centroid_distance: float = 0.1
     global_max_relative_volume_error: float = 0.01
@@ -574,24 +580,29 @@ def run_comparison_bundle(
     """Run trusted acceptance stages and optional geometric diagnostics.
 
     Worker-stage envelopes contain ``status``, ``gate_passed``,
-    ``elapsed_seconds``, ``report``, ``report_path``, and ``error``. Completed
-    comparison stages also contain boolean ``checks``. Non-run stages contain a
-    ``reason`` instead; the aggregate ``sections`` stage contains ``reports``,
-    one worker envelope per unique section ID. Status is ``passed``, ``failed``,
-    ``error``, ``skipped``, or ``not_applicable``. ``global`` and ``material``
-    always appear; ``boundary`` and ``sections`` appear only when
-    ``diagnostics=True``; ``strict`` always appears but runs only for a solid
-    with proven material equality when ``strict_topology=True``.
+    ``elapsed_seconds``, ``report``, ``report_path``, and ``error``. Successful
+    diagnostics have status ``completed``, ``gate_passed=None``, and no
+    acceptance checks. Completed material and strict acceptance stages add
+    boolean ``checks`` and become ``passed`` or ``failed``. Non-run stages contain
+    a ``reason`` instead; the aggregate ``sections`` stage contains ``reports``,
+    one worker envelope per unique section ID. ``global`` and ``material`` always
+    appear; ``boundary`` and ``sections`` appear only when ``diagnostics=True``;
+    ``strict`` always appears but runs only for a solid with proven material
+    equality when ``strict_topology=True``.
 
     Report schemas and units:
 
     - ``global`` reports bounding-box and centroid distances in millimetres,
-      surface area in square millimetres, volume in cubic millimetres, topology
-      counts, and dimensionless relative deltas.
+      total surface area in square millimetres, aggregate volume in cubic
+      millimetres, topology counts, and dimensionless relative deltas.
     - ``material`` reports the comparison method, directional missing/excess
       volumes in cubic millimetres, Boolean and volume-balance validity, and the
       derived ``strict_point_set_equal`` tri-state. Its
-      ``relative_total_difference`` is dimensionless.
+      ``relative_total_difference`` is dimensionless and diagnostic. For regular
+      solids, non-fuzzy bidirectional Cut residual volumes establish
+      tolerance-bounded material equivalence; this is not an aggregate
+      mass-property comparison and does not prove topology, representation, or
+      literal boundary identity.
     - ``boundary`` reports sampled-to-exact distances in millimetres, including
       approximate Hausdorff and p95 distances. It is diagnostic, never equality
       proof.
@@ -606,9 +617,11 @@ def run_comparison_bundle(
 
     The evaluator configuration, target/candidate paths, worker executable, and
     returned reports are trusted-harness data. Participant-authored reports or
-    edited stage envelopes must never be passed to classification. Global,
-    boundary, and section results are diagnostics and cannot establish geometric
-    or exact BREP equality.
+    edited stage envelopes must never be passed to classification. Aggregate
+    global properties, sampled boundary distances, and bounded section probes are
+    diagnostics and never affect classification. Only strict bidirectional
+    material residual evidence and, when requested, strict topology evidence are
+    acceptance gates.
     """
 
     output = Path(output_directory)
@@ -624,66 +637,10 @@ def run_comparison_bundle(
         timeout_seconds=config.stage_timeout_seconds,
         python_executable=python_executable,
     )
-    if global_stage["status"] != "error":
-        report = global_stage["report"]
-        checks = {
-            "bounding_box": report["bounding_box"]["max_absolute_coordinate_delta"]
-            <= config.global_max_bbox_delta,
-            "centroid": report["centroid"]["distance"]
-            <= config.global_max_centroid_distance,
-            "surface_area": abs(report["surface_area"]["relative_delta"])
-            <= config.global_max_relative_area_error,
-        }
-        if config.target_kind == "solid":
-            checks.update(
-                {
-                    "material_body_count": report["material_body_count"]["delta"] == 0,
-                    "volume": abs(report["volume"]["relative_delta"])
-                    <= config.global_max_relative_volume_error,
-                }
-            )
-        global_stage = _finalize_stage(global_stage, checks)
+    global_stage["gate_passed"] = None
     stages["global"] = global_stage
 
-    global_report = global_stage.get("report")
-    volume_delta = (
-        abs(float(global_report["volume"]["absolute_delta"]))
-        if isinstance(global_report, Mapping)
-        else None
-    )
-    volume_error_margin = (
-        max(
-            abs(float(global_report["volume"]["target"])),
-            abs(float(global_report["volume"]["current"])),
-            1.0,
-        )
-        * 1.0e-12
-        if isinstance(global_report, Mapping)
-        else 0.0
-    )
-    if (
-        config.target_kind == "solid"
-        and volume_delta is not None
-        and volume_delta > config.strict_material_tolerance + volume_error_margin
-    ):
-        target_volume = max(float(global_report["volume"]["target"]), 1.0e-12)
-        material_stage = {
-            "status": "failed",
-            "gate_passed": False,
-            "elapsed_seconds": 0.0,
-            "report": None,
-            "report_path": None,
-            "error": None,
-            "reason": (
-                "strict material equality is impossible because the global "
-                "volume delta exceeds the strict material tolerance"
-            ),
-            "strict_point_set_equal": False,
-            "absolute_volume_difference_lower_bound": volume_delta,
-            "relative_total_difference_lower_bound": volume_delta / target_volume,
-            "checks": {"strict_volume_necessary_condition": False},
-        }
-    elif config.target_kind == "solid":
+    if config.target_kind == "solid":
         material_stage = _stage(
             name="material",
             request={
@@ -701,8 +658,17 @@ def run_comparison_bundle(
         )
         if material_stage["status"] != "error":
             report = material_stage["report"]
-            global_report = stages["global"].get("report") or {}
-            target_volume = global_report.get("volume", {}).get("target")
+            global_report = stages["global"].get("report")
+            volume_report = (
+                global_report.get("volume")
+                if isinstance(global_report, Mapping)
+                else None
+            )
+            target_volume = (
+                volume_report.get("target")
+                if isinstance(volume_report, Mapping)
+                else None
+            )
             relative = (
                 (
                     float(report["missing_material"]["volume"])
@@ -772,19 +738,7 @@ def run_comparison_bundle(
             timeout_seconds=config.stage_timeout_seconds,
             python_executable=python_executable,
         )
-        if boundary_stage["status"] != "error":
-            report = boundary_stage["report"]
-            boundary_stage = _finalize_stage(
-                boundary_stage,
-                {
-                    "hausdorff": report["symmetric"]["hausdorff_approximation"]
-                    <= config.boundary_max_hausdorff,
-                    "target_p95": report["target_to_current"]["statistics"]["p95"]
-                    <= config.boundary_max_p95,
-                    "current_p95": report["current_to_target"]["statistics"]["p95"]
-                    <= config.boundary_max_p95,
-                },
-            )
+        boundary_stage["gate_passed"] = None
         stages["boundary"] = boundary_stage
 
         section_results = []
@@ -806,47 +760,22 @@ def run_comparison_bundle(
                 timeout_seconds=config.stage_timeout_seconds,
                 python_executable=python_executable,
             )
+            section_stage["gate_passed"] = None
             if section_stage["status"] != "error":
                 report = section_stage["report"]
-                comparison = report["comparison"]
                 target_area = float(report["target"]["material_area"])
-                relative_area = _relative_error(
+                section_stage["relative_area_error"] = _relative_error(
                     report["current"]["material_area"], target_area
-                )
-                target_nonempty = bool(report["target"]["edge_count"])
-                current_nonempty = bool(report["current"]["edge_count"])
-                hausdorff = comparison["hausdorff_approximation"]
-                section_stage["relative_area_error"] = relative_area
-                section_stage = _finalize_stage(
-                    section_stage,
-                    {
-                        "empty_match": not comparison["empty_section_mismatch"],
-                        "required_nonempty": (
-                            target_nonempty and current_nonempty
-                            if section.require_nonempty
-                            else True
-                        ),
-                        "hausdorff": hausdorff is not None
-                        and hausdorff <= section.max_hausdorff,
-                        "relative_area": relative_area
-                        <= section.max_relative_area_error,
-                    },
                 )
             section_stage["section_id"] = section.section_id
             section_results.append(section_stage)
         stages["sections"] = {
             "status": (
-                "passed"
-                if all(item["status"] == "passed" for item in section_results)
-                else (
-                    "error"
-                    if any(item["status"] == "error" for item in section_results)
-                    else "failed"
-                )
+                "error"
+                if any(item["status"] == "error" for item in section_results)
+                else "completed"
             ),
-            "gate_passed": all(
-                item.get("gate_passed") is True for item in section_results
-            ),
+            "gate_passed": None,
             "elapsed_seconds": round(
                 sum(item["elapsed_seconds"] for item in section_results), 3
             ),
@@ -1091,7 +1020,9 @@ def classify_benchmark_result(
     validity, directional-volume, point-set, and incidence evidence, not just a
     claimed stage status. It also requires the trusted envelope's
     ``checks.hard_gate``. Parameter-representation evidence is supplied by the
-    trusted case harness when that additional gate is required.
+    trusted case harness when that additional gate is required. Global
+    properties, sampled boundary distances, and bounded section probes are
+    diagnostics and are ignored by classification.
 
     The result schema is ``{"classification": str, "reasons": list[str]}``.
     Classifications are ``unsupported_or_incomplete``, ``approximation``,
@@ -1146,12 +1077,6 @@ def classify_benchmark_result(
     if reasons:
         return {"classification": "unsupported_or_incomplete", "reasons": reasons}
 
-    if target_kind == "open_shell":
-        return {
-            "classification": "approximation",
-            "reasons": ["open_shell_equivalence_unproved"],
-        }
-
     if stages_context is None:
         return {
             "classification": "approximation",
@@ -1179,6 +1104,12 @@ def classify_benchmark_result(
         return {
             "classification": "approximation",
             "reasons": ["comparison_evidence_inputs_changed"],
+        }
+
+    if target_kind == "open_shell":
+        return {
+            "classification": "approximation",
+            "reasons": ["open_shell_equivalence_unproved"],
         }
 
     material = stages.get("material", {})
