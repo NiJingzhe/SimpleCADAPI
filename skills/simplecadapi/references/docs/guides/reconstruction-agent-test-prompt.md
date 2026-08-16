@@ -122,8 +122,7 @@ Do not enable complete curve/surface definitions, directly traverse target
 entities to recover complete definitions, or add/modify SDK operations,
 inspection tools, plugins, or helper executables during the run.
 
-In `exact_brep_transcription`, declared target-derived regions may be copied to
-hash-pinned `.scadbrep` sidecars with `copy_step_region_rpath(...)`. Final replay
+In `exact_brep_transcription`, declared target-derived regions may be copied to hash-pinned `.scadbrep` sidecars with `copy_step_region_rpath(...)`. Final replay
 may load those declared sidecars with `load_brep_region_rshell(...)` or
 `load_brep_region_rsolid(...)`, but must not read the target STEP.
 
