@@ -150,6 +150,8 @@ downstream target from the consumer contract:
 | `.scadpkg` | Rebuild, replay, cache, or further SimpleCAD editing is required | Complete durable definition closure, feature graphs, source snapshots, topology, connectors, constraints, and materials | SimpleCAD-specific archive |
 | `.FCStd` | A FreeCAD user needs an editable native document | Definition-owned, dependency-first native feature graphs; final body links; repeated instances; nested assemblies; names; solved placements; materials; connectors; constraints; grounding; revision; and content hashes | Requires FreeCADCmd/FreeCAD |
 | AP242 `.step` | Neutral CAD exchange or downstream OpenCASCADE tooling is required | Evaluated BREP, product hierarchy, shared definitions, occurrence names/placements, materials, colors, density, and named SimpleCAD property payloads | Canonical feature history is not reconstructed as AP242 features |
+| Triangle `.obj` | Surface inspection or DCC exchange needs an indexed mesh | Direct OpenCASCADE tessellation of evaluated BREP with shared vertices and oriented triangles | Evaluated surface mesh only; no CAD hierarchy, feature semantics, quads, or materials |
+| Binary `.stl` | Additive manufacturing or triangle-only consumers | The same direct OpenCASCADE BREP triangles | Facet soup only; no shared vertices, CAD hierarchy, feature semantics, or materials |
 
 ```python
 package_path = assembly_package.artifact_paths["product"]
@@ -166,9 +168,20 @@ stl_report = scad.exporter.export_product_package_to_stl(
     package_path,
     "out/product.stl",
 )
+obj_report = scad.exporter.export_product_package_to_obj(
+    package_path,
+    "out/product.obj",
+)
 print(step_report.definition_ids, step_report.occurrence_count)
-print(stl_report.solid_count, stl_report.stl_triangle_count)
+print(stl_report.solid_count, stl_report.triangle_count)
+print(obj_report.vertex_count, obj_report.triangle_count)
 ```
+
+STL and OBJ use the same direct OpenCASCADE tessellation and parameters. Set
+`linear_deflection` to the maximum chordal deviation in product units and
+`angular_deflection_degrees` to the curved-surface angular limit. Both formats
+contain oriented triangles; OBJ preserves shared vertex indices while binary STL
+stores each facet independently. No remeshing or optional dependency is involved.
 
 AP242 definition and occurrence metadata is stored in one standard
 `PROPERTY_DEFINITION_REPRESENTATION`. Its named
@@ -180,9 +193,11 @@ connectors, constraints, grounding, name, and solved placement.
 `ProductSTEPExportReport` reports the schema, definition IDs, occurrence
 count, material IDs, metadata item count, and explicit limitations.
 
-For tetrahedral meshing, install `simplecadapi[gmsh]` and run
-`examples/12_ap242_gmsh_volume_mesh.py`. The example exports one `.scadpkg`,
-converts it to AP242 STEP, imports it with Gmsh's OpenCASCADE kernel, rejects
-imports with no 3D volumes, generates a dimension-3 mesh, writes `.msh`, and
-always finalizes Gmsh. Gmsh remains optional and is never imported by the core
-SDK or the product exporters.
+For tetrahedral meshing, run the split example directly in dependency order:
+`model.py` captures `.scadpkg`, `export_step.py` exports AP242 STEP, and
+`export_fem_mesh.py` imports that STEP with Gmsh's OpenCASCADE kernel. The FEM
+stage rejects imports with no 3D volumes, generates a dimension-3 mesh, writes
+`.msh`, and always finalizes Gmsh. Install and invoke the optional dependency
+with `uv run --extra gmsh python
+examples/12_ap242_gmsh_volume_mesh/export_fem_mesh.py`; Gmsh is never imported
+by the core SDK or product exporters.

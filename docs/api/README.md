@@ -91,8 +91,12 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 ## Export
 
+- [ProductMJCFExportReport](ProductMJCFExportReport.md) *(from exporter/mjcf.py)* `exporter namespace`
+- [ProductOBJExportReport](ProductOBJExportReport.md) *(from exporter/obj.py)* `exporter namespace`
 - [ProductSTEPExportReport](ProductSTEPExportReport.md) *(from exporter/step.py)* `exporter namespace`
 - [ProductSTLExportReport](ProductSTLExportReport.md) *(from exporter/stl.py)* `exporter namespace`
+- [export_product_package_to_mjcf](export_product_package_to_mjcf.md) *(from exporter/mjcf.py)* `exporter namespace`
+- [export_product_package_to_obj](export_product_package_to_obj.md) *(from exporter/obj.py)* `exporter namespace`
 - [export_product_package_to_step](export_product_package_to_step.md) *(from exporter/step.py)* `exporter namespace`
 - [export_product_package_to_stl](export_product_package_to_stl.md) *(from exporter/stl.py)* `exporter namespace`
 

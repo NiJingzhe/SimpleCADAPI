@@ -129,6 +129,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             )
             self.assertIn("inspect/brep/inspect.py", resolved_names)
             self.assertIn("inspect/brep/queries.py", resolved_names)
+            self.assertIn("exporter/mjcf.py", resolved_names)
 
     def test_default_source_files_include_cache_build_public_surface(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -168,6 +169,8 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 "CachePolicy",
                 "CacheReport",
                 "ContentAddressedStore",
+                "ProductMJCFExportReport",
+                "export_product_package_to_mjcf",
             ):
                 self.assertIn(name, names)
             self.assertNotIn("snapshot_file_inputs", names)

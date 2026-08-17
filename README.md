@@ -16,11 +16,11 @@ incremental assembly solves, and a persistent crash-safe cache for whole parts.
 See the [full English update notes](docs/updates/2.0.4b3.md) for contracts,
 cache modes, diagnostics, limitations, and verification coverage.
 
-All formal scripts under `examples/` emit a synchronized `.scadpkg`, AP242
+All formal single-script examples emit a synchronized `.scadpkg`, AP242
 `.step`, and editable `.FCStd` from the same product package. Run
-`uv run python tools/run_examples.py` to rebuild and validate the complete
-example export set. The Gmsh example accepts `--skip-mesh` when only the CAD
-artifacts are required.
+`uv run python tools/run_examples.py` to rebuild and validate that set. The
+split AP242/Gmsh example under `examples/12_ap242_gmsh_volume_mesh/` exposes
+each build and export stage as a separate directly runnable script.
 
 ---
 
@@ -119,6 +119,7 @@ print("volume", round(result.part.body.get_volume(), 3))
 print("tags", scad.list_tags(shape=result.part.body))
 scad.exporter.export_product_package_to_step(package_path, out / "bracket.step")
 scad.exporter.export_product_package_to_stl(package_path, out / "bracket.stl")
+scad.exporter.export_product_package_to_obj(package_path, out / "bracket.obj")
 ```
 
 ## Replayable Operation Graphs
@@ -211,14 +212,43 @@ scad.exporter.export_product_package_to_step(
 scad.exporter.export_product_package_to_stl(
     "out/mounting_plate.scadpkg", "out/mounting_plate.stl"
 )
+scad.exporter.export_product_package_to_obj(
+    "out/mounting_plate.scadpkg", "out/mounting_plate.obj"
+)
+```
+STL and OBJ share one direct OpenCASCADE tessellation of the evaluated BREP.
+Both outputs contain the same oriented triangles and require no optional
+remeshing dependency. Control curved-surface accuracy with `linear_deflection`
+and `angular_deflection_degrees`.
+
+The AP242/Gmsh example also includes an optional CalculiX FEM workflow. Install
+the Python-side FEM dependencies with `uv sync --extra fem`, and install the
+external CalculiX solver separately (on macOS: `brew install
+costerwi/homebrew-calculix/calculix-ccx`). The example uses consistent `mm`,
+`N`, and `MPa` units:
+
+```bash
+uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/run_calculix.py \
+  --ccx "$(brew --prefix calculix-ccx)/bin/ccx_2.23"
+uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/visualize_calculix.py
+uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/study_mesh_convergence.py \
+  --ccx "$(brew --prefix calculix-ccx)/bin/ccx_2.23" \
+  --linear-solver "ITERATIVE CHOLESKY" --solver-timeout 2400
 ```
 
-AP242 preserves evaluated BREP, shared definitions, hierarchy, occurrence
-names/placements, materials, colors, density, and named SimpleCAD JSON
-properties. It does not reconstruct canonical feature history as AP242
-features. For the optional `.step -> .msh` volume-mesh workflow, install
-`simplecadapi[gmsh]` and run `examples/12_ap242_gmsh_volume_mesh.py`; use
-`--skip-mesh` to export only the synchronized CAD artifacts.
+The analysis writes CalculiX `.inp`, `.dat`, `.frd`, solver-log, summary JSON,
+ParaView `.vtu`, and displaced von-Mises PNG artifacts. The preview shows the
+load physical group's yellow boundary and red `-Z` force arrows without
+covering the stress heatmap. The convergence study supports `--resume`; failed
+solver levels are reported separately and never enter the numerical sequence.
+
+The checked-in `-1000 N` study evaluates eleven mesh sizes from `h=3.0 mm` to
+`h=0.25 mm`. A platform requires three consecutive refinement pairs below `5%`
+maximum-displacement change and `10%` peak integration-point von-Mises change.
+The verification level N is `h=0.25 mm` (`0.0331843 mm`, `98.6392 MPa`), so the
+recommended production level N-1 is `h=0.27 mm`. Fine levels use iterative
+Cholesky after a same-mesh comparison at `h=0.375 mm` matched SPOOLES within
+`0.005%`; this avoids the direct solver's in-memory capacity limit.
 
 ## STEP/BREP Inspection
 

@@ -52,6 +52,10 @@ inspect = [
 gmsh = [
     "gmsh>=4.15,<5",
 ]
+fem = [
+    "gmsh>=4.15,<5",
+    "ccx2paraview[VTK]>=3.2,<4",
+]
 
 [project.urls]
 Homepage = "https://github.com/NiJingzhe/SimpleCADAPI"
