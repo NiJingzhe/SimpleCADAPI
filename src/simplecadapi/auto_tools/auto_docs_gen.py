@@ -48,7 +48,9 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "inspect/brep/render.py",
     "inspect/brep/slices.py",
     "exporter/step.py",
+    "exporter/obj.py",
     "exporter/stl.py",
+    "exporter/mjcf.py",
 )
 
 DEFAULT_STDLIB_SOURCE_FILENAMES: tuple[str, ...] = (
@@ -90,7 +92,9 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "inspect/brep/render.py",
         "inspect/brep/slices.py",
         "exporter/step.py",
+        "exporter/obj.py",
         "exporter/stl.py",
+        "exporter/mjcf.py",
     }
 )
 
@@ -324,6 +328,8 @@ class APIDocumentGenerator:
         module_name: str,
         exported_names: set[str],
     ) -> bool:
+        if name.startswith("_"):
+            return False
         if module_name.startswith("exporter/"):
             return True
         if name.startswith("_"):

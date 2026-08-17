@@ -38,9 +38,6 @@ FORMAL_EXAMPLE_PACKAGES = {
         "examples/out/external_reference_gear_train/"
         "nested_external_reference_gear_trains.scadpkg"
     ),
-    "examples/12_ap242_gmsh_volume_mesh.py": (
-        "examples/out/ap242_gmsh_volume_mesh/ap242_gmsh_bracket.scadpkg"
-    ),
     "examples/7ep_caplcd_enclosure.py": (
         "examples/out/7ep_caplcd_enclosure/caplcd_enclosure_7ep.scadpkg"
     ),

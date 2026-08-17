@@ -1,10 +1,11 @@
-"""End-to-end tests for product-package STEP and STL exporters."""
+"""End-to-end tests for product-package CAD and mesh exporters."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 import tempfile
+import xml.etree.ElementTree as ET
 import unittest
 
 import numpy as np
@@ -149,6 +150,21 @@ def _build_nested_package(root: Path):
     return scad.build_product_package(build_root())
 
 
+def _build_cylinder_package(root: Path):
+    cache = scad.CachePolicy(root=root / "cache")
+
+    @scad.part(
+        id="cylinder",
+        cache=cache,
+        project_root=Path(__file__).parent,
+    )
+    def build_cylinder() -> scad.Part:
+        body = scad.make_cylinder_rsolid(radius=4.0, height=8.0)
+        return scad.make_part_rpart("cylinder", body)
+
+    return scad.build_product_package(build_cylinder())
+
+
 class TestProductExporter(unittest.TestCase):
     def test_exporters_are_available_only_from_exporter_namespace(self):
         self.assertIs(
@@ -156,11 +172,20 @@ class TestProductExporter(unittest.TestCase):
             scad.exporter.step.export_product_package_to_step,
         )
         self.assertIs(
+            scad.exporter.export_product_package_to_obj,
+            scad.exporter.obj.export_product_package_to_obj,
+        )
+        self.assertIs(
             scad.exporter.export_product_package_to_stl,
             scad.exporter.stl.export_product_package_to_stl,
         )
+        self.assertIs(
+            scad.exporter.export_product_package_to_mjcf,
+            scad.exporter.mjcf.export_product_package_to_mjcf,
+        )
         self.assertFalse(hasattr(scad, "export_step"))
         self.assertFalse(hasattr(scad, "export_stl"))
+        self.assertFalse(hasattr(scad, "export_obj"))
         self.assertFalse(hasattr(scad.translator, "ap242_translator"))
 
     def test_nested_package_preserves_ap242_product_structure_and_placements(self):
@@ -289,30 +314,210 @@ class TestProductExporter(unittest.TestCase):
             {(0.2, 0.4, 0.6)},
         )
 
-    def test_nested_package_exports_quad_dominant_stl(self):
+    def test_nested_package_exports_matching_direct_brep_meshes(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             package = _build_nested_package(root)
             stl_path = root / "nested.stl"
-            report = scad.exporter.export_product_package_to_stl(
+            obj_path = root / "nested.obj"
+            stl_report = scad.exporter.export_product_package_to_stl(
                 package,
                 stl_path,
-                mesh_size=0.75,
+                linear_deflection=0.05,
+                angular_deflection_degrees=10.0,
             )
-            mesh = trimesh.load_mesh(stl_path, force="mesh", process=False)
+            obj_report = scad.exporter.export_product_package_to_obj(
+                package,
+                obj_path,
+                linear_deflection=0.05,
+                angular_deflection_degrees=10.0,
+            )
+            stl_mesh = trimesh.load_mesh(stl_path, force="mesh", process=False)
+            obj_mesh = trimesh.load_mesh(obj_path, force="mesh", process=False)
+            stl_processed = trimesh.load_mesh(stl_path, force="mesh", process=True)
+            obj_lines = obj_path.read_text(encoding="ascii").splitlines()
+            stl_size = stl_path.stat().st_size
 
-        self.assertEqual(report.root_definition_id, "root")
-        self.assertEqual(report.definition_count, 3)
-        self.assertEqual(report.solid_count, 3)
-        self.assertGreater(report.quadrilateral_count, 0)
-        self.assertGreater(report.quad_fraction, 0.5)
-        self.assertEqual(len(mesh.faces), report.stl_triangle_count)
-        self.assertTrue(
-            np.allclose(
-                mesh.bounds,
-                [[-0.5, -1.35415439394285, -0.2077077845361233], [10.5, 6.0, 3.207707784536123]],
-            )
+        source_bounds = np.asarray(
+            [
+                [-0.5, -1.35415439394285, -0.2077077845361233],
+                [10.5, 6.0, 3.207707784536123],
+            ]
         )
+        for report in (stl_report, obj_report):
+            self.assertEqual(report.root_definition_id, "root")
+            self.assertEqual(report.definition_count, 3)
+            self.assertEqual(report.solid_count, 3)
+            self.assertGreater(report.vertex_count, 0)
+            self.assertGreater(report.triangle_count, 0)
+            self.assertEqual(report.linear_deflection, 0.05)
+            self.assertEqual(report.angular_deflection_degrees, 10.0)
+            self.assertFalse(report.relative)
+            self.assertEqual(
+                report.tessellation_backend,
+                "opencascade-brep-tessellation",
+            )
+        self.assertEqual(stl_report.vertex_count, obj_report.vertex_count)
+        self.assertEqual(stl_report.triangle_count, obj_report.triangle_count)
+        self.assertEqual(len(stl_mesh.faces), stl_report.triangle_count)
+        self.assertEqual(len(obj_mesh.faces), obj_report.triangle_count)
+        self.assertEqual(
+            sum(line.startswith("f ") for line in obj_lines),
+            obj_report.triangle_count,
+        )
+        self.assertTrue(
+            all(len(line.split()) == 4 for line in obj_lines if line.startswith("f "))
+        )
+        self.assertTrue(np.allclose(stl_mesh.bounds, source_bounds, atol=1.0e-6))
+        self.assertTrue(np.allclose(obj_mesh.bounds, source_bounds, atol=1.0e-6))
+        self.assertTrue(stl_processed.is_watertight)
+        self.assertTrue(obj_mesh.is_watertight)
+        self.assertTrue(stl_processed.is_winding_consistent)
+        self.assertTrue(obj_mesh.is_winding_consistent)
+        self.assertEqual(stl_size, 84 + 50 * stl_report.triangle_count)
+
+    def test_smaller_deflection_refines_curved_brep(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            package = _build_cylinder_package(root)
+            coarse_path = root / "cylinder-coarse.obj"
+            fine_path = root / "cylinder-fine.obj"
+            coarse = scad.exporter.export_product_package_to_obj(
+                package,
+                coarse_path,
+                linear_deflection=0.5,
+                angular_deflection_degrees=30.0,
+            )
+            fine = scad.exporter.export_product_package_to_obj(
+                package,
+                fine_path,
+                linear_deflection=0.01,
+                angular_deflection_degrees=5.0,
+            )
+            mesh = trimesh.load_mesh(fine_path, force="mesh", process=False)
+
+        self.assertEqual(coarse.solid_count, 1)
+        self.assertEqual(fine.solid_count, 1)
+        self.assertGreater(fine.vertex_count, coarse.vertex_count)
+        self.assertGreater(fine.triangle_count, coarse.triangle_count)
+        self.assertEqual(len(mesh.faces), fine.triangle_count)
+        self.assertTrue(mesh.is_watertight)
+        self.assertTrue(mesh.is_winding_consistent)
+        exact_bounds = np.asarray([[-4.0, -4.0, 0.0], [4.0, 4.0, 8.0]])
+        self.assertTrue(np.all(mesh.bounds[0] >= exact_bounds[0] - 1.0e-9))
+        self.assertTrue(np.all(mesh.bounds[1] <= exact_bounds[1] + 1.0e-9))
+        self.assertLessEqual(float(np.max(np.abs(mesh.bounds - exact_bounds))), 0.01)
+
+    def test_mjcf_exporter_builds_named_body_joint_site_and_mapping(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            cache = scad.CachePolicy(root=root / "cache")
+            material = scad.make_material_rmaterial(
+                "test_aluminum",
+                density=2.7e-6,
+                density_unit="kg/mm^3",
+            )
+
+            def make_link(part_id: str) -> scad.Part:
+                body = scad.make_cylinder_rsolid(radius=2.0, height=4.0)
+                part = scad.make_part_rpart(part_id, body)
+                part = scad.assign_material_rpart(part, material)
+                return scad.add_connector_rpart(
+                    part,
+                    scad.make_placement_connector_rconnector(
+                        "axis",
+                        scad.identity_placement_rplacement(),
+                    ),
+                )
+
+            @scad.part(id="mjcf_base", cache=cache, project_root=Path(__file__).parent)
+            def build_base() -> scad.Part:
+                return make_link("mjcf_base")
+
+            @scad.part(id="mjcf_rotor", cache=cache, project_root=Path(__file__).parent)
+            def build_rotor() -> scad.Part:
+                return make_link("mjcf_rotor")
+
+            base = build_base()
+            rotor = build_rotor()
+
+            @scad.assemble(
+                id="mjcf_fixture",
+                definitions=(base, rotor),
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_fixture() -> scad.Assembly:
+                assembly = scad.make_assembly_rassembly("mjcf_fixture")
+                assembly = scad.add_component_rassembly(
+                    assembly,
+                    base.part,
+                    component_id="base",
+                    placement=scad.identity_placement_rplacement(),
+                )
+                assembly = scad.add_component_rassembly(
+                    assembly,
+                    rotor.part,
+                    component_id="rotor",
+                    placement=scad.identity_placement_rplacement(),
+                )
+                assembly = scad.ground_component_rassembly(assembly, "base")
+                assembly = scad.add_revolute_constraint_rassembly(
+                    assembly,
+                    "rotor_axis",
+                    scad.make_connector_ref_rconnectorref("base", "axis"),
+                    scad.make_connector_ref_rconnectorref("rotor", "axis"),
+                )
+                return scad.forward_connector_rassembly(
+                    assembly,
+                    "tool_axis",
+                    "rotor",
+                    "axis",
+                )
+
+            package = scad.build_product_package(build_fixture())
+            xml_path = root / "fixture.xml"
+            report = scad.exporter.export_product_package_to_mjcf(
+                package,
+                xml_path,
+                linear_deflection=0.1,
+            )
+            xml_root = ET.parse(xml_path).getroot()
+            mapping = json.loads(report.mapping_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(report.body_count, 1)
+        self.assertEqual(report.joint_count, 1)
+        self.assertEqual(report.equality_count, 0)
+        self.assertEqual(report.site_count, 1)
+        self.assertIsNotNone(xml_root.find('.//body[@name="body_rotor"]'))
+        self.assertIsNotNone(xml_root.find('.//geom[@name="base"]'))
+        self.assertIsNotNone(xml_root.find('.//geom[@name="rotor"]'))
+        self.assertIsNotNone(xml_root.find('.//site[@name="tool_axis"]'))
+        self.assertEqual(len(mapping["tree_joints"]), 1)
+        self.assertEqual(mapping["sites"][0]["connector_id"], "tool_axis")
+
+    def test_mesh_exporters_reject_invalid_tessellation_parameters(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            package = _build_cylinder_package(root)
+            with self.assertRaisesRegex(ValueError, "linear_deflection"):
+                scad.exporter.export_product_package_to_stl(
+                    package,
+                    root / "invalid.stl",
+                    linear_deflection=0.0,
+                )
+            with self.assertRaisesRegex(ValueError, "angular_deflection_degrees"):
+                scad.exporter.export_product_package_to_obj(
+                    package,
+                    root / "invalid.obj",
+                    angular_deflection_degrees=181.0,
+                )
+            with self.assertRaisesRegex(TypeError, "relative"):
+                scad.exporter.export_product_package_to_obj(
+                    package,
+                    root / "invalid-relative.obj",
+                    relative=1,
+                )
 
 
 if __name__ == "__main__":

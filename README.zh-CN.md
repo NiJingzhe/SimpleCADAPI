@@ -93,6 +93,7 @@ print("volume", round(result.part.body.get_volume(), 3))
 print("tags", scad.list_tags(shape=result.part.body))
 scad.exporter.export_product_package_to_step(package_path, out / "bracket.step")
 scad.exporter.export_product_package_to_stl(package_path, out / "bracket.stl")
+scad.exporter.export_product_package_to_obj(package_path, out / "bracket.obj")
 ```
 
 
@@ -214,7 +215,37 @@ scad.translator.freecad_translator.translate_product_package_to_fcstd(
 )
 scad.exporter.export_product_package_to_step(package_path, "bracket.step")
 scad.exporter.export_product_package_to_stl(package_path, "bracket.stl")
+scad.exporter.export_product_package_to_obj(package_path, "bracket.obj")
 ```
+
+STL 与 OBJ 共用 OpenCASCADE 对求值后 BREP 的直接三角化。两种格式包含相同的
+定向三角面，不再需要可选 remeshing 依赖。曲面精度由 `linear_deflection` 和
+`angular_deflection_degrees` 控制。
+
+AP242/Gmsh 示例还包含可选 CalculiX FEM 流程。Python 侧依赖通过
+`uv sync --extra fem` 安装；CalculiX 求解器需要单独安装（macOS：
+`brew install costerwi/homebrew-calculix/calculix-ccx`）：
+
+```bash
+uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/run_calculix.py \
+  --ccx "$(brew --prefix calculix-ccx)/bin/ccx_2.23"
+uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/visualize_calculix.py
+uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/study_mesh_convergence.py \
+  --ccx "$(brew --prefix calculix-ccx)/bin/ccx_2.23" \
+  --linear-solver "ITERATIVE CHOLESKY" --solver-timeout 2400
+```
+
+分析统一使用 `mm`、`N`、`MPa`，输出 CalculiX `.inp`、`.dat`、`.frd`、求解日志、
+摘要 JSON、ParaView `.vtu` 和位移放大后的 von Mises 云图 PNG。图中用黄色轮廓
+标出载荷 physical group，并用红色 `-Z` 箭头表示载荷方向，不覆盖应力热力图。
+收敛研究支持 `--resume`；失败的求解级别单独记录，不会混入数值序列。
+
+仓库中的 `-1000 N` 研究从 `h=3.0 mm` 加密到 `h=0.25 mm`，共 11 级。平台要求
+连续三组细化同时满足最大位移变化低于 `5%`、积分点峰值 von Mises 应力变化低于
+`10%`。第 N 级验证网格为 `h=0.25 mm`（`0.0331843 mm`、`98.6392 MPa`），
+因此生产计算推荐第 N-1 级 `h=0.27 mm`。细网格使用迭代 Cholesky；在
+`h=0.375 mm` 同网格上与 SPOOLES 的位移和峰值应力差异均低于 `0.005%`，从而
+绕过直接求解器的内存容量限制。
 
 ## 文档
 

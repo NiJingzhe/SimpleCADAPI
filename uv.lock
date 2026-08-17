@@ -251,6 +251,24 @@ wheels = [
 ]
 
 [[package]]
+name = "ccx2paraview"
+version = "3.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/68/80/2d3f15215a6ef3029bc4a5a58365cd6979a8d9dd2ca7b97e7ef929381522/ccx2paraview-3.2.0.tar.gz", hash = "sha256:c9f0c8d0fadd7de9a30be1b38ff53ecede49a87659e32b67ba32230d9dafd600", size = 36243, upload-time = "2024-12-19T21:17:20.762Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/da/46b9c79188084d4c650144ce8341b78ecfe3a790bcdd585de9a3a5ae9798/ccx2paraview-3.2.0-py3-none-any.whl", hash = "sha256:814520a138c4ac345809b16f6242b43e2f16bb926215bec069398a0672e887a9", size = 29352, upload-time = "2024-12-19T21:17:18.532Z" },
+]
+
+[package.optional-dependencies]
+vtk = [
+    { name = "vtk" },
+]
+
+[[package]]
 name = "certifi"
 version = "2025.6.15"
 source = { registry = "https://pypi.org/simple" }
@@ -2963,6 +2981,10 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
+fem = [
+    { name = "ccx2paraview", extra = ["vtk"] },
+    { name = "gmsh" },
+]
 gmsh = [
     { name = "gmsh" },
 ]
@@ -2986,6 +3008,8 @@ dev = [
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0" },
     { name = "cadquery-ocp", specifier = ">=7.9.3.1" },
+    { name = "ccx2paraview", extras = ["vtk"], marker = "extra == 'fem'", specifier = ">=3.2,<4" },
+    { name = "gmsh", marker = "extra == 'fem'", specifier = ">=4.15,<5" },
     { name = "gmsh", marker = "extra == 'gmsh'", specifier = ">=4.15,<5" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "jsonschema", specifier = ">=4.25.1,<5.0.0" },
@@ -3002,7 +3026,7 @@ requires-dist = [
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0,<3" },
     { name = "typing-extensions", specifier = ">=4.12,<5" },
 ]
-provides-extras = ["dev", "editor", "collision", "inspect", "gmsh"]
+provides-extras = ["dev", "editor", "collision", "inspect", "gmsh", "fem"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def export_product_package_to_stl(data: ProductPackageInput, output_path: str | Path, *, mesh_size: float = 1.0, recombination_angle_degrees: float = 45.0) -> ProductSTLExportReport
+def export_product_package_to_stl(data: ProductPackageInput, output_path: str | Path, *, linear_deflection: float = 0.1, angular_deflection_degrees: float = 20.0, relative: bool = False) -> ProductSTLExportReport
 ```
 
 *Source: exporter/stl.py*
@@ -14,7 +14,8 @@ def export_product_package_to_stl(data: ProductPackageInput, output_path: str | 
 
 ## Description
 
-Export one validated `.scadpkg` as a quad-dominant remeshed STL.
+Export one `.scadpkg` directly from evaluated BREP as binary STL.
 
-Gmsh recombines each CAD surface into quadrilaterals before its STL writer
-splits every quad into two triangles, as required by the STL file format.
+`linear_deflection` is the maximum chordal deviation in product units.
+`angular_deflection_degrees` limits angular deviation on curved surfaces.
+No remeshing or topology reconstruction is performed.
