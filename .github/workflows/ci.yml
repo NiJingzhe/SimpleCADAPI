@@ -45,8 +45,8 @@ jobs:
 
       - name: Install locked dependencies
         run: uv sync --locked --group dev --extra collision
-      - name: Install headless rendering support
-        run: sudo apt-get update && sudo apt-get install --yes xvfb
+      - name: Verify headless rendering support
+        run: command -v xvfb-run
 
 
       - name: Compile package
