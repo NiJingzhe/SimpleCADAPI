@@ -6,7 +6,7 @@
 class Material(material_id: str, name: Optional[str] = None, density: Optional[float] = None, density_unit: Optional[str] = None, color: Optional[Vec3] = None)
 ```
 
-*Source: product.py*
+*Source: material.py*
 
 ## Import Surface
 

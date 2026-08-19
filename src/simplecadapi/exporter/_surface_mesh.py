@@ -18,7 +18,8 @@ from OCP.TopoDS import TopoDS
 from ..artifacts.assembly_io import materialize_definition
 from ..kernel.ocp_booleans import solids_of
 from ..operations import make_compound_from_assembly_rcompound
-from ..product import Assembly, Part
+from ..assembly import Assembly
+from ..part import Part
 from ..translator.package_units import (
     ProductPackageInput,
     read_product_package_translation_units,

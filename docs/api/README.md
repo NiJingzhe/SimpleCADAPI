@@ -253,22 +253,22 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 ## Other
 
-- [Assembly](Assembly.md) *(from product.py)* `top-level`
+- [Assembly](Assembly.md) *(from assembly.py)* `top-level`
 - [CaptureResult](CaptureResult.md) *(from capture.py)* `top-level`
-- [Component](Component.md) *(from product.py)* `top-level`
-- [Connector](Connector.md) *(from product.py)* `top-level`
-- [ConnectorAnchor](ConnectorAnchor.md) *(from product.py)* `top-level`
-- [ConnectorRef](ConnectorRef.md) *(from product.py)* `top-level`
-- [Constraint](Constraint.md) *(from product.py)* `top-level`
-- [ConstraintReport](ConstraintReport.md) *(from product.py)* `top-level`
-- [ConstraintResidual](ConstraintResidual.md) *(from product.py)* `top-level`
-- [GeometryRef](GeometryRef.md) *(from product.py)* `top-level`
-- [Material](Material.md) *(from product.py)* `top-level`
-- [Part](Part.md) *(from product.py)* `top-level`
-- [Placement](Placement.md) *(from product.py)* `top-level`
+- [Component](Component.md) *(from assembly.py)* `top-level`
+- [Connector](Connector.md) *(from connector.py)* `top-level`
+- [ConnectorAnchor](ConnectorAnchor.md) *(from connector.py)* `top-level`
+- [ConnectorRef](ConnectorRef.md) *(from connector.py)* `top-level`
+- [Constraint](Constraint.md) *(from constraint.py)* `top-level`
+- [ConstraintReport](ConstraintReport.md) *(from constraint.py)* `top-level`
+- [ConstraintResidual](ConstraintResidual.md) *(from constraint.py)* `top-level`
+- [GeometryRef](GeometryRef.md) *(from connector.py)* `top-level`
+- [Material](Material.md) *(from material.py)* `top-level`
+- [Part](Part.md) *(from part.py)* `top-level`
+- [Placement](Placement.md) *(from placement.py)* `top-level`
 - [ProductPackage](ProductPackage.md) *(from product_packages.py)* `top-level`
 - [ProductPackageError](ProductPackageError.md) *(from product_packages.py)* `top-level`
-- [ScalarLimit](ScalarLimit.md) *(from product.py)* `top-level`
+- [ScalarLimit](ScalarLimit.md) *(from constraint.py)* `top-level`
 - [SemanticDelta](SemanticDelta.md) *(from topology.py)* `top-level`
 - [SemanticRef](SemanticRef.md) *(from topology.py)* `top-level`
 - [SurfaceBoundary](SurfaceBoundary.md) *(from operations.py)* `top-level`

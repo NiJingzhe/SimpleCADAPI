@@ -136,11 +136,16 @@ class ProductEmitterMixin:
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'assembly', 'assembly_id': str({rp}.get('assembly_id', '')), 'container': {var_name}, 'components': [], 'connectors': [], 'constraints': [], 'grounded_component_ids': []}}"
             )
             return lines
-        if node.op == "make_add_component_rassembly" and len(inputs) >= 3:
+        if node.op == "make_add_component_rassembly" and len(inputs) >= 2:
+            placement_expr = (
+                f"PRODUCT_VALUES[{_json_ascii(inputs[2])}]['placement']"
+                if len(inputs) >= 3
+                else f"dict({rp}.get('placement') or {{}})"
+            )
             lines = [
                 f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
                 f"{var_name}_item = PRODUCT_VALUES[{_json_ascii(inputs[1])}]",
-                f"{var_name}_placement = PRODUCT_VALUES[{_json_ascii(inputs[2])}]['placement']",
+                f"{var_name}_placement = {placement_expr}",
                 f"{var_name} = {var_name}_assembly['container']",
                 f"{var_name}_link_label = str({rp}.get('name') or {rp}.get('component_id') or {_json_ascii(object_name)})",
                 f"{var_name}_link = _make_assembly_component_link({var_name}, {var_name}_item, {_json_ascii(object_name + '_component')}, {var_name}_link_label, {var_name}_placement)",
@@ -151,10 +156,15 @@ class ProductEmitterMixin:
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
             return lines
-        if node.op == "make_place_component_rassembly" and len(inputs) >= 2:
+        if node.op == "make_place_component_rassembly" and len(inputs) >= 1:
+            placement_expr = (
+                f"PRODUCT_VALUES[{_json_ascii(inputs[1])}]['placement']"
+                if len(inputs) >= 2
+                else f"dict({rp}.get('placement') or {{}})"
+            )
             lines = [
                 f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
-                f"{var_name}_placement = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['placement']",
+                f"{var_name}_placement = {placement_expr}",
                 f"{var_name} = {var_name}_assembly['container']",
                 f"{var_name}_components = []",
                 f"for _component in {var_name}_assembly.get('components', []):",

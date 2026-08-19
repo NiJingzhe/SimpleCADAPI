@@ -11,7 +11,9 @@ from __future__ import annotations
 import math
 from typing import Dict, List, Optional
 
-from ..product import Assembly, Material, Part
+from ..assembly import Assembly
+from ..material import Material
+from ..part import Part
 from ..operations import (
     add_component_rassembly,
     add_connector_rpart,

@@ -57,27 +57,18 @@ from .graph import (
     suspend_graph_recording,
 )
 from .ql import ShapeSelector, output_role
-from .product import (
-    Assembly,
-    Component,
-    Connector,
-    ConnectorAnchor,
-    ConnectorRef,
-    Constraint,
-    ConstraintReport,
-    ConstraintResidual,
-    GeometryRef,
-    Material,
-    Part,
-    Placement,
-    ScalarLimit,
-    compose_placements,
+from .assembly import Assembly, Component
+from .assembly_solver import (
     coupling_phase_offset,
-    identity_placement,
     inspect_assembly_constraints,
     measure_constraint_residual,
     solve_assembly_constraints,
 )
+from .connector import Connector, ConnectorAnchor, ConnectorRef, GeometryRef
+from .constraint import Constraint, ConstraintReport, ConstraintResidual, ScalarLimit
+from .material import Material
+from .part import Part
+from .placement import Placement, compose_placements, identity_placement
 from .sketch import Sketch, SketchRef, SketchSolveResult
 from .tagging import (
     LineagePolicy,
@@ -8093,6 +8084,7 @@ def add_component_rassembly(
                 "name": component.name,
                 "item_kind": item_kind,
                 "item_id": item_id,
+                "placement": placement.to_dict(),
             },
             outputs=result,
             input_shapes=[assembly, item, placement],
@@ -8156,6 +8148,7 @@ def place_component_rassembly(
             {
                 "assembly_id": assembly.assembly_id,
                 "component_id": component_id,
+                "placement": placement.to_dict(),
             },
             outputs=result,
             input_shapes=[assembly, placement],
@@ -9054,10 +9047,6 @@ def _normalize_shape_input(
     raise ValueError(
         "rendering accepts Compound, Solid, Shell, Face, Wire, Edge, Vertex, or nested sequences of those types"
     )
-
-
-
-
 
 
 def render_screenshot_rpath(

@@ -4982,10 +4982,14 @@ class SimpleCADSolidWorksRuntime:
         if op == 'make_add_component_rassembly':
             assembly = dict(self._first_output(inputs[0]))
             components = list(assembly.get('components') or [])
+            placement = self._first_output(inputs[2]) if len(inputs) > 2 else {
+                'kind': 'placement',
+                'params': dict(params.get('placement') or {}),
+            }
             components.append({
                 'component_id': str(params.get('component_id') or ''),
                 'item': self._first_output(inputs[1]),
-                'placement': self._first_output(inputs[2]) if len(inputs) > 2 else {'kind': 'placement', 'params': {}},
+                'placement': placement,
                 'params': params,
             })
             assembly['components'] = components
@@ -4993,7 +4997,10 @@ class SimpleCADSolidWorksRuntime:
             return self._set_output(node, assembly)
         if op == 'make_place_component_rassembly':
             assembly = dict(self._first_output(inputs[0]))
-            placement = self._first_output(inputs[1])
+            placement = self._first_output(inputs[1]) if len(inputs) > 1 else {
+                'kind': 'placement',
+                'params': dict(params.get('placement') or {}),
+            }
             component_id = str(params.get('component_id') or '')
             components = []
             for component in assembly.get('components') or []:

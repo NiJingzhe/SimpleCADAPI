@@ -6,7 +6,7 @@
 class Connector(connector_id: str, geometry_ref: Optional[GeometryRef] = None, name: Optional[str] = None, anchor: Optional[ConnectorAnchor] = None)
 ```
 
-*Source: product.py*
+*Source: connector.py*
 
 ## Import Surface
 

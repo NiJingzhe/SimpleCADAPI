@@ -219,21 +219,12 @@ from .operations import (  # 基础几何创建; 变换操作; 3D操作; 标签�
     unground_component_rassembly,
     union_rsolid,
 )
-from .product import (
-    Assembly,
-    Component,
-    Connector,
-    ConnectorAnchor,
-    ConnectorRef,
-    Constraint,
-    ConstraintReport,
-    ConstraintResidual,
-    GeometryRef,
-    Material,
-    Part,
-    Placement,
-    ScalarLimit,
-)
+from .assembly import Assembly, Component
+from .connector import Connector, ConnectorAnchor, ConnectorRef, GeometryRef
+from .constraint import Constraint, ConstraintReport, ConstraintResidual, ScalarLimit
+from .material import Material
+from .part import Part
+from .placement import Placement
 from .capture import CaptureResult, capture
 from .product_packages import (
     PRODUCT_PACKAGE_SCHEMA_VERSION,

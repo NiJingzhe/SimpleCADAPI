@@ -46,16 +46,13 @@ from .graph import (
 )
 from .ql import output_role, selector_from_dict
 from .sketch import Sketch
-from .product import (
-    Assembly,
-    Connector,
-    ConnectorRef,
-    GeometryRef,
-    Material,
-    Part,
-    Placement,
-    ScalarLimit,
-)
+from .assembly import Assembly, _restore_component_occurrence_placements
+from .assembly_solver import constraint_reports_match
+from .connector import Connector, ConnectorRef, GeometryRef
+from .constraint import ScalarLimit
+from .material import Material
+from .part import Part
+from .placement import Placement
 from .topology import (
     OperationGraph,
     TopoRef,
@@ -71,8 +68,6 @@ from .kernel.ocp_properties import bounding_box
 
 MODEL_SCHEMA_VERSION = "2.0"
 CANONICAL_CONTRACT_VERSION = "2.0"
-_ASSEMBLY_TRANSLATION_RESIDUAL_ABS_TOLERANCE = 1.0e-7
-_ASSEMBLY_ANGULAR_RESIDUAL_ABS_TOLERANCE_DEGREES = 1.0e-6
 
 PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     # Core geometry ops that are recorded and replayable
@@ -2211,65 +2206,6 @@ def _validate_operation_output_evidence(
         )
 
 
-def _constraint_reports_match(
-    actual: Mapping[str, Any],
-    expected: Mapping[str, Any],
-) -> bool:
-    """Compare solved reports without rejecting harmless floating-point drift."""
-
-    report_fields = {
-        "solved",
-        "grounded_component_ids",
-        "solved_component_ids",
-        "unsolved_component_ids",
-        "residuals",
-    }
-    residual_fields = {
-        "constraint_id",
-        "translation_error",
-        "angular_error_degrees",
-        "within_tolerance",
-    }
-    if set(actual) != report_fields or set(expected) != report_fields:
-        return False
-    scalar_fields = report_fields - {"residuals"}
-    if any(actual[field] != expected[field] for field in scalar_fields):
-        return False
-    actual_residuals = actual["residuals"]
-    expected_residuals = expected["residuals"]
-    if not isinstance(actual_residuals, list) or not isinstance(expected_residuals, list):
-        return False
-    if len(actual_residuals) != len(expected_residuals):
-        return False
-    for actual_item, expected_item in zip(actual_residuals, expected_residuals):
-        if not isinstance(actual_item, Mapping) or not isinstance(expected_item, Mapping):
-            return False
-        if set(actual_item) != residual_fields or set(expected_item) != residual_fields:
-            return False
-        if actual_item["constraint_id"] != expected_item["constraint_id"]:
-            return False
-        if actual_item["within_tolerance"] != expected_item["within_tolerance"]:
-            return False
-        try:
-            translation_matches = math.isclose(
-                float(actual_item["translation_error"]),
-                float(expected_item["translation_error"]),
-                rel_tol=0.0,
-                abs_tol=_ASSEMBLY_TRANSLATION_RESIDUAL_ABS_TOLERANCE,
-            )
-            angular_matches = math.isclose(
-                float(actual_item["angular_error_degrees"]),
-                float(expected_item["angular_error_degrees"]),
-                rel_tol=0.0,
-                abs_tol=_ASSEMBLY_ANGULAR_RESIDUAL_ABS_TOLERANCE_DEGREES,
-            )
-        except (TypeError, ValueError):
-            return False
-        if not translation_matches or not angular_matches:
-            return False
-    return True
-
-
 def _execute_graph(
     graph: OperationGraph,
     leaf_node_ids: Optional[Sequence[str]] = None,
@@ -2345,7 +2281,9 @@ def _execute_graph(
                             "single_solid" if isinstance(value, Part) else "assembly"
                         )
                         actual_id = (
-                            value.part_id if isinstance(value, Part) else value.assembly_id
+                            value.part_id
+                            if isinstance(value, Part)
+                            else value.assembly_id
                         )
                         if (
                             actual_id != definition_id
@@ -2373,11 +2311,31 @@ def _execute_graph(
                         assembly_outputs = _input_outputs(ctx, outputs, node, 0)
                         if assembly_outputs:
                             authored = cast(Assembly, assembly_outputs[0])
-                            result = authored
                             placements = params["component_placements"]
                             if not isinstance(placements, list):
                                 ctx.fail(
                                     f"Graph node '{node.node_id}' ({op_name}) component_placements must be an array"
+                                )
+                            by_id: dict[str, Mapping[str, Any]] = {}
+                            for item in placements:
+                                if not isinstance(item, dict) or set(item) != {
+                                    "instance_id",
+                                    "placement",
+                                }:
+                                    ctx.fail(
+                                        f"Graph node '{node.node_id}' ({op_name}) has invalid placement record"
+                                    )
+                                instance_id = str(item["instance_id"])
+                                if instance_id in by_id or not isinstance(
+                                    item["placement"], Mapping
+                                ):
+                                    ctx.fail(
+                                        f"Graph node '{node.node_id}' ({op_name}) has invalid placement record"
+                                    )
+                                by_id[instance_id] = item["placement"]
+                            if set(by_id) != set(authored.component_ids()):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) placement ids differ from the assembly"
                                 )
                             authored_placements = authored._get_runtime(
                                 "assembly.authored_component_placements"
@@ -2387,22 +2345,37 @@ def _execute_graph(
                                     component.component_id: component.placement.to_dict()
                                     for component in authored.components
                                 }
-                            for item in placements:
-                                if not isinstance(item, dict) or set(item) != {
-                                    "instance_id",
-                                    "placement",
-                                }:
+                            occurrence_placements = params.get("occurrence_placements")
+                            if occurrence_placements is not None:
+                                if not isinstance(occurrence_placements, list):
                                     ctx.fail(
-                                        f"Graph node '{node.node_id}' ({op_name}) has invalid placement record"
+                                        f"Graph node '{node.node_id}' ({op_name}) occurrence_placements must be an array"
                                     )
-                                result = result.with_component_placement(
-                                    str(item["instance_id"]),
-                                    Placement(**dict(item["placement"])),
+                                result = _restore_component_occurrence_placements(
+                                    authored,
+                                    occurrence_placements,
                                 )
+                                if any(
+                                    result.get_component(
+                                        component_id
+                                    ).placement.to_dict()
+                                    != dict(by_id[component_id])
+                                    for component_id in authored.component_ids()
+                                ):
+                                    ctx.fail(
+                                        f"Graph node '{node.node_id}' ({op_name}) top-level and occurrence placements differ"
+                                    )
+                            else:
+                                result = authored
+                                for component_id in authored.component_ids():
+                                    result = result.with_component_placement(
+                                        component_id,
+                                        Placement(**dict(by_id[component_id])),
+                                    )
                             report = ops.inspect_assembly_constraints_rconstraintreport(
                                 assembly=result
                             )
-                            if not _constraint_reports_match(
+                            if not constraint_reports_match(
                                 report.to_dict(), params["constraint_report"]
                             ):
                                 ctx.fail(
@@ -2762,17 +2735,31 @@ def _execute_graph(
 
                     if op_name == "make_add_component_rassembly":
                         ctx.require_params(
-                            node.node_id, op_name, params, ("component_id",)
+                            node.node_id,
+                            op_name,
+                            params,
+                            ("component_id",),
                         )
                         assembly_outputs = _input_outputs(ctx, outputs, node, 0)
                         item_outputs = _input_outputs(ctx, outputs, node, 1)
-                        placement_outputs = _input_outputs(ctx, outputs, node, 2)
-                        if assembly_outputs and item_outputs and placement_outputs:
+                        placement = None
+                        if len(node.inputs) > 2:
+                            placement_outputs = _input_outputs(ctx, outputs, node, 2)
+                            if placement_outputs:
+                                placement = cast(Placement, placement_outputs[0])
+                        if placement is None:
+                            raw_placement = params.get("placement")
+                            if not isinstance(raw_placement, Mapping):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) is missing placement data"
+                                )
+                            placement = Placement(**dict(raw_placement))
+                        if assembly_outputs and item_outputs:
                             result = ops.add_component_rassembly(
                                 cast(Assembly, assembly_outputs[0]),
                                 cast(Any, item_outputs[0]),
                                 component_id=str(params["component_id"]),
-                                placement=cast(Placement, placement_outputs[0]),
+                                placement=placement,
                                 name=cast(Optional[str], params.get("name")),
                             )
                             _store_outputs(node, result)
@@ -2780,15 +2767,29 @@ def _execute_graph(
 
                     if op_name == "make_place_component_rassembly":
                         ctx.require_params(
-                            node.node_id, op_name, params, ("component_id",)
+                            node.node_id,
+                            op_name,
+                            params,
+                            ("component_id",),
                         )
                         assembly_outputs = _input_outputs(ctx, outputs, node, 0)
-                        placement_outputs = _input_outputs(ctx, outputs, node, 1)
-                        if assembly_outputs and placement_outputs:
+                        placement = None
+                        if len(node.inputs) > 1:
+                            placement_outputs = _input_outputs(ctx, outputs, node, 1)
+                            if placement_outputs:
+                                placement = cast(Placement, placement_outputs[0])
+                        if placement is None:
+                            raw_placement = params.get("placement")
+                            if not isinstance(raw_placement, Mapping):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) is missing placement data"
+                                )
+                            placement = Placement(**dict(raw_placement))
+                        if assembly_outputs:
                             result = ops.place_component_rassembly(
                                 cast(Assembly, assembly_outputs[0]),
                                 str(params["component_id"]),
-                                cast(Placement, placement_outputs[0]),
+                                placement,
                             )
                             _store_outputs(node, result)
                         continue
@@ -3847,6 +3848,7 @@ def _execute_graph(
 
     return leaf_results
 
+
 def replay_feature_graph(
     artifact: Any,
     *,
@@ -3863,7 +3865,9 @@ def replay_feature_graph(
     if not isinstance(artifact, FeatureGraphArtifact):
         raise TypeError("artifact must be a FeatureGraphArtifact")
     provided = dict(external_definitions or {})
-    expected = {str(item["definition_id"]): item for item in artifact.external_definitions}
+    expected = {
+        str(item["definition_id"]): item for item in artifact.external_definitions
+    }
     if set(provided) != set(expected):
         raise ValueError("external definition resolver keys differ from feature graph")
     runtime: Dict[str, Part | Assembly] = {}

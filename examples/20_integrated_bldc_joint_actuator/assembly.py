@@ -475,29 +475,25 @@ def _add_bearing_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assem
         ("output_bearing_2_inner_to_carrier", "output_carrier", "bearing_2_axis", "output_bearing_2", "inner_axis"),
     )
     for constraint_id, a_component, a_connector, b_component, b_connector in interfaces:
-        assembly = scad.add_revolute_constraint_rassembly(
+        assembly = scad.add_fixed_constraint_rassembly(
             assembly=assembly,
             constraint_id=constraint_id,
             connector_a=connector_ref(component_id=a_component, connector_id=a_connector),
             connector_b=connector_ref(component_id=b_component, connector_id=b_connector),
-            drive_angle_degrees=None,
-            angle_limit=None,
             name=constraint_id.replace("_", " "),
         )
     for stage, carrier_component in ((STAGE_1, "stage1_carrier"), (STAGE_2, "output_carrier")):
         for index in range(PLANET_COUNT):
             planet = f"{stage.stage_id}_planet_{index + 1}"
             bearing = f"{stage.stage_id}_planet_bearing_{index + 1}"
-            assembly = scad.add_revolute_constraint_rassembly(
+            assembly = scad.add_fixed_constraint_rassembly(
                 assembly=assembly,
                 constraint_id=f"{bearing}_outer_to_planet",
                 connector_a=connector_ref(component_id=planet, connector_id="bearing_axis"),
                 connector_b=connector_ref(component_id=bearing, connector_id="outer_axis"),
-                drive_angle_degrees=None,
-                angle_limit=None,
                 name=f"{stage.label} planet {index + 1} bearing outer-ring fit",
             )
-            assembly = scad.add_revolute_constraint_rassembly(
+            assembly = scad.add_fixed_constraint_rassembly(
                 assembly=assembly,
                 constraint_id=f"{bearing}_inner_to_pin",
                 connector_a=connector_ref(
@@ -505,8 +501,6 @@ def _add_bearing_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assem
                     connector_id=f"planet_{index + 1}_bearing_axis",
                 ),
                 connector_b=connector_ref(component_id=bearing, connector_id="inner_axis"),
-                drive_angle_degrees=None,
-                angle_limit=None,
                 name=f"{stage.label} planet {index + 1} bearing inner-ring pin fit",
             )
     return assembly

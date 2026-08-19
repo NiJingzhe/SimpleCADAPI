@@ -37,15 +37,11 @@ from OCP.TopAbs import (
 
 from ..core import Compound, Edge, Face, Solid, Vertex
 from ..kernel.ocp_properties import center_of_mass
-from ..product import (
-    Assembly,
-    Connector,
-    Material,
-    Part,
-    Placement,
-    identity_placement,
-    resolve_connector_placement,
-)
+from ..assembly import Assembly
+from ..connector import Connector, resolve_connector_placement
+from ..material import Material
+from ..part import Part
+from ..placement import Placement, identity_placement
 from ..serializer import _candidate_shapes_for_geo_selection, _geo_selector_score
 from ..scene.archive import canonical_zip_bytes
 from ..scene.canonical import canonical_json_bytes, canonical_json_hash, with_scene_revision
