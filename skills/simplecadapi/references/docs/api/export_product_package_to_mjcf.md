@@ -15,9 +15,9 @@ def export_product_package_to_mjcf(data: ProductPackageInput, output_path: str |
 ## Description
 
 Compile a validated `.scadpkg` assembly into an MJCF model.
-
-Fixed constraints and attachments through forwarded nested-assembly
-connectors create rigid groups. Revolute/prismatic edges form a
-deterministic spanning tree. Gear, belt, and rack-pinion relations become
-independent fixed-tendon equalities. Root assembly connectors and geometry
-names in the ``interface.*`` namespace become MJCF sites.
+Fixed constraints create rigid groups. Forwarded connectors only resolve
+the endpoint to its leaf connector; they do not change the constraint
+kind. Revolute/prismatic edges form a deterministic spanning tree. Gear,
+belt, and rack-pinion relations become independent fixed-tendon
+equalities. Root assembly connectors and geometry names in the
+``interface.*`` namespace become MJCF sites.

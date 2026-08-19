@@ -6,23 +6,27 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
-from ..product import (
+from ..assembly import (
     Assembly,
     Component,
+    _restore_component_occurrence_placements,
+)
+from ..assembly_solver import (
+    constraint_reports_match,
+    inspect_assembly_constraints,
+    solve_assembly_constraints,
+)
+from ..connector import (
     Connector,
     ConnectorAnchor,
     ConnectorRef,
-    Constraint,
     GeometryRef,
-    Material,
-    Part,
-    Placement,
-    ScalarLimit,
-    inspect_assembly_constraints,
-    inverse_placement,
     resolve_connector_placement,
-    solve_assembly_constraints,
 )
+from ..constraint import Constraint, ScalarLimit
+from ..material import Material
+from ..part import Part
+from ..placement import Placement, inverse_placement
 from ..scene.archive import canonical_zip_bytes, preflight_zip_bytes
 from .assembly_definition import (
     AssemblyDefinition,
@@ -391,7 +395,6 @@ def validate_assembly_definition_graph(
         )
 
 
-
 def assembly_definition_graph_is_validated(
     definition: AssemblyDefinition,
     *,
@@ -654,11 +657,15 @@ def _apply_verified_snapshot(
     authored: Assembly,
     snapshot: Mapping[str, Any] | None,
 ) -> Assembly | None:
-    if snapshot is None or set(snapshot) != {
-        "solver_profile",
-        "component_placements",
-        "constraint_report",
-    }:
+    if snapshot is None or set(snapshot) not in (
+        {"solver_profile", "component_placements", "constraint_report"},
+        {
+            "solver_profile",
+            "component_placements",
+            "occurrence_placements",
+            "constraint_report",
+        },
+    ):
         return None
     if snapshot.get("solver_profile") != _SOLVER_PROFILE:
         return None
@@ -676,16 +683,33 @@ def _apply_verified_snapshot(
     if set(by_id) != set(authored.component_ids()):
         return None
     try:
-        candidate = authored
-        for component_id in authored.component_ids():
-            candidate = candidate.with_component_placement(
-                component_id,
-                Placement(**dict(by_id[component_id])),
+        raw_occurrences = snapshot.get("occurrence_placements")
+        if raw_occurrences is not None:
+            if not isinstance(raw_occurrences, list):
+                return None
+            candidate = _restore_component_occurrence_placements(
+                authored,
+                raw_occurrences,
             )
+        else:
+            candidate = authored
+            for component_id in authored.component_ids():
+                candidate = candidate.with_component_placement(
+                    component_id,
+                    Placement(**dict(by_id[component_id])),
+                )
+        if any(
+            candidate.get_component(component_id).placement.to_dict()
+            != dict(by_id[component_id])
+            for component_id in authored.component_ids()
+        ):
+            return None
         report = inspect_assembly_constraints(candidate)
     except (KeyError, TypeError, ValueError):
         return None
-    if not report.solved or report.to_dict() != snapshot.get("constraint_report"):
+    if not report.solved or not constraint_reports_match(
+        report.to_dict(), snapshot.get("constraint_report")
+    ):
         return None
     return candidate
 

@@ -477,13 +477,11 @@ def _add_bearing_interface_constraints_rassembly(*, assembly: scad.Assembly) -> 
         ("output_bearing_inner_to_stage2_carrier", "stage2_carrier", "output_bearing_axis", "output_bearing", "inner_axis"),
     )
     for constraint_id, a_component, a_connector, bearing_component, bearing_connector in coaxial_interfaces:
-        assembly = scad.add_revolute_constraint_rassembly(
+        assembly = scad.add_fixed_constraint_rassembly(
             assembly=assembly,
             constraint_id=constraint_id,
             connector_a=_ref(component_id=a_component, connector_id=a_connector),
             connector_b=_ref(component_id=bearing_component, connector_id=bearing_connector),
-            drive_angle_degrees=None,
-            angle_limit=None,
             name=constraint_id.replace("_", " "),
         )
 
@@ -491,16 +489,14 @@ def _add_bearing_interface_constraints_rassembly(*, assembly: scad.Assembly) -> 
         for index in range(PLANET_COUNT):
             planet_id = f"{stage.stage_id}_planet_{index + 1}"
             bearing_id = f"{stage.stage_id}_planet_bearing_{index + 1}"
-            assembly = scad.add_revolute_constraint_rassembly(
+            assembly = scad.add_fixed_constraint_rassembly(
                 assembly=assembly,
                 constraint_id=f"{bearing_id}_outer_to_planet",
                 connector_a=_ref(component_id=planet_id, connector_id="bearing_axis"),
                 connector_b=_ref(component_id=bearing_id, connector_id="outer_axis"),
-                drive_angle_degrees=None,
-                angle_limit=None,
                 name=f"{bearing_id} outer ring to planet gear bore",
             )
-            assembly = scad.add_revolute_constraint_rassembly(
+            assembly = scad.add_fixed_constraint_rassembly(
                 assembly=assembly,
                 constraint_id=f"{bearing_id}_inner_to_carrier_pin",
                 connector_a=_ref(
@@ -508,8 +504,6 @@ def _add_bearing_interface_constraints_rassembly(*, assembly: scad.Assembly) -> 
                     connector_id=f"planet_{index + 1}_bearing_axis",
                 ),
                 connector_b=_ref(component_id=bearing_id, connector_id="inner_axis"),
-                drive_angle_degrees=None,
-                angle_limit=None,
                 name=f"{bearing_id} inner ring to carrier pin",
             )
     return assembly

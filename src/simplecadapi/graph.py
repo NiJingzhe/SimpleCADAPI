@@ -64,7 +64,8 @@ from .topology import (
 from .topology import SemanticDelta, SemanticRef
 from .topology import TopoKind, TopoRef, topo_ref_to_dict
 from .core import Compound, Edge, Face, Shell, Solid, Vertex, Wire, get_current_cs
-from .product import Assembly, Part
+from .assembly import Assembly
+from .part import Part
 from .source_mapping import capture_source_provenance
 
 # ---------------------------------------------------------------------------

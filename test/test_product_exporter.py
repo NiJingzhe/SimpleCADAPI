@@ -496,6 +496,389 @@ class TestProductExporter(unittest.TestCase):
         self.assertEqual(len(mapping["tree_joints"]), 1)
         self.assertEqual(mapping["sites"][0]["connector_id"], "tool_axis")
 
+    def test_mjcf_exporter_generates_unique_names_for_colliding_logical_ids(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            cache = scad.CachePolicy(root=root / "cache")
+            material = scad.make_material_rmaterial(
+                material_id="collision_material",
+                density=2.7e-6,
+                density_unit="kg/mm^3",
+            )
+
+            def make_link(part_id: str, width: float) -> scad.Part:
+                body = scad.make_box_rsolid(
+                    width=width,
+                    height=1.0,
+                    depth=1.0,
+                )
+                part = scad.make_part_rpart(part_id=part_id, body=body)
+                part = scad.assign_material_rpart(part=part, material=material)
+                return scad.add_connector_rpart(
+                    part=part,
+                    connector=scad.make_placement_connector_rconnector(
+                        connector_id="axis",
+                        placement=scad.identity_placement_rplacement(),
+                    ),
+                )
+
+            @scad.part(
+                id="mjcf_base",
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_base() -> scad.Part:
+                return make_link("mjcf_base", 1.0)
+
+            @scad.part(
+                id="mjcf-link-a",
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_first_link() -> scad.Part:
+                return make_link("mjcf-link-a", 2.0)
+
+            @scad.part(
+                id="mjcf.link.a",
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_second_link() -> scad.Part:
+                return make_link("mjcf.link.a", 3.0)
+
+            base = build_base()
+            first = build_first_link()
+            second = build_second_link()
+
+            @scad.assemble(
+                id="mjcf_name_collision",
+                definitions=(base, first, second),
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_fixture() -> scad.Assembly:
+                assembly = scad.make_assembly_rassembly(
+                    assembly_id="mjcf_name_collision"
+                )
+                for result, component_id in (
+                    (base, "base"),
+                    (first, "arm-a"),
+                    (second, "arm.a"),
+                ):
+                    assembly = scad.add_component_rassembly(
+                        assembly=assembly,
+                        item=result.part,
+                        component_id=component_id,
+                        placement=scad.identity_placement_rplacement(),
+                    )
+                assembly = scad.ground_component_rassembly(
+                    assembly=assembly,
+                    component_id="base",
+                )
+                for constraint_id, component_id in (
+                    ("axis-a", "arm-a"),
+                    ("axis.a", "arm.a"),
+                ):
+                    assembly = scad.add_revolute_constraint_rassembly(
+                        assembly=assembly,
+                        constraint_id=constraint_id,
+                        connector_a=scad.make_connector_ref_rconnectorref(
+                            component_id="base",
+                            connector_id="axis",
+                        ),
+                        connector_b=scad.make_connector_ref_rconnectorref(
+                            component_id=component_id,
+                            connector_id="axis",
+                        ),
+                    )
+                return assembly
+
+            package = scad.build_product_package(build_fixture())
+            report = scad.exporter.export_product_package_to_mjcf(
+                data=package,
+                output_path=root / "collision.xml",
+            )
+            xml_root = ET.parse(report.output_path).getroot()
+            mapping = json.loads(report.mapping_path.read_text(encoding="utf-8"))
+
+            names_by_element = {
+                element: [
+                    item.attrib["name"]
+                    for item in xml_root.findall(f".//{element}")
+                    if "name" in item.attrib
+                ]
+                for element in ("body", "joint", "geom", "mesh")
+            }
+            mesh_files = tuple(report.mesh_directory.glob("*.obj"))
+
+        for element, names in names_by_element.items():
+            self.assertEqual(len(names), len(set(names)), element)
+        self.assertEqual(len(mesh_files), report.mesh_count)
+        self.assertEqual(len(set(mapping["meshes"].values())), report.mesh_count)
+        self.assertEqual(
+            len({item["joint_name"] for item in mapping["tree_joints"]}),
+            report.joint_count,
+        )
+
+    def test_mjcf_exporter_preserves_forwarded_movable_attachment(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            cache = scad.CachePolicy(root=root / "cache")
+            material = scad.make_material_rmaterial(
+                material_id="forwarded_material",
+                density=2.7e-6,
+                density_unit="kg/mm^3",
+            )
+
+            def make_link(part_id: str) -> scad.Part:
+                body = scad.make_box_rsolid(width=1.0, height=1.0, depth=1.0)
+                part = scad.make_part_rpart(part_id=part_id, body=body)
+                part = scad.assign_material_rpart(part=part, material=material)
+                return scad.add_connector_rpart(
+                    part=part,
+                    connector=scad.make_placement_connector_rconnector(
+                        connector_id="axis",
+                        placement=scad.identity_placement_rplacement(),
+                    ),
+                )
+
+            @scad.part(
+                id="forwarded_base",
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_base() -> scad.Part:
+                return make_link("forwarded_base")
+
+            @scad.part(
+                id="forwarded_link",
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_link() -> scad.Part:
+                return make_link("forwarded_link")
+
+            base = build_base()
+            link = build_link()
+
+            @scad.assemble(
+                id="forwarded_child",
+                definitions=(link,),
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_child() -> scad.Assembly:
+                assembly = scad.make_assembly_rassembly(assembly_id="forwarded_child")
+                assembly = scad.add_component_rassembly(
+                    assembly=assembly,
+                    item=link.part,
+                    component_id="link",
+                    placement=scad.identity_placement_rplacement(),
+                )
+                return scad.forward_connector_rassembly(
+                    assembly=assembly,
+                    connector_id="public_axis",
+                    source_component_id="link",
+                    source_connector_id="axis",
+                )
+
+            child = build_child()
+
+            @scad.assemble(
+                id="forwarded_root",
+                definitions=(base, child),
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_fixture() -> scad.Assembly:
+                assembly = scad.make_assembly_rassembly(assembly_id="forwarded_root")
+                assembly = scad.add_component_rassembly(
+                    assembly=assembly,
+                    item=base.part,
+                    component_id="base",
+                    placement=scad.identity_placement_rplacement(),
+                )
+                assembly = scad.add_component_rassembly(
+                    assembly=assembly,
+                    item=child.assembly,
+                    component_id="child",
+                    placement=scad.identity_placement_rplacement(),
+                )
+                assembly = scad.ground_component_rassembly(
+                    assembly=assembly,
+                    component_id="base",
+                )
+                return scad.add_revolute_constraint_rassembly(
+                    assembly=assembly,
+                    constraint_id="child_attachment",
+                    connector_a=scad.make_connector_ref_rconnectorref(
+                        component_id="base",
+                        connector_id="axis",
+                    ),
+                    connector_b=scad.make_connector_ref_rconnectorref(
+                        component_id="child",
+                        connector_id="public_axis",
+                    ),
+                )
+
+            package = scad.build_product_package(build_fixture())
+            report = scad.exporter.export_product_package_to_mjcf(
+                data=package,
+                output_path=root / "forwarded.xml",
+            )
+            xml_root = ET.parse(report.output_path).getroot()
+            mapping = json.loads(report.mapping_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(report.body_count, 1)
+        self.assertEqual(report.joint_count, 1)
+        self.assertEqual(
+            {geom.attrib["mesh"] for geom in xml_root.findall(".//geom")},
+            set(mapping["meshes"].values()),
+        )
+        self.assertFalse(
+            any(edge["kind"] == "forwarded_attachment" for edge in mapping["rigid_edges"])
+        )
+        self.assertEqual(len(mapping["tree_joints"]), 1)
+        self.assertEqual(mapping["pruned_structure_nodes"], ["node/forwarded_root/child"])
+
+    def test_mjcf_coupling_uses_tree_support_for_shared_connector(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            cache = scad.CachePolicy(root=root / "cache")
+            material = scad.make_material_rmaterial(
+                material_id="tree_support_material",
+                density=2.7e-6,
+                density_unit="kg/mm^3",
+            )
+
+            def make_link(part_id: str) -> scad.Part:
+                body = scad.make_box_rsolid(width=1.0, height=1.0, depth=1.0)
+                part = scad.make_part_rpart(part_id=part_id, body=body)
+                part = scad.assign_material_rpart(part=part, material=material)
+                return scad.add_connector_rpart(
+                    part=part,
+                    connector=scad.make_placement_connector_rconnector(
+                        connector_id="axis",
+                        placement=scad.identity_placement_rplacement(),
+                    ),
+                )
+
+            @scad.part(
+                id="tree_support_base",
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_base() -> scad.Part:
+                return make_link("tree_support_base")
+
+            @scad.part(
+                id="tree_support_driver",
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_driver() -> scad.Part:
+                return make_link("tree_support_driver")
+
+            @scad.part(
+                id="tree_support_follower",
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_follower() -> scad.Part:
+                return make_link("tree_support_follower")
+
+            base = build_base()
+            driver = build_driver()
+            follower = build_follower()
+
+            @scad.assemble(
+                id="tree_support_fixture",
+                definitions=(base, driver, follower),
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_fixture() -> scad.Assembly:
+                assembly = scad.make_assembly_rassembly(
+                    assembly_id="tree_support_fixture"
+                )
+                for result, component_id in (
+                    (base, "base"),
+                    (driver, "driver"),
+                    (follower, "follower"),
+                ):
+                    assembly = scad.add_component_rassembly(
+                        assembly=assembly,
+                        item=result.part,
+                        component_id=component_id,
+                        placement=scad.identity_placement_rplacement(),
+                    )
+                assembly = scad.ground_component_rassembly(
+                    assembly=assembly,
+                    component_id="base",
+                )
+                base_axis = scad.make_connector_ref_rconnectorref("base", "axis")
+                driver_axis = scad.make_connector_ref_rconnectorref(
+                    "driver", "axis"
+                )
+                follower_axis = scad.make_connector_ref_rconnectorref(
+                    "follower", "axis"
+                )
+                assembly = scad.add_revolute_constraint_rassembly(
+                    assembly=assembly,
+                    constraint_id="driver_axis",
+                    connector_a=base_axis,
+                    connector_b=driver_axis,
+                )
+                assembly = scad.add_revolute_constraint_rassembly(
+                    assembly=assembly,
+                    constraint_id="driver_axis_redundant",
+                    connector_a=base_axis,
+                    connector_b=driver_axis,
+                )
+                assembly = scad.add_revolute_constraint_rassembly(
+                    assembly=assembly,
+                    constraint_id="follower_axis",
+                    connector_a=base_axis,
+                    connector_b=follower_axis,
+                )
+                return scad.add_gear_constraint_rassembly(
+                    assembly=assembly,
+                    constraint_id="driver_follower_mesh",
+                    connector_a=driver_axis,
+                    connector_b=follower_axis,
+                    pitch_radius_a=2.0,
+                    pitch_radius_b=3.0,
+                )
+
+            package = scad.build_product_package(build_fixture())
+            report = scad.exporter.export_product_package_to_mjcf(
+                data=package,
+                output_path=root / "tree-support.xml",
+            )
+            mapping = json.loads(report.mapping_path.read_text(encoding="utf-8"))
+
+        tree_joints = {
+            item["joint_id"]: item["joint_name"] for item in mapping["tree_joints"]
+        }
+        equality = next(
+            item
+            for item in mapping["equalities"]
+            if item["equality_id"].endswith("/driver_follower_mesh")
+        )
+        self.assertEqual(report.joint_count, 2)
+        self.assertEqual(report.equality_count, 1)
+        self.assertIn(
+            "joint/tree_support_fixture/driver_axis_redundant",
+            mapping["redundant_movable_joints"],
+        )
+        self.assertEqual(
+            equality["coefficients"],
+            {
+                tree_joints["joint/tree_support_fixture/driver_axis"]: 2.0,
+                tree_joints["joint/tree_support_fixture/follower_axis"]: 3.0,
+            },
+        )
+
     def test_mesh_exporters_reject_invalid_tessellation_parameters(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

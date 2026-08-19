@@ -47,7 +47,7 @@ from pathlib import Path
 import sys
 
 import simplecadapi as scad
-from simplecadapi.product import Assembly
+from simplecadapi.assembly import Assembly
 
 path = Path(sys.argv[1]).resolve()
 builder_name = sys.argv[2]

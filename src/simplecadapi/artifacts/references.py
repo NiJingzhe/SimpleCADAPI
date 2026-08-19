@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from ..product import Placement
+from ..placement import Placement
 from .canonical import (
     ArtifactValidationError,
     content_hash,

@@ -6,7 +6,7 @@
 class ConnectorRef(component_id: str, connector_id: str)
 ```
 
-*Source: product.py*
+*Source: connector.py*
 
 ## Import Surface
 

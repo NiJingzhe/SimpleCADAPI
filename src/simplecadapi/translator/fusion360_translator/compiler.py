@@ -2925,9 +2925,13 @@ class SimpleCADFusionRuntime:
         if op == 'make_add_component_rassembly':
             assembly = dict(self._first_output(inputs[0]))
             components = list(assembly.get('components') or [])
+            placement = self._first_output(inputs[2]) if len(inputs) > 2 else {
+                'kind': 'placement',
+                'params': dict(params.get('placement') or {}),
+            }
             components.append({
                 'item': self._first_output(inputs[1]),
-                'placement': self._first_output(inputs[2]) if len(inputs) > 2 else {'kind': 'placement', 'params': {}},
+                'placement': placement,
                 'component_id': str(params.get('component_id') or ''),
                 'node_id': node_id,
                 'params': params,
@@ -2937,7 +2941,10 @@ class SimpleCADFusionRuntime:
             return self._set_output(node, assembly)
         if op == 'make_place_component_rassembly':
             assembly = dict(self._first_output(inputs[0]))
-            placement = self._first_output(inputs[1]) if len(inputs) > 1 else {}
+            placement = self._first_output(inputs[1]) if len(inputs) > 1 else {
+                'kind': 'placement',
+                'params': dict(params.get('placement') or {}),
+            }
             component_id = str(params.get('component_id') or '')
             components = []
             for component in assembly.get('components') or []:

@@ -17,13 +17,16 @@ import numpy as np
 from ..artifacts.assembly_io import materialize_definition
 from ..artifacts.canonical import parse_canonical_json
 from ..artifacts.part_definition import PartDefinition
-from ..product import Assembly, Part, Placement, relative_placement
+from ..assembly import Assembly
+from ..part import Part
+from ..placement import Placement, relative_placement
 from ..scene import read_scene_package
 from ..translator.package_units import (
     ProductPackageInput,
     read_product_package_translation_units,
 )
 from ._surface_mesh import _tessellate_solid
+
 
 @dataclass(frozen=True, slots=True)
 class ProductMJCFExportReport:
@@ -83,15 +86,45 @@ class _UnionFind:
 
 
 def _safe_name(value: str, *, prefix: str = "item") -> str:
-    rendered = re.sub(r"[^A-Za-z0-9_]", "_", str(value)).strip("_")
+    source = str(value)
+    rendered = re.sub(r"[^A-Za-z0-9_]", "_", source).strip("_")
     if not rendered:
         rendered = prefix
     if not rendered[0].isalpha():
         rendered = f"{prefix}_{rendered}"
-    if len(rendered) > 96:
-        digest = hashlib.sha1(str(value).encode("utf-8")).hexdigest()[:12]
+    if rendered != source or len(rendered) > 96:
+        digest = hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
         rendered = f"{rendered[:80]}_{digest}"
     return rendered
+
+
+class _NameRegistry:
+    def __init__(self) -> None:
+        self._owners: dict[str, dict[str, str]] = defaultdict(dict)
+
+    def claim(
+        self,
+        namespace: str,
+        value: str,
+        *,
+        identity: str,
+        prefix: str,
+    ) -> str:
+        candidate = _safe_name(value, prefix=prefix)
+        owners = self._owners[namespace]
+        owner = owners.get(candidate)
+        if owner is None or owner == identity:
+            owners[candidate] = identity
+            return candidate
+        digest = hashlib.sha1(identity.encode("utf-8")).hexdigest()[:12]
+        candidate = f"{candidate[:80]}_{digest}"
+        owner = owners.get(candidate)
+        if owner is not None and owner != identity:
+            raise ValueError(
+                f"MJCF {namespace} names collide for {owner!r} and {identity!r}"
+            )
+        owners[candidate] = identity
+        return candidate
 
 
 def _fmt(value: float) -> str:
@@ -181,7 +214,11 @@ def _matrix_to_quat(frame: Placement) -> tuple[float, float, float, float]:
 
 
 def _placement_attributes(value: Placement, *, scale_length: bool) -> dict[str, str]:
-    origin = tuple(component * 0.001 for component in value.origin) if scale_length else value.origin
+    origin = (
+        tuple(component * 0.001 for component in value.origin)
+        if scale_length
+        else value.origin
+    )
     return {
         "pos": _fmt_vec(origin),
         "quat": _fmt_vec(_matrix_to_quat(value)),
@@ -210,7 +247,11 @@ def _density_kg_m3(
     default_density_kg_m3: float | None,
 ) -> tuple[float, bool]:
     density = getattr(material, "density", None) if material is not None else None
-    unit = str(getattr(material, "density_unit", None) or "") if material is not None else ""
+    unit = (
+        str(getattr(material, "density_unit", None) or "")
+        if material is not None
+        else ""
+    )
     if density is None:
         if default_density_kg_m3 is None:
             raise ValueError(
@@ -237,7 +278,9 @@ def _world_placements(scene: Mapping[str, Any]) -> dict[str, Placement]:
             if parent_id is not None and parent_id not in result:
                 continue
             local = _placement(node["transform"])
-            result[node_id] = local if parent_id is None else result[parent_id].compose(local)
+            result[node_id] = (
+                local if parent_id is None else result[parent_id].compose(local)
+            )
             pending.remove(node_id)
             progress = True
             break
@@ -279,7 +322,9 @@ def _part_materials(units: tuple[Any, ...]) -> dict[str, tuple[Part, float, bool
             continue
         runtime = materialize_definition(unit.definition)
         if not isinstance(runtime, Part):
-            raise TypeError(f"definition {unit.definition_id!r} did not materialize as Part")
+            raise TypeError(
+                f"definition {unit.definition_id!r} did not materialize as Part"
+            )
         result[unit.definition_id] = (runtime, 0.0, False)
     return result
 
@@ -294,12 +339,12 @@ def export_product_package_to_mjcf(
     default_density_kg_m3: float | None = None,
 ) -> ProductMJCFExportReport:
     """Compile a validated `.scadpkg` assembly into an MJCF model.
-
-    Fixed constraints and attachments through forwarded nested-assembly
-    connectors create rigid groups. Revolute/prismatic edges form a
-    deterministic spanning tree. Gear, belt, and rack-pinion relations become
-    independent fixed-tendon equalities. Root assembly connectors and geometry
-    names in the ``interface.*`` namespace become MJCF sites.
+    Fixed constraints create rigid groups. Forwarded connectors only resolve
+    the endpoint to its leaf connector; they do not change the constraint
+    kind. Revolute/prismatic edges form a deterministic spanning tree. Gear,
+    belt, and rack-pinion relations become independent fixed-tendon
+    equalities. Root assembly connectors and geometry names in the
+    ``interface.*`` namespace become MJCF sites.
     """
 
     if linear_deflection <= 0.0:
@@ -382,15 +427,11 @@ def export_product_package_to_mjcf(
         first = str(first_connector["node_id"])
         second = str(second_connector["node_id"])
         kind = str(joint["joint_type"])
-        forwarded_attachment = kind in {"revolute", "prismatic"} and (
-            first_original.get("forwarded_from") is not None
-            or second_original.get("forwarded_from") is not None
-        )
-        if kind == "fixed" or forwarded_attachment:
+        if kind == "fixed":
             uf.union(first, second)
             rigid_edges.append(
                 {
-                    "kind": "forwarded_attachment" if forwarded_attachment else kind,
+                    "kind": kind,
                     "a": first,
                     "b": second,
                     "joint_id": str(joint["joint_id"]),
@@ -429,7 +470,8 @@ def export_product_package_to_mjcf(
         geometric = [
             node_id
             for node_id in members
-            if nodes[node_id]["node_kind"] == "part" and nodes[node_id]["entity_asset_id"] is not None
+            if nodes[node_id]["node_kind"] == "part"
+            and nodes[node_id]["entity_asset_id"] is not None
         ]
         group_representative[group_id] = sorted(geometric or members)[0]
 
@@ -472,13 +514,31 @@ def export_product_package_to_mjcf(
             parent_group[target] = current
             parent_edge[target] = edge
             queue.append(target)
-    unreachable = sorted(set(groups) - set(parent_group))
-    if unreachable:
+    unreachable = set(groups) - set(parent_group)
+    pruned_group_ids = {
+        group_id
+        for group_id in unreachable
+        if all(
+            nodes[node_id]["node_kind"] == "assembly" for node_id in groups[group_id]
+        )
+        and group_id not in adjacency
+    }
+    disconnected = sorted(unreachable - pruned_group_ids)
+    if disconnected:
         raise ValueError(
             "MJCF kinematic graph is disconnected from grounding; unreachable groups: "
-            + ", ".join(unreachable)
+            + ", ".join(disconnected)
         )
+    pruned_structure_nodes = sorted(
+        node_id for group_id in pruned_group_ids for node_id in groups[group_id]
+    )
+    groups = {
+        group_id: members
+        for group_id, members in groups.items()
+        if group_id not in pruned_group_ids
+    }
 
+    names = _NameRegistry()
     body_name_by_group: dict[str, str] = {}
     for group_id, edge in parent_edge.items():
         joint = edge["joint"]
@@ -488,18 +548,29 @@ def export_product_package_to_mjcf(
             endpoint_snapshot = connector_by_snapshot[
                 str(endpoint["connector_snapshot_id"])
             ]
-            if group_for_node[str(leaf_connector(endpoint_snapshot)["node_id"])] == group_id:
+            if (
+                group_for_node[str(leaf_connector(endpoint_snapshot)["node_id"])]
+                == group_id
+            ):
                 group_component_id = str(endpoint["component_id"])
                 break
         if group_component_id is None:
-            raise ValueError(f"tree joint {joint['joint_id']!r} does not identify child group")
-        body_name_by_group[group_id] = _safe_name(
-            f"body_{group_component_id}", prefix="body"
+            raise ValueError(
+                f"tree joint {joint['joint_id']!r} does not identify child group"
+            )
+        body_name_by_group[group_id] = names.claim(
+            "body",
+            f"body_{group_component_id}",
+            identity=group_id,
+            prefix="body",
         )
     tree_joint_name_by_group: dict[str, str] = {}
     for group_id, edge in parent_edge.items():
-        tree_joint_name_by_group[group_id] = _safe_name(
-            "joint_" + str(edge["joint"]["joint_id"]), prefix="joint"
+        tree_joint_name_by_group[group_id] = names.claim(
+            "joint",
+            "joint_" + str(edge["joint"]["joint_id"]),
+            identity=str(edge["joint"]["joint_id"]),
+            prefix="joint",
         )
 
     angle_terms_by_group: dict[str, dict[str, float]] = {root_group: {}}
@@ -508,50 +579,77 @@ def export_product_package_to_mjcf(
             continue
         parent = parent_group[group_id]
         if parent is None or parent not in angle_terms_by_group:
-            raise ValueError(f"group {group_id!r} has no resolved parent angle expression")
+            raise ValueError(
+                f"group {group_id!r} has no resolved parent angle expression"
+            )
         terms = dict(angle_terms_by_group[parent])
         terms[tree_joint_name_by_group[group_id]] = 1.0
         angle_terms_by_group[group_id] = terms
 
     tree_edge_ids = {id(edge) for edge in parent_edge.values()}
-    non_tree_movable_edges = [edge for edge in movable_edges if id(edge) not in tree_edge_ids]
+    non_tree_movable_edges = [
+        edge for edge in movable_edges if id(edge) not in tree_edge_ids
+    ]
 
-    def relative_angle_terms(edge: Mapping[str, Any]) -> dict[str, float]:
-        return _subtracted_terms(
-            angle_terms_by_group[str(edge["b_group"])],
-            angle_terms_by_group[str(edge["a_group"])],
+    def relative_angle_terms(
+        edge: Mapping[str, Any], group_id: str
+    ) -> dict[str, float]:
+        first_group = str(edge["a_group"])
+        second_group = str(edge["b_group"])
+        if group_id == second_group:
+            return _subtracted_terms(
+                angle_terms_by_group[second_group],
+                angle_terms_by_group[first_group],
+            )
+        if group_id == first_group:
+            return _subtracted_terms(
+                angle_terms_by_group[first_group],
+                angle_terms_by_group[second_group],
+            )
+        raise ValueError(
+            f"movable support {edge['joint']['joint_id']!r} does not attach "
+            f"to group {group_id!r}"
         )
 
-    def support_edge(connector_snapshot_id: str, group_id: str) -> dict[str, Any] | None:
-        candidates = [
-            edge
-            for edge in movable_edges
-            if connector_snapshot_id
-            in {
-                str(edge["connector_a"]["connector_snapshot_id"]),
-                str(edge["connector_b"]["connector_snapshot_id"]),
-            }
-        ]
-        if not candidates:
-            return None if group_id == root_group else None
-        if len(candidates) != 1:
+    def support_edge(
+        _connector_snapshot_id: str, group_id: str
+    ) -> dict[str, Any] | None:
+        """Return the tree edge that carries a group's generalized angle.
+
+        A connector may participate in several movable constraints, such as a
+        shaft revolute and a nested bearing's internal revolute. The spanning
+        tree, rather than connector identity, determines the group's angle.
+        """
+
+        if group_id == root_group:
+            return None
+        try:
+            return parent_edge[group_id]
+        except KeyError as exc:
             raise ValueError(
-                f"connector {connector_snapshot_id!r} has ambiguous movable supports: "
-                + ", ".join(str(edge["joint"]["joint_id"]) for edge in candidates)
-            )
-        return candidates[0]
+                f"group {group_id!r} has no spanning-tree support edge"
+            ) from exc
+
+
     part_materials = _part_materials(units)
     mesh_by_definition: dict[str, str] = {}
     density_by_definition: dict[str, float] = {}
     default_density_count = 0
-    for definition_id, (part, _unused_density, _unused_default) in sorted(part_materials.items()):
+    for definition_id, (part, _unused_density, _unused_default) in sorted(
+        part_materials.items()
+    ):
         density, used_default = _density_kg_m3(
             part.material,
             default_density_kg_m3=default_density_kg_m3,
         )
         density_by_definition[definition_id] = density
         default_density_count += int(used_default)
-        mesh_name = _safe_name("mesh_" + definition_id, prefix="mesh")
+        mesh_name = names.claim(
+            "mesh",
+            "mesh_" + definition_id,
+            identity=definition_id,
+            prefix="mesh",
+        )
         mesh_path = mesh_root / f"{mesh_name}.obj"
         _write_obj(mesh_path, part.body, linear_deflection=linear_deflection)
         mesh_by_definition[definition_id] = mesh_name
@@ -573,7 +671,9 @@ def export_product_package_to_mjcf(
             )
         )
 
-    root_xml = ET.Element("mujoco", {"model": str(package.root_definition.definition_id)})
+    root_xml = ET.Element(
+        "mujoco", {"model": str(package.root_definition.definition_id)}
+    )
     ET.SubElement(root_xml, "compiler", {"angle": "radian", "coordinate": "local"})
     ET.SubElement(root_xml, "option", {"gravity": "0 0 -9.81"})
     asset_xml = ET.SubElement(root_xml, "asset")
@@ -598,6 +698,7 @@ def export_product_package_to_mjcf(
 
     def relative_to_group(group_id: str, node_id: str) -> Placement:
         return relative_placement(group_body_frame[group_id], world[node_id])
+
     site_count = 0
     geom_count = 0
     site_records: list[dict[str, Any]] = []
@@ -611,11 +712,18 @@ def export_product_package_to_mjcf(
             mesh_name = mesh_by_definition.get(definition_id)
             if mesh_name is not None:
                 local = relative_to_group(group_id, node_id)
-                if node.get("parent_node_id") == root_node_id and node.get("component_id"):
+                if node.get("parent_node_id") == root_node_id and node.get(
+                    "component_id"
+                ):
                     semantic_id = str(node["component_id"])
                 else:
                     semantic_id = f"geom_{node_id}"
-                geom_name = _safe_name(semantic_id, prefix="geom")
+                geom_name = names.claim(
+                    "geom",
+                    semantic_id,
+                    identity=node_id,
+                    prefix="geom",
+                )
                 attrs = {
                     "name": geom_name,
                     "type": "mesh",
@@ -642,8 +750,7 @@ def export_product_package_to_mjcf(
                 frame_payload = props.get("connector_frame")
                 if frame_payload is None:
                     origin = tuple(
-                        float(value)
-                        for value in props.get("centroid", [0.0, 0.0, 0.0])
+                        float(value) for value in props.get("centroid", [0.0, 0.0, 0.0])
                     )
                     entity_frame = Placement(origin)
                 else:
@@ -651,7 +758,13 @@ def export_product_package_to_mjcf(
                 site_world = world[node_id].compose(entity_frame)
                 local = relative_placement(body_frame, site_world)
                 for tag in tags:
-                    site_name = _safe_name(f"site_{node_id}_{tag}", prefix="site")
+                    site_identity = f"entity:{node_id}:{entity['entity_id']}:{tag}"
+                    site_name = names.claim(
+                        "site",
+                        f"site_{node_id}_{tag}",
+                        identity=site_identity,
+                        prefix="site",
+                    )
                     ET.SubElement(
                         parent_xml,
                         "site",
@@ -674,14 +787,19 @@ def export_product_package_to_mjcf(
                     site_count += 1
 
     def append_group_tree(group_id: str, parent_xml: ET.Element) -> None:
-        for child_group in sorted(group_children[group_id], key=lambda item: body_name_by_group[item]):
+        for child_group in sorted(
+            group_children[group_id], key=lambda item: body_name_by_group[item]
+        ):
             child_frame = group_body_frame[child_group]
             parent_frame = group_body_frame[group_id]
             local = relative_placement(parent_frame, child_frame)
             body_xml = ET.SubElement(
                 parent_xml,
                 "body",
-                {"name": body_name_by_group[child_group], **_placement_attributes(local, scale_length=True)},
+                {
+                    "name": body_name_by_group[child_group],
+                    **_placement_attributes(local, scale_length=True),
+                },
             )
             body_nodes[child_group] = body_xml
             edge = parent_edge[child_group]
@@ -739,7 +857,12 @@ def export_product_package_to_mjcf(
             _placement(connector["local_frame"])
         )
         local = relative_placement(group_body_frame[group_id], frame_world)
-        site_name = _safe_name(connector_id, prefix="site")
+        site_name = names.claim(
+            "site",
+            connector_id,
+            identity=f"connector:{connector['connector_snapshot_id']}",
+            prefix="site",
+        )
         ET.SubElement(
             body_nodes[group_id],
             "site",
@@ -780,15 +903,23 @@ def export_product_package_to_mjcf(
                     )
                 endpoint_terms.append({})
             else:
-                endpoint_terms.append(relative_angle_terms(support))
+                endpoint_terms.append(relative_angle_terms(support, group_id))
         first_terms, second_terms = endpoint_terms
         coefficients: dict[str, float] = {}
         if kind == "gear":
-            _add_scaled_terms(coefficients, first_terms, float(parameters["pitch_radius_a"]))
-            _add_scaled_terms(coefficients, second_terms, float(parameters["pitch_radius_b"]))
+            _add_scaled_terms(
+                coefficients, first_terms, float(parameters["pitch_radius_a"])
+            )
+            _add_scaled_terms(
+                coefficients, second_terms, float(parameters["pitch_radius_b"])
+            )
         elif kind == "belt":
-            _add_scaled_terms(coefficients, first_terms, float(parameters["pulley_radius_a"]))
-            _add_scaled_terms(coefficients, second_terms, -float(parameters["pulley_radius_b"]))
+            _add_scaled_terms(
+                coefficients, first_terms, float(parameters["pulley_radius_a"])
+            )
+            _add_scaled_terms(
+                coefficients, second_terms, -float(parameters["pulley_radius_b"])
+            )
         else:
             _add_scaled_terms(coefficients, first_terms, 1.0)
             _add_scaled_terms(
@@ -800,7 +931,9 @@ def export_product_package_to_mjcf(
             name: value for name, value in coefficients.items() if abs(value) > 1.0e-12
         }
         if not coefficients:
-            raise ValueError(f"coupling {joint['joint_id']!r} produced an empty equation")
+            raise ValueError(
+                f"coupling {joint['joint_id']!r} produced an empty equation"
+            )
         row = np.zeros(len(joint_names), dtype=float)
         for name, coefficient in coefficients.items():
             row[joint_index[name]] = coefficient
@@ -838,7 +971,13 @@ def export_product_package_to_mjcf(
     equality_xml = ET.SubElement(root_xml, "equality")
     for candidate in independent_equalities:
         joint = candidate["joint"]
-        tendon_name = _safe_name("coupling_" + str(joint["joint_id"]), prefix="coupling")
+        joint_id = str(joint["joint_id"])
+        tendon_name = names.claim(
+            "tendon",
+            "coupling_" + joint_id,
+            identity=joint_id,
+            prefix="coupling",
+        )
         fixed_xml = ET.SubElement(tendon_xml, "fixed", {"name": tendon_name})
         for name, coefficient in sorted(candidate["coefficients"].items()):
             ET.SubElement(
@@ -846,7 +985,12 @@ def export_product_package_to_mjcf(
                 "joint",
                 {"joint": name, "coef": _fmt(coefficient)},
             )
-        equality_name = _safe_name("equality_" + str(joint["joint_id"]), prefix="equality")
+        equality_name = names.claim(
+            "equality",
+            "equality_" + joint_id,
+            identity=joint_id,
+            prefix="equality",
+        )
         ET.SubElement(
             equality_xml,
             "tendon",
@@ -856,9 +1000,7 @@ def export_product_package_to_mjcf(
                 "polycoef": "0 0 0 0 0",
             },
         )
-        candidate["record"].update(
-            {"name": equality_name, "tendon": tendon_name}
-        )
+        candidate["record"].update({"name": equality_name, "tendon": tendon_name})
     if not independent_equalities:
         root_xml.remove(tendon_xml)
         root_xml.remove(equality_xml)
@@ -875,9 +1017,13 @@ def export_product_package_to_mjcf(
             "members": sorted(members),
             "grounded": group_id == root_group,
             "representative": group_representative[group_id],
-            "body_name": None if group_id == root_group else body_name_by_group[group_id],
+            "body_name": (
+                None if group_id == root_group else body_name_by_group[group_id]
+            ),
             "parent_group": parent_group[group_id],
-            "tree_joint": None if group_id == root_group else tree_joint_name_by_group[group_id],
+            "tree_joint": (
+                None if group_id == root_group else tree_joint_name_by_group[group_id]
+            ),
         }
         for group_id, members in sorted(groups.items())
     ]
@@ -887,6 +1033,7 @@ def export_product_package_to_mjcf(
         "units": {"source": "mm", "mjcf_length": "m", "mjcf_angle": "radian"},
         "grounded_group_id": root_group,
         "groups": group_records,
+        "pruned_structure_nodes": pruned_structure_nodes,
         "rigid_edges": rigid_edges,
         "tree_joints": [
             {
@@ -902,14 +1049,19 @@ def export_product_package_to_mjcf(
         ],
         "equalities": equality_records,
         "sites": site_records,
-        "meshes": {definition_id: name for definition_id, name in sorted(mesh_by_definition.items())},
+        "meshes": {
+            definition_id: name
+            for definition_id, name in sorted(mesh_by_definition.items())
+        },
         "default_density_count": default_density_count,
     }
-    decision_path.write_text(json.dumps(mapping, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    decision_path.write_text(
+        json.dumps(mapping, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     limitations = (
         "Mesh geoms are generated from BREP tessellation and scaled from mm to m.",
         "MuJoCo mesh collision uses its supported mesh collision representation; no convex decomposition is attempted.",
-        "Revolute/prismatic attachments through forwarded nested-assembly connectors assign internal bearing geometry to the supported rigid group without adding another MJCF degree of freedom.",
+        "Forwarded connectors resolve to leaf endpoints; only explicit fixed constraints create rigid groups.",
         "Gear, belt, and rack-pinion relations constrain reference-pose increments through independent fixed tendons.",
     )
     return ProductMJCFExportReport(

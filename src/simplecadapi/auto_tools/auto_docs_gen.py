@@ -20,7 +20,13 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "ql.py",
     "serializer.py",
     "math.py",
-    "product.py",
+    "placement.py",
+    "material.py",
+    "connector.py",
+    "constraint.py",
+    "part.py",
+    "assembly.py",
+    "assembly_solver.py",
     "expr.py",
     "tolerance.py",
     "units.py",
@@ -64,7 +70,7 @@ FULL_PUBLIC_FUNCTION_MODULES = frozenset(
         "evolve.py",
         "ql.py",
         "math.py",
-        "product.py",
+        "placement.py",
     }
 )
 
@@ -78,6 +84,9 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "errors.py",
         "capture.py",
         "product_packages.py",
+        "assembly_solver.py",
+        "connector.py",
+        "placement.py",
         "build/assembly_builder.py",
         "build/dependencies.py",
         "build/part_builder.py",
@@ -108,7 +117,12 @@ EXPORTED_CALLABLE_MODULES = frozenset(
         "errors.py",
         "topology.py",
         "math.py",
-        "product.py",
+        "placement.py",
+        "material.py",
+        "connector.py",
+        "constraint.py",
+        "part.py",
+        "assembly.py",
     }
 )
 

@@ -6,7 +6,7 @@
 class ConstraintReport(solved: bool, grounded_component_ids: Tuple[str, ...], solved_component_ids: Tuple[str, ...], unsolved_component_ids: Tuple[str, ...], residuals: Tuple[ConstraintResidual, ...])
 ```
 
-*Source: product.py*
+*Source: constraint.py*
 
 ## Import Surface
 

@@ -247,6 +247,93 @@ def test_forwarded_connector_resolves_and_solves_at_parent_level():
     ).within_tolerance
 
 
+def test_forwarded_connectors_close_nested_revolute_between_fixed_interfaces():
+    ring = _part_with_placement_connector("nested_bearing_ring")
+    bearing = scad.make_assembly_rassembly("nested_bearing")
+    bearing = scad.add_component_rassembly(
+        bearing,
+        ring,
+        component_id="outer_ring",
+        placement=scad.identity_placement_rplacement(),
+    )
+    bearing = scad.add_component_rassembly(
+        bearing,
+        ring,
+        component_id="inner_ring",
+        placement=scad.identity_placement_rplacement(),
+    )
+    bearing = scad.ground_component_rassembly(bearing, "outer_ring")
+    bearing = scad.add_revolute_constraint_rassembly(
+        bearing,
+        "inner_outer_revolute",
+        scad.make_connector_ref_rconnectorref("outer_ring", "axis"),
+        scad.make_connector_ref_rconnectorref("inner_ring", "axis"),
+        drive_angle_degrees=None,
+    )
+    bearing = scad.forward_connector_rassembly(
+        bearing,
+        "outer_axis",
+        "outer_ring",
+        "axis",
+    )
+    bearing = scad.forward_connector_rassembly(
+        bearing,
+        "inner_axis",
+        "inner_ring",
+        "axis",
+    )
+
+    quarter_turn = scad.make_placement_rplacement(
+        origin=(0.0, 0.0, 0.0),
+        x_axis=(0.0, 1.0, 0.0),
+        y_axis=(-1.0, 0.0, 0.0),
+    )
+    root = scad.make_assembly_rassembly("nested_bearing_fixture")
+    root = scad.add_component_rassembly(
+        root,
+        ring,
+        component_id="housing",
+        placement=scad.identity_placement_rplacement(),
+    )
+    root = scad.add_component_rassembly(
+        root,
+        ring,
+        component_id="shaft",
+        placement=quarter_turn,
+    )
+    root = scad.add_component_rassembly(
+        root,
+        bearing,
+        component_id="bearing",
+        placement=scad.identity_placement_rplacement(),
+    )
+    root = scad.ground_component_rassembly(root, "housing")
+    root = scad.ground_component_rassembly(root, "shaft")
+    root = scad.add_fixed_constraint_rassembly(
+        root,
+        "outer_ring_to_housing",
+        scad.make_connector_ref_rconnectorref("housing", "axis"),
+        scad.make_connector_ref_rconnectorref("bearing", "outer_axis"),
+    )
+    root = scad.add_fixed_constraint_rassembly(
+        root,
+        "inner_ring_to_shaft",
+        scad.make_connector_ref_rconnectorref("shaft", "axis"),
+        scad.make_connector_ref_rconnectorref("bearing", "inner_axis"),
+    )
+
+    solved = scad.solve_assembly_constraints_rassembly(root)
+    solved_bearing = solved.get_component("bearing").item
+
+    assert isinstance(solved_bearing, scad.Assembly)
+    assert solved_bearing.get_component("outer_ring").placement.origin == (0.0, 0.0, 0.0)
+    assert solved_bearing.get_component("inner_ring").placement.x_axis == pytest.approx(
+        quarter_turn.x_axis
+    )
+    assert scad.inspect_assembly_constraints_rconstraintreport(solved_bearing).solved
+    assert scad.inspect_assembly_constraints_rconstraintreport(solved).solved
+
+
 def test_forwarded_connector_validation_reports_missing_sources():
     assembly = scad.make_assembly_rassembly("bad_forwarded_connector_asm")
 

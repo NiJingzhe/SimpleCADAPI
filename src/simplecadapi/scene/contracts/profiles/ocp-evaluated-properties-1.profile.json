@@ -7,7 +7,7 @@
     "implementation_status": {
       "phase": "phase_a_target_profile",
       "scene_compiler": "phase_b_not_implemented",
-      "grounding_modules": ["simplecadapi.kernel.ocp_properties", "simplecadapi.operations", "simplecadapi.serializer", "simplecadapi.product"],
+      "grounding_modules": ["simplecadapi.connector", "simplecadapi.kernel.ocp_properties", "simplecadapi.operations", "simplecadapi.placement", "simplecadapi.serializer"],
       "required_ocp_binding": "cadquery-ocp>=7.9.3.1",
       "target_deltas_from_current_helpers": ["serializer resolver accepts score ties; this target requires a unique passing score", "product edge frame falls back to +X when endpoints are missing; this target requires a null frame"]
     },
@@ -170,7 +170,7 @@
       "non_finite_score_policy": "reject"
     },
     "connector_frame": {
-      "placement_symbol": "simplecadapi.product.Placement",
+      "placement_symbol": "simplecadapi.placement.Placement",
       "normalization": "binary64_euclidean",
       "face_origin": "selector.center",
       "face_z_axis": "normalize(selector.normal)",

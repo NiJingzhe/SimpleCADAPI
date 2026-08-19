@@ -22,7 +22,7 @@
       "content_hash": "sha256_lowercase_hex_over_exact_file_bytes",
       "profile_logical_names": ["ocp-evaluated-properties-1.profile.json", "scene-1.0-ocp-glb-2.profile.json"],
       "profile_hash_input": "exact_packaged_profile_file_bytes",
-      "python_module_roots": ["simplecadapi.kernel.ocp_mesh", "simplecadapi.kernel.ocp_properties", "simplecadapi.operations", "simplecadapi.product", "simplecadapi.scene.canonical", "simplecadapi.scene.compiler", "simplecadapi.scene.glb", "simplecadapi.scene.glb_writer", "simplecadapi.scene.render_mesh", "simplecadapi.serializer"],
+      "python_module_roots": ["simplecadapi.assembly", "simplecadapi.assembly_solver", "simplecadapi.connector", "simplecadapi.constraint", "simplecadapi.kernel.ocp_mesh", "simplecadapi.kernel.ocp_properties", "simplecadapi.material", "simplecadapi.operations", "simplecadapi.part", "simplecadapi.placement", "simplecadapi.scene.canonical", "simplecadapi.scene.compiler", "simplecadapi.scene.glb", "simplecadapi.scene.glb_writer", "simplecadapi.scene.render_mesh", "simplecadapi.serializer"],
       "phase_b_target_module": "simplecadapi.scene.compiler",
       "phase_b_target_module_status": "implemented",
       "python_modules": "registered_complete_output_affecting_transitive_source_closure_of_roots",

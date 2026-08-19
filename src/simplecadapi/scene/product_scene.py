@@ -28,7 +28,7 @@ from ..artifacts.feature_graph import (
 from ..artifacts.part_io import encode_part_definition, load_part_definition
 from ..core import Edge, Face, Solid, Vertex
 from ..kernel.ocp_properties import center_of_mass
-from ..product import Placement, identity_placement
+from ..placement import Placement, identity_placement
 from .archive import canonical_zip_bytes, preflight_zip_bytes
 from .canonical import (
     canonical_json_bytes,

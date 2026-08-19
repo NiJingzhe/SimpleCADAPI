@@ -158,7 +158,9 @@ def test_assemble_external_reference_round_trip_preserves_hierarchy_and_coupling
     _base, gear, train, pair = _build_nested_gear_train(tmp_path)
 
     assert len(train.definition.definition_refs) == 2
-    assert [item.definition_id for item in train.definition.instances].count("train_gear") == 2
+    assert [item.definition_id for item in train.definition.instances].count(
+        "train_gear"
+    ) == 2
     assert [item.constraint_kind for item in train.value.constraints] == [
         "revolute",
         "revolute",
@@ -235,6 +237,168 @@ def test_assemble_keeps_authored_placements_separate_from_solved_snapshot(
     assert isinstance(rebuilt, scad.Assembly)
     assert rebuilt.get_component("gear_a").placement.to_dict() == solved["gear_a"]
     assert rebuilt.get_component("gear_b").placement.to_dict() == solved["gear_b"]
+
+
+def test_nested_occurrence_placements_survive_materialization_and_replay(
+    tmp_path: Path,
+) -> None:
+    policy = _policy(tmp_path / "cache")
+
+    @scad.part(id="durable_nested_ring", cache=policy)
+    def build_ring() -> scad.Part:
+        part = scad.make_part_rpart(
+            part_id="durable_nested_ring",
+            body=scad.make_cylinder_rsolid(radius=2.0, height=1.0),
+        )
+        return scad.add_connector_rpart(
+            part=part,
+            connector=scad.make_placement_connector_rconnector(
+                connector_id="axis",
+                placement=scad.identity_placement_rplacement(),
+            ),
+        )
+
+    ring = build_ring()
+
+    @scad.assemble(
+        id="durable_nested_bearing",
+        definitions=(ring,),
+        cache=policy,
+    )
+    def build_bearing() -> scad.Assembly:
+        assembly = scad.make_assembly_rassembly(assembly_id="durable_nested_bearing")
+        for component_id in ("outer_ring", "inner_ring"):
+            assembly = scad.add_component_rassembly(
+                assembly=assembly,
+                item=ring.value,
+                component_id=component_id,
+                placement=scad.identity_placement_rplacement(),
+            )
+        assembly = scad.ground_component_rassembly(
+            assembly=assembly,
+            component_id="outer_ring",
+        )
+        assembly = scad.add_revolute_constraint_rassembly(
+            assembly=assembly,
+            constraint_id="inner_outer_revolute",
+            connector_a=scad.make_connector_ref_rconnectorref(
+                component_id="outer_ring",
+                connector_id="axis",
+            ),
+            connector_b=scad.make_connector_ref_rconnectorref(
+                component_id="inner_ring",
+                connector_id="axis",
+            ),
+            drive_angle_degrees=None,
+        )
+        assembly = scad.forward_connector_rassembly(
+            assembly=assembly,
+            connector_id="outer_axis",
+            source_component_id="outer_ring",
+            source_connector_id="axis",
+        )
+        return scad.forward_connector_rassembly(
+            assembly=assembly,
+            connector_id="inner_axis",
+            source_component_id="inner_ring",
+            source_connector_id="axis",
+        )
+
+    bearing = build_bearing()
+    quarter_turn = scad.make_placement_rplacement(
+        origin=(0.0, 0.0, 0.0),
+        x_axis=(0.0, 1.0, 0.0),
+        y_axis=(-1.0, 0.0, 0.0),
+    )
+
+    @scad.assemble(
+        id="durable_nested_fixture",
+        definitions=(bearing, ring),
+        cache=policy,
+    )
+    def build_fixture() -> scad.Assembly:
+        assembly = scad.make_assembly_rassembly(assembly_id="durable_nested_fixture")
+        assembly = scad.add_component_rassembly(
+            assembly=assembly,
+            item=ring.value,
+            component_id="housing",
+            placement=scad.identity_placement_rplacement(),
+        )
+        assembly = scad.add_component_rassembly(
+            assembly=assembly,
+            item=ring.value,
+            component_id="shaft",
+            placement=quarter_turn,
+        )
+        assembly = scad.add_component_rassembly(
+            assembly=assembly,
+            item=bearing.value,
+            component_id="bearing",
+            placement=scad.identity_placement_rplacement(),
+        )
+        assembly = scad.ground_component_rassembly(
+            assembly=assembly,
+            component_id="housing",
+        )
+        assembly = scad.ground_component_rassembly(
+            assembly=assembly,
+            component_id="shaft",
+        )
+        assembly = scad.add_fixed_constraint_rassembly(
+            assembly=assembly,
+            constraint_id="outer_ring_to_housing",
+            connector_a=scad.make_connector_ref_rconnectorref(
+                component_id="housing",
+                connector_id="axis",
+            ),
+            connector_b=scad.make_connector_ref_rconnectorref(
+                component_id="bearing",
+                connector_id="outer_axis",
+            ),
+        )
+        return scad.add_fixed_constraint_rassembly(
+            assembly=assembly,
+            constraint_id="inner_ring_to_shaft",
+            connector_a=scad.make_connector_ref_rconnectorref(
+                component_id="shaft",
+                connector_id="axis",
+            ),
+            connector_b=scad.make_connector_ref_rconnectorref(
+                component_id="bearing",
+                connector_id="inner_axis",
+            ),
+        )
+
+    fixture = build_fixture()
+    warm = build_fixture()
+    assert (warm.solve_report.component_hits, warm.solve_report.component_misses) == (
+        1,
+        0,
+    )
+    occurrence_placements = {
+        tuple(record["component_path"]): record["placement"]
+        for record in fixture.definition.solved_snapshot["occurrence_placements"]
+    }
+
+    assert occurrence_placements[("bearing", "inner_ring")]["x_axis"] == [
+        0.0,
+        1.0,
+        0.0,
+    ]
+
+    for restored in (
+        fixture.value,
+        warm.value,
+        scad.materialize_definition(fixture.definition),
+        fixture.replay(),
+    ):
+        assert isinstance(restored, scad.Assembly)
+        restored_bearing = restored.get_component("bearing").item
+        assert isinstance(restored_bearing, scad.Assembly)
+        assert restored_bearing.get_component(
+            "inner_ring"
+        ).placement.x_axis == pytest.approx(quarter_turn.x_axis)
+        assert scad.inspect_assembly_constraints_rconstraintreport(restored).solved
 
 
 def test_assemble_rejects_undeclared_and_wrong_runtime_definition_identity(
@@ -690,6 +854,4 @@ def test_assembly_feature_replay_tolerates_only_solver_scale_residual_drift(
     assert replayed[0].assembly_id == "gear_train"
 
     with pytest.raises(ValueError, match="residual report differs"):
-        with_translation_drift(2.0e-7).replay(
-            external_definitions=external_definitions
-        )
+        with_translation_drift(2.0e-7).replay(external_definitions=external_definitions)
