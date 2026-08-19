@@ -15,3 +15,6 @@ def compare_sections_rdescriptor(target: ModelInput, current: ModelInput, plane_
 ## Description
 
 Compare target and current contour geometry on one physical plane.
+
+Empty results use a bounded OCP shape-plane intersection, sized from the
+root bounds, to distinguish true emptiness from dropped section edges.

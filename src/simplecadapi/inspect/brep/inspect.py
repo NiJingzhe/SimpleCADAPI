@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from OCP.BRep import BRep_Tool
 from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCP.BRepBndLib import BRepBndLib
 from OCP.BRepCheck import BRepCheck_Analyzer
@@ -263,6 +264,13 @@ def inspect_shape_rbrepinspection(
         "unique_edges": edge_map.Extent(),
         "unique_vertices": vertex_map.Extent(),
     }
+    shell_closure = []
+    shell_explorer = TopExp_Explorer(shape, TopAbs_SHELL)
+    while shell_explorer.More():
+        shell_closure.append(bool(BRep_Tool.IsClosed_s(shell_explorer.Current())))
+        shell_explorer.Next()
+    counts["open_shell"] = sum(not closed for closed in shell_closure)
+    counts["closed_shell"] = sum(shell_closure)
     return BRepInspection(
         source=str(source) if source is not None else None,
         valid=bool(BRepCheck_Analyzer(shape).IsValid()),

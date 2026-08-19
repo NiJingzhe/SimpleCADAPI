@@ -770,18 +770,54 @@ class OperationGraph:
 
         Nodes are added in topological order so that input references resolve.
         """
+        if not isinstance(data, dict):
+            raise ValueError("graph payload must be an object")
+        if strict and data.get("schema_version") != GRAPH_SCHEMA_VERSION:
+            raise ValueError(
+                f"unsupported graph schema_version {data.get('schema_version')!r}"
+            )
+        raw_nodes = data.get("nodes", [])
+        raw_edges = data.get("edges", [])
+        if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
+            raise ValueError("graph nodes and edges must be arrays")
         graph = cls(graph_id=data.get("graph_id"))
 
         # Build nodes first (without edges)
         node_map: Dict[str, OperationNode] = {}
-        for nd in data.get("nodes", []):
+        declared_edges: set[tuple[str, str]] = set()
+        for nd in raw_nodes:
+            if not isinstance(nd, dict):
+                raise ValueError("graph node entries must be objects")
+            node_id = nd.get("node_id")
+            op = nd.get("op")
+            output_count = nd.get("output_count", 1)
+            inputs = nd.get("inputs", [])
+            if not isinstance(node_id, str) or not node_id:
+                raise ValueError("graph node_id must be a non-empty string")
+            if not isinstance(op, str) or not op:
+                raise ValueError(f"graph node '{node_id}' op must be a non-empty string")
+            if (
+                isinstance(output_count, bool)
+                or not isinstance(output_count, int)
+                or output_count < 0
+            ):
+                raise ValueError(
+                    f"graph node '{node_id}' output_count must be a non-negative integer"
+                )
+            if not isinstance(inputs, list) or not all(
+                isinstance(input_id, str) for input_id in inputs
+            ):
+                raise ValueError(f"graph node '{node_id}' inputs must be string ids")
+            if len(set(inputs)) != len(inputs):
+                raise ValueError(f"graph node '{node_id}' contains duplicate inputs")
+            declared_edges.update((input_id, node_id) for input_id in inputs)
             tags_set = set(nd.get("tags", []))
             node = graph.add_node(
-                op=nd["op"],
+                op=op,
                 params=nd.get("params", {}),
                 param_exprs=nd.get("param_exprs", {}),
-                node_id=nd["node_id"],
-                output_count=nd.get("output_count", 1),
+                node_id=node_id,
+                output_count=output_count,
                 semantic_delta=(
                     semantic_delta_from_dict(nd["semantic_delta"])
                     if isinstance(nd.get("semantic_delta"), dict)
@@ -796,10 +832,11 @@ class OperationGraph:
                 tags=tags_set if tags_set else None,
                 source=nd.get("source"),
             )
-            node_map[nd["node_id"]] = node
+            node_map[node_id] = node
 
         # Wire edges
-        for edge in data.get("edges", []):
+        serialized_edges: set[tuple[str, str]] = set()
+        for edge in raw_edges:
             if not isinstance(edge, (list, tuple)) or len(edge) != 2:
                 if strict:
                     raise ValueError(f"malformed graph edge entry: {edge!r}")
@@ -811,12 +848,19 @@ class OperationGraph:
                         f"graph edge references missing node(s): {src!r} -> {dst!r}"
                     )
                 continue
+            pair = (src, dst)
+            if pair in serialized_edges and strict:
+                raise ValueError(f"duplicate graph edge: {src!r} -> {dst!r}")
+            serialized_edges.add(pair)
             graph._edges.append((src, dst))
             graph._adj[src].append(dst)
             graph._radj[dst].append(src)
 
         # Fix up inputs references
-        for nd in data.get("nodes", []):
+        if strict and serialized_edges != declared_edges:
+            raise ValueError("graph edges do not match node input declarations")
+
+        for nd in raw_nodes:
             node = node_map.get(nd["node_id"])
             if node and nd.get("inputs"):
                 missing_inputs = [iid for iid in nd["inputs"] if iid not in node_map]
@@ -844,6 +888,8 @@ class OperationGraph:
                     source=dict(node.source) if node.source else None,
                 )
 
+        if strict and not graph.is_dag():
+            raise ValueError("graph contains a cycle")
         return graph
 
     @classmethod

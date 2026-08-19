@@ -44,19 +44,25 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "cache/policy.py",
     "cache/records.py",
     "cache/store.py",
+    "inverse_engineer/brep/evaluation.py",
     "inspect/brep/compare.py",
     "inspect/brep/diagnostics.py",
+    "inspect/brep/fitting.py",
     "inspect/brep/inspect.py",
     "inspect/brep/io.py",
     "inspect/brep/model.py",
     "inspect/brep/parity.py",
+    "inspect/brep/persistence.py",
     "inspect/brep/queries.py",
     "inspect/brep/render.py",
+    "inspect/brep/section_tracking.py",
     "inspect/brep/slices.py",
     "exporter/step.py",
     "exporter/obj.py",
     "exporter/stl.py",
     "exporter/mjcf.py",
+    "inspect/brep/snapshots.py",
+    "inspect/brep/topology_inspection.py",
 )
 
 DEFAULT_STDLIB_SOURCE_FILENAMES: tuple[str, ...] = (
@@ -91,19 +97,25 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "build/dependencies.py",
         "build/part_builder.py",
         "cache/policy.py",
+        "inverse_engineer/brep/evaluation.py",
         "inspect/brep/compare.py",
         "inspect/brep/diagnostics.py",
+        "inspect/brep/fitting.py",
         "inspect/brep/inspect.py",
         "inspect/brep/io.py",
         "inspect/brep/model.py",
         "inspect/brep/parity.py",
+        "inspect/brep/persistence.py",
         "inspect/brep/queries.py",
         "inspect/brep/render.py",
+        "inspect/brep/section_tracking.py",
         "inspect/brep/slices.py",
         "exporter/step.py",
         "exporter/obj.py",
         "exporter/stl.py",
         "exporter/mjcf.py",
+        "inspect/brep/snapshots.py",
+        "inspect/brep/topology_inspection.py",
     }
 )
 
@@ -371,6 +383,12 @@ class APIDocumentGenerator:
                     "_rtuple",
                 )
             )
+        if module_name == "inverse_engineer/brep/evaluation.py":
+            return name in {
+                "classify_benchmark_result",
+                "inspect_benchmark_step",
+                "run_comparison_bundle",
+            }
         if module_name in EXPORTED_FUNCTION_MODULES:
             if not exported_names:
                 return True
@@ -401,6 +419,8 @@ class APIDocumentGenerator:
                 "SlicePanelResult",
                 "SliceSpec",
             }
+        if module_name == "inverse_engineer/brep/evaluation.py":
+            return name in {"EvaluationConfig", "SectionEvaluationConfig"}
         if name in exported_names:
             return True
         if module_name not in EXPORTED_CALLABLE_MODULES:
@@ -434,6 +454,12 @@ class APIDocumentGenerator:
         return set()
 
     def _import_surface_for(self, name: str, module_name: str) -> str:
+        if module_name == "inverse_engineer/brep/evaluation.py":
+            return (
+                "reverse-engineering evaluator: `from simplecadapi.inverse_engineer.brep "
+                f"import {name}`"
+            )
+
         if name in self.exported_names:
             return f"top-level: `from simplecadapi import {name}`"
 
@@ -611,6 +637,7 @@ class APIDocumentGenerator:
             "Evolve": [],
             "STEP/BREP Inspection": [],
             "Product Build and Cache": [],
+            "Reconstruction Evaluation": [],
             "Other": [],
         }
 
@@ -622,6 +649,10 @@ class APIDocumentGenerator:
                 continue
             if api.source_file.startswith(("build/", "cache/")):
                 categories["Product Build and Cache"].append(api)
+                continue
+
+            if api.source_file == "inverse_engineer/brep/evaluation.py":
+                categories["Reconstruction Evaluation"].append(api)
                 continue
 
             if api.source_file == "evolve.py":
@@ -685,6 +716,7 @@ class APIDocumentGenerator:
             "- Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.",
             "- Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession`.",
             "- Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.",
+            "- Entries marked `reverse-engineering evaluator` are available through `simplecadapi.inverse_engineer.brep`; their acceptance inputs and reports belong to the trusted harness, not participant code.",
             "",
         ]
 
@@ -703,6 +735,8 @@ class APIDocumentGenerator:
                     surface_info = " `exporter namespace`"
                 elif api.source_file.startswith("translator/"):
                     surface_info = " `translator backend`"
+                elif api.source_file == "inverse_engineer/brep/evaluation.py":
+                    surface_info = " `reverse-engineering evaluator`"
                 else:
                     surface_info = f" `submodule:{api.source_file.removesuffix('.py')}`"
                 doc_filename = api.doc_filename or f"{api.name}.md"

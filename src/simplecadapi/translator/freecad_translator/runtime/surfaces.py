@@ -27,6 +27,31 @@ def _surface_context_point(value, context):
     )
 
 
+def _surface_context_vector(value, context):
+    vector = _vec(value)
+    if not isinstance(context, dict):
+        return vector
+    x_axis = context.get("x_axis")
+    y_axis = context.get("y_axis")
+    z_axis = context.get("z_axis")
+    if not all(
+        isinstance(axis, (list, tuple)) and len(axis) == 3
+        for axis in (x_axis, y_axis, z_axis)
+    ):
+        return vector
+    return App.Vector(
+        vector.x * float(x_axis[0])
+        + vector.y * float(y_axis[0])
+        + vector.z * float(z_axis[0]),
+        vector.x * float(x_axis[1])
+        + vector.y * float(y_axis[1])
+        + vector.z * float(z_axis[1]),
+        vector.x * float(x_axis[2])
+        + vector.y * float(y_axis[2])
+        + vector.z * float(z_axis[2]),
+    )
+
+
 def _surface_point_grid(params, key, context):
     rows = list(params.get(key) or [])
     if len(rows) < 2 or any(len(row) < 2 for row in rows):
@@ -142,6 +167,53 @@ def _bezier_surface_shape(params, context):
                     u_index, v_index, float(weights[u_index - 1][v_index - 1])
                 )
     return _surface_single_face(surface.toShape(), "make_bezier_surface_rface")
+
+
+def _cylindrical_surface_shape(params, context):
+    radius = float(params["radius"])
+    u_start, u_end = (float(value) for value in params["u_range"])
+    v_start, v_end = (float(value) for value in params["v_range"])
+    origin = _surface_context_point(params.get("origin", (0.0, 0.0, 0.0)), context)
+    z_axis = _normalized_vec(
+        _surface_context_vector(params.get("axis", (0.0, 0.0, 1.0)), context)
+    )
+    raw_x = params.get("x_direction")
+    if raw_x is None:
+        base_x = _periodic_axis_x(z_axis)
+    else:
+        candidate = _surface_context_vector(raw_x, context)
+        projected = candidate - z_axis * float(candidate.dot(z_axis))
+        base_x = _normalized_vec(projected)
+    base_y = _normalized_vec(z_axis.cross(base_x))
+    cosine = math.cos(u_start)
+    sine = math.sin(u_start)
+    x_axis = _normalized_vec(base_x * cosine + base_y * sine)
+    y_axis = _normalized_vec(z_axis.cross(x_axis))
+    local = Part.makeCylinder(
+        radius,
+        v_end - v_start,
+        App.Vector(0.0, 0.0, v_start),
+        App.Vector(0.0, 0.0, 1.0),
+        math.degrees(u_end - u_start),
+    )
+    local.Placement = _placement_from_axes_payload(
+        {
+            "origin": (origin.x, origin.y, origin.z),
+            "x_axis": (x_axis.x, x_axis.y, x_axis.z),
+            "y_axis": (y_axis.x, y_axis.y, y_axis.z),
+            "z_axis": (z_axis.x, z_axis.y, z_axis.z),
+        }
+    )
+    cylindrical_faces = [
+        face
+        for face in local.Faces
+        if hasattr(getattr(face, "Surface", None), "Radius")
+    ]
+    if len(cylindrical_faces) != 1:
+        raise RuntimeError(
+            "make_cylindrical_surface_rface expected one cylindrical side face"
+        )
+    return _surface_single_face(cylindrical_faces[0], "make_cylindrical_surface_rface")
 
 
 def _fit_point_grid_surface_shape(params, context):
@@ -272,6 +344,22 @@ def _surface_patch_shape(params, inputs, context):
     return face
 
 
+def _trim_surface_shape(params, inputs):
+    shapes = _surface_input_shapes(params, inputs)
+    hole_count = int(params.get("hole_count", 0))
+    if len(shapes) != 2 + hole_count:
+        raise RuntimeError("trim_surface_rface received inconsistent trim inputs")
+    carrier = _surface_single_face(shapes[0], "trim_surface_rface")
+    loops = [
+        _surface_single_wire_or_vertex(shape, "trim_surface_rface")
+        for shape in shapes[1:]
+    ]
+    if any(getattr(loop, "ShapeType", "") != "Wire" for loop in loops):
+        raise RuntimeError("trim_surface_rface boundaries must be wires")
+    bounded = Part.Face(carrier.Surface, loops)
+    return _surface_single_face(carrier.common(bounded), "trim_surface_rface")
+
+
 def _loft_shell_shape(params, inputs):
     shapes = _surface_input_shapes(params, inputs)
     sections = [
@@ -303,6 +391,17 @@ def _sew_faces_shell_shape(params, inputs):
     return _sew_face_shapes(
         faces, float(params.get("tolerance", 1.0e-6)), "sew_faces_rshell"
     )
+
+
+def _solid_from_shell_shape(params, inputs):
+    shapes = _surface_input_shapes(params, inputs)
+    if len(shapes) != 1:
+        raise RuntimeError("make_solid_from_shell_rsolid requires one shell input")
+    shell = _surface_single_shell(shapes[0], "make_solid_from_shell_rsolid")
+    solid = Part.Solid(shell)
+    if getattr(solid, "ShapeType", "") != "Solid" or not solid.isValid():
+        raise RuntimeError("make_solid_from_shell_rsolid produced an invalid solid")
+    return solid
 
 
 def _free_boundary_wires(shell, tolerance):

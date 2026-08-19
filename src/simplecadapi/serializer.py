@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import math
 from contextlib import nullcontext
+from pathlib import Path
 
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
@@ -54,6 +55,7 @@ from .material import Material
 from .part import Part
 from .placement import Placement
 from .topology import (
+    GRAPH_SCHEMA_VERSION,
     OperationGraph,
     TopoRef,
     semantic_delta_to_dict,
@@ -67,7 +69,8 @@ from .kernel.ocp_properties import bounding_box
 
 
 MODEL_SCHEMA_VERSION = "2.0"
-CANONICAL_CONTRACT_VERSION = "2.0"
+CANONICAL_CONTRACT_VERSION = "2.1"
+SUPPORTED_CANONICAL_CONTRACT_VERSIONS = {"2.0", CANONICAL_CONTRACT_VERSION}
 
 PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     # Core geometry ops that are recorded and replayable
@@ -327,6 +330,14 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "status": "replayable",
         "op": "make_box_rsolid",
     },
+    "load_brep_region_rsolid": {
+        "status": "replayable",
+        "op": "load_brep_region_rsolid",
+    },
+    "load_brep_region_rshell": {
+        "status": "replayable",
+        "op": "load_brep_region_rshell",
+    },
     "make_cylinder_rsolid": {
         "status": "replayable",
         "op": "make_cylinder_rsolid",
@@ -424,7 +435,16 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "op": "make_surface_patch_rface",
     },
     "loft_rshell": {"status": "replayable", "op": "make_loft_rshell"},
+    "make_cylindrical_surface_rface": {
+        "status": "replayable",
+        "op": "make_cylindrical_surface_rface",
+    },
+    "trim_surface_rface": {"status": "replayable", "op": "trim_surface_rface"},
     "sew_faces_rshell": {"status": "replayable", "op": "sew_faces_rshell"},
+    "make_solid_from_shell_rsolid": {
+        "status": "replayable",
+        "op": "make_solid_from_shell_rsolid",
+    },
     "free_boundaries_rwirelist": {
         "status": "replayable",
         "op": "free_boundaries_rwirelist",
@@ -469,6 +489,8 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
 
 
 CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
+    "load_brep_region_rshell",
+    "load_brep_region_rsolid",
     "make_point_rvertex",
     "make_line_redge",
     "make_circle_redge",
@@ -560,12 +582,15 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_chamfer_rsolid",
     "make_shell_rsolid",
     "make_bezier_surface_rface",
+    "make_cylindrical_surface_rface",
     "fit_point_grid_rface",
     "make_ruled_surface_rface",
     "make_gordon_surface_rface",
     "make_surface_patch_rface",
+    "trim_surface_rface",
     "make_loft_rshell",
     "sew_faces_rshell",
+    "make_solid_from_shell_rsolid",
     "free_boundaries_rwirelist",
     "fill_holes_rshell",
     "make_select_rvertex",
@@ -580,6 +605,19 @@ CANONICAL_SEMANTIC_OP_SET: Tuple[str, ...] = ("apply_tag_rselection",)
 
 CANONICAL_OP_SET: Tuple[str, ...] = (
     *CANONICAL_CORE_OP_SET,
+    *CANONICAL_SEMANTIC_OP_SET,
+)
+
+_CANONICAL_2_1_ONLY_OPS = {
+    "load_brep_region_rshell",
+    "load_brep_region_rsolid",
+    "make_solid_from_shell_rsolid",
+}
+CANONICAL_CORE_OP_SET_2_0: Tuple[str, ...] = tuple(
+    op for op in CANONICAL_CORE_OP_SET if op not in _CANONICAL_2_1_ONLY_OPS
+)
+CANONICAL_OP_SET_2_0: Tuple[str, ...] = (
+    *CANONICAL_CORE_OP_SET_2_0,
     *CANONICAL_SEMANTIC_OP_SET,
 )
 
@@ -606,9 +644,18 @@ SELECTION_REF_SCHEMA: Dict[str, Any] = {
 }
 
 
-def _canonical_contract_payload() -> Dict[str, Any]:
+def _canonical_contract_payload(
+    contract_version: str = CANONICAL_CONTRACT_VERSION,
+) -> Dict[str, Any]:
+    if contract_version not in SUPPORTED_CANONICAL_CONTRACT_VERSIONS:
+        raise ValueError(f"Unsupported canonical contract version '{contract_version}'")
+    core_op_set = (
+        CANONICAL_CORE_OP_SET
+        if contract_version == CANONICAL_CONTRACT_VERSION
+        else CANONICAL_CORE_OP_SET_2_0
+    )
     return {
-        "contract_version": CANONICAL_CONTRACT_VERSION,
+        "contract_version": contract_version,
         "graph_roles": {
             "graph": "canonical_low_level_graph",
             "leaf_ids": "explicit_result_set",
@@ -618,7 +665,7 @@ def _canonical_contract_payload() -> Dict[str, Any]:
             "default_mode": "strict",
             "permissive_mode": "explicit_opt_in",
         },
-        "core_op_set": list(CANONICAL_CORE_OP_SET),
+        "core_op_set": list(core_op_set),
         "semantic_op_set": list(CANONICAL_SEMANTIC_OP_SET),
         "selection_ref_schema": {
             "edge_param": SELECTION_REF_SCHEMA["edge_param"],
@@ -636,9 +683,32 @@ def _canonical_contract_payload() -> Dict[str, Any]:
     }
 
 
-def _assert_graph_is_canonical(graph: OperationGraph) -> None:
+def _validate_canonical_contract(contract: Any) -> Tuple[str, ...]:
+    if not isinstance(contract, dict):
+        raise ValueError("Model payload is missing canonical_contract")
+    contract_version = str(contract.get("contract_version", ""))
+    if contract_version not in SUPPORTED_CANONICAL_CONTRACT_VERSIONS:
+        raise ValueError(f"Unsupported canonical contract version '{contract_version}'")
+    expected = _canonical_contract_payload(contract_version)
+    if contract_version == "2.0" and contract == {"contract_version": "2.0"}:
+        return CANONICAL_OP_SET_2_0
+    if contract != expected:
+        raise ValueError(
+            "Model canonical_contract does not match the declared contract version"
+        )
+    return (
+        CANONICAL_OP_SET
+        if contract_version == CANONICAL_CONTRACT_VERSION
+        else CANONICAL_OP_SET_2_0
+    )
+
+
+def _assert_graph_is_canonical(
+    graph: OperationGraph, *, allowed_ops: Sequence[str] = CANONICAL_OP_SET
+) -> None:
+    allowed = set(allowed_ops)
     invalid_ops = sorted(
-        {node.op for node in graph.nodes if node.op not in CANONICAL_OP_SET}
+        {node.op for node in graph.nodes if node.op not in allowed}
     )
     if invalid_ops:
         raise ValueError(
@@ -704,9 +774,9 @@ def import_graph_json(json_str: str) -> OperationGraph:
     try:
         payload = json.loads(json_str)
         schema_version = str(payload.get("schema_version", ""))
-        if not schema_version.startswith("2."):
+        if schema_version != GRAPH_SCHEMA_VERSION:
             raise ValueError(
-                f"Unsupported graph schema_version '{schema_version}'. Expected 2.x."
+                f"Unsupported graph schema_version '{schema_version}'. Expected {GRAPH_SCHEMA_VERSION}."
             )
         graph = OperationGraph.from_dict(payload)
         _assert_graph_is_canonical(graph)
@@ -722,7 +792,7 @@ def import_graph_json(json_str: str) -> OperationGraph:
             ],
             how_to_fix=[
                 "Pass a valid JSON string produced by export_graph_json().",
-                "Make sure the payload includes a 2.x graph schema_version.",
+                f"Make sure the payload includes graph schema_version {GRAPH_SCHEMA_VERSION}.",
                 "If you edited the payload manually, validate the nodes and edges structure before retrying.",
             ],
             error=e,
@@ -971,6 +1041,11 @@ def import_model_json(json_str: str) -> Dict[str, Any]:
             raise ValueError(
                 f"Unsupported model schema_version '{schema_version}'; expected {MODEL_SCHEMA_VERSION}"
             )
+        if "canonical_contract" not in payload:
+            contract_payload = {"contract_version": "2.0"}
+        else:
+            contract_payload = payload["canonical_contract"]
+        allowed_ops = _validate_canonical_contract(contract_payload)
 
         session_payload = import_session_json(
             json.dumps(
@@ -984,15 +1059,13 @@ def import_model_json(json_str: str) -> Dict[str, Any]:
         )
         graph = session_payload.get("graph")
         if isinstance(graph, OperationGraph):
-            _assert_graph_is_canonical(graph)
+            _assert_graph_is_canonical(graph, allowed_ops=allowed_ops)
         else:
             raise ValueError("Model payload does not contain a valid graph")
         session_payload["geometry_registry"] = list(
             payload.get("geometry_registry", [])
         )
-        session_payload["canonical_contract"] = dict(
-            payload.get("canonical_contract", _canonical_contract_payload())
-        )
+        session_payload["canonical_contract"] = dict(contract_payload)
         session_payload["semantic_entity_registry"] = list(
             payload.get("semantic_entity_registry", [])
         )
@@ -1139,6 +1212,26 @@ def _replay_primitive_or_simple(
 ) -> Any:
     op_name = node.op
     node_id = node.node_id
+    if op_name == "load_brep_region_rsolid":
+        ctx.require_params(node_id, op_name, params, ("path", "sha256"))
+        safe_path = ops._brep_region_path(str(params["path"]), for_graph=True)
+        return ops._load_brep_region_rshape(
+            safe_path,
+            str(params["sha256"]),
+            root_kind="solid",
+            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+            replay_root=Path.cwd(),
+        )
+    if op_name == "load_brep_region_rshell":
+        ctx.require_params(node_id, op_name, params, ("path", "sha256"))
+        safe_path = ops._brep_region_path(str(params["path"]), for_graph=True)
+        return ops._load_brep_region_rshape(
+            safe_path,
+            str(params["sha256"]),
+            root_kind="shell",
+            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+            replay_root=Path.cwd(),
+        )
     if op_name == "make_sketch_rsketch":
         ctx.require_params(node_id, op_name, params, ("sketch_id",))
         return ops.make_sketch_rsketch(
@@ -1216,6 +1309,27 @@ def _replay_primitive_or_simple(
         return ops.make_bezier_surface_rface(
             params["control_points"],
             weights=params.get("weights"),
+            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+        )
+    if op_name == "make_cylindrical_surface_rface":
+        ctx.require_params(
+            node_id,
+            op_name,
+            params,
+            ("radius", "u_range", "v_range", "origin", "axis", "tolerance"),
+        )
+        return ops.make_cylindrical_surface_rface(
+            params["radius"],
+            tuple(params["u_range"]),
+            tuple(params["v_range"]),
+            origin=tuple(params["origin"]),
+            axis=tuple(params["axis"]),
+            x_direction=(
+                None
+                if params.get("x_direction") is None
+                else tuple(params["x_direction"])
+            ),
+            tolerance=float(params["tolerance"]),
             tag_prefix=cast(Optional[str], params.get("tag_prefix")),
         )
     if op_name == "fit_point_grid_rface":
@@ -1344,7 +1458,7 @@ def _candidate_shapes_for_geo_selection(source: AnyShape, kind: str) -> List[Any
             ]
         return [source] if isinstance(source, Shell) else []
     if kind == "face":
-        if isinstance(source, Solid):
+        if isinstance(source, (Shell, Solid)):
             return list(source.get_faces())
         return [source] if isinstance(source, Face) else []
     if kind == "edge":
@@ -1561,6 +1675,28 @@ def _resolve_shape_from_geo_selector(
     candidates = _candidate_shapes_for_geo_selection(source, kind)
     if not candidates:
         raise ValueError(f"geo selector found no {kind} candidates in source")
+
+    brep_region_ref = selector.get("brep_region_ref")
+    if isinstance(brep_region_ref, dict):
+        expected = (
+            str(brep_region_ref.get("artifact_sha256", "")),
+            str(brep_region_ref.get("source_face_id", "")),
+        )
+        candidates = [
+            candidate
+            for candidate in candidates
+            if isinstance(candidate, Face)
+            and isinstance(candidate.get_metadata("provenance"), dict)
+            and (
+                str(candidate.get_metadata("provenance").get("artifact_sha256", "")),
+                str(candidate.get_metadata("provenance").get("source_face_id", "")),
+            )
+            == expected
+        ]
+        if len(candidates) != 1:
+            raise ValueError(
+                "BREP region face selector did not resolve exactly one provenance identity"
+            )
 
     ranked = sorted(
         enumerate(candidates),
@@ -1922,16 +2058,43 @@ def _ordered_input_shapes(
             ctx.fail(
                 f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] belongs to foreign graph '{ref_graph_id}'"
             )
-        if ref_node_id not in direct_input_ids:
-            ctx.fail(
-                f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] is not a direct input"
-            )
-        candidates = outputs.get(ref_node_id, [])
-        if ref_slot < 0 or ref_slot >= len(candidates):
-            ctx.fail(
-                f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] references missing output slot {ref_slot}"
-            )
-        shape = candidates[ref_slot]
+        if ref_node_id in direct_input_ids:
+            candidates = outputs.get(ref_node_id, [])
+            if ref_slot < 0 or ref_slot >= len(candidates):
+                ctx.fail(
+                    f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] references missing output slot {ref_slot}"
+                )
+            shape = candidates[ref_slot]
+        else:
+            semantic_input_ids = [
+                direct_input_id
+                for direct_input_id in direct_input_ids
+                if _is_upstream_node(graph, direct_input_id, ref_node_id)
+            ]
+            matches = []
+            for semantic_input_id in semantic_input_ids:
+                for candidate in outputs.get(semantic_input_id, []):
+                    if not isinstance(
+                        candidate, (Vertex, Edge, Wire, Face, Shell, Solid, Compound)
+                    ):
+                        continue
+                    topo_ref = _shape_topo_ref_dict(candidate)
+                    candidate_kind = str(
+                        topo_ref.get("kind", _shape_kind_token(candidate))
+                    ).lower().split(".", 1)[-1]
+                    if (
+                        str(topo_ref.get("graph_id", "")) == ref_graph_id
+                        and str(topo_ref.get("node_id", "")) == ref_node_id
+                        and int(topo_ref.get("output_slot", 0)) == ref_slot
+                        and (not ref_kind or candidate_kind == ref_kind)
+                    ):
+                        matches.append(candidate)
+            if len(matches) != 1:
+                ctx.fail(
+                    f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] "
+                    "does not resolve through exactly one direct semantic input"
+                )
+            shape = matches[0]
         if not isinstance(shape, (Vertex, Edge, Wire, Face, Shell, Solid, Compound)):
             ctx.fail(
                 f"Graph node '{node.node_id}' ({node.op}) input_refs[{index}] does not resolve to geometry"
@@ -1942,6 +2105,48 @@ def _ordered_input_shapes(
             )
         resolved.append(cast(AnyShape, shape))
     return resolved
+
+
+def _semantic_view_origin(
+    ctx: _ReplayContext,
+    graph: OperationGraph,
+    consumer: Any,
+    semantic_node: Any,
+) -> tuple[str, int]:
+    current = semantic_node
+    seen: set[str] = set()
+    while current.op == "apply_tag_rselection":
+        if current.node_id in seen:
+            ctx.fail(
+                f"Graph node '{consumer.node_id}' ({consumer.op}) has a cyclic semantic input chain"
+            )
+        seen.add(current.node_id)
+        raw_binding = current.params.get("tag_binding")
+        if not isinstance(raw_binding, dict):
+            ctx.fail(
+                f"Graph node '{consumer.node_id}' ({consumer.op}) direct semantic input has no tag binding"
+            )
+        binding = TagBinding.from_dict(raw_binding)
+        scope_node_id = binding.scope.node_id
+        if scope_node_id is None:
+            ctx.fail(
+                f"Graph node '{consumer.node_id}' ({consumer.op}) semantic input scope has no node_id"
+            )
+        scope_node = graph.get_node(scope_node_id)
+        if scope_node is None:
+            ctx.fail(
+                f"Graph node '{consumer.node_id}' ({consumer.op}) semantic input scope references an unknown node"
+            )
+        if scope_node.op != "apply_tag_rselection":
+            return scope_node_id, binding.scope.output_slot
+        if binding.scope.output_slot != 0:
+            ctx.fail(
+                f"Graph node '{consumer.node_id}' ({consumer.op}) semantic view references an invalid semantic output slot"
+            )
+        current = scope_node
+    ctx.fail(
+        f"Graph node '{consumer.node_id}' ({consumer.op}) direct semantic input is not a semantic view"
+    )
 
 
 def _resolve_tag_binding_targets(
@@ -2225,6 +2430,10 @@ def _execute_graph(
 
     def _store_outputs(node, result: Any) -> None:
         result_list = _normalize_output(result)
+        if ctx.strict and len(result_list) != node.output_count:
+            ctx.fail(
+                f"Graph node '{node.node_id}' ({node.op}) declared {node.output_count} output(s), replay produced {len(result_list)}"
+            )
         for idx, output in enumerate(result_list):
             attach_graph_node(
                 output,
@@ -2238,6 +2447,10 @@ def _execute_graph(
 
     def _store_semantic_outputs(node, result: Any) -> None:
         result_list = _normalize_output(result)
+        if ctx.strict and len(result_list) != node.output_count:
+            ctx.fail(
+                f"Graph node '{node.node_id}' ({node.op}) declared {node.output_count} output(s), replay produced {len(result_list)}"
+            )
         for idx, output in enumerate(result_list):
             attach_semantic_graph_node(
                 output,
@@ -3305,6 +3518,34 @@ def _execute_graph(
                         _store_outputs(node, result)
                         continue
 
+                    if op_name == "trim_surface_rface":
+                        ctx.require_params(
+                            node.node_id,
+                            op_name,
+                            params,
+                            ("hole_count", "tolerance"),
+                        )
+                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        hole_count = int(params["hole_count"])
+                        if (
+                            len(ordered) != 2 + hole_count
+                            or not isinstance(ordered[0], Face)
+                            or not isinstance(ordered[1], Wire)
+                            or not all(isinstance(item, Wire) for item in ordered[2:])
+                        ):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) requires one Face, one outer Wire, and hole_count Wires"
+                            )
+                        result = ops.trim_surface_rface(
+                            cast(Face, ordered[0]),
+                            cast(Wire, ordered[1]),
+                            holes=cast(Sequence[Wire], ordered[2:]),
+                            tolerance=float(params["tolerance"]),
+                            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
                     if op_name == "make_loft_rshell":
                         ctx.require_params(
                             node.node_id, op_name, params, ("section_count", "ruled")
@@ -3342,6 +3583,19 @@ def _execute_graph(
                         result = ops.sew_faces_rshell(
                             cast(Sequence[Face], ordered),
                             tolerance=float(params["tolerance"]),
+                            tag_prefix=cast(Optional[str], params.get("tag_prefix")),
+                        )
+                        _store_outputs(node, result)
+                        continue
+
+                    if op_name == "make_solid_from_shell_rsolid":
+                        ordered = _ordered_input_shapes(ctx, graph, outputs, node, params)
+                        if len(ordered) != 1 or not isinstance(ordered[0], Shell):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) requires exactly one Shell input"
+                            )
+                        result = ops.make_solid_from_shell_rsolid(
+                            cast(Shell, ordered[0]),
                             tag_prefix=cast(Optional[str], params.get("tag_prefix")),
                         )
                         _store_outputs(node, result)

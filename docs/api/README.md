@@ -8,6 +8,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.
 - Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession`.
 - Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.
+- Entries marked `reverse-engineering evaluator` are available through `simplecadapi.inverse_engineer.brep`; their acceptance inputs and reports belong to the trusted harness, not participant code.
 
 ## Basic Creation
 
@@ -26,6 +27,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_cone_rsolid](make_cone_rsolid.md) *(from operations.py)* `top-level`
 - [make_connector_ref_rconnectorref](make_connector_ref_rconnectorref.md) *(from operations.py)* `top-level`
 - [make_cylinder_rsolid](make_cylinder_rsolid.md) *(from operations.py)* `top-level`
+- [make_cylindrical_surface_rface](make_cylindrical_surface_rface.md) *(from operations.py)* `top-level`
 - [make_edge_connector_rconnector](make_edge_connector_rconnector.md) *(from operations.py)* `top-level`
 - [make_face_connector_rconnector](make_face_connector_rconnector.md) *(from operations.py)* `top-level`
 - [make_face_from_sketch_rface](make_face_from_sketch_rface.md) *(from operations.py)* `top-level`
@@ -51,6 +53,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_segment_redge](make_segment_redge.md) *(from operations.py)* `top-level`
 - [make_segment_rwire](make_segment_rwire.md) *(from operations.py)* `top-level`
 - [make_sketch_rsketch](make_sketch_rsketch.md) *(from operations.py)* `top-level`
+- [make_solid_from_shell_rsolid](make_solid_from_shell_rsolid.md) *(from operations.py)* `top-level`
 - [make_sphere_rsolid](make_sphere_rsolid.md) *(from operations.py)* `top-level`
 - [make_spline_redge](make_spline_redge.md) *(from operations.py)* `top-level`
 - [make_spline_rwire](make_spline_rwire.md) *(from operations.py)* `top-level`
@@ -197,14 +200,18 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [compare_global_properties_rdescriptor](compare_global_properties_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
 - [compare_inspections_rinspectionsummarycomparison](compare_inspections_rinspectionsummarycomparison.md) *(from inspect/brep/compare.py)* `inspection namespace`
 - [compare_material_rdescriptor](compare_material_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
+- [compare_material_region_rdescriptor](compare_material_region_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
 - [compare_model_to_inspection_rentityinspectionparity](compare_model_to_inspection_rentityinspectionparity.md) *(from inspect/brep/parity.py)* `inspection namespace`
+- [compare_sections_batch_rdescriptor](compare_sections_batch_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
 - [compare_sections_rdescriptor](compare_sections_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
 - [compare_shape_slices_rslicecomparison](compare_shape_slices_rslicecomparison.md) *(from inspect/brep/slices.py)* `inspection namespace`
 - [compare_shapes_rbrepcomparison](compare_shapes_rbrepcomparison.md) *(from inspect/brep/compare.py)* `inspection namespace`
 - [compare_step_slices_rslicecomparison](compare_step_slices_rslicecomparison.md) *(from inspect/brep/slices.py)* `inspection namespace`
 - [compare_step_to_inspection_rentityinspectionparity](compare_step_to_inspection_rentityinspectionparity.md) *(from inspect/brep/parity.py)* `inspection namespace`
 - [compare_steps_rbrepcomparison](compare_steps_rbrepcomparison.md) *(from inspect/brep/compare.py)* `inspection namespace`
+- [copy_step_region_rpath](copy_step_region_rpath.md) *(from inspect/brep/snapshots.py)* `inspection namespace`
 - [evaluate_reconstruction_rdescriptor](evaluate_reconstruction_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
+- [fit_face_analytic_rdescriptor](fit_face_analytic_rdescriptor.md) *(from inspect/brep/fitting.py)* `inspection namespace`
 - [index_shape_rbrepmodel](index_shape_rbrepmodel.md) *(from inspect/brep/model.py)* `inspection namespace`
 - [inspect_difference_regions_rdescriptor](inspect_difference_regions_rdescriptor.md) *(from inspect/brep/diagnostics.py)* `inspection namespace`
 - [inspect_face_boundaries_rdescriptor](inspect_face_boundaries_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
@@ -217,6 +224,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [inspect_step_rbrepinspection](inspect_step_rbrepinspection.md) *(from inspect/brep/inspect.py)* `inspection namespace`
 - [inspect_step_rsummary](inspect_step_rsummary.md) *(from inspect/brep/model.py)* `inspection namespace`
 - [inspect_topology_neighborhood_rdescriptor](inspect_topology_neighborhood_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
+- [inspect_topology_rdescriptor](inspect_topology_rdescriptor.md) *(from inspect/brep/topology_inspection.py)* `inspection namespace`
 - [load_step_rbrepmodel](load_step_rbrepmodel.md) *(from inspect/brep/model.py)* `inspection namespace`
 - [load_step_rshape](load_step_rshape.md) *(from inspect/brep/io.py)* `inspection namespace`
 - [make_center_slice_specs_rslicespeclist](make_center_slice_specs_rslicespeclist.md) *(from inspect/brep/slices.py)* `inspection namespace`
@@ -226,10 +234,13 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [render_entity_map_rpath](render_entity_map_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_region_rpath](render_region_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_shape_views_rpath](render_shape_views_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
+- [render_step_comparison_rpath](render_step_comparison_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_components_colored_rpath](render_step_components_colored_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_components_rpath](render_step_components_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [render_step_views_rpath](render_step_views_rpath.md) *(from inspect/brep/render.py)* `inspection namespace`
 - [select_region_entities_rdescriptor](select_region_entities_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
+- [track_section_contours_rdescriptor](track_section_contours_rdescriptor.md) *(from inspect/brep/section_tracking.py)* `inspection namespace`
+- [validate_step_roundtrip_rdescriptor](validate_step_roundtrip_rdescriptor.md) *(from inspect/brep/persistence.py)* `inspection namespace`
 
 ## Product Build and Cache
 
@@ -250,6 +261,14 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [file_input](file_input.md) *(from build/dependencies.py)* `top-level`
 - [part](part_function.md) *(from build/part_builder.py)* `top-level`
 - [resolve_cache_policy](resolve_cache_policy.md) *(from cache/policy.py)* `top-level`
+
+## Reconstruction Evaluation
+
+- [EvaluationConfig](EvaluationConfig.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
+- [SectionEvaluationConfig](SectionEvaluationConfig.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
+- [classify_benchmark_result](classify_benchmark_result.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
+- [inspect_benchmark_step](inspect_benchmark_step.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
+- [run_comparison_bundle](run_comparison_bundle.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
 
 ## Other
 
@@ -327,6 +346,8 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [inspect_assembly_constraints_rconstraintreport](inspect_assembly_constraints_rconstraintreport.md) *(from operations.py)* `top-level`
 - [inspect_sketch_rsketchresult](inspect_sketch_rsketchresult.md) *(from operations.py)* `top-level`
 - [linear_pattern_rsolidlist](linear_pattern_rsolidlist.md) *(from operations.py)* `top-level`
+- [load_brep_region_rshell](load_brep_region_rshell.md) *(from operations.py)* `top-level`
+- [load_brep_region_rsolid](load_brep_region_rsolid.md) *(from operations.py)* `top-level`
 - [load_product_package](load_product_package.md) *(from product_packages.py)* `top-level`
 - [measure_constraint_residual_rconstraintresidual](measure_constraint_residual_rconstraintresidual.md) *(from operations.py)* `top-level`
 - [meta](meta.md) *(from ql.py)* `submodule:ql`
@@ -346,6 +367,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [source_binding](source_binding.md) *(from ql.py)* `submodule:ql`
 - [source_topology](source_topology.md) *(from ql.py)* `submodule:ql`
 - [tag](tag.md) *(from ql.py)* `submodule:ql`
+- [trim_surface_rface](trim_surface_rface.md) *(from operations.py)* `top-level`
 - [twisted_sweep_rsolid](twisted_sweep_rsolid.md) *(from operations.py)* `top-level`
 - [unground_component_rassembly](unground_component_rassembly.md) *(from operations.py)* `top-level`
 - [validate_product_package](validate_product_package.md) *(from product_packages.py)* `top-level`

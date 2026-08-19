@@ -430,7 +430,7 @@ class SkillPackager:
 
     def _validate_generated_skill(self) -> None:
         self.log("Validating generated skill...")
-        required = (
+        required = [
             self.skill_root / "SKILL.md",
             self.references_dir / "SDK_OVERVIEW.md",
             self.references_dir / "SDK_SURFACES.md",
@@ -441,7 +441,14 @@ class SkillPackager:
             self.docs_dir / "api" / "README.md",
             self.docs_dir / "core" / "README.md",
             self.docs_dir / "stdlib" / "README.md",
-        )
+        ]
+        if self._has_reconstruction_guides():
+            required.extend(
+                (
+                    self.docs_dir / "guides" / "reconstruction-agent-test-prompt.md",
+                    self.docs_dir / "guides" / "reconstruction-agent-strategy.md",
+                )
+            )
 
         for path in required:
             if not path.exists():
@@ -472,12 +479,40 @@ class SkillPackager:
 
     def _build_skill_markdown(self) -> str:
         package_spec = self._package_spec()
-        body = textwrap.dedent(f"""\
+        guide_paths = (
+            "              - `<skill_root>/references/docs/guides/"
+            "cache-build-workflow.md`"
+        )
+        guide_requirement = ""
+        guide_references = (
+            "            - `references/docs/guides/cache-build-workflow.md`"
+        )
+        if self._has_reconstruction_guides():
+            guide_paths += (
+                "\n              - `<skill_root>/references/docs/guides/"
+                "reconstruction-agent-test-prompt.md`\n"
+                "              - `<skill_root>/references/docs/guides/"
+                "reconstruction-agent-strategy.md`"
+            )
+            guide_requirement = (
+                "            22. For controlled reconstruction tests, use "
+                "`references/docs/guides/reconstruction-agent-test-prompt.md` "
+                "as the packaged contract copy and `references/docs/guides/"
+                "reconstruction-agent-strategy.md` only for advisory tactics; "
+                "the source-checkout contract is authoritative when available."
+            )
+            guide_references += (
+                "\n            - `references/docs/guides/"
+                "reconstruction-agent-test-prompt.md`\n"
+                "            - `references/docs/guides/"
+                "reconstruction-agent-strategy.md`"
+            )
+        body = textwrap.dedent(
+            f"""\
             ---
             name: {self.skill_name}
             description: Thin SimpleCAD SDK reference skill focused on the public API surface, core types, and current modeling workflows.
             license: {self.license_name}
-            compatibility: Documentation/reference bundle for current SimpleCADAPI surfaces.
             metadata:
               project: {self.metadata.name}
               version: {self.metadata.version}
@@ -505,7 +540,7 @@ class SkillPackager:
               - `<skill_root>/references/SDK_SURFACES.md`
               - `<skill_root>/references/MODELING_WORKFLOWS.md`
               - `<skill_root>/references/inspect/brep-reverse-engineering.md`
-              - `<skill_root>/references/docs/guides/cache-build-workflow.md`
+{guide_paths}
 
             ## MUST Requirements
             1. Read `SKILL.md`, `references/docs/api/README.md`, and `references/docs/stdlib/README.md` before choosing APIs.
@@ -527,8 +562,13 @@ class SkillPackager:
             17. If a task depends on model replay or interchange, prefer `export_model_json(session)` output over hand-written payloads.
             18. For STEP/BREP inspection or target/candidate comparison, read `references/inspect/brep-reverse-engineering.md` completely.
             19. Use `simplecadapi.inspect.brep` only outside `GraphSession`; inspection functions are diagnostic tools, not modeling operations.
-            20. Reverse engineering is case-by-case: the built-in inspection primitives are tools, not a pipeline — write ad hoc inspection code for the specific model when built-ins do not answer the question. Acceptance hierarchy: BREP topology identity is the best endpoint (complete reverse engineering); identical structure with minor float-level parameter drift from export is acceptable; a visually-close but structurally different result is a valid stop only when no better feature operation order/combination exists or the SDK lacks the required operation type.
+            20. Reverse engineering is case-by-case: use the built-in inspection primitives as tools, write model-specific inspection code only when needed, and take controlled-run acceptance/classification rules from the reconstruction test contract rather than restating them here.
             21. Before configuring persistent cache, writing a durable product build, or running cache maintenance, read `references/docs/guides/cache-build-workflow.md` completely. Cache mutation requires explicit repair, apply, or clear confirmation.
+{guide_requirement}
+            23. Use `fit_face_analytic_rdescriptor(...)` to test whether a sampled face is supported by a plane, sphere, cylinder, or cone. Treat `accepted=True` and the reported residuals as geometric evidence, not as recovered feature history.
+            24. Use `track_section_contours_rdescriptor(...)` to preserve contour continuation, birth, death, split, and merge events across ordered sections. Do not force a topology-changing sequence into one global loft.
+            25. Use `render_step_comparison_rpath(...)` for Original-vs-Reconstructed visual evidence so both STEP models share views, camera bounds, and scale. Visual similarity does not replace strict BREP comparison.
+            26. After strict STEP/BREP comparison, use `BRepComparison.to_error_summary()` to inspect every failed check grouped by plausible common root cause. Related fixes may be applied together, followed by a fresh Direct/replay/export/compare cycle.
 
             ## Coding Standard (MUST)
             This file/parameter standard applies to every modeling task. It is mandatory; deviation requires explicit user approval.
@@ -558,7 +598,7 @@ class SkillPackager:
             - Build from lower-dimensional geometry to higher-dimensional geometry: `Vertex` / `Edge` / `Wire` / `Face` profiles first, then `Solid` features such as extrude, revolve, loft, and sweep.
             - Keep modeling operations functional. Create new values from public functions such as `make_circle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolid(...)`, and `fillet_rsolid(...)`.
             - Use keyword arguments for SimpleCAD function calls, except the canonical `capture(result, path)` durable export call. For example, use `make_box_rsolid(width=10.0, height=20.0, depth=3.0)` instead of positional primitive arguments.
-            - Use an explicit `GraphSession` when a non-product geometry flow should be replayable, inspectable, exported as model JSON, or translated to another CAD system. Reusable graph-producing builders accept a session or run inside the caller's session.
+            - Use an explicit `GraphSession` when a non-product geometry flow should be replayable, inspectable, or exported as model JSON. Reusable graph-producing builders accept a session or run inside the caller's session.
             - Use `@part` when the result is one physical single-solid product and needs a durable definition or whole-part cache. Use `@assemble` for explicit part/nested-assembly definitions and incremental constraint solving; do not nest either product boundary in a `GraphSession`.
             - Use `capture(result, "out/product.scadpkg")` for durable product delivery. It builds and writes the canonical self-contained `.scadpkg`, then returns a `CaptureResult` containing the runtime value, package, scene, and encoded bytes. The public product-package primitives are in-memory construction, encoding, validation, and reading only; use `export_part_definition(...)` or `export_assembly_definition(...)` only for low-level definition exchange or inspection.
             - Treat model JSON as the interchange boundary for explicit `GraphSession` flows. Use `session.capture_result(...)`, `export_model_json(session)`, and `replay_model_json(json_str=...)`.
@@ -567,7 +607,7 @@ class SkillPackager:
             - Use tags for semantic intent and selection anchors, such as `role.mounting_surface`, `anchor.datum.primary`, `face.top`, or `group.fasteners`.
             - Keep numeric and geometric facts in metadata or graph payloads, not in tags.
             - When a QL-selected face or edge is used by a later feature, expect the graph/model workflow to preserve that selection as a stable geo select node.
-            - For FreeCAD translation, prefer canonical model JSON generated from a `GraphSession`; selected profiles and detail-feature selections should come from the graph rather than ad hoc object lookup.
+            - Use a validated `.scadpkg` product package for FreeCAD, Fusion 360, or SolidWorks translation. Model JSON remains the replay and inspection contract for explicit `GraphSession` flows.
 
             ## Tagging Mental Model
             - Public tag attachment is `apply_tag(shape=..., tag=...)`.
@@ -611,13 +651,24 @@ class SkillPackager:
             - `references/SDK_SURFACES.md`
             - `references/MODELING_WORKFLOWS.md`
             - `references/inspect/brep-reverse-engineering.md`
-            - `references/docs/guides/cache-build-workflow.md`
+{guide_references}
             - `references/SDK_PACKAGE_SUMMARY.md`
             - `references/docs/api/`
             - `references/docs/stdlib/`
             - `references/docs/core/`
-            """)
+            """
+        )
         return body.rstrip() + "\n"
+
+    def _has_reconstruction_guides(self) -> bool:
+        guides = self.source_docs / "guides"
+        return all(
+            (guides / name).is_file()
+            for name in (
+                "reconstruction-agent-test-prompt.md",
+                "reconstruction-agent-strategy.md",
+            )
+        )
 
     def _build_project_overview(self) -> str:
         package_spec = self._package_spec()
@@ -659,7 +710,8 @@ class SkillPackager:
         return "\n".join(lines).rstrip() + "\n"
 
     def _build_runtime_install_reference(self) -> str:
-        body = textwrap.dedent(f"""\
+        body = textwrap.dedent(
+            f"""\
             # SDK Surfaces
 
             ## Public API groups
@@ -670,6 +722,8 @@ class SkillPackager:
             - Functional tagging and selection helpers
             - Graph/model serialization and replay entry points
             - Expression and semantic reference data types
+            - Analytic face fitting, ordered section-contour tracking, and shared-scale
+              STEP comparison rendering under `simplecadapi.inspect.brep`
 
             ## Standard Parts Surface
 
@@ -737,11 +791,13 @@ class SkillPackager:
             rebuilt = replay_model_json(json_str=model_json)
             print(len(rebuilt))
             ```
-            """)
+            """
+        )
         return body.rstrip() + "\n"
 
     def _build_evolve_workflow_reference(self) -> str:
-        body = textwrap.dedent(f"""\
+        body = textwrap.dedent(
+            f"""\
             # Modeling Workflows
 
             ## Modeling Mental Model
@@ -869,7 +925,8 @@ class SkillPackager:
             - Ensure bodies that should union into one solid have real geometric overlap or embedding.
             - Use `cut_rsolid(...)` for subtractive features and `intersect_rsolid(...)` for common-volume workflows.
             - Validate body count and volume after major boolean operations.
-            """)
+            """
+        )
         return body.rstrip() + "\n"
 
     def _build_sdk_package_summary(self) -> str:
@@ -880,7 +937,8 @@ class SkillPackager:
         ]
         excerpt = "\n".join(excerpt_lines[:6])
 
-        body = textwrap.dedent(f"""\
+        body = textwrap.dedent(
+            f"""\
             # SDK Package Summary
 
             - Project: `{self.metadata.name}`
@@ -902,7 +960,8 @@ class SkillPackager:
             - `references/SDK_OVERVIEW.md`
             - `references/SDK_SURFACES.md`
             - `references/MODELING_WORKFLOWS.md`
-            """)
+            """
+        )
 
         if excerpt:
             body += "\n## Package excerpt\n\n" + excerpt + "\n"

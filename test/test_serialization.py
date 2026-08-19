@@ -228,8 +228,47 @@ class TestCoverageMatrix(unittest.TestCase):
         with self.assertRaises(ValueError):
             import_graph_json(json_str)
 
+        future = json.loads(json_str)
+        future["schema_version"] = "2.999"
+        with self.assertRaises(ValueError):
+            import_graph_json(json.dumps(future))
+
+    def test_import_graph_json_rejects_inconsistent_structure(self):
+        payload = {
+            "schema_version": "2.0",
+            "graph_id": "test",
+            "nodes": [
+                {
+                    "node_id": "n1",
+                    "op": "make_line_redge",
+                    "params": {"start": [0, 0, 0], "end": [1, 0, 0]},
+                    "inputs": [],
+                    "output_count": 1,
+                    "tags": [],
+                },
+                {
+                    "node_id": "n2",
+                    "op": "make_wire_from_edges_rwire",
+                    "params": {"edge_count": 1},
+                    "inputs": ["n1"],
+                    "output_count": 1,
+                    "tags": [],
+                },
+            ],
+            "edges": [],
+        }
+        with self.assertRaises(ValueError):
+            import_graph_json(json.dumps(payload))
+
+        payload["edges"] = [["n1", "n2"]]
+        payload["nodes"][1]["output_count"] = -1
+        with self.assertRaises(ValueError):
+            import_graph_json(json.dumps(payload))
+
     def test_canonical_core_op_set_is_exact_contract(self):
         expected = {
+            "load_brep_region_rshell",
+            "load_brep_region_rsolid",
             "make_point_rvertex",
             "make_line_redge",
             "make_circle_redge",
@@ -321,12 +360,15 @@ class TestCoverageMatrix(unittest.TestCase):
             "make_chamfer_rsolid",
             "make_shell_rsolid",
             "make_bezier_surface_rface",
+            "make_cylindrical_surface_rface",
             "fit_point_grid_rface",
             "make_ruled_surface_rface",
             "make_gordon_surface_rface",
             "make_surface_patch_rface",
+            "trim_surface_rface",
             "make_loft_rshell",
             "sew_faces_rshell",
+            "make_solid_from_shell_rsolid",
             "free_boundaries_rwirelist",
             "fill_holes_rshell",
             "make_select_rvertex",

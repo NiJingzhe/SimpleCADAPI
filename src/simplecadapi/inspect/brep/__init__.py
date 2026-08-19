@@ -16,7 +16,9 @@ from .diagnostics import (
     compare_boundary_distance_rdescriptor,
     compare_entities_rdescriptor,
     compare_global_properties_rdescriptor,
+    compare_material_region_rdescriptor,
     compare_material_rdescriptor,
+    compare_sections_batch_rdescriptor,
     compare_sections_rdescriptor,
     evaluate_reconstruction_rdescriptor,
     inspect_difference_regions_rdescriptor,
@@ -28,6 +30,8 @@ from .inspect import (
     inspect_step_rbrepinspection,
 )
 from .io import load_step_rshape
+from .fitting import fit_face_analytic_rdescriptor
+from .section_tracking import track_section_contours_rdescriptor
 from .model import (
     BRepEntityError,
     BRepModel,
@@ -59,6 +63,7 @@ from .render import (
     render_shape_views_rpath,
     render_step_components_colored_rpath,
     render_step_components_rpath,
+    render_step_comparison_rpath,
     render_step_views_rpath,
 )
 from .slices import (
@@ -69,6 +74,9 @@ from .slices import (
     compare_step_slices_rslicecomparison,
     make_center_slice_specs_rslicespeclist,
 )
+from .persistence import validate_step_roundtrip_rdescriptor
+from .snapshots import copy_step_region_rpath
+from .topology_inspection import inspect_topology_rdescriptor
 
 __all__ = [
     "BRepComparison",
@@ -87,14 +95,18 @@ __all__ = [
     "compare_global_properties_rdescriptor",
     "compare_inspections_rinspectionsummarycomparison",
     "compare_material_rdescriptor",
+    "compare_material_region_rdescriptor",
     "compare_model_to_inspection_rentityinspectionparity",
     "compare_sections_rdescriptor",
+    "compare_sections_batch_rdescriptor",
     "compare_shape_slices_rslicecomparison",
     "compare_shapes_rbrepcomparison",
     "compare_step_slices_rslicecomparison",
     "compare_step_to_inspection_rentityinspectionparity",
     "compare_steps_rbrepcomparison",
+    "copy_step_region_rpath",
     "evaluate_reconstruction_rdescriptor",
+    "fit_face_analytic_rdescriptor",
     "index_shape_rbrepmodel",
     "inspect_difference_regions_rdescriptor",
     "inspect_face_boundaries_rdescriptor",
@@ -107,17 +119,21 @@ __all__ = [
     "inspect_step_rbrepinspection",
     "inspect_step_rsummary",
     "inspect_topology_neighborhood_rdescriptor",
+    "inspect_topology_rdescriptor",
     "load_step_rbrepmodel",
     "load_step_rshape",
     "make_center_slice_specs_rslicespeclist",
+    "track_section_contours_rdescriptor",
     "render_entity_kind_maps_rpath",
     "render_entity_map_rpath",
     "render_region_rpath",
     "render_shape_views_rpath",
     "render_step_components_colored_rpath",
     "render_step_components_rpath",
+    "render_step_comparison_rpath",
     "render_step_views_rpath",
     "select_region_entities_rdescriptor",
+    "validate_step_roundtrip_rdescriptor",
 ]
 
 # Inspection is an evidence-gathering boundary, not a modeling operation. Patch
