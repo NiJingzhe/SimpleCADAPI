@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from pathlib import Path
 from typing import (
     Any,
     Callable,
@@ -28,6 +29,7 @@ suppress_vendor_deprecation_warnings()
 
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+from OCP.Precision import Precision
 from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
 from OCP.TopoDS import TopoDS
 
@@ -48,6 +50,7 @@ from .core import (
 )
 from .autotag import apply_tracking_tags_to_delta
 from .expr import ScalarLike, evaluate_scalar, evaluate_value
+from .units import DIMENSIONLESS, LENGTH, expression_uses_units, infer_dimension
 from .graph import (
     attach_graph_node,
     attach_semantic_graph_node,
@@ -79,9 +82,12 @@ from .tagging import (
     TagEvidence,
     TagLifecycle,
     TagProducer,
+    TagProducerKind,
     TagPropagation,
     TagScope,
     TagTarget,
+    TagTargetKind,
+    TagEvidenceKind,
     TopologyPropagation,
     lineage_policy_allows,
     normalize_tag,
@@ -124,6 +130,7 @@ from .tracking import (
 from .kernel.ocp_builders import (
     make_sphere_solid,
 )
+from ._brep_region import read_artifact
 from .kernel.ocp_curves import (
     make_arc_angle_edge,
     make_arc_three_point_edge,
@@ -162,13 +169,16 @@ from .kernel.ocp_surfaces import (
     fit_point_grid_surface,
     free_boundaries as free_boundaries_ocp,
     make_bezier_surface,
+    make_cylindrical_surface,
     make_filling_face,
     make_gordon_surface,
     make_loft_shell,
     make_ruled_face,
-    sew_faces as sew_faces_ocp,
+    sew_faces_with_history as sew_faces_with_history_ocp,
     shell_from_face,
+    trim_surface_face,
 )
+from .kernel.ocp_mesh import solid_from_shell
 
 
 @dataclass(frozen=True)
@@ -344,6 +354,142 @@ def make_bezier_surface_rface(
             how_to_fix=[
                 "Pass a rectangular finite grid with at least two rows and columns.",
                 "Use positive finite weights with the same dimensions as the grid.",
+            ],
+            error=e,
+        )
+
+
+def make_cylindrical_surface_rface(
+    radius: ScalarLike,
+    u_range: Tuple[ScalarLike, ScalarLike],
+    v_range: Tuple[ScalarLike, ScalarLike],
+    origin: Tuple[float, float, float] = (0, 0, 0),
+    axis: Tuple[float, float, float] = (0, 0, 1),
+    x_direction: Optional[Tuple[float, float, float]] = None,
+    *,
+    tolerance: ScalarLike = 1e-7,
+    tag_prefix: Optional[str] = None,
+) -> Face:
+    """Create a finite cylindrical carrier Face over explicit U/V ranges.
+
+    ``radius``, V values, and ``tolerance`` use model length units. U values
+    are unitless raw radians, must increase, and may span at most one
+    revolution. Unit-aware angle expressions are not accepted for U because
+    the existing expression evaluator returns canonical angles in degrees.
+    """
+
+    try:
+        if expression_uses_units(radius) and infer_dimension(radius) != LENGTH:
+            raise ValueError("radius must use model length units")
+        if any(
+            expression_uses_units(value) and infer_dimension(value) != DIMENSIONLESS
+            for value in u_range
+        ):
+            raise ValueError(
+                "u_range must use unitless raw radians; unit-aware angle values "
+                "evaluate in degrees"
+            )
+        if any(
+            expression_uses_units(value) and infer_dimension(value) != LENGTH
+            for value in v_range
+        ):
+            raise ValueError("v_range must use model length units")
+        if expression_uses_units(tolerance) and infer_dimension(tolerance) != LENGTH:
+            raise ValueError("tolerance must use model length units")
+        radius_value = evaluate_scalar(radius)
+        u_values = tuple(evaluate_scalar(value) for value in u_range)
+        v_values = tuple(evaluate_scalar(value) for value in v_range)
+        tolerance_value = float(evaluate_scalar(tolerance))
+        if not np.isfinite(radius_value) or radius_value <= 0.0:
+            raise ValueError("radius must be a positive finite value")
+        if len(u_values) != 2 or not all(np.isfinite(value) for value in u_values):
+            raise ValueError("u_range must contain two finite values")
+        if len(v_values) != 2 or not all(np.isfinite(value) for value in v_values):
+            raise ValueError("v_range must contain two finite values")
+        u_span = u_values[1] - u_values[0]
+        v_span = v_values[1] - v_values[0]
+        if (
+            u_span <= Precision.PConfusion_s()
+            or u_span > 2.0 * math.pi + Precision.Angular_s()
+        ):
+            raise ValueError(
+                "u_range must be increasing and span at most one revolution"
+            )
+        if v_span <= Precision.Confusion_s():
+            raise ValueError("v_range must be increasing beyond kernel confusion")
+        if not np.isfinite(tolerance_value) or tolerance_value <= 0.0:
+            raise ValueError("tolerance must be a positive finite value")
+
+        origin_value = cast(Tuple[float, float, float], evaluate_value(origin))
+        axis_value = cast(Tuple[float, float, float], evaluate_value(axis))
+        x_value = (
+            tuple(float(value) for value in _default_plane_x_direction(axis_value))
+            if x_direction is None
+            else cast(Tuple[float, float, float], evaluate_value(x_direction))
+        )
+        vectors = [
+            tuple(float(value) for value in item)
+            for item in (origin_value, axis_value, x_value)
+        ]
+        if any(
+            len(item) != 3 or not all(np.isfinite(value) for value in item)
+            for item in vectors
+        ):
+            raise ValueError("origin, axis, and x_direction must be finite 3D values")
+        axis_norm = float(np.linalg.norm(vectors[1]))
+        x_norm = float(np.linalg.norm(vectors[2]))
+        if axis_norm <= 1e-12 or x_norm <= 1e-12:
+            raise ValueError("axis and x_direction must be non-zero")
+        parallel = abs(float(np.dot(vectors[1], vectors[2])) / (axis_norm * x_norm))
+        if parallel >= 1.0 - 1e-12:
+            raise ValueError("axis and x_direction must not be parallel")
+
+        cs = get_current_cs()
+        global_origin = cs.transform_point(np.asarray(vectors[0], dtype=float))
+        global_axis = cs.transform_vector(np.asarray(vectors[1], dtype=float))
+        global_x_direction = cs.transform_vector(np.asarray(vectors[2], dtype=float))
+        result = cast(
+            Face,
+            _finalize_primitive_shape(
+                Face(
+                    make_cylindrical_surface(
+                        radius_value,
+                        cast(Tuple[float, float], u_values),
+                        cast(Tuple[float, float], v_values),
+                        origin=global_origin,
+                        axis=global_axis,
+                        x_direction=global_x_direction,
+                        tolerance=tolerance_value,
+                    )
+                ),
+                op="make_cylindrical_surface_rface",
+                params={
+                    "radius": radius,
+                    "u_range": u_range,
+                    "v_range": v_range,
+                    "origin": origin,
+                    "axis": axis,
+                    "x_direction": x_direction,
+                    "tolerance": tolerance,
+                    "tag_prefix": tag_prefix,
+                },
+                tags={"primitive", "surface", "face"},
+            ),
+        )
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_cylindrical_surface_rface",
+            what_happened="Failed to create the cylindrical surface face.",
+            possible_causes=[
+                "The radius, U/V ranges, or tolerance is invalid.",
+                "The axis frame is degenerate or parallel.",
+                "The kernel rejected the bounded cylindrical surface.",
+            ],
+            how_to_fix=[
+                "Use model length units for radius, V, and tolerance.",
+                "Pass increasing finite U bounds as unitless raw radians.",
+                "Keep the U span at or below one revolution and provide non-parallel axis directions.",
             ],
             error=e,
         )
@@ -717,6 +863,85 @@ def _apply_shell_loft_tag_prefix(
     return cast(Shell, result)
 
 
+def trim_surface_rface(
+    carrier: Face,
+    outer: Wire,
+    holes: Sequence[Wire] = (),
+    *,
+    tolerance: float = 1e-7,
+    tag_prefix: Optional[str] = None,
+) -> Face:
+    """Trim a carrier Face to exactly one connected Face.
+
+    Existing carrier bounds and holes are preserved by intersecting them with
+    the requested closed, simple outer loop and optional closed, simple holes.
+    Empty or disconnected intersections are rejected. Every trim curve must
+    lie on the carrier within ``tolerance``. Periodic carriers do not support
+    holes; their outer loop must fit within one seam period without crossing
+    the seam.
+    """
+
+    try:
+        if not isinstance(carrier, Face):
+            raise TypeError("carrier must be a Face")
+        if not isinstance(outer, Wire):
+            raise TypeError("outer must be a Wire")
+        hole_list = list(holes)
+        if not all(isinstance(wire, Wire) for wire in hole_list):
+            raise TypeError("holes must contain only Wire objects")
+        tolerance_value = float(tolerance)
+        if not np.isfinite(tolerance_value) or tolerance_value <= 0.0:
+            raise ValueError("tolerance must be a positive finite value")
+        result = Face(
+            trim_surface_face(
+                carrier.wrapped,
+                outer.wrapped,
+                [wire.wrapped for wire in hole_list],
+                tolerance=tolerance_value,
+            )
+        )
+        for source in (carrier, outer, *hole_list):
+            _attach_lineage_from_source(
+                source,
+                result,
+                derivation="fragment",
+                op="trim_surface_rface",
+                coverage="partial",
+            )
+        result = cast(
+            Face,
+            _finalize_derived_shape(
+                result,
+                op="trim_surface_rface",
+                params={
+                    "hole_count": len(hole_list),
+                    "tolerance": tolerance_value,
+                    "tag_prefix": tag_prefix,
+                },
+                input_shapes=[carrier, outer, *hole_list],
+                tags={"derived", "surface", "face", "trimmed"},
+            ),
+        )
+        return cast(Face, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="trim_surface_rface",
+            what_happened="Failed to trim the carrier surface face.",
+            possible_causes=[
+                "A trim wire is open, invalid, or does not lie on the carrier.",
+                "A periodic trim crosses the carrier seam.",
+                "A hole intersects the outer boundary or another hole.",
+                "The bounded intersection is empty or has multiple connected regions.",
+            ],
+            how_to_fix=[
+                "Pass one closed, simple outer Wire and optional closed, simple hole Wires.",
+                "Keep every trim curve on the carrier within tolerance and inside one periodic seam.",
+                "Choose boundaries whose carrier intersection is exactly one connected Face.",
+            ],
+            error=e,
+        )
+
+
 def loft_rshell(
     sections: Sequence[Union[Wire, Vertex]],
     *,
@@ -831,14 +1056,13 @@ def sew_faces_rshell(
             raise ValueError("sew_faces_rshell requires a non-empty Face sequence")
         if not np.isfinite(float(tolerance)) or float(tolerance) <= 0:
             raise ValueError("tolerance must be a positive finite value")
+        sewn, result_face_indices = sew_faces_with_history_ocp(
+            [face.wrapped for face in face_list], tolerance=float(tolerance)
+        )
         result = cast(
             Shell,
             _finalize_derived_shape(
-                Shell(
-                    sew_faces_ocp(
-                        [face.wrapped for face in face_list], tolerance=float(tolerance)
-                    )
-                ),
+                Shell(sewn),
                 op="sew_faces_rshell",
                 params={
                     "face_count": len(face_list),
@@ -848,6 +1072,9 @@ def sew_faces_rshell(
                 input_shapes=face_list,
                 tags={"derived", "surface", "shell"},
             ),
+        )
+        _carry_face_provenance(
+            result, face_list, result_face_indices=result_face_indices
         )
         return cast(Shell, _surface_tag_output(result, tag_prefix))
     except Exception as e:
@@ -859,6 +1086,71 @@ def sew_faces_rshell(
                 "The sewing result contains multiple shell components.",
             ],
             how_to_fix=["Pass connected Face objects and a positive sewing tolerance."],
+            error=e,
+        )
+
+
+def make_solid_from_shell_rsolid(
+    shell: Shell, *, tag_prefix: Optional[str] = None
+) -> Solid:
+    """Create an oriented Solid from one valid closed Shell."""
+
+    try:
+        if not isinstance(shell, Shell):
+            raise TypeError("make_solid_from_shell_rsolid requires a Shell")
+        solid = Solid(solid_from_shell(shell.wrapped))
+        source_entities = shell._topology_cache.entities()
+        for target_entity in solid._topology_cache.entities():
+            matches = [
+                source_entity
+                for source_entity in source_entities
+                if source_entity.kind == target_entity.kind
+                and _same_semantic_topology(
+                    source_entity.kind,
+                    source_entity.representative,
+                    target_entity.representative,
+                )
+            ]
+            if len(matches) == 1 and matches[0].wrappers and target_entity.wrappers:
+                target_entity.wrappers[0]._copy_semantic_state_from(
+                    matches[0].wrappers[0]
+                )
+        _attach_lineage_from_source(
+            shell,
+            solid,
+            derivation="continuation",
+            op="make_solid_from_shell_rsolid",
+            coverage="partial",
+        )
+        result = cast(
+            Solid,
+            _finalize_derived_shape(
+                solid,
+                op="make_solid_from_shell_rsolid",
+                params={"tag_prefix": tag_prefix},
+                input_shapes=[shell],
+                tags={"derived", "surface", "solid"},
+            ),
+        )
+        _carry_face_provenance(
+            result,
+            shell.get_faces(),
+            allow_orientation_change=True,
+            replace_local_bindings=False,
+        )
+        return cast(Solid, _surface_tag_output(result, tag_prefix))
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_solid_from_shell_rsolid",
+            what_happened="Failed to create a solid from the shell.",
+            possible_causes=[
+                "The input is not a Shell.",
+                "The shell is open, invalid, or cannot be oriented as one material boundary.",
+            ],
+            how_to_fix=[
+                "Sew a valid closed shell before converting it to a solid.",
+                "Inspect free boundaries and face orientation when conversion fails.",
+            ],
             error=e,
         )
 
@@ -968,6 +1260,8 @@ _DEFAULT_UNION_TOL_MAX = 1e-5
 
 
 _OP_MAKE_POINT_RVERTEX = "make_point_rvertex"
+_OP_LOAD_BREP_REGION_RSOLID = "load_brep_region_rsolid"
+_OP_LOAD_BREP_REGION_RSHELL = "load_brep_region_rshell"
 _OP_MAKE_LINE_REDGE = "make_line_redge"
 _OP_MAKE_CIRCLE_REDGE = "make_circle_redge"
 _OP_MAKE_THREE_POINT_ARC_REDGE = "make_three_point_arc_redge"
@@ -1546,31 +1840,57 @@ def _attach_lineage_from_source(
     op: str,
     coverage: str = "complete",
 ) -> None:
-    evidence = TagEvidence(
-        "topology_change",
-        {
-            "op": op,
-            "derivation": derivation,
-            "coverage": coverage,
-        },
+    coverage_rank = {"complete": 0, "partial": 1, "none": 2}
+
+    def aggregate(*values: object) -> str:
+        normalized = [str(value) for value in values if value in coverage_rank]
+        return (
+            max(normalized, key=coverage_rank.__getitem__) if normalized else "complete"
+        )
+
+    effective_coverage = aggregate(
+        coverage,
+        source._get_runtime("semantic.lineage.coverage"),
     )
-    bindings = list(source._local_tag_bindings())
-    bindings.extend(
-        witness.binding
-        for witness in source._tag_lineage
-        if witness.coverage == "complete"
-        and lineage_policy_allows(witness.binding.propagation, witness.derivation)
-    )
-    unique_bindings = {binding.binding_id: binding for binding in bindings}
-    for binding in unique_bindings.values():
+    bindings = {
+        binding.binding_id: (binding, effective_coverage)
+        for binding in source._local_tag_bindings()
+        if lineage_policy_allows(binding.propagation, derivation)
+    }
+    for witness in source._tag_lineage:
+        if not lineage_policy_allows(
+            witness.binding.propagation, witness.derivation
+        ) or not lineage_policy_allows(witness.binding.propagation, derivation):
+            continue
+        existing = bindings.get(witness.binding.binding_id)
+        witness_coverage = aggregate(effective_coverage, witness.coverage)
+        bindings[witness.binding.binding_id] = (
+            witness.binding,
+            aggregate(existing[1], witness_coverage) if existing else witness_coverage,
+        )
+    for binding, binding_coverage in bindings.values():
+        evidence = TagEvidence(
+            "topology_change",
+            {
+                "op": op,
+                "derivation": derivation,
+                "coverage": binding_coverage,
+            },
+        )
         target._add_tag_lineage(
             binding,
             derivation=derivation,
             source_topo_id=source.topo_id,
             evidence=evidence,
-            coverage=coverage,
+            coverage=binding_coverage,
         )
-    target._set_runtime("semantic.lineage.coverage", coverage)
+    target._set_runtime(
+        "semantic.lineage.coverage",
+        aggregate(
+            target._get_runtime("semantic.lineage.coverage"),
+            effective_coverage,
+        ),
+    )
 
 
 def _current_context_metadata() -> Dict[str, Tuple[float, float, float]]:
@@ -1798,7 +2118,7 @@ def _candidate_shapes_for_selection(source: AnyShape, kind: str) -> List[AnyShap
             return list(source.get_edges())
         return [source] if isinstance(source, Edge) else []
     if kind == "face":
-        if isinstance(source, (Solid, Compound)):
+        if isinstance(source, (Shell, Solid, Compound)):
             return list(source.get_faces())
         return [source] if isinstance(source, Face) else []
     if kind == "wire":
@@ -1863,6 +2183,15 @@ def _make_geo_selector(
         "kind": kind,
         "metadata_geo": _jsonable_geo_value(shape.get_metadata("geo", {})),
     }
+    provenance = shape.get_metadata("provenance")
+    if isinstance(shape, Face) and isinstance(provenance, dict):
+        artifact_sha256 = provenance.get("artifact_sha256")
+        source_face_id = provenance.get("source_face_id")
+        if isinstance(artifact_sha256, str) and isinstance(source_face_id, str):
+            selector["brep_region_ref"] = {
+                "artifact_sha256": artifact_sha256,
+                "source_face_id": source_face_id,
+            }
     # `source_shape` is intentionally not serialized as a source index. The
     # canonical selector is geometry-based; source lineage comes from graph inputs.
 
@@ -2237,6 +2566,7 @@ def _semantic_delta_for_output(
             _OP_MAKE_TRANSLATE_RSHAPE,
             _OP_MAKE_ROTATE_RSHAPE,
             _OP_MAKE_MIRROR_RSHAPE,
+            _OP_LOAD_BREP_REGION_RSOLID,
         }:
             if op in {
                 "extrude",
@@ -2470,8 +2800,10 @@ def _finalize_derived_shape(
         "make_ruled_surface_rface",
         "make_gordon_surface_rface",
         "make_surface_patch_rface",
+        "trim_surface_rface",
         "make_loft_rshell",
         "sew_faces_rshell",
+        "make_solid_from_shell_rsolid",
         "fill_holes_rshell",
     }:
         input_refs = _serialize_shape_refs(prepared_inputs)
@@ -5214,6 +5546,280 @@ def make_face_from_sketch_rface(
             ],
             error=e,
         )
+
+
+def load_brep_region_rsolid(
+    path: str | Path,
+    sha256: str,
+    *,
+    tag_prefix: Optional[str] = None,
+) -> Solid:
+    """Load a hash-pinned, target-derived BREP region snapshot as one Solid.
+
+    The complete artifact SHA-256 is verified before native BREP decoding. In a
+    GraphSession, ``path`` must be relative and is replayed relative to the replay
+    process working directory. Model JSON records the locator and digest, not the
+    sidecar bytes.
+    """
+
+    try:
+        return cast(
+            Solid,
+            _load_brep_region_rshape(
+                path,
+                sha256,
+                root_kind="solid",
+                tag_prefix=tag_prefix,
+                replay_root=(Path.cwd() if get_active_session() is not None else None),
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="load_brep_region_rsolid",
+            what_happened="Failed to load the BREP region snapshot.",
+            possible_causes=[
+                "The snapshot path does not exist or is not readable.",
+                "The supplied SHA-256 does not match the snapshot bytes.",
+                "The snapshot is corrupt, unsupported, invalid, or not one solid.",
+            ],
+            how_to_fix=[
+                "Create the snapshot with copy_step_region_rpath(...).",
+                "Pass the SHA-256 of the complete .scadbrep file.",
+                "Keep the sidecar at the same path when replaying model JSON.",
+            ],
+            error=e,
+        )
+
+
+def _carry_face_provenance(
+    shape: Shell | Solid,
+    source_faces: Sequence[Face],
+    *,
+    result_face_indices: Optional[Sequence[int]] = None,
+    allow_orientation_change: bool = False,
+    replace_local_bindings: bool = True,
+) -> None:
+    result_faces = list(shape.get_faces())
+    if result_face_indices is None:
+        mapped_indices = []
+        for source in source_faces:
+            matches = [
+                index
+                for index, result in enumerate(result_faces)
+                if result.wrapped.IsSame(source.wrapped)
+            ]
+            if len(matches) != 1:
+                raise ValueError("face continuation mapping is incomplete or ambiguous")
+            mapped_indices.append(matches[0])
+    else:
+        mapped_indices = [int(index) for index in result_face_indices]
+    if len(mapped_indices) != len(source_faces) or len(set(mapped_indices)) != len(
+        result_faces
+    ):
+        raise ValueError("face continuation mapping is not one-to-one")
+    for source, result_index in zip(source_faces, mapped_indices):
+        if result_index < 0 or result_index >= len(result_faces):
+            raise ValueError(
+                "face continuation mapping contains an invalid result index"
+            )
+        face = result_faces[result_index]
+        provenance = source.get_metadata("provenance")
+        if (
+            isinstance(provenance, dict)
+            and provenance.get("construction") == "exact_transcription"
+            and not allow_orientation_change
+            and not face.wrapped.IsEqual(source.wrapped)
+        ):
+            raise ValueError("sewing modified an exact-transcription input face")
+        projected_bindings = [
+            binding
+            for binding in source._local_tag_bindings()
+            if lineage_policy_allows(binding.propagation, "continuation")
+        ]
+        if replace_local_bindings:
+            face._replace_local_tag_bindings(projected_bindings)
+        _attach_lineage_from_source(
+            source,
+            face,
+            derivation="continuation",
+            op="face_continuation",
+            coverage="complete",
+        )
+        if isinstance(provenance, dict):
+            face.set_metadata("provenance", dict(provenance))
+        face._set_runtime("semantic.lineage.coverage", "complete")
+
+
+def load_brep_region_rshell(
+    path: str | Path,
+    sha256: str,
+    *,
+    tag_prefix: Optional[str] = None,
+) -> Shell:
+    """Load a hash-pinned, target-derived BREP face region as one Shell.
+
+    The Shell keeps target-derived topology and is tagged with imported-sidecar
+    provenance. Use ordinary replayable surface operations to join it to fitted
+    or analytic feature faces. GraphSession requires a relative sidecar path.
+    """
+
+    try:
+        return cast(
+            Shell,
+            _load_brep_region_rshape(
+                path,
+                sha256,
+                root_kind="shell",
+                tag_prefix=tag_prefix,
+                replay_root=(Path.cwd() if get_active_session() is not None else None),
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="load_brep_region_rshell",
+            what_happened="Failed to load the BREP face-region snapshot.",
+            possible_causes=[
+                "The snapshot path or SHA-256 is incorrect.",
+                "The snapshot is corrupt, unsupported, invalid, or not one Shell.",
+            ],
+            how_to_fix=[
+                "Create a face-region snapshot with copy_step_region_rpath(..., face_ids=[...]).",
+                "Pass the SHA-256 of the complete .scadbrep file.",
+            ],
+            error=e,
+        )
+
+
+def _load_brep_region_rshape(
+    path: str | Path,
+    sha256: str,
+    *,
+    root_kind: str,
+    tag_prefix: Optional[str],
+    replay_root: Path | None,
+) -> Shell | Solid:
+    source_path = _brep_region_path(path, for_graph=replay_root is not None)
+    wrapped, manifest, canonical_hash = read_artifact(
+        source_path,
+        sha256,
+        expected_root_kind=cast(Any, root_kind),
+        replay_root=replay_root,
+    )
+    shape: Shell | Solid = Solid(wrapped) if root_kind == "solid" else Shell(wrapped)
+    shape._add_tag("imported")
+    shape._add_tag("sidecar")
+    shape._add_tag(root_kind)
+    normalized_prefix = (
+        normalize_tag(tag_prefix, strict=True) if tag_prefix is not None else None
+    )
+    if normalized_prefix is not None:
+        shape._apply_tag(f"{normalized_prefix}.{root_kind}", propagate=False)
+    shape.set_metadata(
+        "brep_region",
+        {
+            "artifact_sha256": canonical_hash,
+            "profile": manifest["profile"],
+            "provenance": manifest["provenance"],
+            "source_face_ids": manifest["region"].get("source_face_ids"),
+        },
+    )
+    _attach_brep_region_provenance(shape, manifest, canonical_hash)
+    op = (
+        _OP_LOAD_BREP_REGION_RSOLID
+        if root_kind == "solid"
+        else _OP_LOAD_BREP_REGION_RSHELL
+    )
+    return cast(
+        Shell | Solid,
+        _finalize_primitive_shape(
+            shape,
+            op=op,
+            params={
+                "path": source_path,
+                "sha256": canonical_hash,
+                "tag_prefix": normalized_prefix,
+            },
+            tags={"imported", "sidecar", root_kind},
+        ),
+    )
+
+
+def _attach_brep_region_provenance(
+    shape: Shell | Solid,
+    manifest: Mapping[str, Any],
+    artifact_sha256: str,
+) -> None:
+    source = manifest["source"]
+    region = manifest["region"]
+    evidence = {
+        "artifact_sha256": artifact_sha256,
+        "profile": manifest["profile"],
+        "source_sha256": source["content_hash"],
+        "source_name": source["name"],
+        "source_face_ids": region.get("source_face_ids"),
+        "construction": "exact_transcription",
+        "topology_origin": "retained",
+        "runtime_dependency": "embedded_target_derived",
+    }
+    root_binding = TagBinding(
+        tag="provenance.exact_transcription",
+        producer=TagProducer(TagProducerKind.IMPORTED_SIDECAR),
+        target=TagTarget(TagTargetKind.SCOPE_ROOT),
+        propagation=TagPropagation(
+            topology=TopologyPropagation.DOWNWARD,
+            lineage=LineagePolicy.CONTINUATION_FRAGMENT,
+        ),
+        evidence=TagEvidence(TagEvidenceKind.IMPORTED_SIDECAR, evidence),
+        certainty=TagCertainty.ASSERTED,
+        lifecycle=TagLifecycle.SNAPSHOT,
+        binding_id=f"tag_binding_{uuid.uuid5(uuid.NAMESPACE_URL, '|'.join(('simplecad.brep_region.root', artifact_sha256, str(region['kind'])))).hex}",
+    )
+    shape._add_tag_binding(root_binding)
+    source_face_ids = tuple(region.get("source_face_ids") or ())
+    for index, face in enumerate(shape.get_faces()):
+        face_evidence = {
+            **evidence,
+            "source_face_id": (
+                source_face_ids[index] if index < len(source_face_ids) else None
+            ),
+        }
+        face.set_metadata("provenance", face_evidence)
+        face._add_tag_binding(
+            TagBinding(
+                tag="provenance.exact_transcription",
+                producer=TagProducer(TagProducerKind.IMPORTED_SIDECAR),
+                target=TagTarget(TagTargetKind.SCOPE_ROOT),
+                propagation=TagPropagation(
+                    topology=TopologyPropagation.LOCAL,
+                    lineage=LineagePolicy.CONTINUATION_FRAGMENT,
+                ),
+                evidence=TagEvidence(TagEvidenceKind.IMPORTED_SIDECAR, face_evidence),
+                certainty=TagCertainty.ASSERTED,
+                lifecycle=TagLifecycle.SNAPSHOT,
+                binding_id=f"tag_binding_{uuid.uuid5(uuid.NAMESPACE_URL, '|'.join(('simplecad.brep_region.face', artifact_sha256, str(face_evidence['source_face_id'])))).hex}",
+            )
+        )
+        face._set_runtime("semantic.lineage.coverage", "complete")
+
+
+def _brep_region_path(path: str | Path, *, for_graph: bool) -> str:
+    source = Path(path)
+    if ":" in source.name:
+        raise ValueError(".scadbrep filenames must not contain ':'")
+    if for_graph and source.is_absolute():
+        raise ValueError(
+            "GraphSession requires a relative .scadbrep path so model JSON does "
+            "not record machine-specific absolute paths"
+        )
+    if for_graph and source.drive:
+        raise ValueError("GraphSession .scadbrep paths must not contain a drive")
+    if for_graph and ".." in source.parts:
+        raise ValueError(".scadbrep paths must not traverse parent directories")
+    if for_graph and "\\" in str(path):
+        raise ValueError("GraphSession .scadbrep paths must use '/' separators")
+    if source.suffix.lower() != ".scadbrep":
+        raise ValueError("path must end in .scadbrep")
+    return source.as_posix() if for_graph else str(source)
 
 
 def make_box_rsolid(

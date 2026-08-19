@@ -65,7 +65,7 @@ class TestModelJson(unittest.TestCase):
 
         self.assertIn("canonical_contract", payload)
         contract = payload["canonical_contract"]
-        self.assertEqual(contract["contract_version"], "2.0")
+        self.assertEqual(contract["contract_version"], "2.1")
         self.assertEqual(contract["graph_roles"]["graph"], "canonical_low_level_graph")
         self.assertEqual(contract["graph_roles"]["leaf_ids"], "explicit_result_set")
         self.assertEqual(contract["replay_policy"]["preferred_graph"], "graph")
@@ -413,6 +413,81 @@ class TestModelJson(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             scad.import_model_json(json.dumps(payload))
+
+    def test_model_json_import_accepts_missing_legacy_contract_and_rejects_forgery(self):
+        with GraphSession() as session:
+            scad.make_box_rsolid(1.0, 1.0, 1.0)
+        payload = json.loads(scad.export_model_json(session))
+
+        missing = dict(payload)
+        missing.pop("canonical_contract")
+        imported = scad.import_model_json(json.dumps(missing))
+        self.assertEqual(imported["canonical_contract"], {"contract_version": "2.0"})
+
+        explicit_null = dict(payload)
+        explicit_null["canonical_contract"] = None
+        with self.assertRaises(ValueError):
+            scad.import_model_json(json.dumps(explicit_null))
+
+        forged = json.loads(json.dumps(payload))
+        forged["canonical_contract"]["core_op_set"] = []
+        with self.assertRaises(ValueError):
+            scad.import_model_json(json.dumps(forged))
+
+        forged_legacy = json.loads(json.dumps(payload))
+        forged_legacy["canonical_contract"] = {
+            "contract_version": "2.0",
+            "core_op_set": [],
+        }
+        with self.assertRaises(ValueError):
+            scad.import_model_json(json.dumps(forged_legacy))
+
+    def test_model_json_import_negotiates_frozen_legacy_contract(self):
+        from simplecadapi.serializer import _canonical_contract_payload
+
+        with GraphSession() as session:
+            scad.make_box_rsolid(1.0, 1.0, 1.0)
+        payload = json.loads(scad.export_model_json(session))
+        payload["canonical_contract"] = _canonical_contract_payload("2.0")
+
+        imported = scad.import_model_json(json.dumps(payload))
+        self.assertEqual(imported["canonical_contract"]["contract_version"], "2.0")
+
+        payload["canonical_contract"] = {"contract_version": "2.0"}
+        imported = scad.import_model_json(json.dumps(payload))
+        self.assertEqual(imported["canonical_contract"], {"contract_version": "2.0"})
+
+    def test_legacy_contract_rejects_snapshot_operations(self):
+        with GraphSession() as session:
+            scad.make_box_rsolid(1.0, 1.0, 1.0)
+        payload = json.loads(scad.export_model_json(session))
+        payload["canonical_contract"] = {"contract_version": "2.0"}
+        payload["graph"]["nodes"][0]["op"] = "load_brep_region_rsolid"
+        payload["graph"]["nodes"][0]["params"] = {
+            "path": "body.scadbrep",
+            "sha256": "sha256:" + "0" * 64,
+        }
+
+        with self.assertRaises(ValueError):
+            scad.import_model_json(json.dumps(payload))
+
+    def test_model_json_import_rejects_missing_graph_schema(self):
+        with GraphSession() as session:
+            scad.make_box_rsolid(1.0, 1.0, 1.0)
+        payload = json.loads(scad.export_model_json(session))
+        payload["graph"].pop("schema_version")
+
+        with self.assertRaises(ValueError):
+            scad.import_model_json(json.dumps(payload))
+
+    def test_strict_replay_rejects_forged_output_count(self):
+        with GraphSession() as session:
+            scad.make_box_rsolid(1.0, 1.0, 1.0)
+        payload = json.loads(scad.export_model_json(session))
+        payload["graph"]["nodes"][0]["output_count"] = 2
+
+        with self.assertRaises(scad.SimpleCADError):
+            scad.replay_model_json(json.dumps(payload), strict=True)
 
     def test_graph_selection_refs_follow_declared_schema(self):
         with GraphSession() as session:

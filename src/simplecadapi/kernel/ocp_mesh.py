@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import math
 from typing import Iterable, List, Sequence, Tuple
 
 from OCP.BRep import BRep_Builder, BRep_Tool
+from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeFace,
     BRepBuilderAPI_MakePolygon,
     BRepBuilderAPI_MakeSolid,
     BRepBuilderAPI_Transform,
 )
+from OCP.BRepLib import BRepLib
+from OCP.BRepGProp import BRepGProp
+from OCP.GProp import GProp_GProps
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.BRepTools import BRepTools
 from OCP.Poly import Poly_Triangulation
@@ -45,14 +50,29 @@ def shell_metric(shell) -> tuple[int, float]:
 
 
 def shell_is_closed(shell) -> bool:
-    return bool(TopoDS.Shell_s(shell).Closed())
+    return bool(BRep_Tool.IsClosed_s(TopoDS.Shell_s(shell)))
 
 
 def solid_from_shell(shell):
-    maker = BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(shell))
+    source = TopoDS.Shell_s(shell)
+    if not BRep_Tool.IsClosed_s(source):
+        raise ValueError("solid-from-shell requires a closed shell")
+    if not BRepCheck_Analyzer(source).IsValid():
+        raise ValueError("solid-from-shell requires a valid shell")
+    maker = BRepBuilderAPI_MakeSolid(source)
     if not maker.IsDone():
         raise ValueError("OCP solid-from-shell builder failed")
-    return maker.Solid()
+    solid = maker.Solid()
+    if solid.IsNull() or not BRepLib.OrientClosedSolid_s(solid):
+        raise ValueError("OCP could not orient the closed solid")
+    if not BRepCheck_Analyzer(solid).IsValid():
+        raise ValueError("solid created from shell is invalid")
+    properties = GProp_GProps()
+    BRepGProp.VolumeProperties_s(solid, properties)
+    volume = float(properties.Mass())
+    if not math.isfinite(volume) or volume <= 0.0:
+        raise ValueError("solid created from shell must have positive finite volume")
+    return solid
 
 
 def tessellate_face(face: TopoDS_Face, tolerance: float = 0.35, angular_tolerance: float = 0.22):

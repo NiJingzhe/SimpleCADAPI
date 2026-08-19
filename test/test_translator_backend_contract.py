@@ -8,6 +8,8 @@ import unittest
 
 import simplecadapi as scad
 from simplecadapi.serializer import CANONICAL_OP_SET
+from simplecadapi.topology import OperationGraph
+from simplecadapi.translator.freecad_translator.translator import _FreeCADCompiler
 from simplecadapi.translator.base import BaseTranslator
 from simplecadapi.translator.freecad_translator import FreeCADTranslator
 from simplecadapi.translator.freecad_translator.emitters.registry import (
@@ -22,10 +24,7 @@ from simplecadapi.translator.types import SupportLevel
 class TestTranslatorBackendContract(unittest.TestCase):
     def test_backend_packages_have_required_modules(self):
         translator_root = (
-            Path(__file__).resolve().parents[1]
-            / "src"
-            / "simplecadapi"
-            / "translator"
+            Path(__file__).resolve().parents[1] / "src" / "simplecadapi" / "translator"
         )
         backend_dirs = sorted(
             path
@@ -58,9 +57,7 @@ class TestTranslatorBackendContract(unittest.TestCase):
             capabilities = backend.CAPABILITIES
             expected_backend_name = backend_package_name.removesuffix("_translator")
             self.assertEqual(capabilities.backend_id, expected_backend_name)
-            self.assertEqual(
-                set(capabilities.operations), set(CANONICAL_OP_SET)
-            )
+            self.assertEqual(set(capabilities.operations), set(CANONICAL_OP_SET))
             for op, capability in capabilities.operations.items():
                 if capability.level is SupportLevel.UNSUPPORTED:
                     self.assertTrue(capability.reason, op)
@@ -137,6 +134,78 @@ class TestTranslatorBackendContract(unittest.TestCase):
                 backend_name,
             )
 
+    def test_new_surface_operations_use_product_translator_compiler(self):
+        graph = OperationGraph(graph_id="new_surface_ops")
+        carrier = graph.add_node(
+            op="make_cylindrical_surface_rface",
+            params={
+                "radius": 2.0,
+                "u_range": (0.0, 1.0),
+                "v_range": (0.0, 3.0),
+                "origin": (0.0, 0.0, 0.0),
+                "axis": (0.0, 0.0, 1.0),
+                "x_direction": (1.0, 0.0, 0.0),
+                "tolerance": 1.0e-7,
+            },
+            node_id="carrier",
+        )
+        boundary = graph.add_node(
+            op="make_circle_redge",
+            params={
+                "radius": 2.0,
+                "center": (0.0, 0.0, 0.0),
+                "normal": (0.0, 0.0, 1.0),
+            },
+            node_id="boundary",
+        )
+        wire = graph.add_node(
+            op="make_wire_from_edges_rwire",
+            params={"edge_count": 1},
+            inputs=[boundary],
+            node_id="wire",
+        )
+        trimmed = graph.add_node(
+            op="trim_surface_rface",
+            params={"hole_count": 0, "tolerance": 1.0e-7},
+            inputs=[carrier, wire],
+            node_id="trimmed",
+        )
+        shell = graph.add_node(
+            op="sew_faces_rshell",
+            params={"face_count": 1, "tolerance": 1.0e-6},
+            inputs=[trimmed],
+            node_id="shell",
+        )
+        solid = graph.add_node(
+            op="make_solid_from_shell_rsolid",
+            params={},
+            inputs=[shell],
+            node_id="solid",
+        )
+
+        script = _FreeCADCompiler().translate_model_payload_to_script(
+            {"graph": graph, "leaf_ids": [solid.node_id]}, graph=graph
+        )
+
+        self.assertIn("_cylindrical_surface_shape", script)
+        self.assertIn("_trim_surface_shape", script)
+        self.assertIn("_solid_from_shell_shape", script)
+        compile(script, "<freecad-new-surface-ops>", "exec")
+
+    def test_sidecar_operations_remain_unsupported_by_product_translators(self):
+        from simplecadapi import translator
+
+        for backend_name in translator.__all__:
+            backend = getattr(translator, backend_name)
+            for operation in (
+                "load_brep_region_rshell",
+                "load_brep_region_rsolid",
+            ):
+                with self.subTest(backend=backend_name, operation=operation):
+                    self.assertIs(
+                        backend.CAPABILITIES.operations[operation].level,
+                        SupportLevel.UNSUPPORTED,
+                    )
 
 
 if __name__ == "__main__":

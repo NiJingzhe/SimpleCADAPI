@@ -171,3 +171,16 @@ print(json.dumps({
                 self.assertNotIn(name, scad.__all__)
                 self.assertFalse(hasattr(scad, name))
                 self.assertTrue(hasattr(scene, name))
+
+    def test_unused_brep_inspection_interfaces_are_not_public(self):
+        from simplecadapi.inspect import brep
+
+        removed = {
+            "compare_boundary_adaptive_rdescriptor",
+            "inspect_aligned_sections_rdescriptor",
+            "inspect_face_isocurve_network_rdescriptor",
+        }
+        self.assertTrue(removed.isdisjoint(brep.__all__))
+        for name in removed:
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(brep, name))

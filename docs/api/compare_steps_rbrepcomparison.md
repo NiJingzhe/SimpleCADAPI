@@ -15,3 +15,8 @@ def compare_steps_rbrepcomparison(target_path: str | Path, candidate_path: str |
 ## Description
 
 Load two STEP files and run the strict BREP comparison.
+
+The returned comparison includes validity, bounds, material, topology, and
+carrier diagnostics. Use ``to_error_summary()`` or
+``write_error_summary_json(...)`` to report all failures by plausible
+common root cause.

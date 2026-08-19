@@ -21,6 +21,23 @@ MODULE_SPEC.loader.exec_module(skill_pack)
 
 
 class TestSkillPackPathResolution(unittest.TestCase):
+    def test_checked_in_skill_markdown_matches_generator(self):
+        project_root = MODULE_PATH.parents[3]
+        packager = skill_pack.SkillPackager(
+            project_root=project_root,
+            output_root=project_root / "unused-skill-output",
+            skill_name="simplecadapi",
+            license_name=skill_pack.DEFAULT_LICENSE,
+            quiet=True,
+        )
+
+        generated = packager._build_skill_markdown()
+        checked_in = (project_root / "skills/simplecadapi/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertEqual(checked_in, generated)
+
     def test_default_project_root_from_source_checkout(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             project_root = Path(tmp_dir)
@@ -133,7 +150,9 @@ class TestSkillPackPathResolution(unittest.TestCase):
                 (result.skill_root / "references/docs/stdlib/README.md").exists()
             )
             self.assertTrue(
-                (result.skill_root / "references/inspect/brep-reverse-engineering.md").exists()
+                (
+                    result.skill_root / "references/inspect/brep-reverse-engineering.md"
+                ).exists()
             )
             package_summary = (
                 result.skill_root / "references/SDK_PACKAGE_SUMMARY.md"
@@ -156,13 +175,23 @@ class TestSkillPackPathResolution(unittest.TestCase):
             docs_api = project_root / "docs/api"
             docs_core = project_root / "docs/core"
             docs_stdlib = project_root / "docs/stdlib"
+            docs_guides = project_root / "docs/guides"
             docs_api.mkdir(parents=True, exist_ok=True)
             docs_core.mkdir(parents=True, exist_ok=True)
             docs_stdlib.mkdir(parents=True, exist_ok=True)
+            docs_guides.mkdir(parents=True, exist_ok=True)
             (docs_api / "README.md").write_text("# API Docs\n", encoding="utf-8")
             (docs_core / "README.md").write_text("# Core Docs\n", encoding="utf-8")
             (docs_stdlib / "README.md").write_text(
                 "# Standard Library Docs\n",
+                encoding="utf-8",
+            )
+            (docs_guides / "reconstruction-agent-test-prompt.md").write_text(
+                "# Reconstruction Contract\n",
+                encoding="utf-8",
+            )
+            (docs_guides / "reconstruction-agent-strategy.md").write_text(
+                "# Reconstruction Strategy\n",
                 encoding="utf-8",
             )
             (project_root / "README.md").write_text("# Demo\n", encoding="utf-8")
@@ -203,10 +232,21 @@ class TestSkillPackPathResolution(unittest.TestCase):
             self.assertIn("SDK_SURFACES.md", content)
             self.assertIn("MODELING_WORKFLOWS.md", content)
             self.assertIn("references/inspect/brep-reverse-engineering.md", content)
+            self.assertIn(
+                "references/docs/guides/reconstruction-agent-test-prompt.md",
+                content,
+            )
+            self.assertIn(
+                "references/docs/guides/reconstruction-agent-strategy.md",
+                content,
+            )
+            self.assertIn("packaged contract copy", content)
+            self.assertIn("advisory tactics", content)
             self.assertIn("simplecadapi.inspect.brep", content)
             self.assertIn("outside `GraphSession`", content)
-            self.assertIn("Acceptance hierarchy", content)
-            self.assertIn("ad hoc inspection code", content)
+            self.assertNotIn("outside `GraphSession` and `@model`", content)
+            self.assertIn("acceptance/classification rules", content)
+            self.assertIn("model-specific inspection code", content)
             self.assertIn("SDK_PACKAGE_SUMMARY.md", content)
             self.assertIn("@part", content)
             self.assertIn("@assemble", content)

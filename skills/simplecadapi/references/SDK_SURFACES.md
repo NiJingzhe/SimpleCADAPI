@@ -8,6 +8,8 @@
 - Functional tagging and selection helpers
 - Graph/model serialization and replay entry points
 - Expression and semantic reference data types
+- Analytic face fitting, ordered section-contour tracking, and shared-scale
+  STEP comparison rendering under `simplecadapi.inspect.brep`
 
 ## Standard Parts Surface
 
