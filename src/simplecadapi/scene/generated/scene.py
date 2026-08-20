@@ -308,23 +308,15 @@ class ConnectorTarget(TypedDict):
     entity_id: str
 
 
-class ForwardedFrom(TypedDict):
-    source_component_id: ProductId
-    source_definition_id: StructuralId
-    source_connector_id: ProductId
-    source_connector_snapshot_id: StructuralId
-    offset: Transform | None
-
-
 class Connector(TypedDict):
     connector_snapshot_id: StructuralId
     owner_definition_id: StructuralId
     connector_id: ProductId
     name: str | None
-    anchor_kind: Literal["geometry", "placement", "forwarded"]
+    anchor_kind: Literal["geometry", "placement", "public"]
     local_transform: Transform
     target: NotRequired[ConnectorTarget]
-    forwarded_from: NotRequired[ForwardedFrom]
+    source_connector_snapshot_id: StructuralId | None
     source: (
         ModelOperationSource
         | ManualConnectorSource

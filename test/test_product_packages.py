@@ -74,12 +74,10 @@ def _build_nested_assembly(tmp_path: Path):
             drive_angle_degrees=15.0,
         )
         assembly = scad.solve_assembly_constraints_rassembly(assembly=assembly)
-        return scad.forward_connector_rassembly(
-            assembly=assembly,
-            connector_id="public_mount",
-            source_component_id="inner_b",
-            source_connector_id="mount",
-        )
+        return scad.set_public_connector_rassembly(assembly=assembly,
+        public_connector_id="public_mount",
+        source_component_id="inner_b",
+        source_connector_id="mount",)
 
     child = build_child()
 
@@ -186,7 +184,7 @@ def test_nested_assembly_package_preserves_hierarchy_relations_and_dedup(
     assert nested.component_ids() == ("inner_a", "inner_b")
     assert nested.get_component("inner_a").item is nested.get_component("inner_b").item
     assert nested.get_component("inner_a").item is rebuilt.get_component("direct").item
-    assert nested.connector_ids() == ("public_mount",)
+    assert nested.public_connector_ids() == ("public_mount",)
     assert rebuilt.name == "Root assembly"
     assert rebuilt.get_component("direct").name == "Direct linked part"
     assert rebuilt.get_component("direct").item.name == "Part linked"

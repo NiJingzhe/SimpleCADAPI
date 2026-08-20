@@ -16,6 +16,13 @@ from typing import Dict, Iterable, List, Sequence
 
 DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "operations.py",
+    "_operators_geometry.py",
+    "_operators_transform.py",
+    "_operators_boolean.py",
+    "_operators_product.py",
+    "_operators_sketch.py",
+    "_operators_selection.py",
+    "_operators_features.py",
     "evolve.py",
     "ql.py",
     "serializer.py",
@@ -73,6 +80,13 @@ DEFAULT_STDLIB_SOURCE_FILENAMES: tuple[str, ...] = (
 FULL_PUBLIC_FUNCTION_MODULES = frozenset(
     {
         "operations.py",
+        "_operators_geometry.py",
+        "_operators_transform.py",
+        "_operators_boolean.py",
+        "_operators_product.py",
+        "_operators_sketch.py",
+        "_operators_selection.py",
+        "_operators_features.py",
         "evolve.py",
         "ql.py",
         "math.py",

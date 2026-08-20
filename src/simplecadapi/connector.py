@@ -60,85 +60,47 @@ class GeometryRef(SemanticValueMixin):
 class ConnectorAnchor(SemanticValueMixin):
     """Serializable source for a connector datum frame.
 
-    Supported `anchor_kind` values are `geometry`, `placement`, and `forwarded`.
+    Supported ``anchor_kind`` values are ``geometry`` and ``placement``.
+    Assembly public exposure is modeled separately by ``PublicConnectorRef``.
     """
 
     anchor_kind: str
     geometry_ref: Optional[GeometryRef] = None
     placement: Optional[Placement] = None
-    source_component_id: Optional[str] = None
-    source_connector_id: Optional[str] = None
-    offset: Optional[Placement] = None
     _metadata: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
     _runtime: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         kind = str(self.anchor_kind).strip().lower()
-        if kind not in {"geometry", "placement", "forwarded"}:
-            raise ValueError("anchor_kind must be geometry, placement, or forwarded")
+        if kind not in {"geometry", "placement"}:
+            raise ValueError("anchor_kind must be geometry or placement")
         object.__setattr__(self, "anchor_kind", kind)
         if kind == "geometry":
             if not isinstance(self.geometry_ref, GeometryRef):
                 raise TypeError("geometry anchors require geometry_ref")
             if self.placement is not None:
                 raise ValueError("geometry anchors do not accept placement")
-            if self.source_component_id is not None or self.source_connector_id is not None:
-                raise ValueError("geometry anchors do not accept forwarded source ids")
-            if self.offset is not None:
-                raise ValueError("geometry anchors do not accept offset")
             return
-        if kind == "placement":
-            if not isinstance(self.placement, Placement):
-                raise TypeError("placement anchors require placement")
-            if self.geometry_ref is not None:
-                raise ValueError("placement anchors do not accept geometry_ref")
-            if self.source_component_id is not None or self.source_connector_id is not None:
-                raise ValueError("placement anchors do not accept forwarded source ids")
-            if self.offset is not None:
-                raise ValueError("placement anchors do not accept offset")
-            return
-        if self.geometry_ref is not None or self.placement is not None:
-            raise ValueError("forwarded anchors do not accept geometry_ref or placement")
-        object.__setattr__(
-            self,
-            "source_component_id",
-            _validate_identifier(
-                self.source_component_id or "",
-                field_name="source_component_id",
-            ),
-        )
-        object.__setattr__(
-            self,
-            "source_connector_id",
-            _validate_identifier(
-                self.source_connector_id or "",
-                field_name="source_connector_id",
-            ),
-        )
-        if self.offset is not None and not isinstance(self.offset, Placement):
-            raise TypeError("offset must be a Placement")
+        if not isinstance(self.placement, Placement):
+            raise TypeError("placement anchors require placement")
+        if self.geometry_ref is not None:
+            raise ValueError("placement anchors do not accept geometry_ref")
 
     def to_dict(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {"anchor_kind": self.anchor_kind}
         if self.anchor_kind == "geometry":
             payload["geometry_ref"] = cast(GeometryRef, self.geometry_ref).to_dict()
-        elif self.anchor_kind == "placement":
-            payload["placement"] = cast(Placement, self.placement).to_dict()
         else:
-            payload["source_component_id"] = self.source_component_id
-            payload["source_connector_id"] = self.source_connector_id
-            payload["offset"] = self.offset.to_dict() if self.offset is not None else None
+            payload["placement"] = cast(Placement, self.placement).to_dict()
         return payload
 
 
 @dataclass(frozen=True)
 class Connector(SemanticValueMixin):
-    """Semantic datum frame anchored by geometry, placement, or forwarding.
+    """Semantic datum frame anchored by geometry or an explicit placement.
 
-    Geometry connectors derive placement from a selected BREP sub-shape.
-    Placement connectors store an explicit local datum frame. Forwarded
-    connectors expose a component connector as an assembly-level public
-    interface.
+    Assembly public interfaces reference existing component connectors instead
+    of cloning connectors into the Assembly.
     """
 
     connector_id: str
@@ -178,9 +140,8 @@ class Connector(SemanticValueMixin):
 
     @property
     def placement(self) -> Placement:
-        """Lazily-computed local Placement derived from the connector anchor."""
-        owner = self._get_runtime("owner_assembly")
-        return resolve_connector_placement(self, owner_assembly=owner)
+        """Return the connector frame in its owning Part coordinate system."""
+        return resolve_connector_placement(self)
 
     def to_dict(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
@@ -232,91 +193,102 @@ def _validate_connectors(connectors: Iterable[Connector]) -> Tuple[Connector, ..
         raise ValueError("duplicate connector_id: " + ", ".join(duplicates))
     return result
 
-
 def _validate_part_connector_anchors(connectors: Iterable[Connector]) -> None:
     for connector in connectors:
-        if connector.anchor_kind == "forwarded":
-            raise ValueError("forwarded connectors can only be added to assemblies")
+        if connector.anchor_kind not in {"geometry", "placement"}:
+            raise ValueError(
+                "Part connectors must use geometry or placement anchors"
+            )
 
 
-def _validate_assembly_connector_anchors(assembly: Assembly) -> None:
-    for connector in assembly.connectors:
-        if connector.anchor_kind != "forwarded":
-            continue
-        anchor = cast(ConnectorAnchor, connector.anchor)
-        try:
-            source_component = assembly.get_component(cast(str, anchor.source_component_id))
-        except KeyError as exc:
-            raise ValueError(
-                f"forwarded connector '{connector.connector_id}' references missing "
-                f"component '{anchor.source_component_id}'"
-            ) from exc
-        try:
-            source_component.item.get_connector(cast(str, anchor.source_connector_id))
-        except KeyError as exc:
-            raise ValueError(
-                f"forwarded connector '{connector.connector_id}' references missing "
-                f"connector '{anchor.source_connector_id}' on component "
-                f"'{anchor.source_component_id}'"
-            ) from exc
-        resolve_connector_placement(connector, owner_assembly=assembly)
 
 
 def resolve_connector(assembly: "Assembly", connector_ref: ConnectorRef) -> Connector:
     component = assembly.get_component(connector_ref.component_id)
-    return component.item.get_connector(connector_ref.connector_id)
+    return resolve_item_connector(component.item, connector_ref.connector_id)
 
 
-def resolve_connector_placement(
-    connector: Connector,
-    owner_assembly: Optional[Assembly] = None,
-    _seen: Optional[set] = None,
-) -> Placement:
+def resolve_connector_placement(connector: Connector) -> Placement:
+    """Resolve a real connector in its owning Part coordinate system."""
+
     if not isinstance(connector, Connector):
         raise TypeError("connector must be a Connector")
     anchor = cast(ConnectorAnchor, connector.anchor)
     if anchor.anchor_kind == "geometry":
         return _placement_from_geometry_ref(cast(GeometryRef, anchor.geometry_ref))
-    if anchor.anchor_kind == "placement":
-        return cast(Placement, anchor.placement)
-    if owner_assembly is None:
-        raise ValueError(
-            f"forwarded connector '{connector.connector_id}' requires an owner assembly"
-        )
-    seen = set(_seen or set())
-    key = (id(owner_assembly), connector.connector_id)
-    if key in seen:
-        raise ValueError(f"forwarded connector cycle detected at '{connector.connector_id}'")
-    seen.add(key)
-    source_component_id = cast(str, anchor.source_component_id)
-    source_connector_id = cast(str, anchor.source_connector_id)
-    try:
-        source_component = owner_assembly.get_component(source_component_id)
-    except KeyError as exc:
-        raise ValueError(
-            f"forwarded connector '{connector.connector_id}' references missing "
-            f"component '{source_component_id}'"
-        ) from exc
-    try:
-        source_connector = source_component.item.get_connector(source_connector_id)
-    except KeyError as exc:
-        raise ValueError(
-            f"forwarded connector '{connector.connector_id}' references missing "
-            f"connector '{source_connector_id}' on component '{source_component_id}'"
-        ) from exc
-    from .assembly import Assembly
+    return cast(Placement, anchor.placement)
 
-    source_owner = source_component.item if isinstance(source_component.item, Assembly) else None
-    source_frame = source_component.placement.compose(
-        resolve_connector_placement(
-            source_connector,
-            owner_assembly=source_owner,
+
+def resolve_item_connector(
+    item: Any,
+    connector_id: str,
+    *,
+    _seen: Optional[set[tuple[int, str]]] = None,
+) -> Connector:
+    """Resolve a Part connector through nested Assembly public declarations."""
+
+    from .assembly import Assembly
+    from .part import Part
+
+    if isinstance(item, Part):
+        return item.get_connector(connector_id)
+    if not isinstance(item, Assembly):
+        raise TypeError("item must be a Part or Assembly")
+    seen = set(_seen or set())
+    key = (id(item), str(connector_id))
+    if key in seen:
+        raise ValueError(f"public connector cycle detected at {connector_id!r}")
+    seen.add(key)
+    public = item.get_public_connector(connector_id)
+    component = item.get_component(public.component_id)
+    return resolve_item_connector(
+        component.item,
+        public.connector_id,
+        _seen=seen,
+    )
+
+
+def resolve_item_connector_placement(
+    item: Any,
+    connector_id: str,
+    *,
+    _seen: Optional[set[tuple[int, str]]] = None,
+) -> Placement:
+    """Resolve a connector frame in the coordinate system of ``item``."""
+
+    from .assembly import Assembly
+    from .part import Part
+
+    if isinstance(item, Part):
+        return resolve_connector_placement(item.get_connector(connector_id))
+    if not isinstance(item, Assembly):
+        raise TypeError("item must be a Part or Assembly")
+    seen = set(_seen or set())
+    key = (id(item), str(connector_id))
+    if key in seen:
+        raise ValueError(f"public connector cycle detected at {connector_id!r}")
+    seen.add(key)
+    public = item.get_public_connector(connector_id)
+    component = item.get_component(public.component_id)
+    return component.placement.compose(
+        resolve_item_connector_placement(
+            component.item,
+            public.connector_id,
             _seen=seen,
         )
     )
-    if anchor.offset is not None:
-        source_frame = source_frame.compose(anchor.offset)
-    return source_frame
+
+
+def resolve_connector_ref_placement(
+    assembly: "Assembly",
+    connector_ref: ConnectorRef,
+) -> Placement:
+    """Resolve a direct component connector in the Assembly coordinate system."""
+
+    component = assembly.get_component(connector_ref.component_id)
+    return component.placement.compose(
+        resolve_item_connector_placement(component.item, connector_ref.connector_id)
+    )
 
 
 def _placement_from_geometry_ref(geo_ref: GeometryRef) -> Placement:

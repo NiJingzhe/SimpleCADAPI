@@ -31,7 +31,7 @@ class SceneResourceLimits:
     connectors: int = 100_000
     cameras: int = 1_000
     hierarchy_depth: int = 256
-    forwarded_connector_depth: int = 64
+    public_connector_depth: int = 64
     entities_per_sidecar: int = 500_000
     entities_total: int = 2_000_000
     triangle_vertices_per_asset: int = 2_000_000

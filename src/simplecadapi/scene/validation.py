@@ -24,7 +24,6 @@ from .canonical import (
 )
 from .glb import GlbInfo, preflight_glb
 from .resources import BASE_LIMITS, SceneResourceLimits, preflight_resource_count
-from .transforms import compose_rigid_transforms, rigid_transforms_equal
 
 
 SCHEMA_FILES = {
@@ -552,29 +551,29 @@ def _resource_count_issues(
                 )
         connectors = value.get("connectors")
         connector_records = connectors if isinstance(connectors, list) else []
-        forward_edges = {
+        public_edges = {
             connector.get("connector_snapshot_id"): connector.get(
-                "forwarded_from", {}
-            ).get("source_connector_snapshot_id")
+                "source_connector_snapshot_id"
+            )
             for connector in connector_records
             if isinstance(connector, dict)
-            and connector.get("anchor_kind") == "forwarded"
-            and isinstance(connector.get("forwarded_from"), dict)
+            and connector.get("anchor_kind") == "public"
+            and connector.get("source_connector_snapshot_id") is not None
         }
-        for start in forward_edges:
+        for start in public_edges:
             current = start
             seen: set[Any] = set()
             depth = 0
-            while current in forward_edges and current not in seen:
+            while current in public_edges and current not in seen:
                 seen.add(current)
-                current = forward_edges[current]
+                current = public_edges[current]
                 depth += 1
-                if depth > limits.forwarded_connector_depth:
+                if depth > limits.public_connector_depth:
                     issues.append(
                         _issue(
                             "resource_limit_exceeded",
                             "/connectors",
-                            "forwarded connector depth exceeds resource limit",
+                            "public connector depth exceeds resource limit",
                             "budget",
                         )
                     )
@@ -962,7 +961,7 @@ def _scene_semantic_issues(scene: Mapping[str, Any]) -> list[SceneValidationIssu
         issues.append(_issue("source_matrix_invalid", "/connectors", "imported scene connectors must be empty"))
     connector_map = {record.get("connector_snapshot_id"): record for record in connectors if isinstance(record, dict)}
     connector_ids_by_owner: dict[Any, set[Any]] = {}
-    forward_edges: dict[Any, Any] = {}
+    public_edges: dict[Any, Any] = {}
     for index, connector in enumerate(connectors):
         if not isinstance(connector, dict):
             continue
@@ -984,10 +983,10 @@ def _scene_semantic_issues(scene: Mapping[str, Any]) -> list[SceneValidationIssu
         anchor_kind = connector.get("anchor_kind")
         if anchor_kind == "geometry" and owner.get("kind") != "part":
             issues.append(_issue("connector_invalid", path + "/owner_definition_id", "geometry connector owner must be a Part"))
-        if anchor_kind == "placement" and owner.get("kind") not in {"part", "assembly"}:
-            issues.append(_issue("connector_invalid", path + "/owner_definition_id", "connector owner must be a Product definition"))
-        if anchor_kind == "forwarded" and owner.get("kind") != "assembly":
-            issues.append(_issue("connector_invalid", path + "/owner_definition_id", "forwarded connector owner must be an Assembly"))
+        if anchor_kind == "placement" and owner.get("kind") != "part":
+            issues.append(_issue("connector_invalid", path + "/owner_definition_id", "placement connector owner must be a Part"))
+        if anchor_kind == "public" and owner.get("kind") != "assembly":
+            issues.append(_issue("connector_invalid", path + "/owner_definition_id", "public connector owner must be an Assembly"))
         connector_source = connector.get("source")
         if source_kind == "model":
             if not isinstance(connector_source, dict) or connector_source.get("kind") != "model_operation" or connector_source.get("graph_id") != graph_id:
@@ -1009,110 +1008,27 @@ def _scene_semantic_issues(scene: Mapping[str, Any]) -> list[SceneValidationIssu
         transform_issue = _transform_issue(connector.get("local_transform"), path + "/local_transform")
         if transform_issue:
             issues.append(transform_issue)
-        if anchor_kind == "forwarded":
-            forwarded = connector.get("forwarded_from", {})
-            source_snapshot = forwarded.get("source_connector_snapshot_id") if isinstance(forwarded, dict) else None
+        source_snapshot = connector.get("source_connector_snapshot_id")
+        if anchor_kind == "public":
             source_connector = connector_map.get(source_snapshot)
-            if source_connector is None or source_connector.get("owner_definition_id") != forwarded.get("source_definition_id") or source_connector.get("connector_id") != forwarded.get("source_connector_id"):
-                issues.append(_issue("connector_invalid", path + "/forwarded_from", "forwarded connector source snapshot ownership is invalid"))
-            forward_edges[connector.get("connector_snapshot_id")] = source_snapshot
-            if isinstance(forwarded, dict) and forwarded.get("offset") is not None:
-                transform_issue = _transform_issue(forwarded.get("offset"), path + "/forwarded_from/offset")
-                if transform_issue:
-                    issues.append(transform_issue)
-            if isinstance(forwarded, dict) and owner.get("kind") == "assembly":
-                owner_nodes = [
-                    node
-                    for node in nodes
-                    if isinstance(node, dict)
-                    and node.get("definition_id") == connector.get("owner_definition_id")
-                    and isinstance(node.get("source"), dict)
-                    and node["source"].get("kind") == "product_occurrence"
-                ]
-                source_children: list[Mapping[str, Any]] = []
-                for owner_node in owner_nodes:
-                    owner_node_source = owner_node["source"]
-                    expected_path = [
-                        *owner_node_source.get("component_path", []),
-                        forwarded.get("source_component_id"),
-                    ]
-                    matches = [
-                        node
-                        for node in nodes
-                        if isinstance(node, dict)
-                        and isinstance(node.get("source"), dict)
-                        and node["source"].get("kind") == "product_occurrence"
-                        and node["source"].get("root_id")
-                        == owner_node_source.get("root_id")
-                        and node["source"].get("component_path") == expected_path
-                        and node.get("parent_node_id") == owner_node.get("node_id")
-                    ]
-                    if (
-                        len(matches) != 1
-                        or matches[0].get("definition_id")
-                        != forwarded.get("source_definition_id")
-                    ):
-                        issues.append(
-                            _issue(
-                                "connector_invalid",
-                                path + "/forwarded_from",
-                                "forwarded connector source component is not one exact direct child",
-                            )
-                        )
-                    else:
-                        source_children.append(matches[0])
-                if source_children and any(
-                    child.get("transform") != source_children[0].get("transform")
-                    for child in source_children[1:]
-                ):
-                    issues.append(
-                        _issue(
-                            "connector_invalid",
-                            path + "/forwarded_from",
-                            "forwarded connector source child transforms differ between owner occurrences",
-                        )
-                    )
-                if source_children and isinstance(source_connector, dict):
-                    child_transform = source_children[0].get("transform")
-                    source_transform = source_connector.get("local_transform")
-                    offset = forwarded.get("offset") or {
-                        "origin": [0, 0, 0],
-                        "x_axis": [1, 0, 0],
-                        "y_axis": [0, 1, 0],
-                        "z_axis": [0, 0, 1],
-                    }
-                    if (
-                        all(
-                            isinstance(value, dict)
-                            and _transform_issue(value, "") is None
-                            for value in (child_transform, source_transform, offset)
-                        )
-                        and isinstance(connector.get("local_transform"), dict)
-                        and _transform_issue(connector["local_transform"], "") is None
-                    ):
-                        expected_transform = compose_rigid_transforms(
-                            compose_rigid_transforms(child_transform, source_transform),
-                            offset,
-                        )
-                        if not rigid_transforms_equal(
-                            connector["local_transform"], expected_transform
-                        ):
-                            issues.append(
-                                _issue(
-                                    "connector_invalid",
-                                    path + "/local_transform",
-                                    "forwarded connector transform does not match child, source, and offset composition",
-                                )
-                            )
-    for start in forward_edges:
+            if source_connector is None:
+                issues.append(_issue("connector_invalid", path + "/source_connector_snapshot_id", "public connector source snapshot does not exist"))
+            else:
+                if source_connector.get("anchor_kind") == "public":
+                    public_edges[connector.get("connector_snapshot_id")] = source_snapshot
+                if source_connector.get("owner_definition_id") == connector.get("owner_definition_id"):
+                    issues.append(_issue("connector_invalid", path + "/source_connector_snapshot_id", "public connector source must belong to a child definition"))
+        elif source_snapshot is not None:
+            issues.append(_issue("connector_invalid", path + "/source_connector_snapshot_id", "non-public connector cannot reference a source snapshot"))
+    for start in public_edges:
         seen: set[Any] = set()
         current = start
-        while current in forward_edges:
+        while current in public_edges:
             if current in seen:
-                issues.append(_issue("connector_invalid", "/connectors", "forwarded connector graph contains a cycle"))
+                issues.append(_issue("connector_invalid", "/connectors", "public connector graph contains a cycle"))
                 break
             seen.add(current)
-            current = forward_edges[current]
+            current = public_edges[current]
     for index, camera in enumerate(scene.get("cameras", [])):
         if not isinstance(camera, dict):
             continue

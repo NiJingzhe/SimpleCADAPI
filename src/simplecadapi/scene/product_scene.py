@@ -656,40 +656,42 @@ def _connectors(
         graph = feature_graphs[definition_id]
         for node_id in occurrences.get(definition_id, []):
             for interface in interfaces:
+                is_public = isinstance(definition, AssemblyDefinition)
+                connector_id = interface.connector_id
                 feature_id = _producer_feature(
                     definition_id,
                     graph,
-                    parameter="connector_id",
-                    value=interface.connector_id,
+                    parameter="public_connector_id" if is_public else "connector_id",
+                    value=connector_id,
                     op_prefix=(
-                        "make_add_connector_rpart"
-                        if isinstance(definition, PartDefinition)
-                        else "make_forward_connector_rassembly"
+                        "make_set_public_connector_rassembly"
+                        if is_public
+                        else "make_add_connector_rpart"
                     ),
                 )
-                snapshot_id = _connector_snapshot_id(
-                    node_id, interface.connector_id
-                )
+                snapshot_id = _connector_snapshot_id(node_id, connector_id)
+                source_snapshot_id: str | None = None
+                if is_public:
+                    source_node_id = f"{node_id}/{interface.source_component_id}"
+                    source_snapshot_id = _connector_snapshot_id(
+                        source_node_id, interface.source_connector_id
+                    )
                 connectors.append(
                     {
                         "connector_snapshot_id": snapshot_id,
                         "node_id": node_id,
                         "definition_id": definition_id,
                         "definition_kind": definition.definition_kind,
-                        "connector_id": interface.connector_id,
-                        "name": interface.name or interface.connector_id,
-                        "anchor_kind": interface.anchor_kind,
+                        "connector_id": connector_id,
+                        "name": interface.name or connector_id,
+                        "anchor_kind": "public" if is_public else interface.anchor_kind,
                         "local_frame": dict(interface.local_frame),
                         "binding": (
                             dict(interface.binding)
                             if interface.binding is not None
                             else None
                         ),
-                        "forwarded_from": (
-                            dict(interface.forwarded_from)
-                            if interface.forwarded_from is not None
-                            else None
-                        ),
+                        "source_connector_snapshot_id": source_snapshot_id,
                         "source_feature_id": feature_id,
                     }
                 )
@@ -697,11 +699,11 @@ def _connectors(
                     {
                         "connector_index_id": (
                             f"connector-index/{node_id.removeprefix('node/')}"
-                            f"/{interface.connector_id}"
+                            f"/{connector_id}"
                         ),
                         "definition_id": definition_id,
                         "node_id": node_id,
-                        "connector_id": interface.connector_id,
+                        "connector_id": connector_id,
                         "connector_snapshot_id": snapshot_id,
                         "source_feature_id": feature_id,
                     }
@@ -1124,21 +1126,35 @@ def validate_product_scene_package(package: ProductScenePackage) -> None:
         if node["entity_asset_id"] is not None and node["entity_asset_id"] not in entity_ids:
             raise ProductSceneError("node entity asset does not resolve")
 
-    connector_ids = {
-        item["connector_snapshot_id"] for item in manifest["connectors"]
+    connector_by_id = {
+        item["connector_snapshot_id"]: item for item in manifest["connectors"]
     }
-    if len(connector_ids) != len(manifest["connectors"]):
+    if len(connector_by_id) != len(manifest["connectors"]):
         raise ProductSceneError("connector snapshot IDs must be unique")
     for connector in manifest["connectors"]:
         if connector["node_id"] not in node_ids:
             raise ProductSceneError("connector node does not resolve")
+        source_snapshot = connector["source_connector_snapshot_id"]
+        if connector["anchor_kind"] == "public":
+            if source_snapshot not in connector_by_id:
+                raise ProductSceneError("public connector source does not resolve")
+        elif source_snapshot is not None:
+            raise ProductSceneError("part connector cannot reference a public source")
         source_feature = connector["source_feature_id"]
         if source_feature is not None and source_feature not in feature_ids:
             raise ProductSceneError("connector feature does not resolve")
+    for start in connector_by_id:
+        seen: set[str] = set()
+        current = start
+        while connector_by_id[current]["source_connector_snapshot_id"] is not None:
+            if current in seen:
+                raise ProductSceneError("public connector graph contains a cycle")
+            seen.add(current)
+            current = connector_by_id[current]["source_connector_snapshot_id"]
     for joint in manifest["joints"]:
         if (
-            joint["connector_a"]["connector_snapshot_id"] not in connector_ids
-            or joint["connector_b"]["connector_snapshot_id"] not in connector_ids
+            joint["connector_a"]["connector_snapshot_id"] not in connector_by_id
+            or joint["connector_b"]["connector_snapshot_id"] not in connector_by_id
         ):
             raise ProductSceneError("joint connector does not resolve")
         source_feature = joint["source_feature_id"]

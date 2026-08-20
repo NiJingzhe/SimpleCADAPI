@@ -154,7 +154,7 @@ test("shared positive case names cannot drift to negative expectations", () => {
       if (Object.hasOwn(record, "error")) assert.equal(record.error, null, label);
     }
   }
-  assert.equal(positiveNames.length, 30);
+  assert.equal(positiveNames.length, 29);
 });
 
 test("strict JSON rejects duplicate keys and protects ordinary object semantics", () => {
@@ -1006,12 +1006,12 @@ test("resource profile and exact boundary cases match Python", async (context) =
         let value: JsonRecord;
         if (kind === "collection") value = { [field!]: Array(count).fill(null) };
         else if (kind === "hierarchy") value = { nodes: [{ source: { component_path: Array(count).fill("x") } }] };
-        else if (kind === "forwarded") {
+        else if (kind === "public") {
           value = {
             connectors: Array.from({ length: count }, (_unused, index) => ({
-              anchor_kind: "forwarded",
+              anchor_kind: "public",
               connector_snapshot_id: `c${index}`,
-              forwarded_from: { source_connector_snapshot_id: `c${index + 1}` },
+              source_connector_snapshot_id: `c${index + 1}`,
             })),
           };
         } else throw new Error(`unknown resource count kind: ${kind}`);

@@ -369,29 +369,20 @@
       "type": "object", "additionalProperties": false, "required": ["entity_asset_id", "entity_id"],
       "properties": {"entity_asset_id": {"$ref": "#/$defs/hash"}, "entity_id": {"type": "string", "pattern": "^entity/(face|edge|vertex)/(0|[1-9][0-9]*)$"}}
     },
-    "forwardedFrom": {
-      "type": "object", "additionalProperties": false,
-      "required": ["source_component_id", "source_definition_id", "source_connector_id", "source_connector_snapshot_id", "offset"],
-      "properties": {
-        "source_component_id": {"$ref": "#/$defs/productId"}, "source_definition_id": {"$ref": "#/$defs/structuralId"},
-        "source_connector_id": {"$ref": "#/$defs/productId"}, "source_connector_snapshot_id": {"$ref": "#/$defs/structuralId"},
-        "offset": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/transform"}]}
-      }
-    },
     "connector": {
       "type": "object", "additionalProperties": false,
-      "required": ["connector_snapshot_id", "owner_definition_id", "connector_id", "name", "anchor_kind", "local_transform", "source", "sdk_metadata"],
+      "required": ["connector_snapshot_id", "owner_definition_id", "connector_id", "name", "anchor_kind", "local_transform", "source_connector_snapshot_id", "source", "sdk_metadata"],
       "properties": {
         "connector_snapshot_id": {"$ref": "#/$defs/structuralId"}, "owner_definition_id": {"$ref": "#/$defs/structuralId"},
-        "connector_id": {"$ref": "#/$defs/productId"}, "name": {"type": ["string", "null"]}, "anchor_kind": {"enum": ["geometry", "placement", "forwarded"]},
-        "local_transform": {"$ref": "#/$defs/transform"}, "target": {"$ref": "#/$defs/connectorTarget"}, "forwarded_from": {"$ref": "#/$defs/forwardedFrom"},
+        "connector_id": {"$ref": "#/$defs/productId"}, "name": {"type": ["string", "null"]}, "anchor_kind": {"enum": ["geometry", "placement", "public"]},
+        "local_transform": {"$ref": "#/$defs/transform"}, "target": {"$ref": "#/$defs/connectorTarget"}, "source_connector_snapshot_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/structuralId"}]},
         "source": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/modelOperationSource"}, {"$ref": "#/$defs/manualConnectorSource"}, {"$ref": "#/$defs/productPackageConnectorSource"}]},
         "sdk_metadata": {"type": "object", "maxProperties": 0}
       },
       "allOf": [
-        {"if": {"properties": {"anchor_kind": {"const": "geometry"}}, "required": ["anchor_kind"]}, "then": {"required": ["target"], "not": {"required": ["forwarded_from"]}}},
-        {"if": {"properties": {"anchor_kind": {"const": "placement"}}, "required": ["anchor_kind"]}, "then": {"not": {"anyOf": [{"required": ["target"]}, {"required": ["forwarded_from"]}]}}},
-        {"if": {"properties": {"anchor_kind": {"const": "forwarded"}}, "required": ["anchor_kind"]}, "then": {"required": ["forwarded_from"], "not": {"required": ["target"]}}}
+        {"if": {"properties": {"anchor_kind": {"const": "geometry"}}, "required": ["anchor_kind"]}, "then": {"required": ["target"], "properties": {"source_connector_snapshot_id": {"type": "null"}}}},
+        {"if": {"properties": {"anchor_kind": {"const": "placement"}}, "required": ["anchor_kind"]}, "then": {"not": {"required": ["target"]}, "properties": {"source_connector_snapshot_id": {"type": "null"}}}},
+        {"if": {"properties": {"anchor_kind": {"const": "public"}}, "required": ["anchor_kind"]}, "then": {"required": ["source_connector_snapshot_id"], "not": {"required": ["target"]}}}
       ]
     },
     "cameraBase": {

@@ -126,7 +126,8 @@ class ConnectorInterface:
     anchor_kind: str
     local_frame: Mapping[str, Any]
     binding: Mapping[str, Any] | None
-    forwarded_from: Mapping[str, Any] | None
+    source_component_id: str | None = None
+    source_connector_id: str | None = None
     interface_hash: str = ""
     binding_hash: str = ""
 
@@ -134,7 +135,7 @@ class ConnectorInterface:
         object.__setattr__(self, "connector_id", validate_logical_id(self.connector_id, "/connector/connector_id"))
         if self.name is not None and (not isinstance(self.name, str) or not self.name.strip()):
             raise ArtifactValidationError("name_invalid", "/connector/name", "name must be null or non-empty")
-        if self.anchor_kind not in {"geometry", "placement", "forwarded"}:
+        if self.anchor_kind not in {"geometry", "placement", "public"}:
             raise ArtifactValidationError("connector_invalid", "/connector/anchor_kind", "unsupported anchor kind")
         try:
             frame = Placement(**dict(self.local_frame)).to_dict()
@@ -145,15 +146,20 @@ class ConnectorInterface:
             raise ArtifactValidationError("connector_invalid", "/connector/binding", "geometry connector requires binding")
         if self.anchor_kind != "geometry" and self.binding is not None:
             raise ArtifactValidationError("connector_invalid", "/connector/binding", "only geometry connector accepts binding")
-        if self.anchor_kind == "forwarded" and self.forwarded_from is None:
-            raise ArtifactValidationError("connector_invalid", "/connector/forwarded_from", "forwarded connector requires source")
-        if self.anchor_kind != "forwarded" and self.forwarded_from is not None:
-            raise ArtifactValidationError("connector_invalid", "/connector/forwarded_from", "source is only valid for forwarded connector")
+        if self.anchor_kind == "public":
+            if self.source_component_id is None or self.source_connector_id is None:
+                raise ArtifactValidationError("connector_invalid", "/connector/source_component_id", "public connector requires a source")
+            object.__setattr__(self, "source_component_id", validate_logical_id(self.source_component_id, "/connector/source_component_id"))
+            object.__setattr__(self, "source_connector_id", validate_logical_id(self.source_connector_id, "/connector/source_connector_id"))
+        elif self.source_component_id is not None or self.source_connector_id is not None:
+            raise ArtifactValidationError("connector_invalid", "/connector/source_component_id", "source is only valid for public connectors")
         interface_payload = {
             "connector_id": self.connector_id,
+            "name": self.name,
             "anchor_kind": self.anchor_kind,
             "local_frame": frame,
-            "forwarded_from": dict(self.forwarded_from) if self.forwarded_from is not None else None,
+            "source_component_id": self.source_component_id,
+            "source_connector_id": self.source_connector_id,
             "units": "mm",
         }
         binding_payload = dict(self.binding) if self.binding is not None else None
@@ -167,31 +173,47 @@ class ConnectorInterface:
         object.__setattr__(self, "binding_hash", expected_binding)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "connector_id": self.connector_id,
             "name": self.name,
             "anchor_kind": self.anchor_kind,
             "local_frame": dict(self.local_frame),
             "binding": dict(self.binding) if self.binding is not None else None,
-            "forwarded_from": dict(self.forwarded_from) if self.forwarded_from is not None else None,
             "interface_hash": self.interface_hash,
             "binding_hash": self.binding_hash,
         }
+        if self.anchor_kind == "public":
+            payload["source_component_id"] = self.source_component_id
+            payload["source_connector_id"] = self.source_connector_id
+        return payload
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any], path: str = "/connector") -> "ConnectorInterface":
-        _closed(
-            data,
-            {"connector_id", "name", "anchor_kind", "local_frame", "binding", "forwarded_from", "interface_hash", "binding_hash"},
-            path,
-        )
+        base = {
+            "connector_id", "name", "anchor_kind", "local_frame", "binding",
+            "interface_hash", "binding_hash",
+        }
+        actual = set(data)
+        missing = sorted(base - actual)
+        if missing:
+            raise ArtifactValidationError("fields_invalid", path, f"missing={missing}")
+        extra = actual - base
+        allowed_source = {"source_component_id", "source_connector_id"}
+        if extra and extra != allowed_source:
+            raise ArtifactValidationError("fields_invalid", path, f"unknown={sorted(extra)}")
+        anchor_kind = str(data["anchor_kind"])
+        if anchor_kind == "public" and extra != allowed_source:
+            raise ArtifactValidationError("fields_invalid", path, "public connector source fields are required")
+        if anchor_kind != "public" and extra:
+            raise ArtifactValidationError("fields_invalid", path, "source fields are only valid for public connectors")
         return cls(
             connector_id=str(data["connector_id"]),
             name=data["name"],
-            anchor_kind=str(data["anchor_kind"]),
+            anchor_kind=anchor_kind,
             local_frame=dict(data["local_frame"]),
             binding=dict(data["binding"]) if data["binding"] is not None else None,
-            forwarded_from=dict(data["forwarded_from"]) if data["forwarded_from"] is not None else None,
+            source_component_id=(str(data["source_component_id"]) if "source_component_id" in data else None),
+            source_connector_id=(str(data["source_connector_id"]) if "source_connector_id" in data else None),
             interface_hash=str(data["interface_hash"]),
             binding_hash=str(data["binding_hash"]),
         )

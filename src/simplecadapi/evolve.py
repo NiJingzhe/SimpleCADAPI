@@ -4,20 +4,20 @@ from . import ql
 from .core import Solid
 from .errors import raise_harness_error
 from .math import fit_cubic_bspline_control_points
-from .operations import (
+from ._operators_features import (
     chamfer_rsolid,
-    cut_rsolid,
     extrude_rsolid,
     helical_sweep_rsolid,
     loft_rsolid,
+)
+from ._operators_geometry import (
     make_circle_rface,
     make_cylinder_rsolid,
     make_polyline_rwire,
     make_spline_rwire,
-    rotate_shape,
-    translate_shape,
-    union_rsolid,
 )
+from ._operators_transform import rotate_shape, translate_shape
+from ._operators_boolean import cut_rsolid, union_rsolid
 
 
 def make_n_hole_flange_rsolid(

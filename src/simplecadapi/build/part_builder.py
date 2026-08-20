@@ -174,18 +174,11 @@ def _connector_interface(connector: Connector, body: Solid) -> ConnectorInterfac
     anchor = cast(Any, connector.anchor)
     frame = resolve_connector_placement(connector).to_dict()
     binding: Mapping[str, Any] | None = None
-    forwarded: Mapping[str, Any] | None = None
     if anchor.anchor_kind == "geometry":
         geometry_ref = cast(Any, anchor.geometry_ref)
         binding = {
             **geometry_ref.to_dict(),
             "resolved_entities": [resolve_geometry_entity_ref(body, geometry_ref)],
-        }
-    elif anchor.anchor_kind == "forwarded":
-        forwarded = {
-            "source_component_id": anchor.source_component_id,
-            "source_connector_id": anchor.source_connector_id,
-            "offset": anchor.offset.to_dict() if anchor.offset is not None else None,
         }
     return ConnectorInterface(
         connector_id=connector.connector_id,
@@ -193,7 +186,6 @@ def _connector_interface(connector: Connector, body: Solid) -> ConnectorInterfac
         anchor_kind=anchor.anchor_kind,
         local_frame=frame,
         binding=binding,
-        forwarded_from=forwarded,
     )
 
 

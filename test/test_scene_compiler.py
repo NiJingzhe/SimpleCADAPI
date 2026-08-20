@@ -268,7 +268,7 @@ def test_export_scene_is_canonical_and_round_trips_through_archive_preflight(tmp
     assert report.valid, report.issues
 
 
-def test_forwarded_connector_is_finalized_after_its_source_connector():
+def test_public_connector_is_finalized_after_its_source_connector():
     part = scad.make_part_rpart(
         part_id="inner",
         body=scad.make_box_rsolid(width=2.0, height=2.0, depth=2.0),
@@ -287,12 +287,10 @@ def test_forwarded_connector_is_finalized_after_its_source_connector():
         component_id="inner",
         placement=scad.make_placement_rplacement(origin=(5.0, 0.0, 0.0)),
     )
-    child = scad.forward_connector_rassembly(
-        assembly=child,
-        connector_id="public",
-        source_component_id="inner",
-        source_connector_id="axis",
-    )
+    child = scad.set_public_connector_rassembly(assembly=child,
+    public_connector_id="public",
+    source_component_id="inner",
+    source_connector_id="axis",)
     root = scad.make_assembly_rassembly(assembly_id="root")
     root = scad.add_component_rassembly(
         assembly=root,
@@ -302,12 +300,14 @@ def test_forwarded_connector_is_finalized_after_its_source_connector():
     )
 
     package = scene.compile_scene(
-        scene_id="forwarded",
+        scene_id="public-connector",
         roots=(scene.SceneRoot(root_id="main", value=root),),
         source=_manual_source(),
     )
 
-    forwarded = next(item for item in package.manifest["connectors"] if item["connector_id"] == "public")
+    public = next(item for item in package.manifest["connectors"] if item["connector_id"] == "public")
     source = next(item for item in package.manifest["connectors"] if item["connector_id"] == "axis")
-    assert forwarded["forwarded_from"]["source_connector_snapshot_id"] == source["connector_snapshot_id"]
+    assert public["anchor_kind"] == "public"
+    assert public["source_connector_snapshot_id"] == source["connector_snapshot_id"]
+    assert public["local_transform"]["origin"] == (6.0, 0.0, 0.0)
     assert validate_scene_package(package.manifest, package.blobs).valid

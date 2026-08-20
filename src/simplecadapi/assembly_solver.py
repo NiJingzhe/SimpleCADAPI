@@ -12,11 +12,8 @@ from .assembly import (
     _with_component_path_placement,
 )
 from .connector import (
-    Connector,
-    ConnectorAnchor,
     ConnectorRef,
-    resolve_connector,
-    resolve_connector_placement,
+    resolve_item_connector_placement,
 )
 from .constraint import (
     Constraint,
@@ -221,14 +218,10 @@ def solve_assembly_constraints(assembly: Assembly, strict: bool = True) -> Assem
                     candidate,
                     constraint.constraint_id,
                 )
-                if not residual.within_tolerance:
-                    adjusted = _try_close_forwarded_constraint(candidate, constraint)
-                    if adjusted is not None:
-                        assembly = adjusted
-                    elif strict:
-                        raise ValueError(
-                            f"constraint '{constraint.constraint_id}' residual exceeds tolerance"
-                        )
+                if not residual.within_tolerance and strict:
+                    raise ValueError(
+                        f"constraint '{constraint.constraint_id}' residual exceeds tolerance"
+                    )
             else:
                 remaining.append(constraint)
         pending = remaining
@@ -384,9 +377,10 @@ def _connector_local_frame_for_ref(
     assembly: Assembly, connector_ref: ConnectorRef
 ) -> Placement:
     component = assembly.get_component(connector_ref.component_id)
-    connector = resolve_connector(assembly, connector_ref)
-    owner = component.item if isinstance(component.item, Assembly) else None
-    return resolve_connector_placement(connector, owner_assembly=owner)
+    return resolve_item_connector_placement(
+        component.item,
+        connector_ref.connector_id,
+    )
 
 
 def _connector_world_frame(
@@ -396,161 +390,6 @@ def _connector_world_frame(
     return component.placement.compose(
         _connector_local_frame_for_ref(assembly, connector_ref)
     )
-
-
-@dataclass(frozen=True)
-class _ForwardedSolveTarget:
-    component_path: Tuple[str, ...]
-    parent_world: Placement
-    connector_tail: Placement
-
-
-def _forwarded_solve_target(
-    assembly: Assembly, connector_ref: ConnectorRef
-) -> Optional[_ForwardedSolveTarget]:
-    component = assembly.get_component(connector_ref.component_id)
-    if not isinstance(component.item, Assembly):
-        return None
-    connector = component.item.get_connector(connector_ref.connector_id)
-    return _descend_forwarded_solve_target(
-        owner=component.item,
-        connector=connector,
-        owner_world=component.placement,
-        component_path=(component.component_id,),
-    )
-
-
-def _descend_forwarded_solve_target(
-    *,
-    owner: Assembly,
-    connector: Connector,
-    owner_world: Placement,
-    component_path: Tuple[str, ...],
-) -> Optional[_ForwardedSolveTarget]:
-    anchor = cast(ConnectorAnchor, connector.anchor)
-    if anchor.anchor_kind != "forwarded":
-        return None
-    source_component_id = cast(str, anchor.source_component_id)
-    source_connector_id = cast(str, anchor.source_connector_id)
-    source_component = owner.get_component(source_component_id)
-    source_connector = source_component.item.get_connector(source_connector_id)
-    source_path = (*component_path, source_component_id)
-    if (
-        isinstance(source_component.item, Assembly)
-        and source_connector.anchor_kind == "forwarded"
-    ):
-        nested = _descend_forwarded_solve_target(
-            owner=source_component.item,
-            connector=source_connector,
-            owner_world=owner_world.compose(source_component.placement),
-            component_path=source_path,
-        )
-        if nested is None:
-            return None
-        tail = nested.connector_tail
-        if anchor.offset is not None:
-            tail = tail.compose(anchor.offset)
-        return _ForwardedSolveTarget(
-            component_path=nested.component_path,
-            parent_world=nested.parent_world,
-            connector_tail=tail,
-        )
-    source_owner = (
-        source_component.item if isinstance(source_component.item, Assembly) else None
-    )
-    tail = resolve_connector_placement(
-        source_connector,
-        owner_assembly=source_owner,
-    )
-    if anchor.offset is not None:
-        tail = tail.compose(anchor.offset)
-    return _ForwardedSolveTarget(
-        component_path=source_path,
-        parent_world=owner_world,
-        connector_tail=tail,
-    )
-
-
-def _assemblies_for_component_path(
-    assembly: Assembly, component_path: Tuple[str, ...]
-) -> Tuple[Assembly, ...]:
-    component = assembly.get_component(component_path[0])
-    if not isinstance(component.item, Assembly):
-        return ()
-    owner = component.item
-    owners = [owner]
-    for component_id in component_path[1:-1]:
-        component = owner.get_component(component_id)
-        if not isinstance(component.item, Assembly):
-            return ()
-        owner = component.item
-        owners.append(owner)
-    return tuple(owners)
-
-
-def _preserves_satisfied_constraints(before: Assembly, after: Assembly) -> bool:
-    for constraint in before.constraints:
-        previous = measure_constraint_residual(before, constraint.constraint_id)
-        if (
-            previous.within_tolerance
-            and not measure_constraint_residual(
-                after, constraint.constraint_id
-            ).within_tolerance
-        ):
-            return False
-    return True
-
-
-def _try_close_forwarded_constraint(
-    assembly: Assembly, constraint: Constraint
-) -> Optional[Assembly]:
-    motion = _constraint_motion_from_current(assembly, constraint)
-    for moving_side in ("a", "b"):
-        moving_ref = (
-            constraint.connector_a if moving_side == "a" else constraint.connector_b
-        )
-        target = _forwarded_solve_target(assembly, moving_ref)
-        if target is None:
-            continue
-        owners = _assemblies_for_component_path(assembly, target.component_path)
-        if not owners:
-            continue
-        parent = owners[-1]
-        if target.component_path[-1] in parent.grounded_component_ids:
-            continue
-        if moving_side == "b":
-            fixed_frame = _connector_world_frame(assembly, constraint.connector_a)
-            target_frame = fixed_frame.compose(motion)
-        else:
-            fixed_frame = _connector_world_frame(assembly, constraint.connector_b)
-            target_frame = fixed_frame.compose(inverse_placement(motion))
-        placement = (
-            inverse_placement(target.parent_world)
-            .compose(target_frame)
-            .compose(inverse_placement(target.connector_tail))
-        )
-        candidate = _with_component_path_placement(
-            assembly,
-            target.component_path,
-            placement,
-        )
-        if not measure_constraint_residual(
-            candidate, constraint.constraint_id
-        ).within_tolerance:
-            continue
-        if not _preserves_satisfied_constraints(assembly, candidate):
-            continue
-        updated_owners = _assemblies_for_component_path(
-            candidate, target.component_path
-        )
-        if not all(
-            inspect_assembly_constraints(owner).solved for owner in updated_owners
-        ):
-            continue
-        return candidate
-    return None
-
-
 def _constraint_current_scalar(assembly: Assembly, constraint: Constraint) -> float:
     frame_a = _connector_world_frame(assembly, constraint.connector_a)
     frame_b = _connector_world_frame(assembly, constraint.connector_b)

@@ -951,7 +951,7 @@ def _record_indexed_topology_selection(source: Any, selected_shapes: Iterable[An
     if not shapes:
         return
     try:
-        from .operations import _ensure_geo_selection_node_ids
+        from ._operation_support import _ensure_geo_selection_node_ids
 
         _ensure_geo_selection_node_ids(cast(AnyShape, source), cast(List[AnyShape], shapes))
     except Exception:
