@@ -111,18 +111,19 @@ def _main(manifest_path: Path) -> None:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            if mode == "views":
-                _render_views(datasets, output_path, options)
-            elif mode == "sdk":
-                _render_sdk(datasets, output_path, options)
-            else:
-                raise ValueError(f"unsupported render worker mode: {mode}")
-            Path(payload["completion_path"]).touch()
-        finally:
-            from .render import _finalize_offscreen_window
-
-            _finalize_offscreen_window()
+        if mode == "views":
+            _render_views(datasets, output_path, options)
+        elif mode == "sdk":
+            _render_sdk(datasets, output_path, options)
+        else:
+            raise ValueError(f"unsupported render worker mode: {mode}")
+        Path(payload["completion_path"]).touch()
+        # vtkCocoaRenderWindow can crash while Python unwinds VTK wrappers after
+        # rendering. Exit before this frame is destroyed; the OS releases the
+        # one-shot worker's native resources and file lock.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)
 
 
 if __name__ == "__main__":

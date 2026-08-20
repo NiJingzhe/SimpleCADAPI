@@ -86,13 +86,6 @@ def _detach_offscreen_renderers() -> None:
         _OFFSCREEN_WINDOW.RemoveRenderer(renderer)
 
 
-def _finalize_offscreen_window() -> None:
-    global _OFFSCREEN_WINDOW
-    if _OFFSCREEN_WINDOW is None:
-        return
-    _detach_offscreen_renderers()
-    _OFFSCREEN_WINDOW.Finalize()
-    _OFFSCREEN_WINDOW = None
 
 
 def _offscreen_window(width: int, height: int):
@@ -177,14 +170,21 @@ def _run_render_worker(
                 timeout=180.0,
                 check=False,
             )
-            if completion_marker.is_file() and (
-                worker_output.is_file() and worker_output.stat().st_size > 0
+            if (
+                completed.returncode == 0
+                and completion_marker.is_file()
+                and worker_output.is_file()
+                and worker_output.stat().st_size > 0
             ):
                 break
             if attempt < 2:
                 time.sleep(0.15 * (attempt + 1))
-        if not completion_marker.is_file() or (
-            not worker_output.is_file() or worker_output.stat().st_size == 0
+        if (
+            completed is None
+            or completed.returncode != 0
+            or not completion_marker.is_file()
+            or not worker_output.is_file()
+            or worker_output.stat().st_size == 0
         ):
             assert completed is not None
             detail = completed.stderr.strip() or completed.stdout.strip()

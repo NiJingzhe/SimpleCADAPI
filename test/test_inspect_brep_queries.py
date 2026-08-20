@@ -667,19 +667,19 @@ def test_render_entity_map_rejects_empty_duplicate_and_invalid_options(tmp_path)
 
 
 
-def test_render_worker_retries_crash_and_accepts_completed_image(
-    tmp_path, monkeypatch
-):
+def test_render_worker_retries_crash_and_requires_clean_exit(tmp_path, monkeypatch):
     calls = []
 
     def fake_run(command, **kwargs):
         del kwargs
         calls.append(tuple(command))
         payload = json.loads(Path(command[-1]).read_text(encoding="utf-8"))
-        if len(calls) == 2:
-            Path(payload["output_path"]).write_bytes(b"complete-image")
-            Path(payload["completion_path"]).touch()
-        return SimpleNamespace(returncode=-11, stderr="", stdout="")
+        Path(payload["output_path"]).write_bytes(b"crashed-image")
+        Path(payload["completion_path"]).touch()
+        if len(calls) == 1:
+            return SimpleNamespace(returncode=-11, stderr="", stdout="")
+        Path(payload["output_path"]).write_bytes(b"complete-image")
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
 
     monkeypatch.setattr(
         "simplecadapi.inspect.brep.render.subprocess.run", fake_run
