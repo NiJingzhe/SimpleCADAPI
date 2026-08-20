@@ -9,7 +9,6 @@ import {
 import { type GlbInfo, preflightGlb } from "./glb.js";
 import { hasRootPointerPolicy, issue, pointer, report, type ValidationArtifact, type ValidationIssue, type ValidationReport } from "./report.js";
 import { BASE_LIMITS, preflightResourceCount, type SceneResourceLimits } from "./resources.js";
-import { composeRigidTransforms, rigidTransformsEqual } from "./transforms.js";
 import type { ValidateFunction } from "ajv";
 import {
   schemaErrors,
@@ -257,22 +256,22 @@ export function resourceCountIssues(
       }
     });
     const connectors = Array.isArray(value.connectors) ? value.connectors.filter(isRecord) : [];
-    const forwardEdges = new Map<unknown, unknown>();
+    const publicEdges = new Map<unknown, unknown>();
     for (const connector of connectors) {
-      if (connector.anchor_kind === "forwarded" && isRecord(connector.forwarded_from)) {
-        forwardEdges.set(connector.connector_snapshot_id, connector.forwarded_from.source_connector_snapshot_id);
+      if (connector.anchor_kind === "public" && connector.source_connector_snapshot_id !== null && connector.source_connector_snapshot_id !== undefined) {
+        publicEdges.set(connector.connector_snapshot_id, connector.source_connector_snapshot_id);
       }
     }
-    for (const start of forwardEdges.keys()) {
+    for (const start of publicEdges.keys()) {
       const seen = new Set<unknown>();
       let current: unknown = start;
       let depth = 0;
-      while (forwardEdges.has(current) && !seen.has(current)) {
+      while (publicEdges.has(current) && !seen.has(current)) {
         seen.add(current);
-        current = forwardEdges.get(current);
+        current = publicEdges.get(current);
         depth += 1;
-        if (depth > limits.forwarded_connector_depth) {
-          issues.push(issue("resource_limit_exceeded", "/connectors", "forwarded connector depth exceeds resource limit", "budget"));
+        if (depth > limits.public_connector_depth) {
+          issues.push(issue("resource_limit_exceeded", "/connectors", "public connector depth exceeds resource limit", "budget"));
           break;
         }
       }
@@ -685,7 +684,7 @@ function sceneSemanticIssues(scene: JsonRecord): ValidationIssue[] {
   }
   const connectorMap = new Map<unknown, JsonRecord>(connectors.map((record) => [record.connector_snapshot_id, record]));
   const connectorIdsByOwner = new Map<unknown, Set<unknown>>();
-  const forwardEdges = new Map<unknown, unknown>();
+  const publicEdges = new Map<unknown, unknown>();
   connectors.forEach((connector, index) => {
     const path = `/connectors/${index}`;
     const owner = definitionMap.get(connector.owner_definition_id);
@@ -711,11 +710,11 @@ function sceneSemanticIssues(scene: JsonRecord): ValidationIssue[] {
     if (anchorKind === "geometry" && owner.kind !== "part") {
       issues.push(issue("connector_invalid", `${path}/owner_definition_id`, "geometry connector owner must be a Part"));
     }
-    if (anchorKind === "placement" && owner.kind !== "part" && owner.kind !== "assembly") {
-      issues.push(issue("connector_invalid", `${path}/owner_definition_id`, "connector owner must be a Product definition"));
+    if (anchorKind === "placement" && owner.kind !== "part") {
+      issues.push(issue("connector_invalid", `${path}/owner_definition_id`, "placement connector owner must be a Part"));
     }
-    if (anchorKind === "forwarded" && owner.kind !== "assembly") {
-      issues.push(issue("connector_invalid", `${path}/owner_definition_id`, "forwarded connector owner must be an Assembly"));
+    if (anchorKind === "public" && owner.kind !== "assembly") {
+      issues.push(issue("connector_invalid", `${path}/owner_definition_id`, "public connector owner must be an Assembly"));
     }
     const connectorSource = connector.source;
     if (sourceKind === "model") {
@@ -735,90 +734,33 @@ function sceneSemanticIssues(scene: JsonRecord): ValidationIssue[] {
     }
     const transform = transformIssue(connector.local_transform, `${path}/local_transform`);
     if (transform !== null) issues.push(transform);
-    if (anchorKind === "forwarded") {
-      const forwarded = isRecord(connector.forwarded_from) ? connector.forwarded_from : {};
-      const sourceSnapshot = forwarded.source_connector_snapshot_id;
+    const sourceSnapshot = connector.source_connector_snapshot_id;
+    if (anchorKind === "public") {
       const sourceConnector = connectorMap.get(sourceSnapshot);
-      if (
-        sourceConnector === undefined ||
-        sourceConnector.owner_definition_id !== forwarded.source_definition_id ||
-        sourceConnector.connector_id !== forwarded.source_connector_id
-      ) {
-        issues.push(issue("connector_invalid", `${path}/forwarded_from`, "forwarded connector source snapshot ownership is invalid"));
-      }
-      forwardEdges.set(connector.connector_snapshot_id, sourceSnapshot);
-      if (forwarded.offset !== null && forwarded.offset !== undefined) {
-        const offset = transformIssue(forwarded.offset, `${path}/forwarded_from/offset`);
-        if (offset !== null) issues.push(offset);
-      }
-      if (owner.kind === "assembly") {
-        const ownerNodes = nodes.filter((node) =>
-          node.definition_id === connector.owner_definition_id &&
-          isRecord(node.source) &&
-          node.source.kind === "product_occurrence"
-        );
-        const sourceChildren: JsonRecord[] = [];
-        for (const ownerNode of ownerNodes) {
-          const ownerNodeSource = ownerNode.source as JsonRecord;
-          const expectedPath = [
-            ...(Array.isArray(ownerNodeSource.component_path) ? ownerNodeSource.component_path : []),
-            forwarded.source_component_id,
-          ];
-          const matches = nodes.filter((node) =>
-            isRecord(node.source) &&
-            node.source.kind === "product_occurrence" &&
-            node.source.root_id === ownerNodeSource.root_id &&
-            Array.isArray(node.source.component_path) &&
-            node.source.component_path.length === expectedPath.length &&
-            node.source.component_path.every((component, componentIndex) => component === expectedPath[componentIndex]) &&
-            node.parent_node_id === ownerNode.node_id
-          );
-          if (matches.length !== 1 || matches[0].definition_id !== forwarded.source_definition_id) {
-            issues.push(issue("connector_invalid", `${path}/forwarded_from`, "forwarded connector source component is not one exact direct child"));
-          } else {
-            sourceChildren.push(matches[0]);
-          }
+      if (sourceConnector === undefined) {
+        issues.push(issue("connector_invalid", `${path}/source_connector_snapshot_id`, "public connector source snapshot does not exist"));
+      } else {
+        if (sourceConnector.anchor_kind === "public") {
+          publicEdges.set(connector.connector_snapshot_id, sourceSnapshot);
         }
-        if (sourceChildren.length > 1) {
-          const expected = canonicalJsonBytes(sourceChildren[0].transform);
-          if (sourceChildren.slice(1).some((child) => !canonicalJsonBytes(child.transform).equals(expected))) {
-            issues.push(issue("connector_invalid", `${path}/forwarded_from`, "forwarded connector source child transforms differ between owner occurrences"));
-          }
-        }
-        if (sourceChildren.length > 0 && sourceConnector !== undefined) {
-          const childTransform = sourceChildren[0].transform;
-          const sourceTransform = sourceConnector.local_transform;
-          const offset = forwarded.offset ?? {
-            origin: [0, 0, 0],
-            x_axis: [1, 0, 0],
-            y_axis: [0, 1, 0],
-            z_axis: [0, 0, 1],
-          };
-          if (
-            isRecord(childTransform) && transformIssue(childTransform, "") === null &&
-            isRecord(sourceTransform) && transformIssue(sourceTransform, "") === null &&
-            isRecord(offset) && transformIssue(offset, "") === null &&
-            isRecord(connector.local_transform) && transformIssue(connector.local_transform, "") === null
-          ) {
-            const expected = composeRigidTransforms(composeRigidTransforms(childTransform, sourceTransform), offset);
-            if (!rigidTransformsEqual(connector.local_transform, expected)) {
-              issues.push(issue("connector_invalid", `${path}/local_transform`, "forwarded connector transform does not match child, source, and offset composition"));
-            }
-          }
+        if (sourceConnector.owner_definition_id === connector.owner_definition_id) {
+          issues.push(issue("connector_invalid", `${path}/source_connector_snapshot_id`, "public connector source must belong to a child definition"));
         }
       }
+    } else if (sourceSnapshot !== null && sourceSnapshot !== undefined) {
+      issues.push(issue("connector_invalid", `${path}/source_connector_snapshot_id`, "non-public connector cannot reference a source snapshot"));
     }
   });
-  for (const start of forwardEdges.keys()) {
+  for (const start of publicEdges.keys()) {
     const seen = new Set<unknown>();
     let current: unknown = start;
-    while (forwardEdges.has(current)) {
+    while (publicEdges.has(current)) {
       if (seen.has(current)) {
-        issues.push(issue("connector_invalid", "/connectors", "forwarded connector graph contains a cycle"));
+        issues.push(issue("connector_invalid", "/connectors", "public connector graph contains a cycle"));
         break;
       }
       seen.add(current);
-      current = forwardEdges.get(current);
+      current = publicEdges.get(current);
     }
   }
   const cameras = Array.isArray(scene.cameras) ? scene.cameras.filter(isRecord) : [];
@@ -1046,7 +988,6 @@ function normalizedProductSemanticIssues(value: JsonRecord): ValidationIssue[] {
     issues.push(issue("id_duplicate", "/connectors", "connector IDs must be unique"));
   }
   if (value.kind !== "assembly") return issues;
-
   const components = Array.isArray(value.components) ? value.components.filter(isRecord) : [];
   const componentIds = components.map((component) => component.component_id);
   if (new Set(componentIds).size !== componentIds.length) {
@@ -1057,6 +998,16 @@ function normalizedProductSemanticIssues(value: JsonRecord): ValidationIssue[] {
   if (grounded.some((componentId) => !componentSet.has(componentId))) {
     issues.push(issue("reference_missing", "/grounded_component_ids", "grounded component does not exist"));
   }
+  const publicConnectors = Array.isArray(value.public_connectors) ? value.public_connectors.filter(isRecord) : [];
+  const publicIds = publicConnectors.map((connector) => connector.public_connector_id);
+  if (new Set(publicIds).size !== publicIds.length) {
+    issues.push(issue("id_duplicate", "/public_connectors", "public connector IDs must be unique"));
+  }
+  publicConnectors.forEach((connector, index) => {
+    if (!componentSet.has(connector.component_id)) {
+      issues.push(issue("reference_missing", `/public_connectors/${index}/component_id`, "public connector component does not exist"));
+    }
+  });
   const constraints = Array.isArray(value.constraints) ? value.constraints.filter(isRecord) : [];
   const constraintIds = constraints.map((constraint) => constraint.constraint_id);
   if (new Set(constraintIds).size !== constraintIds.length) {

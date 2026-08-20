@@ -20,7 +20,7 @@ export const BASE_LIMITS = {
   connectors: 100_000,
   cameras: 1000,
   hierarchy_depth: 256,
-  forwarded_connector_depth: 64,
+  public_connector_depth: 64,
   entities_per_sidecar: 500_000,
   entities_total: 2_000_000,
   triangle_vertices_per_asset: 2_000_000,

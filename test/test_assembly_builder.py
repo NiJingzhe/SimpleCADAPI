@@ -115,9 +115,9 @@ def _build_nested_gear_train(tmp_path: Path):
             pitch_radius_b=8.0,
         )
         assembly = scad.solve_assembly_constraints_rassembly(assembly=assembly)
-        return scad.forward_connector_rassembly(
+        return scad.set_public_connector_rassembly(
             assembly=assembly,
-            connector_id="output_axis",
+            public_connector_id="output_axis",
             source_component_id="gear_b",
             source_connector_id="axis",
         )
@@ -142,9 +142,9 @@ def _build_nested_gear_train(tmp_path: Path):
             component_id="train_right",
             placement=scad.make_placement_rplacement(origin=(50.0, 0.0, 0.0)),
         )
-        return scad.forward_connector_rassembly(
+        return scad.set_public_connector_rassembly(
             assembly=assembly,
-            connector_id="service_axis",
+            public_connector_id="service_axis",
             source_component_id="train_right",
             source_connector_id="output_axis",
         )
@@ -178,7 +178,7 @@ def test_assemble_external_reference_round_trip_preserves_hierarchy_and_coupling
     assert loaded.canonical_bytes == pair.definition.canonical_bytes
     assert isinstance(rebuilt, scad.Assembly)
     assert rebuilt.component_ids() == ("train_left", "train_right")
-    assert rebuilt.connector_ids() == ("service_axis",)
+    assert rebuilt.public_connector_ids() == ("service_axis",)
     left = rebuilt.get_component("train_left").item
     right = rebuilt.get_component("train_right").item
     assert left is right
@@ -289,17 +289,18 @@ def test_nested_occurrence_placements_survive_materialization_and_replay(
                 component_id="inner_ring",
                 connector_id="axis",
             ),
-            drive_angle_degrees=None,
+            drive_angle_degrees=90.0,
         )
-        assembly = scad.forward_connector_rassembly(
+        assembly = scad.solve_assembly_constraints_rassembly(assembly=assembly)
+        assembly = scad.set_public_connector_rassembly(
             assembly=assembly,
-            connector_id="outer_axis",
+            public_connector_id="outer_axis",
             source_component_id="outer_ring",
             source_connector_id="axis",
         )
-        return scad.forward_connector_rassembly(
+        return scad.set_public_connector_rassembly(
             assembly=assembly,
-            connector_id="inner_axis",
+            public_connector_id="inner_axis",
             source_component_id="inner_ring",
             source_connector_id="axis",
         )
@@ -380,11 +381,9 @@ def test_nested_occurrence_placements_survive_materialization_and_replay(
         for record in fixture.definition.solved_snapshot["occurrence_placements"]
     }
 
-    assert occurrence_placements[("bearing", "inner_ring")]["x_axis"] == [
-        0.0,
-        1.0,
-        0.0,
-    ]
+    assert occurrence_placements[("bearing", "inner_ring")]["x_axis"] == pytest.approx(
+        quarter_turn.x_axis
+    )
 
     for restored in (
         fixture.value,
@@ -676,7 +675,7 @@ def test_assemble_reuses_independent_constraint_components(tmp_path: Path) -> No
     assert scad.inspect_assembly_constraints_rconstraintreport(changed.value).solved
 
 
-def test_nested_forwarded_connector_change_invalidates_parent_component(
+def test_nested_public_connector_change_invalidates_parent_component(
     tmp_path: Path,
 ) -> None:
     policy = _policy(tmp_path / "cache")
@@ -709,7 +708,7 @@ def test_nested_forwarded_connector_change_invalidates_parent_component(
                 "child",
                 scad.identity_placement_rplacement(),
             )
-            return scad.forward_connector_rassembly(
+            return scad.set_public_connector_rassembly(
                 assembly,
                 "output",
                 "child",

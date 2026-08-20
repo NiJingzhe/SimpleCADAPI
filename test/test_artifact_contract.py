@@ -18,7 +18,7 @@ from simplecadapi.artifacts.feature_graph import (
     encode_feature_graph_artifact,
 )
 from simplecadapi.artifacts.part_definition import PartDefinition
-from simplecadapi.artifacts.references import BlobRef, InterfaceHashes
+from simplecadapi.artifacts.references import BlobRef, ConnectorInterface, InterfaceHashes
 from simplecadapi.artifacts.validation import (
     parse_artifact_json,
     validate_artifact_blobs,
@@ -120,6 +120,22 @@ def _assembly_definition():
         solved_snapshot={"component_placements": []},
         blobs={feature_ref.path: feature_payload},
     )
+
+
+def test_connector_interface_hash_includes_public_name() -> None:
+    common = {
+        "connector_id": "output_axis",
+        "anchor_kind": "public",
+        "local_frame": scad.identity_placement_rplacement().to_dict(),
+        "binding": None,
+        "source_component_id": "rotor",
+        "source_connector_id": "axis",
+    }
+
+    unnamed = ConnectorInterface(name=None, **common)
+    named = ConnectorInterface(name="Output axis", **common)
+
+    assert named.interface_hash != unnamed.interface_hash
 
 
 def test_part_definition_canonical_roundtrip_and_blob_validation():

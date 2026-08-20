@@ -266,13 +266,9 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "op": "make_placement_connector_rconnector",
     },
     "add_connector_rpart": {"status": "replayable", "op": "make_add_connector_rpart"},
-    "add_connector_rassembly": {
+    "set_public_connector_rassembly": {
         "status": "replayable",
-        "op": "make_add_connector_rassembly",
-    },
-    "forward_connector_rassembly": {
-        "status": "replayable",
-        "op": "make_forward_connector_rassembly",
+        "op": "make_set_public_connector_rassembly",
     },
     "make_connector_ref_rconnectorref": {
         "status": "replayable",
@@ -550,8 +546,7 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_vertex_connector_rconnector",
     "make_placement_connector_rconnector",
     "make_add_connector_rpart",
-    "make_add_connector_rassembly",
-    "make_forward_connector_rassembly",
+    "make_set_public_connector_rassembly",
     "make_connector_ref_rconnectorref",
     "make_scalar_limit_rscalarlimit",
     "make_ground_component_rassembly",
@@ -3099,66 +3094,48 @@ def _execute_graph(
                             _store_outputs(node, result)
                         continue
 
-                    if op_name == "make_add_connector_rassembly":
-                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
-                        connector_outputs = _input_outputs(ctx, outputs, node, 1)
-                        if assembly_outputs and connector_outputs:
-                            result = ops.add_connector_rassembly(
-                                cast(Assembly, assembly_outputs[0]),
-                                cast(Connector, connector_outputs[0]),
+                    if op_name == "make_set_public_connector_rassembly":
+                        allowed_params = {
+                            "assembly_id",
+                            "public_connector_id",
+                            "source_component_id",
+                            "source_connector_id",
+                            "name",
+                        }
+                        unexpected = sorted(set(params) - allowed_params)
+                        if unexpected:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) contains unsupported parameter(s): "
+                                + ", ".join(unexpected)
                             )
-                            _store_outputs(node, result)
-                        continue
-
-                    if op_name == "make_forward_connector_rassembly":
                         ctx.require_params(
                             node.node_id,
                             op_name,
                             params,
                             (
-                                "connector_id",
+                                "public_connector_id",
                                 "source_component_id",
                                 "source_connector_id",
                             ),
                         )
                         assembly_outputs = _input_outputs(ctx, outputs, node, 0)
-                        offset_outputs = (
-                            _input_outputs(ctx, outputs, node, 1)
-                            if len(node.inputs) > 1
-                            else []
-                        )
-                        offset = (
-                            cast(Optional[Placement], offset_outputs[0])
-                            if offset_outputs
-                            else None
-                        )
-                        if offset is None and isinstance(params.get("offset"), dict):
-                            offset_data = cast(Dict[str, Any], params["offset"])
-                            offset = Placement(
-                                cast(
-                                    Any,
-                                    tuple(offset_data.get("origin", (0.0, 0.0, 0.0))),
-                                ),
-                                x_axis=cast(
-                                    Any,
-                                    tuple(offset_data.get("x_axis", (1.0, 0.0, 0.0))),
-                                ),
-                                y_axis=cast(
-                                    Any,
-                                    tuple(offset_data.get("y_axis", (0.0, 1.0, 0.0))),
-                                ),
-                            )
                         if assembly_outputs:
-                            result = ops.forward_connector_rassembly(
-                                cast(Assembly, assembly_outputs[0]),
-                                str(params["connector_id"]),
-                                str(params["source_component_id"]),
-                                str(params["source_connector_id"]),
+                            result = ops.set_public_connector_rassembly(
+                                assembly=cast(Assembly, assembly_outputs[0]),
+                                public_connector_id=str(
+                                    params["public_connector_id"]
+                                ),
+                                source_component_id=str(
+                                    params["source_component_id"]
+                                ),
+                                source_connector_id=str(
+                                    params["source_connector_id"]
+                                ),
                                 name=cast(Optional[str], params.get("name")),
-                                offset=offset,
                             )
                             _store_outputs(node, result)
                         continue
+
 
                     if op_name == "make_connector_ref_rconnectorref":
                         ctx.require_params(

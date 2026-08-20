@@ -45,6 +45,8 @@ def _wrapper(root: Mapping[str, Any], pointer: str) -> dict[str, Any]:
 
 def _string_example(schema: Mapping[str, Any]) -> str:
     pattern = str(schema.get("pattern", ""))
+    if pattern == "^[A-Za-z0-9][A-Za-z0-9._/-]*\\.py$":
+        return "model.py"
     if pattern == "^sha256:[0-9a-f]{64}$":
         return "sha256:" + "0" * 64
     if pattern.startswith("^appearance/evaluated/"):
@@ -304,7 +306,6 @@ def build_schema_field_matrices(schema_dir: Path) -> list[dict[str, Any]]:
                 for anchor_name in (
                     "geometryAnchor",
                     "placementAnchor",
-                    "forwardedAnchor",
                 ):
                     anchor = _example(root, root["$defs"][anchor_name])
                     variants.append(

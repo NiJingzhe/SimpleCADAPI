@@ -24,7 +24,8 @@ class TestStdBearingSurface(unittest.TestCase):
 
     def test_public_bearing_factories_follow_make_rtype_naming(self):
         factory_names = [
-            name for name in scad.std.bearing.__all__
+            name
+            for name in scad.std.bearing.__all__
             if callable(getattr(scad.std.bearing, name, None))
         ]
 
@@ -81,7 +82,7 @@ class TestBallBearingAssembly(unittest.TestCase):
             ),
         )
         self.assertEqual(bearing.constraint_ids(), ("inner_outer_revolute",))
-        self.assertEqual(bearing.connector_ids(), ("outer_axis", "inner_axis"))
+        self.assertEqual(bearing.public_connector_ids(), ("outer_axis", "inner_axis"))
         self.assertEqual(bearing.grounded_component_ids, ())
         constraint = bearing.get_constraint("inner_outer_revolute")
         self.assertEqual(constraint.constraint_kind, "revolute")
@@ -111,8 +112,12 @@ class TestBallBearingAssembly(unittest.TestCase):
             inner_ring_meta["outer_radius"],
             meta["ball_pitch_radius"] - ball_radius * 0.75,
         )
-        self.assertLess(outer_ring_meta["raceway_mouth_z"], outer_ring_meta["groove_radius"])
-        self.assertLess(inner_ring_meta["raceway_mouth_z"], inner_ring_meta["groove_radius"])
+        self.assertLess(
+            outer_ring_meta["raceway_mouth_z"], outer_ring_meta["groove_radius"]
+        )
+        self.assertLess(
+            inner_ring_meta["raceway_mouth_z"], inner_ring_meta["groove_radius"]
+        )
 
         from OCP.BRepAdaptor import BRepAdaptor_Surface
         from OCP.GeomAbs import GeomAbs_Sphere, GeomAbs_Torus
@@ -138,10 +143,12 @@ class TestBallBearingAssembly(unittest.TestCase):
 
         self.assertEqual(len(preview.get_solids()), 9)
         self.assertGreater(preview.get_volume(), 0.0)
-        self.assertTrue(scad.measure_constraint_residual_rconstraintresidual(
-            bearing,
-            "inner_outer_revolute",
-        ).within_tolerance)
+        self.assertTrue(
+            scad.measure_constraint_residual_rconstraintresidual(
+                bearing,
+                "inner_outer_revolute",
+            ).within_tolerance
+        )
 
         payload = json.loads(model_json)
         ops = [node["op"] for node in payload["graph"]["nodes"]]
@@ -149,7 +156,7 @@ class TestBallBearingAssembly(unittest.TestCase):
         self.assertEqual(ops.count("make_three_point_arc_redge"), 2)
         self.assertEqual(ops.count("make_revolve_rsolid"), 2)
         self.assertIn("make_revolute_constraint_rassembly", ops)
-        self.assertEqual(ops.count("make_forward_connector_rassembly"), 2)
+        self.assertEqual(ops.count("make_set_public_connector_rassembly"), 2)
         self.assertIn("make_compound_from_assembly_rcompound", ops)
         stdlib_nodes = [
             node
@@ -191,7 +198,9 @@ class TestBallBearingAssembly(unittest.TestCase):
         shaft_part = scad.make_part_rpart("shaft", shaft)
         top_face = max(
             shaft.get_faces(),
-            key=lambda face: face.get_center().z if face.get_normal_at().z > 0.7 else -999.0,
+            key=lambda face: (
+                face.get_center().z if face.get_normal_at().z > 0.7 else -999.0
+            ),
         )
         shaft_axis = scad.make_face_connector_rconnector("axis", top_face)
         shaft_part = scad.add_connector_rpart(shaft_part, shaft_axis)
@@ -214,12 +223,14 @@ class TestBallBearingAssembly(unittest.TestCase):
         bearing = scad.solve_assembly_constraints_rassembly(bearing, strict=False)
 
         self.assertIn("shaft", bearing.component_ids())
-        self.assertTrue(scad.measure_constraint_residual_rconstraintresidual(
-            bearing,
-            "shaft_to_inner_ring",
-        ).within_tolerance)
+        self.assertTrue(
+            scad.measure_constraint_residual_rconstraintresidual(
+                bearing,
+                "shaft_to_inner_ring",
+            ).within_tolerance
+        )
 
-    def test_parent_assembly_can_bind_to_bearing_forwarded_connectors(self):
+    def test_parent_assembly_can_bind_to_bearing_public_connectors(self):
         bearing = scad.std.bearing.make_ball_bearing_rassembly(
             8.0,
             22.0,
@@ -239,7 +250,9 @@ class TestBallBearingAssembly(unittest.TestCase):
         shaft_part = scad.make_part_rpart("parent_bind_shaft", shaft)
         top_face = max(
             shaft.get_faces(),
-            key=lambda face: face.get_center().z if face.get_normal_at().z > 0.7 else -999.0,
+            key=lambda face: (
+                face.get_center().z if face.get_normal_at().z > 0.7 else -999.0
+            ),
         )
         shaft_axis = scad.make_face_connector_rconnector("axis", top_face)
         shaft_part = scad.add_connector_rpart(shaft_part, shaft_axis)
@@ -265,10 +278,12 @@ class TestBallBearingAssembly(unittest.TestCase):
         )
         parent = scad.solve_assembly_constraints_rassembly(parent)
 
-        self.assertTrue(scad.measure_constraint_residual_rconstraintresidual(
-            parent,
-            "shaft_to_bearing_inner_axis",
-        ).within_tolerance)
+        self.assertTrue(
+            scad.measure_constraint_residual_rconstraintresidual(
+                parent,
+                "shaft_to_bearing_inner_axis",
+            ).within_tolerance
+        )
 
     def test_invalid_params(self):
         with self.assertRaises(Exception):

@@ -106,7 +106,6 @@ from .operations import (  # 基础几何创建; 变换操作; 3D操作; 标签�
     add_bspline_rsketch,
     add_circle_rsketch,
     add_component_rassembly,
-    add_connector_rassembly,
     add_connector_rpart,
     add_fixed_constraint_rassembly,
     add_gear_constraint_rassembly,
@@ -145,7 +144,7 @@ from .operations import (  # 基础几何创建; 变换操作; 3D操作; 标签�
     explain_tag,
     extrude_rsolid,
     fillet_rsolid,
-    forward_connector_rassembly,
+    set_public_connector_rassembly,
     get_sketch_entity_rsketchref,
     get_sketch_point_rsketchref,
     ground_component_rassembly,
@@ -221,7 +220,7 @@ from .operations import (  # 基础几何创建; 变换操作; 3D操作; 标签�
     unground_component_rassembly,
     union_rsolid,
 )
-from .assembly import Assembly, Component
+from .assembly import Assembly, Component, PublicConnectorRef
 from .connector import Connector, ConnectorAnchor, ConnectorRef, GeometryRef
 from .constraint import Constraint, ConstraintReport, ConstraintResidual, ScalarLimit
 from .material import Material
@@ -485,8 +484,7 @@ __all__ = [
     "make_vertex_connector_rconnector",
     "make_placement_connector_rconnector",
     "add_connector_rpart",
-    "add_connector_rassembly",
-    "forward_connector_rassembly",
+    "set_public_connector_rassembly",
     "make_connector_ref_rconnectorref",
     "make_scalar_limit_rscalarlimit",
     "ground_component_rassembly",
@@ -740,6 +738,7 @@ __all__ = [
     "SimpleCADError",
     "Assembly",
     "Component",
+    "PublicConnectorRef",
     "Connector",
     "ConnectorAnchor",
     "ConnectorRef",

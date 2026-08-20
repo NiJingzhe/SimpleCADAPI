@@ -1,12 +1,10 @@
 """Public surface modeling namespace.
 
-The constructors are implemented in :mod:`simplecadapi.operations` so they
-participate in the same graph, coordinate-system, tagging, and error contracts
-as the rest of the SDK. This module provides the focused namespace requested by
-surface-heavy clients.
+The constructors are implemented in the focused operator module so they
+participate in the same graph, coordinate-system, tagging, and error contracts.
 """
 
-from .operations import (
+from ._operators_geometry import (
     SurfaceBoundary,
     SurfaceFillingSettings,
     fill_holes_rshell,

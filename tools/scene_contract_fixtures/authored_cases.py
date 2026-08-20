@@ -124,26 +124,15 @@ def build_normalized_product_matrix_cases(
             "name": None,
         }
     ]
-    forwarded = deepcopy(assembly)
-    forwarded["connectors"] = [
+    public = deepcopy(assembly)
+    public["public_connectors"] = [
         {
-            "anchor": {
-                "anchor_kind": "forwarded",
-                "offset": None,
-                "source_component_id": "component_a",
-                "source_connector_id": "placement",
-            },
-            "connector_id": "forwarded",
+            "public_connector_id": "public",
+            "component_id": "component_a",
+            "connector_id": "placement",
             "name": None,
         }
     ]
-    forwarded_offset = deepcopy(forwarded)
-    forwarded_offset["connectors"][0]["anchor"]["offset"] = {
-        "origin": [0, 0, 5],
-        "x_axis": [1, 0, 0],
-        "y_axis": [0, 1, 0],
-        "z_axis": [0, 0, 1],
-    }
     return [
         validation_case(
             "valid_complete_material", material_part, validate_normalized_product
@@ -155,13 +144,8 @@ def build_normalized_product_matrix_cases(
             "valid_placement_connector", placement, validate_normalized_product
         ),
         validation_case(
-            "valid_forwarded_connector_null_offset",
-            forwarded,
-            validate_normalized_product,
-        ),
-        validation_case(
-            "valid_forwarded_connector_offset",
-            forwarded_offset,
+            "valid_public_connector",
+            public,
             validate_normalized_product,
         ),
     ]

@@ -22,7 +22,6 @@ def _connector(
         anchor_kind="geometry" if binding is not None else "placement",
         local_frame=scad.make_placement_rplacement(origin=origin).to_dict(),
         binding=binding,
-        forwarded_from=None,
     )
 
 

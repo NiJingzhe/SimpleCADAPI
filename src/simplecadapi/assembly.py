@@ -6,13 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
 
 from ._semantic import SemanticValueMixin, _validate_identifier
-from .connector import (
-    Connector,
-    ConnectorRef,
-    _validate_assembly_connector_anchors,
-    _validate_connectors,
-    resolve_connector,
-)
+from .connector import ConnectorRef, resolve_connector, resolve_item_connector
 from .constraint import Constraint, _validate_constraints
 from .part import Part
 from .placement import Placement
@@ -28,6 +22,49 @@ def _assembly_authored_runtime(value: SemanticValueMixin) -> Dict[str, Any]:
 
 
 AssemblyItem = Union[Part, "Assembly"]
+@dataclass(frozen=True)
+class PublicConnectorRef:
+    """Public alias for an existing connector on a direct child component."""
+
+    public_connector_id: str
+    component_id: str
+    connector_id: str
+    name: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "public_connector_id",
+            _validate_identifier(
+                self.public_connector_id,
+                field_name="public_connector_id",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "component_id",
+            _validate_identifier(self.component_id, field_name="component_id"),
+        )
+        object.__setattr__(
+            self,
+            "connector_id",
+            _validate_identifier(self.connector_id, field_name="connector_id"),
+        )
+        if self.name is not None:
+            name = str(self.name).strip()
+            if not name:
+                raise ValueError("name must not be empty when provided")
+            object.__setattr__(self, "name", name)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "public_connector_id": self.public_connector_id,
+            "component_id": self.component_id,
+            "connector_id": self.connector_id,
+            "name": self.name,
+        }
+
+
 
 
 @dataclass(frozen=True)
@@ -78,7 +115,7 @@ class Assembly(SemanticValueMixin):
     assembly_id: str
     name: Optional[str] = None
     components: Tuple[Component, ...] = ()
-    connectors: Tuple[Connector, ...] = ()
+    public_connectors: Tuple[PublicConnectorRef, ...] = ()
     constraints: Tuple[Constraint, ...] = ()
     grounded_component_ids: Tuple[str, ...] = ()
     _metadata: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
@@ -108,11 +145,29 @@ class Assembly(SemanticValueMixin):
             raise ValueError(
                 "duplicate component_id in assembly: " + ", ".join(duplicates)
             )
-        connectors = _validate_connectors(self.connectors)
-        object.__setattr__(self, "connectors", connectors)
-        for connector in connectors:
-            connector._set_runtime("owner_assembly", self)
-        _validate_assembly_connector_anchors(self)
+        public_connectors = tuple(self.public_connectors or ())
+        for public in public_connectors:
+            if not isinstance(public, PublicConnectorRef):
+                raise TypeError(
+                    "public_connectors must contain PublicConnectorRef values"
+                )
+        public_ids = [public.public_connector_id for public in public_connectors]
+        duplicates = sorted(
+            {
+                public_id
+                for public_id in public_ids
+                if public_ids.count(public_id) > 1
+            }
+        )
+        if duplicates:
+            raise ValueError(
+                "duplicate public_connector_id in assembly: "
+                + ", ".join(duplicates)
+            )
+        object.__setattr__(self, "public_connectors", public_connectors)
+        for public in public_connectors:
+            component = self.get_component(public.component_id)
+            resolve_item_connector(component.item, public.connector_id)
         constraints = _validate_constraints(self.constraints)
         object.__setattr__(self, "constraints", constraints)
         for constraint in constraints:
@@ -154,7 +209,7 @@ class Assembly(SemanticValueMixin):
             self.assembly_id,
             name=self.name,
             components=(*self.components, component),
-            connectors=self.connectors,
+            public_connectors=self.public_connectors,
             constraints=self.constraints,
             grounded_component_ids=self.grounded_component_ids,
             _metadata=dict(self._metadata),
@@ -188,36 +243,43 @@ class Assembly(SemanticValueMixin):
             self.assembly_id,
             name=self.name,
             components=tuple(components),
-            connectors=self.connectors,
+            public_connectors=self.public_connectors,
             constraints=self.constraints,
             grounded_component_ids=self.grounded_component_ids,
             _metadata=dict(self._metadata),
             _runtime={},
         )
 
-    def connector_ids(self) -> Tuple[str, ...]:
-        return tuple(connector.connector_id for connector in self.connectors)
+    def public_connector_ids(self) -> Tuple[str, ...]:
+        return tuple(
+            public.public_connector_id for public in self.public_connectors
+        )
 
-    def get_connector(self, connector_id: str) -> Connector:
-        target = _validate_identifier(connector_id, field_name="connector_id")
-        for connector in self.connectors:
-            if connector.connector_id == target:
-                connector._set_runtime("owner_assembly", self)
-                return connector
-        raise KeyError(f"assembly has no connector_id '{target}'")
+    def get_public_connector(self, public_connector_id: str) -> PublicConnectorRef:
+        target = _validate_identifier(
+            public_connector_id,
+            field_name="public_connector_id",
+        )
+        for public in self.public_connectors:
+            if public.public_connector_id == target:
+                return public
+        raise KeyError(f"assembly has no public_connector_id '{target}'")
 
-    def with_connector(self, connector: Connector) -> "Assembly":
-        if not isinstance(connector, Connector):
-            raise TypeError("connector must be a Connector")
-        if connector.connector_id in self.connector_ids():
+    def with_public_connector(self, public: PublicConnectorRef) -> "Assembly":
+        if not isinstance(public, PublicConnectorRef):
+            raise TypeError("public must be a PublicConnectorRef")
+        if public.public_connector_id in self.public_connector_ids():
             raise ValueError(
-                f"duplicate connector_id in assembly: {connector.connector_id}"
+                "duplicate public_connector_id in assembly: "
+                f"{public.public_connector_id}"
             )
+        component = self.get_component(public.component_id)
+        resolve_item_connector(component.item, public.connector_id)
         return Assembly(
             self.assembly_id,
             name=self.name,
             components=self.components,
-            connectors=(*self.connectors, connector),
+            public_connectors=(*self.public_connectors, public),
             constraints=self.constraints,
             grounded_component_ids=self.grounded_component_ids,
             _metadata=dict(self._metadata),
@@ -246,7 +308,7 @@ class Assembly(SemanticValueMixin):
             self.assembly_id,
             name=self.name,
             components=self.components,
-            connectors=self.connectors,
+            public_connectors=self.public_connectors,
             constraints=(*self.constraints, constraint),
             grounded_component_ids=self.grounded_component_ids,
             _metadata=dict(self._metadata),
@@ -262,7 +324,7 @@ class Assembly(SemanticValueMixin):
             self.assembly_id,
             name=self.name,
             components=self.components,
-            connectors=self.connectors,
+            public_connectors=self.public_connectors,
             constraints=self.constraints,
             grounded_component_ids=(*self.grounded_component_ids, target),
             _metadata=dict(self._metadata),
@@ -279,7 +341,7 @@ class Assembly(SemanticValueMixin):
             self.assembly_id,
             name=self.name,
             components=self.components,
-            connectors=self.connectors,
+            public_connectors=self.public_connectors,
             constraints=self.constraints,
             grounded_component_ids=grounded,
             _metadata=dict(self._metadata),
@@ -291,7 +353,9 @@ class Assembly(SemanticValueMixin):
             "assembly_id": self.assembly_id,
             "name": self.name,
             "components": [component.to_dict() for component in self.components],
-            "connectors": [connector.to_dict() for connector in self.connectors],
+            "public_connectors": [
+                public.to_dict() for public in self.public_connectors
+            ],
             "constraints": [constraint.to_dict() for constraint in self.constraints],
             "grounded_component_ids": list(self.grounded_component_ids),
         }
@@ -359,7 +423,7 @@ def _with_component_path_placement(
         assembly.assembly_id,
         name=assembly.name,
         components=components,
-        connectors=assembly.connectors,
+        public_connectors=assembly.public_connectors,
         constraints=assembly.constraints,
         grounded_component_ids=assembly.grounded_component_ids,
         _metadata=dict(assembly._metadata),
@@ -454,7 +518,7 @@ def _restore_component_occurrence_placements(
                 owner.assembly_id,
                 name=owner.name,
                 components=tuple(components),
-                connectors=owner.connectors,
+                public_connectors=owner.public_connectors,
                 constraints=owner.constraints,
                 grounded_component_ids=owner.grounded_component_ids,
                 _metadata=dict(owner._metadata),
@@ -502,4 +566,4 @@ def _assert_no_assembly_cycle(parent: Assembly, child: Assembly) -> None:
             _assert_no_assembly_cycle(parent, component.item)
 
 
-__all__ = ["Assembly", "Component"]
+__all__ = ["Assembly", "Component", "PublicConnectorRef"]

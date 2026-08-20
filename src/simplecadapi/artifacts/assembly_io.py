@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from ..assembly import (
     Assembly,
     Component,
+    PublicConnectorRef,
     _restore_component_occurrence_placements,
 )
 from ..assembly_solver import (
@@ -21,12 +22,11 @@ from ..connector import (
     ConnectorAnchor,
     ConnectorRef,
     GeometryRef,
-    resolve_connector_placement,
 )
 from ..constraint import Constraint, ScalarLimit
 from ..material import Material
 from ..part import Part
-from ..placement import Placement, inverse_placement
+from ..placement import Placement
 from ..scene.archive import canonical_zip_bytes, preflight_zip_bytes
 from .assembly_definition import (
     AssemblyDefinition,
@@ -346,21 +346,20 @@ def validate_assembly_definition_graph(
                         )
 
             for connector_index, connector in enumerate(node.public_connectors):
-                source = dict(connector.forwarded_from or {})
-                component_id = str(source.get("component_id", ""))
-                source_connector_id = str(source.get("connector_id", ""))
+                component_id = str(connector.source_component_id)
+                source_connector_id = str(connector.source_connector_id)
                 instance = instance_by_id.get(component_id)
                 if instance is None:
                     raise ArtifactValidationError(
                         "reference_missing",
-                        f"/public_connectors/{connector_index}/forwarded_from/component_id",
-                        f"forwarded connector references missing instance {component_id!r}",
+                        f"/public_connectors/{connector_index}/source_component_id",
+                        f"public connector references missing instance {component_id!r}",
                     )
                 if source_connector_id not in connector_sets[instance.definition_id]:
                     rendered = "/".join((*trace, instance.instance_id))
                     raise ArtifactValidationError(
                         "reference_missing",
-                        f"/public_connectors/{connector_index}/forwarded_from/connector_id",
+                        f"/public_connectors/{connector_index}/source_connector_id",
                         f"connector {source_connector_id!r} is missing along instance path {rendered}",
                     )
 
@@ -606,7 +605,7 @@ def _runtime_connector(interface: ConnectorInterface) -> Connector:
     raise ArtifactValidationError(
         "connector_invalid",
         "/connectors",
-        "part connector cannot use a forwarded anchor",
+        "part connector must use a geometry or placement anchor",
     )
 
 
@@ -771,46 +770,17 @@ def materialize_definition(
                 )
                 for item in node.instances
             ),
+            public_connectors=tuple(
+                PublicConnectorRef(
+                    public_connector_id=interface.connector_id,
+                    component_id=str(interface.source_component_id),
+                    connector_id=str(interface.source_connector_id),
+                    name=interface.name,
+                )
+                for interface in node.public_connectors
+            ),
             constraints=tuple(_constraint_from_record(item) for item in node.relations),
             grounded_component_ids=node.grounded_instance_ids,
-        )
-        connectors: list[Connector] = []
-        for interface in node.public_connectors:
-            source = dict(interface.forwarded_from or {})
-            component_id = str(source["component_id"])
-            connector_id = str(source["connector_id"])
-            component = authored.get_component(component_id)
-            source_connector = component.item.get_connector(connector_id)
-            source_owner = (
-                component.item if isinstance(component.item, Assembly) else None
-            )
-            source_frame = component.placement.compose(
-                resolve_connector_placement(
-                    source_connector,
-                    owner_assembly=source_owner,
-                )
-            )
-            target_frame = Placement(**dict(interface.local_frame))
-            offset = inverse_placement(source_frame).compose(target_frame)
-            connectors.append(
-                Connector(
-                    interface.connector_id,
-                    name=interface.name,
-                    anchor=ConnectorAnchor(
-                        "forwarded",
-                        source_component_id=component_id,
-                        source_connector_id=connector_id,
-                        offset=offset,
-                    ),
-                )
-            )
-        authored = Assembly(
-            assembly_id=authored.assembly_id,
-            name=authored.name,
-            components=authored.components,
-            connectors=tuple(connectors),
-            constraints=authored.constraints,
-            grounded_component_ids=authored.grounded_component_ids,
         )
         restored = _apply_verified_snapshot(authored, node.solved_snapshot)
         if restored is None:

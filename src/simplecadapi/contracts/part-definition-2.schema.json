@@ -91,14 +91,13 @@
     "connector": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["connector_id", "name", "anchor_kind", "local_frame", "binding", "forwarded_from", "interface_hash", "binding_hash"],
+      "required": ["connector_id", "name", "anchor_kind", "local_frame", "binding", "interface_hash", "binding_hash"],
       "properties": {
         "connector_id": {"$ref": "#/$defs/id"},
         "name": {"type": ["string", "null"], "minLength": 1},
-        "anchor_kind": {"enum": ["geometry", "placement", "forwarded"]},
+        "anchor_kind": {"enum": ["geometry", "placement"]},
         "local_frame": {"$ref": "#/$defs/frame"},
         "binding": {"type": ["object", "null"]},
-        "forwarded_from": {"type": ["object", "null"]},
         "interface_hash": {"$ref": "#/$defs/hash"},
         "binding_hash": {"$ref": "#/$defs/hash"}
       }

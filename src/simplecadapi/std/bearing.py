@@ -21,7 +21,6 @@ from ..operations import (
     apply_tag,
     assign_material_rpart,
     chamfer_rsolid,
-    forward_connector_rassembly,
     identity_placement_rplacement,
     make_assembly_rassembly,
     make_connector_ref_rconnectorref,
@@ -34,6 +33,7 @@ from ..operations import (
     make_three_point_arc_redge,
     make_wire_from_edges_rwire,
     revolve_rsolid,
+    set_public_connector_rassembly,
     union_rsolid,
 )
 from ..core import Face, Solid
@@ -424,24 +424,19 @@ def make_ball_bearing_rassembly(
         drive_angle_degrees=drive_angle_degrees,
         name="Inner ring spins in outer ring",
     )
-    public_axis_offset = make_placement_rplacement(
-        origin=(0.0, 0.0, -bearing_width_value / 2.0),
-    )
-    assembly = forward_connector_rassembly(
+    assembly = set_public_connector_rassembly(
         assembly,
-        connector_id="outer_axis",
+        public_connector_id="outer_axis",
         source_component_id="outer_ring",
         source_connector_id="axis",
         name="Outer ring housing axis",
-        offset=public_axis_offset,
     )
-    assembly = forward_connector_rassembly(
+    assembly = set_public_connector_rassembly(
         assembly,
-        connector_id="inner_axis",
+        public_connector_id="inner_axis",
         source_component_id="inner_ring",
         source_connector_id="axis",
         name="Inner ring shaft axis",
-        offset=public_axis_offset,
     )
     assembly.set_metadata(
         "std.bearing.ball_bearing",

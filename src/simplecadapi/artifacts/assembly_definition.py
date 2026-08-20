@@ -174,11 +174,11 @@ class AssemblyDefinition:
                 "/public_connectors",
                 "connector IDs must be unique",
             )
-        if any(item.anchor_kind != "forwarded" for item in connectors):
+        if any(item.anchor_kind != "public" for item in connectors):
             raise ArtifactValidationError(
                 "connector_invalid",
                 "/public_connectors",
-                "assembly connectors must be forwarded",
+                "assembly connectors must be public declarations",
             )
         object.__setattr__(self, "public_connectors", connectors)
         if not isinstance(self.interface_hashes, InterfaceHashes):

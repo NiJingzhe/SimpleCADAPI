@@ -40,7 +40,7 @@ from ..cache.policy import CachePolicy, resolve_cache_policy
 from ..graph import GraphSession, get_active_session, record_operation_if_active
 from ..assembly import Assembly, _component_occurrence_placements
 from ..assembly_solver import inspect_assembly_constraints
-from ..connector import resolve_connector_placement
+from ..connector import ConnectorRef, resolve_connector_ref_placement
 from ..part import Part
 from ..placement import Placement
 from .assembly_state import (
@@ -138,28 +138,19 @@ def _part_ref(definition: Definition) -> PartRef:
 
 def _public_connector_interface(
     assembly: Assembly,
-    connector: Any,
+    public: Any,
 ) -> ConnectorInterface:
-    anchor = connector.anchor
-    if anchor.anchor_kind != "forwarded":
-        raise ArtifactValidationError(
-            "connector_invalid",
-            "/public_connectors",
-            "assembly connectors must be forwarded",
-        )
     return ConnectorInterface(
-        connector_id=connector.connector_id,
-        name=connector.name,
-        anchor_kind="forwarded",
-        local_frame=resolve_connector_placement(
-            connector,
-            owner_assembly=assembly,
+        connector_id=public.public_connector_id,
+        name=public.name,
+        anchor_kind="public",
+        local_frame=resolve_connector_ref_placement(
+            assembly,
+            ConnectorRef(public.component_id, public.connector_id),
         ).to_dict(),
         binding=None,
-        forwarded_from={
-            "component_id": anchor.source_component_id,
-            "connector_id": anchor.source_connector_id,
-        },
+        source_component_id=public.component_id,
+        source_connector_id=public.connector_id,
     )
 
 
@@ -309,8 +300,8 @@ def _assembly_definition(
     connectors = tuple(
         sorted(
             (
-                _public_connector_interface(assembly, connector)
-                for connector in assembly.connectors
+                _public_connector_interface(assembly, public)
+                for public in assembly.public_connectors
             ),
             key=lambda item: item.connector_id.encode("utf-8"),
         )

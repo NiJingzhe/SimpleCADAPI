@@ -112,10 +112,10 @@ export type Connector = {
   owner_definition_id: StructuralId;
   connector_id: ProductId;
   name: string | null;
-  anchor_kind: "geometry" | "placement" | "forwarded";
+  anchor_kind: "geometry" | "placement" | "public";
   local_transform: Transform;
   target?: ConnectorTarget;
-  forwarded_from?: ForwardedFrom;
+  source_connector_snapshot_id: null | StructuralId;
   source: null | ModelOperationSource | ManualConnectorSource | ProductPackageConnectorSource;
   sdk_metadata: {
     [k: string]: unknown;
@@ -481,17 +481,6 @@ export interface EntityAsset {
 export interface ConnectorTarget {
   entity_asset_id: Hash;
   entity_id: string;
-}
-/**
- * This interface was referenced by `SceneDocument`'s JSON-Schema
- * via the `definition` "forwardedFrom".
- */
-export interface ForwardedFrom {
-  source_component_id: ProductId;
-  source_definition_id: StructuralId;
-  source_connector_id: ProductId;
-  source_connector_snapshot_id: StructuralId;
-  offset: null | Transform;
 }
 /**
  * This interface was referenced by `SceneDocument`'s JSON-Schema

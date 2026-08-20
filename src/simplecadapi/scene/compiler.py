@@ -37,8 +37,8 @@ from OCP.TopAbs import (
 
 from ..core import Compound, Edge, Face, Solid, Vertex
 from ..kernel.ocp_properties import center_of_mass
-from ..assembly import Assembly
-from ..connector import Connector, resolve_connector_placement
+from ..assembly import Assembly, PublicConnectorRef
+from ..connector import Connector, resolve_connector_placement, resolve_item_connector_placement
 from ..material import Material
 from ..part import Part
 from ..placement import Placement, identity_placement
@@ -313,7 +313,7 @@ class _PendingConnector:
     owner_kind: str
     owner_definition_id: str
     owner: Part | Assembly
-    connector: Connector
+    connector: Connector | PublicConnectorRef
 
 
 def _compile_root(root: SceneRoot, *, source: SceneSource, options: SceneCompileOptions, definitions: dict[str, dict[str, Any]], nodes: list[dict[str, Any]], products: dict[str, dict[str, Any]], renderables: dict[str, _Renderable], appearances: dict[str, dict[str, Any]], pending_connectors: list[_PendingConnector]) -> None:
@@ -641,12 +641,15 @@ def _appearance(material: Material | None, root_id: str, appearances: dict[str, 
 
 
 def _pending_connectors(root_id: str, owner_kind: str, owner: Part | Assembly, definition_id: str) -> list[_PendingConnector]:
+    connectors: Sequence[Connector | PublicConnectorRef]
+    if isinstance(owner, Part):
+        connectors = owner.connectors
+    else:
+        connectors = owner.public_connectors
     return [
         _PendingConnector(root_id, owner_kind, definition_id, owner, connector)
-        for connector in owner.connectors
+        for connector in connectors
     ]
-
-
 def _finalize_connectors(
     pending: Sequence[_PendingConnector],
     *,
@@ -668,18 +671,36 @@ def _finalize_connectors(
         if snapshot_id in snapshots:
             return snapshots[snapshot_id]
         if snapshot_id in resolving:
-            raise ValueError(f"cyclic forwarded connector source: {snapshot_id}")
+            raise ValueError(f"cyclic public connector source: {snapshot_id}")
         item = pending_by_id.get(snapshot_id)
         if item is None:
-            raise ValueError(f"forwarded connector source is not compiled: {snapshot_id}")
+            raise ValueError(f"public connector source is not compiled: {snapshot_id}")
         resolving.add(snapshot_id)
         connector = item.connector
-        definition = definitions[item.owner_definition_id]
-        if item.owner_kind == "part" and connector.anchor_kind == "forwarded":
-            raise ValueError("forwarded connectors cannot be owned by Parts")
-        if item.owner_kind == "assembly" and connector.anchor_kind == "geometry":
-            raise ValueError("assembly geometry connectors are not supported")
-        if connector.anchor_kind == "geometry":
+        if isinstance(connector, PublicConnectorRef):
+            if item.owner_kind != "assembly" or not isinstance(item.owner, Assembly):
+                raise ValueError("public connectors require an Assembly owner")
+            component = item.owner.get_component(connector.component_id)
+            source_snapshot_id = _source_connector_snapshot_id(
+                item.root_id, component.item, connector.connector_id
+            )
+            finalize(source_snapshot_id)
+            payload = {
+                "connector_snapshot_id": snapshot_id,
+                "owner_definition_id": item.owner_definition_id,
+                "connector_id": connector.public_connector_id,
+                "name": connector.name,
+                "anchor_kind": "public",
+                "local_transform": component.placement.compose(
+                    resolve_item_connector_placement(
+                        component.item, connector.connector_id
+                    )
+                ).to_dict(),
+                "source_connector_snapshot_id": source_snapshot_id,
+                "source": _connector_source(source, item.owner, connector),
+                "sdk_metadata": {},
+            }
+        elif connector.anchor_kind == "geometry":
             if not isinstance(item.owner, Part):
                 raise ValueError("geometry connectors require a Part owner")
             target = _resolve_connector_target(item.owner.body, connector)
@@ -698,10 +719,11 @@ def _finalize_connectors(
                 "anchor_kind": "geometry",
                 "local_transform": resolve_connector_placement(connector).to_dict(),
                 "target": {"entity_asset_id": entity_asset_id, "entity_id": entity_id},
+                "source_connector_snapshot_id": None,
                 "source": _connector_source(source, item.owner, connector),
                 "sdk_metadata": {},
             }
-        elif connector.anchor_kind == "placement":
+        else:
             payload = {
                 "connector_snapshot_id": snapshot_id,
                 "owner_definition_id": item.owner_definition_id,
@@ -709,40 +731,7 @@ def _finalize_connectors(
                 "name": connector.name,
                 "anchor_kind": "placement",
                 "local_transform": resolve_connector_placement(connector).to_dict(),
-                "source": _connector_source(source, item.owner, connector),
-                "sdk_metadata": {},
-            }
-        else:
-            if not isinstance(item.owner, Assembly):
-                raise ValueError("forwarded connectors require an Assembly owner")
-            anchor = connector.anchor
-            assert anchor is not None
-            source_component_id = anchor.source_component_id
-            source_connector_id = anchor.source_connector_id
-            assert source_component_id is not None and source_connector_id is not None
-            component = item.owner.get_component(source_component_id)
-            source_item = component.item
-            source_kind = "assembly" if isinstance(source_item, Assembly) else "part"
-            source_semantic_id = source_item.assembly_id if isinstance(source_item, Assembly) else source_item.part_id
-            source_snapshot_id = (
-                f"connector/{item.root_id}/{source_kind}/{_encode(source_semantic_id)}/"
-                f"{_encode(source_connector_id)}"
-            )
-            finalize(source_snapshot_id)
-            payload = {
-                "connector_snapshot_id": snapshot_id,
-                "owner_definition_id": item.owner_definition_id,
-                "connector_id": connector.connector_id,
-                "name": connector.name,
-                "anchor_kind": "forwarded",
-                "local_transform": resolve_connector_placement(connector, owner_assembly=item.owner).to_dict(),
-                "forwarded_from": {
-                    "source_component_id": source_component_id,
-                    "source_definition_id": pending_by_id[source_snapshot_id].owner_definition_id,
-                    "source_connector_id": source_connector_id,
-                    "source_connector_snapshot_id": source_snapshot_id,
-                    "offset": anchor.offset.to_dict() if anchor.offset is not None else None,
-                },
+                "source_connector_snapshot_id": None,
                 "source": _connector_source(source, item.owner, connector),
                 "sdk_metadata": {},
             }
@@ -752,21 +741,40 @@ def _finalize_connectors(
 
     for snapshot_id in sorted(pending_by_id, key=lambda value: value.encode("utf-8")):
         finalize(snapshot_id)
-    return sorted(snapshots.values(), key=lambda item: item["connector_snapshot_id"].encode("utf-8"))
+    return sorted(
+        snapshots.values(),
+        key=lambda item: item["connector_snapshot_id"].encode("utf-8"),
+    )
 
 
 def _connector_snapshot_id(item: _PendingConnector) -> str:
     semantic_id = item.owner.assembly_id if isinstance(item.owner, Assembly) else item.owner.part_id
+    connector_id = (
+        item.connector.public_connector_id
+        if isinstance(item.connector, PublicConnectorRef)
+        else item.connector.connector_id
+    )
     return (
         f"connector/{item.root_id}/{item.owner_kind}/"
-        f"{_encode(semantic_id)}/{_encode(item.connector.connector_id)}"
+        f"{_encode(semantic_id)}/{_encode(connector_id)}"
+    )
+
+
+def _source_connector_snapshot_id(
+    root_id: str, item: Part | Assembly, connector_id: str
+) -> str:
+    owner_kind = "assembly" if isinstance(item, Assembly) else "part"
+    semantic_id = item.assembly_id if isinstance(item, Assembly) else item.part_id
+    return (
+        f"connector/{root_id}/{owner_kind}/"
+        f"{_encode(semantic_id)}/{_encode(connector_id)}"
     )
 
 
 def _connector_source(
     source: SceneSource,
     owner: Part | Assembly,
-    connector: Connector,
+    connector: Connector | PublicConnectorRef,
 ) -> dict[str, Any] | None:
     if source.kind == "manual":
         if not source.source_id:
@@ -805,22 +813,24 @@ def _connector_producer(
     graph: OperationGraph,
     owner_node_id: str,
     owner: Part | Assembly,
-    connector: Connector,
+    connector: Connector | PublicConnectorRef,
 ) -> OperationNode:
     if isinstance(owner, Part):
         expected_op = "make_add_connector_rpart"
         semantic_type = "Part"
         semantic_id = owner.part_id
         semantic_id_param = "part_id"
+        connector_param = "connector_id"
+        connector_id = connector.connector_id
+        expected_record = {"connector": connector.to_dict()}
     else:
-        expected_op = (
-            "make_forward_connector_rassembly"
-            if connector.anchor_kind == "forwarded"
-            else "make_add_connector_rassembly"
-        )
+        expected_op = "make_set_public_connector_rassembly"
         semantic_type = "Assembly"
         semantic_id = owner.assembly_id
         semantic_id_param = "assembly_id"
+        connector_param = "public_connector_id"
+        connector_id = connector.public_connector_id
+        expected_record = {"public_connector": connector.to_dict()}
 
     matches: list[OperationNode] = []
     visited: set[str] = set()
@@ -828,9 +838,7 @@ def _connector_producer(
     while node is not None and node.node_id not in visited:
         visited.add(node.node_id)
         delta = node.semantic_delta
-        connector_record = (
-            delta.metadata.get("connector") if delta is not None else None
-        )
+        connector_record = delta.metadata if delta is not None else None
         modifies_owner = delta is not None and any(
             ref.entity_type == semantic_type and ref.entity_id == semantic_id
             for ref in delta.modified
@@ -838,9 +846,9 @@ def _connector_producer(
         if (
             node.op == expected_op
             and node.params.get(semantic_id_param) == semantic_id
-            and node.params.get("connector_id") == connector.connector_id
+            and node.params.get(connector_param) == connector_id
             and modifies_owner
-            and connector_record == connector.to_dict()
+            and connector_record == expected_record
         ):
             matches.append(node)
         if not node.inputs:
@@ -850,9 +858,11 @@ def _connector_producer(
     if len(matches) != 1:
         raise ValueError(
             "connector source is not uniquely proven by the owner product lineage: "
-            f"{semantic_type} {semantic_id!r} connector {connector.connector_id!r}"
+            f"{semantic_type} {semantic_id!r} connector {connector_id!r}"
         )
     return matches[0]
+
+
 
 
 def _resolve_connector_target(solid: Solid, connector: Connector) -> Face | Edge | Vertex:
@@ -918,7 +928,7 @@ def _normalized_part(part: Part) -> dict[str, Any]:
 
 
 def _normalized_assembly(assembly: Assembly, root_id: str) -> dict[str, Any]:
-    return {"kind": "assembly", "assembly_id": assembly.assembly_id, "name": assembly.name, "components": [{"component_id": component.component_id, "name": component.name, "definition_ref": f"definition/{root_id}/" + ("assembly/" if isinstance(component.item, Assembly) else "part/") + _encode(component.item.assembly_id if isinstance(component.item, Assembly) else component.item.part_id), "local_placement": component.placement.to_dict()} for component in assembly.components], "connectors": [connector.to_dict() for connector in assembly.connectors], "constraints": [constraint.to_dict() for constraint in assembly.constraints], "grounded_component_ids": sorted(assembly.grounded_component_ids, key=lambda item: item.encode("utf-8")), "metadata": _metadata(assembly)}
+    return {"kind": "assembly", "assembly_id": assembly.assembly_id, "name": assembly.name, "components": [{"component_id": component.component_id, "name": component.name, "definition_ref": f"definition/{root_id}/" + ("assembly/" if isinstance(component.item, Assembly) else "part/") + _encode(component.item.assembly_id if isinstance(component.item, Assembly) else component.item.part_id), "local_placement": component.placement.to_dict()} for component in assembly.components], "public_connectors": [connector.to_dict() for connector in assembly.public_connectors], "constraints": [constraint.to_dict() for constraint in assembly.constraints], "grounded_component_ids": sorted(assembly.grounded_component_ids, key=lambda item: item.encode("utf-8")), "metadata": _metadata(assembly)}
 
 
 def _compound_solid(compound: Compound) -> Solid:

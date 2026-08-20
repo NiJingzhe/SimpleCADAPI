@@ -37,6 +37,15 @@ CORE_EXPORTS = [
 ]
 
 MODULE_ORDER = ("operations", "evolve", "ql")
+OPERATOR_MODULES = (
+    "_operators_geometry",
+    "_operators_transform",
+    "_operators_boolean",
+    "_operators_product",
+    "_operators_sketch",
+    "_operators_selection",
+    "_operators_features",
+)
 MODULE_LABELS = {
     "operations": "Operations",
     "evolve": "Evolve",
@@ -126,6 +135,17 @@ def _module_file(module_name: str, package_root: Path | None = None) -> Path:
     return root / f"{module_name}.py"
 
 
+def _operator_function_names(package_root: Path) -> List[str]:
+    names: List[str] = []
+    seen: set[str] = set()
+    for module_name in OPERATOR_MODULES:
+        for name in extract_public_functions(_module_file(module_name, package_root)):
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
+    return names
+
+
 def _parse_module(file_path: Path) -> ast.Module | None:
     if not file_path.exists():
         print(f"警告: {file_path} 文件不存在")
@@ -171,10 +191,15 @@ def collect_api_inventory(
 
     for module_name in MODULE_ORDER:
         file_path = _module_file(module_name, root)
+        functions = (
+            _operator_function_names(root)
+            if module_name == "operations"
+            else extract_public_functions(file_path)
+        )
         inventory[module_name] = ModuleInventory(
             name=module_name,
             display_name=MODULE_LABELS[module_name],
-            functions=extract_public_functions(file_path),
+            functions=functions,
             classes=[],
         )
 

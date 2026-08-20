@@ -154,15 +154,13 @@ def build_assembly_dependency_graph(assembly: Assembly) -> AssemblyDependencyGra
         for relation_id in relation_ids:
             relation_to_component[relation_id] = component_id
 
-    public_sources: dict[str, Endpoint] = {}
-    for connector in assembly.connectors:
-        anchor = connector.anchor
-        if anchor.anchor_kind != "forwarded":
-            continue
-        public_sources[connector.connector_id] = (
-            str(anchor.source_component_id),
-            str(anchor.source_connector_id),
+    public_sources: dict[str, Endpoint] = {
+        public.public_connector_id: (
+            public.component_id,
+            public.connector_id,
         )
+        for public in assembly.public_connectors
+    }
 
     return AssemblyDependencyGraph(
         assembly_id=assembly.assembly_id,
