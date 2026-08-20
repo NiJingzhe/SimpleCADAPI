@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplecad.dev/schemas/product-package-3.schema.json",
+  "title": "SimpleCAD Product Package 3.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifact_kind", "root", "definitions", "blobs", "occurrence_graph", "projections", "content_hash"],
+  "properties": {
+    "schema_version": {"const": "3.0"},
+    "artifact_kind": {"const": "product_package"},
+    "root": {"$ref": "#/$defs/root"},
+    "definitions": {"type": "array", "minItems": 1, "maxItems": 25000, "items": {"$ref": "#/$defs/definition"}},
+    "blobs": {"type": "array", "maxItems": 100000, "items": {"$ref": "#/$defs/blob"}},
+    "occurrence_graph": {"$ref": "#/$defs/member"},
+    "projections": {"$ref": "#/$defs/projections"},
+    "content_hash": {"$ref": "#/$defs/hash"}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"},
+    "revision": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"},
+    "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "path": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"},
+    "kind": {"enum": ["single_solid", "assembly"]},
+    "root": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "definition_kind", "definition_id", "revision", "content_hash"],
+      "properties": {"path": {"$ref": "#/$defs/path"}, "definition_kind": {"$ref": "#/$defs/kind"}, "definition_id": {"$ref": "#/$defs/id"}, "revision": {"$ref": "#/$defs/revision"}, "content_hash": {"$ref": "#/$defs/hash"}}
+    },
+    "definition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "definition_kind", "definition_id", "revision", "content_hash", "sha256", "byte_length"],
+      "properties": {"path": {"$ref": "#/$defs/path"}, "definition_kind": {"$ref": "#/$defs/kind"}, "definition_id": {"$ref": "#/$defs/id"}, "revision": {"$ref": "#/$defs/revision"}, "content_hash": {"$ref": "#/$defs/hash"}, "sha256": {"$ref": "#/$defs/hash"}, "byte_length": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}}
+    },
+    "member": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "byte_length", "media_type"],
+      "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"$ref": "#/$defs/hash"}, "byte_length": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}, "media_type": {"type": "string", "minLength": 1, "maxLength": 128}}
+    },
+    "archiveMember": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"$ref": "#/$defs/hash"}}
+    },
+    "blob": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sha256", "byte_length", "media_type", "storage"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/hash"},
+        "byte_length": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "media_type": {"type": "string", "minLength": 1, "maxLength": 128},
+        "storage": {"oneOf": [
+          {"type": "object", "additionalProperties": false, "required": ["kind", "path"], "properties": {"kind": {"const": "member"}, "path": {"$ref": "#/$defs/path"}}},
+          {"type": "object", "additionalProperties": false, "required": ["kind", "manifest_name", "members"], "properties": {"kind": {"const": "archive"}, "manifest_name": {"$ref": "#/$defs/path"}, "members": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/archiveMember"}}}}
+        ]}
+      }
+    },
+    "scene": {
+      "type": "object", "additionalProperties": false,
+      "required": ["manifest", "scene_id", "revision", "assets"],
+      "properties": {
+        "manifest": {"$ref": "#/$defs/member"}, "scene_id": {"$ref": "#/$defs/id"}, "revision": {"$ref": "#/$defs/hash"},
+        "assets": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["uri", "source"], "properties": {"uri": {"$ref": "#/$defs/path"}, "source": {"oneOf": [
+          {"type": "object", "additionalProperties": false, "required": ["kind", "definition_id"], "properties": {"kind": {"const": "definition"}, "definition_id": {"$ref": "#/$defs/id"}}},
+          {"type": "object", "additionalProperties": false, "required": ["kind", "sha256"], "properties": {"kind": {"const": "blob"}, "sha256": {"$ref": "#/$defs/hash"}}}
+        ]}}}}
+      }
+    },
+    "projections": {"type": "object", "additionalProperties": false, "properties": {"scene": {"$ref": "#/$defs/scene"}}}
+  }
+}
