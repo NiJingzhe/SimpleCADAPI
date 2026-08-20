@@ -88,8 +88,8 @@ _CANONICAL_OPS = (
     "make_vertex_connector_rconnector",
     "make_placement_connector_rconnector",
     "make_add_connector_rpart",
-    "make_add_connector_rassembly",
-    "make_forward_connector_rassembly",
+    "make_set_public_connector_rassembly",
+
     "make_connector_ref_rconnectorref",
     "make_scalar_limit_rscalarlimit",
     "make_ground_component_rassembly",

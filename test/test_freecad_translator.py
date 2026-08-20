@@ -67,9 +67,9 @@ def _build_freecad_nested_package(tmp_path: Path):
             drive_angle_degrees=15.0,
         )
         assembly = scad.solve_assembly_constraints_rassembly(assembly)
-        return scad.forward_connector_rassembly(
+        return scad.set_public_connector_rassembly(
             assembly,
-            connector_id="public_mount",
+            public_connector_id="public_mount",
             source_component_id="inner_b",
             source_connector_id="mount",
         )
@@ -110,6 +110,7 @@ def _build_freecad_feature_history_package(tmp_path: Path):
         )
         body = scad.cut_rsolid(base, tool)
         return scad.make_part_rpart("feature_history", body, name="Feature history")
+
     return scad.build_product_package(build_part())
 
 
@@ -167,6 +168,7 @@ def _build_freecad_material_package(tmp_path: Path):
         return assembly
 
     return scad.build_product_package(build_assembly())
+
 
 def _compile_model_json(payload: str) -> str:
     return _FreeCADCompiler().translate_model_payload_to_script(
@@ -664,14 +666,19 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
 
         self.assertEqual(
             result["assemblies"],
-            [["child", "Assembly::AssemblyObject"], ["root", "Assembly::AssemblyObject"]],
+            [
+                ["child", "Assembly::AssemblyObject"],
+                ["root", "Assembly::AssemblyObject"],
+            ],
         )
         self.assertEqual(result["part_definition_count"], 1)
         self.assertEqual(result["components"]["inner_a"]["type"], "App::Link")
         self.assertEqual(result["components"]["inner_a"]["xyz"], [0.0, 0.0, 0.0])
         self.assertEqual(result["components"]["inner_b"]["type"], "App::Link")
         self.assertEqual(result["components"]["inner_b"]["xyz"], [0.0, -0.388, 0.051])
-        self.assertEqual(result["components"]["nested"]["type"], "Assembly::AssemblyLink")
+        self.assertEqual(
+            result["components"]["nested"]["type"], "Assembly::AssemblyLink"
+        )
         self.assertEqual(result["components"]["direct"]["type"], "App::Link")
         self.assertEqual(result["components"]["direct"]["xyz"], [0.0, 5.0, 0.0])
         self.assertEqual(
@@ -754,7 +761,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertIn("SimpleCADMaterialObject", script)
         self.assertIn("GUI_SHAPE_COLOR_BY_NAME", script)
 
-    def test_translate_model_json_emits_forwarded_connector_datums_in_script(self):
+    def test_translate_model_json_emits_public_connector_datums_in_script(self):
         with GraphSession() as session:
             body = scad.make_box_rsolid(1.0, 1.0, 1.0)
             part = scad.make_part_rpart("translator_connector_part", body)
@@ -770,9 +777,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
                 component_id="inner",
                 placement=scad.make_placement_rplacement(origin=(5.0, 0.0, 0.0)),
             )
-            scad.forward_connector_rassembly(
+            scad.set_public_connector_rassembly(
                 child,
-                connector_id="public_axis",
+                public_connector_id="public_axis",
                 source_component_id="inner",
                 source_connector_id="axis",
             )
@@ -780,10 +787,43 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         script = _compile_model_json(scad.export_model_json(session))
 
         self.assertIn("make_placement_connector_rconnector", script)
-        self.assertIn("make_forward_connector_rassembly", script)
+        self.assertIn("make_set_public_connector_rassembly", script)
         self.assertIn("_materialize_product_connector_datums", script)
         self.assertIn("PartDesign::CoordinateSystem", script)
         self.assertIn("public_axis", script)
+
+    def test_translate_model_json_rejects_removed_public_connector_offset(self):
+        with GraphSession() as session:
+            body = scad.make_box_rsolid(1.0, 1.0, 1.0)
+            part = scad.make_part_rpart("translator_connector_part", body)
+            axis = scad.make_placement_connector_rconnector(
+                "axis", scad.identity_placement_rplacement()
+            )
+            part = scad.add_connector_rpart(part, axis)
+            child = scad.make_assembly_rassembly("translator_connector_child")
+            child = scad.add_component_rassembly(
+                child,
+                part,
+                component_id="inner",
+                placement=scad.identity_placement_rplacement(),
+            )
+            scad.set_public_connector_rassembly(
+                child,
+                public_connector_id="public_axis",
+                source_component_id="inner",
+                source_connector_id="axis",
+            )
+
+        payload = json.loads(scad.export_model_json(session))
+        public_node = next(
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_set_public_connector_rassembly"
+        )
+        public_node["params"]["offset"] = scad.identity_placement_rplacement().to_dict()
+
+        with self.assertRaisesRegex(ValueError, r"unsupported parameter\(s\): offset"):
+            _compile_model_json(json.dumps(payload))
 
     def test_translate_model_json_emits_native_constraint_joints_in_script(self):
         with GraphSession() as session:
@@ -1181,7 +1221,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(result["constraint_kinds"], ["prismatic"])
         self.assertEqual(result["slider_z"]["slider"], 3.0)
 
-    def test_translate_model_json_forwarded_connector_joint_references_components(self):
+    def test_translate_model_json_public_connector_joint_references_components(self):
         with GraphSession() as session:
             shaft_body = scad.make_cylinder_rsolid(
                 radius=1.0,
@@ -1211,9 +1251,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
                 component_id="inner_ring",
                 placement=scad.identity_placement_rplacement(),
             )
-            bearing = scad.forward_connector_rassembly(
+            bearing = scad.set_public_connector_rassembly(
                 bearing,
-                connector_id="inner_axis",
+                public_connector_id="inner_axis",
                 source_component_id="inner_ring",
                 source_connector_id="axis",
             )
@@ -1438,10 +1478,15 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(set(result["materials"]), {"blue_aluminum", "uncolored_steel"})
         self.assertEqual(result["materials"]["blue_aluminum"]["name"], "Blue aluminum")
         self.assertAlmostEqual(result["materials"]["blue_aluminum"]["density"], 2.7e-6)
-        self.assertEqual(result["materials"]["blue_aluminum"]["density_unit"], "kg/mm^3")
+        self.assertEqual(
+            result["materials"]["blue_aluminum"]["density_unit"], "kg/mm^3"
+        )
         self.assertIsNone(result["materials"]["uncolored_steel"]["density"])
         self.assertEqual(
-            [round(value, 3) for value in result["materials"]["blue_aluminum"]["color"]],
+            [
+                round(value, 3)
+                for value in result["materials"]["blue_aluminum"]["color"]
+            ],
             [0.2, 0.4, 0.6],
         )
         self.assertEqual(
@@ -1450,14 +1495,21 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         )
         self.assertEqual(
             result["part_materials"],
-            {"blue_a": "blue_aluminum", "blue_b": "blue_aluminum", "plain": "uncolored_steel"},
+            {
+                "blue_a": "blue_aluminum",
+                "blue_b": "blue_aluminum",
+                "plain": "uncolored_steel",
+            },
         )
         self.assertEqual(result["body_materials"], {})
         self.assertEqual(
             result["component_materials"],
-            {"blue_a_1": "blue_aluminum", "blue_b_1": "blue_aluminum", "plain_1": "uncolored_steel"},
+            {
+                "blue_a_1": "blue_aluminum",
+                "blue_b_1": "blue_aluminum",
+                "plain_1": "uncolored_steel",
+            },
         )
-
 
     def test_translate_model_json_nested_assembly_uses_native_assembly_link(self):
         with GraphSession() as session:
@@ -1538,9 +1590,9 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
                 scad.make_connector_ref_rconnectorref("arm", "axis"),
             )
             child = scad.solve_assembly_constraints_rassembly(child)
-            child = scad.forward_connector_rassembly(
+            child = scad.set_public_connector_rassembly(
                 child,
-                connector_id="output_axis",
+                public_connector_id="output_axis",
                 source_component_id="arm",
                 source_connector_id="axis",
             )
@@ -1760,7 +1812,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(result["cylinder_count"], 1)
         self.assertEqual(result["valid"], [True])
         self.assertGreater(result["volumes"][0], 0.0)
-
 
     def test_translate_model_json_fcstd_multifuse_bridged_union_and_hides_connectors(
         self,

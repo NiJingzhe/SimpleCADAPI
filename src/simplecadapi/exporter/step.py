@@ -261,7 +261,9 @@ def export_product_package_to_step(
             "definition_kind": kind,
             "revision": unit.revision,
             "content_hash": unit.content_hash,
-            "connectors": [connector.to_dict() for connector in value.connectors],
+            "public_connectors": [
+                connector.to_dict() for connector in value.public_connectors
+            ],
             "constraints": [constraint.to_dict() for constraint in value.constraints],
             "grounded_component_ids": list(value.grounded_component_ids),
         }

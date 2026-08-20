@@ -26,8 +26,8 @@ EMITTER_METHOD_BY_OP: Dict[str, str] = {
     "make_vertex_connector_rconnector": "_emit_products",
     "make_placement_connector_rconnector": "_emit_products",
     "make_add_connector_rpart": "_emit_products",
-    "make_add_connector_rassembly": "_emit_products",
-    "make_forward_connector_rassembly": "_emit_products",
+    "make_set_public_connector_rassembly": "_emit_products",
+
     "make_connector_ref_rconnectorref": "_emit_products",
     "make_scalar_limit_rscalarlimit": "_emit_products",
     "make_ground_component_rassembly": "_emit_products",

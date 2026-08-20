@@ -3001,8 +3001,9 @@ class SimpleCADFusionRuntime:
         if op.startswith('make_') and op.endswith('_rconnector'):
             return self._set_output(node, {'kind': 'connector', 'params': params})
         if op in {
-            'make_add_connector_rpart', 'make_add_connector_rassembly',
+            'make_add_connector_rpart', 'make_set_public_connector_rassembly',
             'make_connector_ref_rconnectorref', 'make_scalar_limit_rscalarlimit',
+
             'make_ground_component_rassembly', 'make_unground_component_rassembly',
             'make_fixed_constraint_rassembly', 'make_revolute_constraint_rassembly',
             'make_prismatic_constraint_rassembly',

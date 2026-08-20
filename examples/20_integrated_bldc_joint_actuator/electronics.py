@@ -141,15 +141,12 @@ terminal_material: scad.Material,) -> scad.Assembly:
             name=f"{component_id.replace('_', ' ')} solder and screw retention",
         )
 
-    for connector_id in ("cover_axis", "phase_access", "power_can_access"):
-        controller = scad.forward_connector_rassembly(
-            assembly=controller,
-            connector_id=connector_id,
-            source_component_id="pcb",
-            source_connector_id=connector_id,
-            name=connector_id.replace("_", " "),
-            offset=None,
-        )
+    for public_connector_id in ("cover_axis", "phase_access", "power_can_access"):
+        controller = scad.set_public_connector_rassembly(assembly=controller,
+        public_connector_id=public_connector_id,
+        source_component_id="pcb",
+        source_connector_id=public_connector_id,
+        name=public_connector_id.replace("_", " "),)
     controller = scad.solve_assembly_constraints_rassembly(
         assembly=controller, strict=True
     )

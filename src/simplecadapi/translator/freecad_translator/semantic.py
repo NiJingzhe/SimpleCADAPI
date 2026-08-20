@@ -60,8 +60,8 @@ _PRODUCT_OPS = {
     "make_add_component_rassembly",
     "make_place_component_rassembly",
     "make_add_connector_rpart",
-    "make_add_connector_rassembly",
-    "make_forward_connector_rassembly",
+    "make_set_public_connector_rassembly",
+
     "make_ground_component_rassembly",
     "make_unground_component_rassembly",
     "make_fixed_constraint_rassembly",

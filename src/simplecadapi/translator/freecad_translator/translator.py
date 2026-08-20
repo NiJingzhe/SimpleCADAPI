@@ -588,6 +588,25 @@ class _FreeCADCompiler(
 
     def _emit_node(self, node: OperationNode) -> List[str]:
         params = dict(node.params)
+        if node.op == "make_set_public_connector_rassembly":
+            required = {
+                "public_connector_id",
+                "source_component_id",
+                "source_connector_id",
+            }
+            allowed = {*required, "assembly_id", "name"}
+            missing = sorted(required - set(params))
+            unexpected = sorted(set(params) - allowed)
+            if missing:
+                raise ValueError(
+                    f"Graph node {node.node_id!r} ({node.op}) is missing required parameter(s): "
+                    + ", ".join(missing)
+                )
+            if unexpected:
+                raise ValueError(
+                    f"Graph node {node.node_id!r} ({node.op}) contains unsupported parameter(s): "
+                    + ", ".join(unexpected)
+                )
         if node.op in {"make_angle_arc_redge", "make_circle_redge"}:
             params = _curve_params_with_kernel_axes(params)
         if node.op == "make_interpolated_spline_redge":

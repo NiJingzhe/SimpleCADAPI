@@ -58,6 +58,14 @@ class TestTranslatorBackendContract(unittest.TestCase):
             expected_backend_name = backend_package_name.removesuffix("_translator")
             self.assertEqual(capabilities.backend_id, expected_backend_name)
             self.assertEqual(set(capabilities.operations), set(CANONICAL_OP_SET))
+            self.assertIn(
+                "make_set_public_connector_rassembly", capabilities.operations
+            )
+            self.assertNotIn("make_add_connector_rassembly", capabilities.operations)
+            self.assertNotIn(
+                "make_forward_connector_rassembly", capabilities.operations
+            )
+
             for op, capability in capabilities.operations.items():
                 if capability.level is SupportLevel.UNSUPPORTED:
                     self.assertTrue(capability.reason, op)

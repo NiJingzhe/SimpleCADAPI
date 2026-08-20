@@ -133,7 +133,7 @@ class ProductEmitterMixin:
                 f"{var_name}.SimpleCADAssemblyId = str({rp}.get('assembly_id', ''))",
             ]
             lines.append(
-                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'assembly', 'assembly_id': str({rp}.get('assembly_id', '')), 'container': {var_name}, 'components': [], 'connectors': [], 'constraints': [], 'grounded_component_ids': []}}"
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = {{'kind': 'assembly', 'assembly_id': str({rp}.get('assembly_id', '')), 'container': {var_name}, 'components': [], 'public_connectors': [], 'constraints': [], 'grounded_component_ids': []}}"
             )
             return lines
         if node.op == "make_add_component_rassembly" and len(inputs) >= 2:
@@ -206,24 +206,16 @@ class ProductEmitterMixin:
                 f"_materialize_product_connector_datums(PRODUCT_VALUES[{_json_ascii(node.node_id)}])",
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
-        if node.op == "make_add_connector_rassembly" and len(inputs) >= 2:
+        if node.op == "make_set_public_connector_rassembly" and len(inputs) >= 1:
             return [
                 f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
-                f"{var_name}_connector = PRODUCT_VALUES[{_json_ascii(inputs[1])}]['connector']",
+                f"{var_name}_public = {{'connector_id': str({rp}.get('public_connector_id', '')), 'name': {rp}.get('name'), 'anchor': {{'anchor_kind': 'public', 'source_component_id': str({rp}.get('source_component_id', '')), 'source_connector_id': str({rp}.get('source_connector_id', ''))}}}}",
                 f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
-                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['connectors'] = list({var_name}_assembly.get('connectors', [])) + [{var_name}_connector]",
+                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['public_connectors'] = list({var_name}_assembly.get('public_connectors', [])) + [{var_name}_public]",
                 f"_materialize_product_connector_datums(PRODUCT_VALUES[{_json_ascii(node.node_id)}])",
                 f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
             ]
-        if node.op == "make_forward_connector_rassembly" and len(inputs) >= 1:
-            return [
-                f"{var_name}_assembly = PRODUCT_VALUES[{_json_ascii(inputs[0])}]",
-                f"{var_name}_connector = {{'connector_id': str({rp}.get('connector_id', '')), 'name': {rp}.get('name'), 'anchor': {{'anchor_kind': 'forwarded', 'source_component_id': str({rp}.get('source_component_id', '')), 'source_connector_id': str({rp}.get('source_connector_id', '')), 'offset': {rp}.get('offset')}}}}",
-                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}] = dict({var_name}_assembly)",
-                f"PRODUCT_VALUES[{_json_ascii(node.node_id)}]['connectors'] = list({var_name}_assembly.get('connectors', [])) + [{var_name}_connector]",
-                f"_materialize_product_connector_datums(PRODUCT_VALUES[{_json_ascii(node.node_id)}])",
-                f"{var_name} = _register_graph_folded_alias(node_id={_json_ascii(node.node_id)}, source_node_id={_json_ascii(inputs[0])}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
-            ]
+
         if node.op == "make_connector_ref_rconnectorref":
             return [
                 f"{var_name} = dict({rp})",
