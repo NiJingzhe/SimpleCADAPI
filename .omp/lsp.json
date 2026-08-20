@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "ty": {
+      "command": "ty",
+      "args": ["server"],
+      "fileTypes": [".py"],
+      "languageId": "python",
+      "rootMarkers": ["pyproject.toml"]
+    }
+  }
+}
