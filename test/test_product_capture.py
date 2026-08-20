@@ -36,10 +36,9 @@ def test_capture_part_embeds_one_complete_independent_scene(tmp_path: Path) -> N
     loaded = scad.read_product_package(payload)
     scene = read_scene_package(loaded.scene_bytes)
 
-    assert captured.value is result.value
-    assert captured.package.manifest["schema_version"] == "2.0"
+    assert captured.package.manifest["schema_version"] == "3.0"
     assert captured.scene.manifest["schema_version"] == "2.0"
-    assert loaded.scene_path == "scene/scene.zip"
+    assert loaded.scene_path == "projections/scene/scene.json"
     assert scene.manifest == captured.scene.manifest
     assert dict(scene.blobs) == dict(captured.scene.blobs)
     assert [item["definition_id"] for item in scene.manifest["definitions"]] == [
@@ -49,7 +48,8 @@ def test_capture_part_embeds_one_complete_independent_scene(tmp_path: Path) -> N
     assert len(scene.manifest["feature_graph_assets"]) == 1
     assert scene.manifest["feature_index"]
     assert scene.manifest["source_index"]
-
+    assert loaded.occurrence_graph.root_definition_id == "captured_part"
+    assert loaded.occurrence_graph.root_node_id == "node/captured_part"
 
 def test_capture_federates_definition_graphs_sources_connectors_and_joints(
     tmp_path: Path,
@@ -252,40 +252,21 @@ def test_cold_and_warm_capture_are_byte_identical(tmp_path: Path) -> None:
     assert cold_path.read_bytes() == warm_path.read_bytes()
 
 
-def test_product_package_rejects_mutated_embedded_scene(tmp_path: Path) -> None:
+def test_product_package_rejects_mutated_scene_projection(tmp_path: Path) -> None:
     package_path = tmp_path / "out" / "mutated_scene.scadpkg"
-    captured = scad.capture(
-        _build_named_part(tmp_path, "mutated_scene"),
-        package_path,
-    )
-    scene_archive = preflight_zip_bytes(captured.package.scene_bytes)
-    scene_manifest = parse_canonical_json(scene_archive.members["scene.json"])
+    captured = scad.capture(_build_named_part(tmp_path, "mutated_scene"), package_path)
+    scene_path = captured.package.scene_path
+    assert scene_path is not None
+    scene_manifest = parse_canonical_json(captured.package.objects[scene_path])
     scene_manifest["scene_id"] = "changed"
-    scene_manifest = {
-        **scene_manifest,
-        "revision": compute_scene_revision(scene_manifest),
-    }
-    changed_scene = canonical_zip_bytes(
-        {**scene_archive.members, "scene.json": canonical_json_bytes(scene_manifest)}
-    )
-    members = dict(captured.package.objects)
-    members[captured.package.scene_path] = changed_scene
-    scene_record = {
-        **captured.package.manifest["scene"],
-        "sha256": sha256_bytes(changed_scene),
-    }
-    draft = {
-        key: value
-        for key, value in captured.package.manifest.items()
-        if key != "content_hash"
-    }
-    draft["scene"] = scene_record
-    manifest = {**draft, "content_hash": content_hash(draft, omit=())}
-    mutated = ProductPackage(
-        manifest=manifest,
-        objects=members,
-        root_definition=captured.package.root_definition,
-    )
-
-    with pytest.raises(ProductPackageError, match="scene"):
-        scad.encode_product_package(mutated)
+    scene_manifest["revision"] = compute_scene_revision(scene_manifest)
+    mutated_objects = dict(captured.package.objects)
+    mutated_objects[scene_path] = canonical_json_bytes(scene_manifest)
+    with pytest.raises(ProductPackageError, match="scene manifest identity|scene projection identity"):
+        scad.validate_product_package(
+            ProductPackage(
+                captured.package.manifest,
+                mutated_objects,
+                captured.package.root_definition,
+            )
+        )

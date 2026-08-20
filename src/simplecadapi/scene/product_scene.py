@@ -1078,10 +1078,22 @@ def validate_product_scene_package(package: ProductScenePackage) -> None:
         ):
             raise ProductSceneError("source index reference does not resolve")
 
-    product_by_id = {item["definition_id"]: item for item in manifest["product_assets"]}
-    feature_by_id = {
-        item["definition_id"]: item for item in manifest["feature_graph_assets"]
-    }
+    product_records = list(manifest["product_assets"])
+    feature_records = list(manifest["feature_graph_assets"])
+    product_by_id = {item["definition_id"]: item for item in product_records}
+    feature_by_id = {item["definition_id"]: item for item in feature_records}
+    if len(product_by_id) != len(product_records) or len(feature_by_id) != len(feature_records):
+        raise ProductSceneError("scene product and feature asset definition IDs must be unique")
+    for definition_record in manifest["definitions"]:
+        definition_id = definition_record["definition_id"]
+        product_record = product_by_id.get(definition_id)
+        feature_record = feature_by_id.get(definition_id)
+        if product_record is None or feature_record is None:
+            raise ProductSceneError("definition assets do not resolve")
+        if definition_record["product_asset_id"] != product_record["asset_id"]:
+            raise ProductSceneError("scene definition product asset reference differs")
+        if definition_record["feature_graph_asset_id"] != feature_record["asset_id"]:
+            raise ProductSceneError("scene definition feature asset reference differs")
     trusted = package._validated_manifest == canonical_json_bytes(dict(manifest))
     for definition_id, record in definitions.items():
         if definition_id not in product_by_id or definition_id not in feature_by_id:
