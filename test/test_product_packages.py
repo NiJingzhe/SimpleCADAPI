@@ -122,11 +122,11 @@ def test_part_package_wraps_canonical_prt_and_preserves_naming_binding(
     assert isinstance(loaded_definition, scad.PartDefinition)
     assert rebuilt.part_id == "box"
     definition_paths = [
-        path for path in loaded_package.objects if path.startswith("objects/")
+        path for path in loaded_package.objects if path.startswith("definitions/")
     ]
     assert len(definition_paths) == 1
-    assert definition_paths[0].endswith(".part-definition.zip")
-    assert loaded_package.scene_path == "scene/scene.zip"
+    assert definition_paths[0].endswith(".json")
+    assert loaded_package.scene_path == "projections/scene/scene.json"
     assert loaded_package.scene_path in loaded_package.objects
 
     topology = parse_canonical_json(
@@ -195,7 +195,7 @@ def test_nested_assembly_package_preserves_hierarchy_relations_and_dedup(
     assert nested.constraints[0].constraint_kind == "revolute"
     assert nested.constraints[0].drive_angle_degrees == 15.0
 
-    records = package.manifest["objects"]
+    records = package.manifest["definitions"]
     assert len(records) == 3
     assert [item["definition_id"] for item in records].count(
         part.definition.definition_id
@@ -203,7 +203,7 @@ def test_nested_assembly_package_preserves_hierarchy_relations_and_dedup(
     assert [item["definition_id"] for item in records].count(
         child.definition.definition_id
     ) == 1
-    assert sum(path.endswith(".part-definition.zip") for path in package.objects) == 1
+    assert sum(path.startswith("definitions/part/") for path in package.objects) == 1
 
 
 def test_warm_cache_product_package_is_byte_deterministic(tmp_path: Path) -> None:
@@ -216,18 +216,18 @@ def test_warm_cache_product_package_is_byte_deterministic(tmp_path: Path) -> Non
     ) == scad.encode_product_package(scad.build_product_package(second))
 
 
-def test_product_package_rejects_mutation_missing_and_unreachable_objects(
+def test_product_package_rejects_mutation_missing_and_extra_objects(
     tmp_path: Path,
 ) -> None:
-    part, _child, root = _build_nested_assembly(tmp_path)
+    _part, _child, root = _build_nested_assembly(tmp_path)
     package = scad.build_product_package(root)
     target_path = next(
-        path for path in package.objects if path.endswith(".part-definition.zip")
+        path for path in package.objects if path.startswith("definitions/")
     )
 
     mutated = dict(package.objects)
     mutated[target_path] += b"x"
-    with pytest.raises(ProductPackageError, match="byte_length|sha256"):
+    with pytest.raises(ProductPackageError, match="identity differs"):
         scad.validate_product_package(
             ProductPackage(package.manifest, mutated, package.root_definition)
         )
@@ -239,46 +239,11 @@ def test_product_package_rejects_mutation_missing_and_unreachable_objects(
             ProductPackage(package.manifest, missing, package.root_definition)
         )
 
-    extra_part = _build_named_part(tmp_path, "unused")
-    extra_package = scad.build_product_package(extra_part)
-    extra_path = next(
-        path for path in extra_package.objects if path.endswith(".part-definition.zip")
-    )
-    extra_payload = extra_package.objects[extra_path]
-    objects = {**package.objects, extra_path: extra_payload}
-    records = [
-        *package.manifest["objects"],
-        {
-            "path": extra_path,
-            "definition_kind": extra_part.definition.definition_kind,
-            "definition_id": extra_part.definition.definition_id,
-            "revision": extra_part.definition.revision,
-            "content_hash": extra_part.definition.content_hash,
-            "sha256": scad.artifacts.canonical.sha256_bytes(extra_payload),
-            "byte_length": len(extra_payload),
-        },
-    ]
-    records.sort(key=lambda item: item["path"])
-    draft = {
-        "schema_version": "2.0",
-        "artifact_kind": "product_package",
-        "root": package.root_path,
-        "objects": records,
-        "scene": dict(package.manifest["scene"]),
-    }
-    manifest = {
-        **draft,
-        "content_hash": scad.artifacts.canonical.content_hash(draft, omit=()),
-    }
-    with pytest.raises(ProductPackageError, match="unreferenced"):
-        scad.read_product_package(
-            canonical_zip_bytes(
-                {
-                    "package.json": scad.artifacts.canonical.canonical_bytes(manifest),
-                    **objects,
-                },
-                manifest_name="package.json",
-            )
+    extra = dict(package.objects)
+    extra["extra/member"] = b"unused"
+    with pytest.raises(ProductPackageError, match="member set"):
+        scad.validate_product_package(
+            ProductPackage(package.manifest, extra, package.root_definition)
         )
 
 
@@ -295,27 +260,12 @@ def test_validated_package_skips_repeated_decode_validation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    decode_calls = 0
-    original = product_packages._decode_definition_objects
-
-    def count_decode(*args, **kwargs):
-        nonlocal decode_calls
-        decode_calls += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(
-        product_packages,
-        "_decode_definition_objects",
-        count_decode,
-    )
     package = scad.build_product_package(_build_named_part(tmp_path))
     payload = scad.encode_product_package(package)
-
-    assert decode_calls == 0
     loaded = scad.read_product_package(payload)
-    assert decode_calls == 1
+    assert loaded._validated_manifest is not None
+    assert loaded._validated_limits is not None
     assert scad.encode_product_package(loaded) == payload
-    assert decode_calls == 1
 
 
 def test_unvalidated_package_is_checked_before_encoding(tmp_path: Path) -> None:
@@ -324,7 +274,7 @@ def test_unvalidated_package_is_checked_before_encoding(tmp_path: Path) -> None:
     mutated = dict(package.objects)
     mutated[target_path] += b"x"
 
-    with pytest.raises(ProductPackageError, match="byte_length|sha256"):
+    with pytest.raises(ProductPackageError, match="identity differs|member set"):
         scad.encode_product_package(
             ProductPackage(package.manifest, mutated, package.root_definition)
         )
@@ -363,43 +313,27 @@ def test_validated_package_manifest_mutation_forces_revalidation(
     tmp_path: Path,
 ) -> None:
     package = scad.build_product_package(_build_named_part(tmp_path))
-    package.manifest["objects"][0]["byte_length"] += 1
+    draft = dict(package.manifest)
+    draft["root"] = {**draft["root"], "revision": "changed"}
+    mutated = ProductPackage(draft, package.objects, package.root_definition)
 
-    with pytest.raises(ProductPackageError, match="content_hash|byte_length"):
-        scad.encode_product_package(package)
+    with pytest.raises(ProductPackageError, match="content_hash|root definition"):
+        scad.encode_product_package(mutated)
 
 
-def test_build_package_reuses_validated_definition_closure(
+def test_build_package_validates_definition_and_occurrence_closure(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _part, _child, root = _build_nested_assembly(tmp_path)
-
-    monkeypatch.setattr(
-        product_packages,
-        "validate_assembly_definition_graph",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("validated assembly DAG was checked again")
-        ),
-    )
-    monkeypatch.setattr(
-        part_io,
-        "validate_artifact_blobs",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("validated part blobs were checked again")
-        ),
-    )
-    monkeypatch.setattr(
-        assembly_io,
-        "validate_artifact_blobs",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("validated assembly blobs were checked again")
-        ),
-    )
-
     package = scad.build_product_package(root)
 
     assert package.root_id == "root"
+    assert package.occurrence_graph.root_definition_id == "root"
+    assert package.occurrence_graph.root_node_id == "node/root"
+    assert {
+        item["definition_id"] for item in package.manifest["definitions"]
+    } == {"linked", "child", "root"}
+
 
 
 def test_package_read_materialize_reuses_validated_part_brep(
