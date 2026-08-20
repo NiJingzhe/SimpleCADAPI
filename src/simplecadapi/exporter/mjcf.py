@@ -20,7 +20,6 @@ from ..artifacts.part_definition import PartDefinition
 from ..assembly import Assembly
 from ..part import Part
 from ..placement import Placement, relative_placement
-from ..scene import read_scene_package
 from ..translator.package_units import (
     ProductPackageInput,
     read_product_package_translation_units,
@@ -308,6 +307,8 @@ def _runtime_ground_edges(value: Assembly, root_node_id: str) -> list[tuple[str,
 def _entity_documents(
     scene_package: Any,
 ) -> dict[str, dict[str, Any]]:
+    if scene_package is None:
+        return {}
     result: dict[str, dict[str, Any]] = {}
     for record in scene_package.manifest["entity_assets"]:
         document = parse_canonical_json(scene_package.blobs[record["uri"]])
@@ -375,12 +376,25 @@ def export_product_package_to_mjcf(
     root_runtime = materialize_definition(package.root_definition)
     if not isinstance(root_runtime, Assembly):
         raise TypeError("assembly package root did not materialize as Assembly")
-    scene_package = read_scene_package(package.scene_bytes)
-    scene = scene_package.manifest
-    world = _world_placements(scene)
-    nodes = {str(item["node_id"]): item for item in scene["nodes"]}
-    root_node_id = str(scene["roots"][0])
-    connector_records = list(scene["connectors"])
+    occurrence = package.occurrence_graph
+    scene_package = package.scene if package.scene_path is not None else None
+    scene_nodes = (
+        {str(item["node_id"]): item for item in scene_package.manifest["nodes"]}
+        if scene_package is not None
+        else {}
+    )
+    nodes = {
+        str(item["node_id"]): {
+            **dict(item),
+            "entity_asset_id": scene_nodes.get(str(item["node_id"]), {}).get(
+                "entity_asset_id"
+            ),
+        }
+        for item in occurrence.nodes
+    }
+    world = _world_placements({"nodes": list(nodes.values())})
+    root_node_id = occurrence.root_node_id
+    connector_records = list(occurrence.connectors)
     connector_by_snapshot = {
         str(item["connector_snapshot_id"]): item for item in connector_records
     }
@@ -388,7 +402,6 @@ def export_product_package_to_mjcf(
         (str(item["node_id"]), str(item["connector_id"])): item
         for item in connector_records
     }
-
     def leaf_connector(record: Mapping[str, Any]) -> Mapping[str, Any]:
         current = record
         seen: set[str] = set()
@@ -413,7 +426,7 @@ def export_product_package_to_mjcf(
     for first, second in _runtime_ground_edges(root_runtime, root_node_id):
         uf.union(first, second)
         rigid_edges.append({"kind": "ground", "a": first, "b": second})
-    for joint in scene["joints"]:
+    for joint in occurrence.joints:
         first_original = connector_by_snapshot[
             str(joint["connector_a"]["connector_snapshot_id"])
         ]

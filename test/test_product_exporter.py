@@ -494,6 +494,83 @@ class TestProductExporter(unittest.TestCase):
         self.assertEqual(len(mapping["tree_joints"]), 1)
         self.assertEqual(mapping["sites"][0]["connector_id"], "tool_axis")
 
+    def test_mjcf_exporter_works_without_scene_projection(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            cache = scad.CachePolicy(root=root / "cache")
+
+            def make_link(part_id: str) -> scad.Part:
+                body = scad.make_cylinder_rsolid(radius=2.0, height=4.0)
+                part = scad.make_part_rpart(part_id, body)
+                return scad.add_connector_rpart(
+                    part,
+                    scad.make_placement_connector_rconnector(
+                        "axis",
+                        scad.identity_placement_rplacement(),
+                    ),
+                )
+
+            @scad.part(
+                id="sceneless_base", cache=cache, project_root=Path(__file__).parent
+            )
+            def build_base() -> scad.Part:
+                return make_link("sceneless_base")
+
+            @scad.part(
+                id="sceneless_rotor", cache=cache, project_root=Path(__file__).parent
+            )
+            def build_rotor() -> scad.Part:
+                return make_link("sceneless_rotor")
+
+            base = build_base()
+            rotor = build_rotor()
+
+            @scad.assemble(
+                id="sceneless_arm",
+                definitions=(base, rotor),
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_arm() -> scad.Assembly:
+                assembly = scad.make_assembly_rassembly("sceneless_arm")
+                assembly = scad.add_component_rassembly(
+                    assembly,
+                    base.part,
+                    component_id="base",
+                    placement=scad.identity_placement_rplacement(),
+                )
+                assembly = scad.add_component_rassembly(
+                    assembly,
+                    rotor.part,
+                    component_id="rotor",
+                    placement=scad.identity_placement_rplacement(),
+                )
+                assembly = scad.ground_component_rassembly(assembly, "base")
+                return scad.add_revolute_constraint_rassembly(
+                    assembly,
+                    "spin",
+                    scad.make_connector_ref_rconnectorref("base", "axis"),
+                    scad.make_connector_ref_rconnectorref("rotor", "axis"),
+                )
+
+            package = scad.build_product_package(build_arm())
+            sceneless = scad.build_product_package(
+                package.root_definition,
+                include_scene=False,
+            )
+            self.assertIsNone(sceneless.scene_path)
+
+            report = scad.exporter.export_product_package_to_mjcf(
+                scad.encode_product_package(sceneless),
+                root / "sceneless.xml",
+                default_density_kg_m3=1000.0,
+            )
+
+        self.assertEqual(report.joint_count, 1)
+        self.assertEqual(report.body_count, 1)
+        self.assertEqual(report.mesh_count, 2)
+        self.assertEqual(report.site_count, 0)
+
     def test_mjcf_exporter_generates_unique_names_for_colliding_logical_ids(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
