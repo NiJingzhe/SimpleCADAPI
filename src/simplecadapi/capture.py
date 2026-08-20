@@ -47,7 +47,16 @@ def capture(result: Any, path: str | Path, /) -> CaptureResult:
     if runtime is None:
         runtime = materialize_definition(definition)
     if not isinstance(runtime, (Part, Assembly)):
-        raise TypeError("captured runtime value must be a Part or Assembly")
+        raise TypeError("captured runtime must be a Part or Assembly")
+    runtime_kind = "single_solid" if isinstance(runtime, Part) else "assembly"
+    runtime_definition_hash = runtime._get_runtime("definition.content_hash")
+    if runtime_definition_hash is not None and runtime_definition_hash != definition.content_hash:
+        raise ValueError("captured runtime does not match its durable definition")
+    runtime_definition_kind = runtime._get_runtime("definition.kind")
+    if runtime_definition_kind is not None and runtime_definition_kind != runtime_kind:
+        raise ValueError("captured runtime definition kind is invalid")
+    if runtime_kind != definition.definition_kind:
+        raise ValueError("captured runtime kind does not match its durable definition")
     package = build_product_package(definition)
     package_bytes = encode_product_package(package)
     destination = Path(path)
