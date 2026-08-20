@@ -134,6 +134,9 @@ def _connector_payload_for_item(item, connector_id):
     for connector in list((item or {}).get("connectors", []) or []):
         if str(connector.get("connector_id")) == str(connector_id):
             return connector
+    for public in list((item or {}).get("public_connectors", []) or []):
+        if str(public.get("connector_id")) == str(connector_id):
+            return public
     raise RuntimeError(f"Missing connector {connector_id!r} on product item")
 
 
@@ -149,7 +152,7 @@ def _connector_local_placement(item, connector_payload, seen=None):
     connector_id = str((connector_payload or {}).get("connector_id", ""))
     key = (id(item), connector_id)
     if key in seen:
-        raise RuntimeError(f"forwarded connector cycle detected at {connector_id!r}")
+        raise RuntimeError(f"public connector cycle detected at {connector_id!r}")
     seen.add(key)
     anchor = _connector_anchor_payload(connector_payload or {})
     kind = str(anchor.get("anchor_kind") or "").lower()
@@ -159,7 +162,7 @@ def _connector_local_placement(item, connector_payload, seen=None):
         )
     if kind == "placement":
         return _placement_from_axes_payload(anchor.get("placement") or {})
-    if kind == "forwarded":
+    if kind == "public":
         source_component = _find_component_entry(
             item or {}, anchor.get("source_component_id")
         )
@@ -167,16 +170,12 @@ def _connector_local_placement(item, connector_payload, seen=None):
         source_connector = _connector_payload_for_item(
             source_item, anchor.get("source_connector_id")
         )
-        source_placement = _placement_from_axes_payload(
+        return _placement_from_axes_payload(
             source_component.get("placement") or {}
-        )
-        result = source_placement.multiply(
+        ).multiply(
             _connector_local_placement(source_item, source_connector, seen)
         )
-        if isinstance(anchor.get("offset"), dict):
-            result = result.multiply(_placement_from_axes_payload(anchor.get("offset")))
-        return result
-    return App.Placement()
+    raise RuntimeError(f"Unsupported connector anchor kind {kind!r}")
 
 
 def _make_connector_datum(container, connector_payload, placement):
@@ -205,18 +204,21 @@ def _materialize_product_connector_datums(product_value):
     container = (product_value or {}).get("container")
     if container is None:
         return product_value
+    field = (
+        "public_connectors"
+        if (product_value or {}).get("kind") == "assembly"
+        else "connectors"
+    )
     resolved = []
-    for connector in list((product_value or {}).get("connectors", []) or []):
+    for connector in list((product_value or {}).get(field, []) or []):
         connector = dict(connector)
-        try:
-            placement = _connector_local_placement(product_value, connector)
-            connector["datum"] = _make_connector_datum(container, connector, placement)
-            connector["placement"] = placement
-        except Exception:
-            pass
+        placement = _connector_local_placement(product_value, connector)
+        connector["datum"] = _make_connector_datum(container, connector, placement)
+        connector["placement"] = placement
         resolved.append(connector)
-    product_value["connectors"] = resolved
+    product_value[field] = resolved
     return product_value
+
 
 
 def _component_connector_proxy(assembly_value, component_entry, connector_payload):

@@ -103,12 +103,10 @@ def build_external_reference_gear_train() -> scad.AssemblyBuildResult:
             pitch_radius_b=8.0,
         )
         assembly = scad.solve_assembly_constraints_rassembly(assembly=assembly)
-        return scad.forward_connector_rassembly(
-            assembly=assembly,
-            connector_id="output_axis",
-            source_component_id="gear_b",
-            source_connector_id="axis",
-        )
+        return scad.set_public_connector_rassembly(assembly=assembly,
+        public_connector_id="output_axis",
+        source_component_id="gear_b",
+        source_connector_id="axis",)
 
     stage = build_stage()
 
@@ -133,12 +131,10 @@ def build_external_reference_gear_train() -> scad.AssemblyBuildResult:
             component_id="train_right",
             placement=scad.make_placement_rplacement(origin=(50.0, 0.0, 0.0)),
         )
-        return scad.forward_connector_rassembly(
-            assembly=assembly,
-            connector_id="service_axis",
-            source_component_id="train_right",
-            source_connector_id="output_axis",
-        )
+        return scad.set_public_connector_rassembly(assembly=assembly,
+        public_connector_id="service_axis",
+        source_component_id="train_right",
+        source_connector_id="output_axis",)
 
     return build_pair()
 

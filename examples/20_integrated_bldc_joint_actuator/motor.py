@@ -129,14 +129,11 @@ copper_material: scad.Material,) -> scad.Assembly:
             ),
             name=f"Winding {index + 1} varnish and potting retention",
         )
-    stator = scad.forward_connector_rassembly(
-        assembly=stator,
-        connector_id="shell_axis",
-        source_component_id="stator_core",
-        source_connector_id="shell_axis",
-        name="Stator press-fit axis",
-        offset=None,
-    )
+    stator = scad.set_public_connector_rassembly(assembly=stator,
+    public_connector_id="shell_axis",
+    source_component_id="stator_core",
+    source_connector_id="shell_axis",
+    name="Stator press-fit axis",)
     stator = scad.solve_assembly_constraints_rassembly(assembly=stator, strict=True)
     ground_constraint_report(label="stator", assembly=stator)
     return stator
@@ -191,14 +188,11 @@ magnet_material: scad.Material,) -> scad.Assembly:
         "front_bearing_axis",
         "stage1_sun_axis",
     ):
-        rotor = scad.forward_connector_rassembly(
-            assembly=rotor,
-            connector_id=connector_id,
-            source_component_id="rotor_core_shaft_sun",
-            source_connector_id=connector_id,
-            name=connector_id.replace("_", " "),
-            offset=None,
-        )
+        rotor = scad.set_public_connector_rassembly(assembly=rotor,
+        public_connector_id=connector_id,
+        source_component_id="rotor_core_shaft_sun",
+        source_connector_id=connector_id,
+        name=connector_id.replace("_", " "),)
     rotor = scad.solve_assembly_constraints_rassembly(assembly=rotor, strict=True)
     ground_constraint_report(label="rotor", assembly=rotor)
     print(

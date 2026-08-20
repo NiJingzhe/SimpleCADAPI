@@ -15,8 +15,8 @@ def export_product_package_to_mjcf(data: ProductPackageInput, output_path: str |
 ## Description
 
 Compile a validated `.scadpkg` assembly into an MJCF model.
-Fixed constraints create rigid groups. Forwarded connectors only resolve
-the endpoint to its leaf connector; they do not change the constraint
+Fixed constraints create rigid groups. Public connector declarations resolve
+endpoint ownership to their leaf connectors without changing the constraint
 kind. Revolute/prismatic edges form a deterministic spanning tree. Gear,
 belt, and rack-pinion relations become independent fixed-tendon
 equalities. Root assembly connectors and geometry names in the

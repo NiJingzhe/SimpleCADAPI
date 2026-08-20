@@ -468,12 +468,10 @@ class TestProductExporter(unittest.TestCase):
                     scad.make_connector_ref_rconnectorref("base", "axis"),
                     scad.make_connector_ref_rconnectorref("rotor", "axis"),
                 )
-                return scad.forward_connector_rassembly(
-                    assembly,
-                    "tool_axis",
-                    "rotor",
-                    "axis",
-                )
+                return scad.set_public_connector_rassembly(assembly,
+                "tool_axis",
+                "rotor",
+                "axis",)
 
             package = scad.build_product_package(build_fixture())
             xml_path = root / "fixture.xml"
@@ -620,12 +618,12 @@ class TestProductExporter(unittest.TestCase):
             report.joint_count,
         )
 
-    def test_mjcf_exporter_preserves_forwarded_movable_attachment(self):
+    def test_mjcf_exporter_preserves_public_movable_attachment(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             cache = scad.CachePolicy(root=root / "cache")
             material = scad.make_material_rmaterial(
-                material_id="forwarded_material",
+                material_id="public_material",
                 density=2.7e-6,
                 density_unit="kg/mm^3",
             )
@@ -643,55 +641,53 @@ class TestProductExporter(unittest.TestCase):
                 )
 
             @scad.part(
-                id="forwarded_base",
+                id="public_base",
                 cache=cache,
                 project_root=Path(__file__).parent,
             )
             def build_base() -> scad.Part:
-                return make_link("forwarded_base")
+                return make_link("public_base")
 
             @scad.part(
-                id="forwarded_link",
+                id="public_link",
                 cache=cache,
                 project_root=Path(__file__).parent,
             )
             def build_link() -> scad.Part:
-                return make_link("forwarded_link")
+                return make_link("public_link")
 
             base = build_base()
             link = build_link()
 
             @scad.assemble(
-                id="forwarded_child",
+                id="public_child",
                 definitions=(link,),
                 cache=cache,
                 project_root=Path(__file__).parent,
             )
             def build_child() -> scad.Assembly:
-                assembly = scad.make_assembly_rassembly(assembly_id="forwarded_child")
+                assembly = scad.make_assembly_rassembly(assembly_id="public_child")
                 assembly = scad.add_component_rassembly(
                     assembly=assembly,
                     item=link.part,
                     component_id="link",
                     placement=scad.identity_placement_rplacement(),
                 )
-                return scad.forward_connector_rassembly(
-                    assembly=assembly,
-                    connector_id="public_axis",
-                    source_component_id="link",
-                    source_connector_id="axis",
-                )
+                return scad.set_public_connector_rassembly(assembly=assembly,
+                public_connector_id="public_axis",
+                source_component_id="link",
+                source_connector_id="axis",)
 
             child = build_child()
 
             @scad.assemble(
-                id="forwarded_root",
+                id="public_root",
                 definitions=(base, child),
                 cache=cache,
                 project_root=Path(__file__).parent,
             )
             def build_fixture() -> scad.Assembly:
-                assembly = scad.make_assembly_rassembly(assembly_id="forwarded_root")
+                assembly = scad.make_assembly_rassembly(assembly_id="public_root")
                 assembly = scad.add_component_rassembly(
                     assembly=assembly,
                     item=base.part,
@@ -724,7 +720,7 @@ class TestProductExporter(unittest.TestCase):
             package = scad.build_product_package(build_fixture())
             report = scad.exporter.export_product_package_to_mjcf(
                 data=package,
-                output_path=root / "forwarded.xml",
+                output_path=root / "public.xml",
             )
             xml_root = ET.parse(report.output_path).getroot()
             mapping = json.loads(report.mapping_path.read_text(encoding="utf-8"))
@@ -735,11 +731,9 @@ class TestProductExporter(unittest.TestCase):
             {geom.attrib["mesh"] for geom in xml_root.findall(".//geom")},
             set(mapping["meshes"].values()),
         )
-        self.assertFalse(
-            any(edge["kind"] == "forwarded_attachment" for edge in mapping["rigid_edges"])
-        )
+        self.assertEqual([edge["kind"] for edge in mapping["rigid_edges"]], ["ground"])
         self.assertEqual(len(mapping["tree_joints"]), 1)
-        self.assertEqual(mapping["pruned_structure_nodes"], ["node/forwarded_root/child"])
+        self.assertEqual(mapping["pruned_structure_nodes"], ["node/public_root/child"])
 
     def test_mjcf_coupling_uses_tree_support_for_shared_connector(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

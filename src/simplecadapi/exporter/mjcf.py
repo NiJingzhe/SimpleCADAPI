@@ -339,8 +339,8 @@ def export_product_package_to_mjcf(
     default_density_kg_m3: float | None = None,
 ) -> ProductMJCFExportReport:
     """Compile a validated `.scadpkg` assembly into an MJCF model.
-    Fixed constraints create rigid groups. Forwarded connectors only resolve
-    the endpoint to its leaf connector; they do not change the constraint
+    Fixed constraints create rigid groups. Public connector declarations resolve
+    endpoint ownership to their leaf connectors without changing the constraint
     kind. Revolute/prismatic edges form a deterministic spanning tree. Gear,
     belt, and rack-pinion relations become independent fixed-tendon
     equalities. Root assembly connectors and geometry names in the
@@ -392,19 +392,17 @@ def export_product_package_to_mjcf(
     def leaf_connector(record: Mapping[str, Any]) -> Mapping[str, Any]:
         current = record
         seen: set[str] = set()
-        while current.get("forwarded_from") is not None:
+        while current.get("source_connector_snapshot_id") is not None:
             snapshot_id = str(current["connector_snapshot_id"])
             if snapshot_id in seen:
-                raise ValueError(f"forwarded connector cycle at {snapshot_id!r}")
+                raise ValueError(f"public connector cycle at {snapshot_id!r}")
             seen.add(snapshot_id)
-            source = current["forwarded_from"]
-            child_node_id = f"{current['node_id']}/{source['component_id']}"
-            key = (child_node_id, str(source["connector_id"]))
+            source_snapshot_id = str(current["source_connector_snapshot_id"])
             try:
-                current = connectors_by_node_and_id[key]
+                current = connector_by_snapshot[source_snapshot_id]
             except KeyError as exc:
                 raise ValueError(
-                    f"forwarded connector {snapshot_id!r} does not resolve to {key!r}"
+                    f"public connector {snapshot_id!r} does not resolve to source snapshot {source_snapshot_id!r}"
                 ) from exc
         return current
 
@@ -1061,7 +1059,7 @@ def export_product_package_to_mjcf(
     limitations = (
         "Mesh geoms are generated from BREP tessellation and scaled from mm to m.",
         "MuJoCo mesh collision uses its supported mesh collision representation; no convex decomposition is attempted.",
-        "Forwarded connectors resolve to leaf endpoints; only explicit fixed constraints create rigid groups.",
+        "Public connector declarations resolve endpoint ownership to leaf connectors; only explicit fixed constraints create rigid groups.",
         "Gear, belt, and rack-pinion relations constrain reference-pose increments through independent fixed tendons.",
     )
     return ProductMJCFExportReport(

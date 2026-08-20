@@ -287,6 +287,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [Placement](Placement.md) *(from placement.py)* `top-level`
 - [ProductPackage](ProductPackage.md) *(from product_packages.py)* `top-level`
 - [ProductPackageError](ProductPackageError.md) *(from product_packages.py)* `top-level`
+- [PublicConnectorRef](PublicConnectorRef.md) *(from assembly.py)* `top-level`
 - [ScalarLimit](ScalarLimit.md) *(from constraint.py)* `top-level`
 - [SemanticDelta](SemanticDelta.md) *(from topology.py)* `top-level`
 - [SemanticRef](SemanticRef.md) *(from topology.py)* `top-level`
@@ -297,7 +298,6 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [add_bspline_rsketch](add_bspline_rsketch.md) *(from operations.py)* `top-level`
 - [add_circle_rsketch](add_circle_rsketch.md) *(from operations.py)* `top-level`
 - [add_component_rassembly](add_component_rassembly.md) *(from operations.py)* `top-level`
-- [add_connector_rassembly](add_connector_rassembly.md) *(from operations.py)* `top-level`
 - [add_connector_rpart](add_connector_rpart.md) *(from operations.py)* `top-level`
 - [add_fixed_constraint_rassembly](add_fixed_constraint_rassembly.md) *(from operations.py)* `top-level`
 - [add_gear_constraint_rassembly](add_gear_constraint_rassembly.md) *(from operations.py)* `top-level`
@@ -336,7 +336,6 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [explain_tag](explain_tag.md) *(from operations.py)* `top-level`
 - [fill_holes_rshell](fill_holes_rshell.md) *(from operations.py)* `top-level`
 - [fit_point_grid_rface](fit_point_grid_rface.md) *(from operations.py)* `top-level`
-- [forward_connector_rassembly](forward_connector_rassembly.md) *(from operations.py)* `top-level`
 - [free_boundaries_rwirelist](free_boundaries_rwirelist.md) *(from operations.py)* `top-level`
 - [geo](geo.md) *(from ql.py)* `submodule:ql`
 - [get_sketch_entity_rsketchref](get_sketch_entity_rsketchref.md) *(from operations.py)* `top-level`
@@ -361,6 +360,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [read_product_package](read_product_package.md) *(from product_packages.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`
+- [set_public_connector_rassembly](set_public_connector_rassembly.md) *(from operations.py)* `top-level`
 - [sew_faces_rshell](sew_faces_rshell.md) *(from operations.py)* `top-level`
 - [shells](shells.md) *(from ql.py)* `submodule:ql`
 - [solve_assembly_constraints_rassembly](solve_assembly_constraints_rassembly.md) *(from operations.py)* `top-level`

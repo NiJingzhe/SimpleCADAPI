@@ -111,7 +111,7 @@ def _connector_reference_for_component(
     if (
         getattr(link, "TypeId", "") == "Assembly::AssemblyLink"
         and not bool(getattr(link, "Rigid", True))
-        and str(anchor.get("anchor_kind") or "").lower() == "forwarded"
+        and str(anchor.get("anchor_kind") or "").lower() == "public"
     ):
         source_component = _find_component_entry(
             component_entry.get("item") or {}, anchor.get("source_component_id")
@@ -127,11 +127,8 @@ def _connector_reference_for_component(
             source_item, anchor.get("source_connector_id")
         )
         placement = _connector_local_placement(source_item, source_connector)
-        if isinstance(anchor.get("offset"), dict):
-            placement = placement.multiply(
-                _placement_from_axes_payload(anchor.get("offset"))
-            )
         return local_link, ["", ""], placement, True
+
     datum = (connector_payload or {}).get("datum")
     datum_name = str(getattr(datum, "Name", "") or "")
     if datum_name:

@@ -68,6 +68,7 @@ else:
     from materials import make_reducer_material_rmaterial, make_reducer_materials_rdict
     from shafts import make_input_shaft_rpart
 
+
 def _assemble_two_stage_planetary_reducer(
     *,
     components: dict[str, scad.Part],
@@ -80,16 +81,66 @@ def _assemble_two_stage_planetary_reducer(
     reducer = _add_fixed_components_rassembly(
         assembly=reducer,
         components=(
-            ("housing", components["housing"], scad.identity_placement_rplacement(), "Fixed outer housing"),
-            ("input_flange", components["input_flange"], scad.identity_placement_rplacement(), "Rotating input flange"),
-            ("output_flange", components["output_flange"], scad.identity_placement_rplacement(), "Rotating output flange"),
-            ("input_shaft", components["input_shaft"], scad.identity_placement_rplacement(), "Input shaft"),
-            ("stage1_carrier", components["stage1_carrier"], scad.identity_placement_rplacement(), "Stage 1 carrier and stage 2 sun shaft"),
-            ("stage2_carrier", components["stage2_carrier"], scad.identity_placement_rplacement(), "Stage 2 carrier and output shaft"),
-            ("stage1_ring", components["stage1_ring"], _gear_stage_rplacement(stage=STAGE_1), "Stage 1 fixed ring"),
-            ("stage1_sun", components["stage1_sun"], _gear_stage_rplacement(stage=STAGE_1), "Stage 1 sun"),
-            ("stage2_ring", components["stage2_ring"], _gear_stage_rplacement(stage=STAGE_2), "Stage 2 fixed ring"),
-            ("stage2_sun", components["stage2_sun"], _gear_stage_rplacement(stage=STAGE_2), "Stage 2 sun"),
+            (
+                "housing",
+                components["housing"],
+                scad.identity_placement_rplacement(),
+                "Fixed outer housing",
+            ),
+            (
+                "input_flange",
+                components["input_flange"],
+                scad.identity_placement_rplacement(),
+                "Rotating input flange",
+            ),
+            (
+                "output_flange",
+                components["output_flange"],
+                scad.identity_placement_rplacement(),
+                "Rotating output flange",
+            ),
+            (
+                "input_shaft",
+                components["input_shaft"],
+                scad.identity_placement_rplacement(),
+                "Input shaft",
+            ),
+            (
+                "stage1_carrier",
+                components["stage1_carrier"],
+                scad.identity_placement_rplacement(),
+                "Stage 1 carrier and stage 2 sun shaft",
+            ),
+            (
+                "stage2_carrier",
+                components["stage2_carrier"],
+                scad.identity_placement_rplacement(),
+                "Stage 2 carrier and output shaft",
+            ),
+            (
+                "stage1_ring",
+                components["stage1_ring"],
+                _gear_stage_rplacement(stage=STAGE_1),
+                "Stage 1 fixed ring",
+            ),
+            (
+                "stage1_sun",
+                components["stage1_sun"],
+                _gear_stage_rplacement(stage=STAGE_1),
+                "Stage 1 sun",
+            ),
+            (
+                "stage2_ring",
+                components["stage2_ring"],
+                _gear_stage_rplacement(stage=STAGE_2),
+                "Stage 2 fixed ring",
+            ),
+            (
+                "stage2_sun",
+                components["stage2_sun"],
+                _gear_stage_rplacement(stage=STAGE_2),
+                "Stage 2 sun",
+            ),
         ),
     )
     for index in range(PLANET_COUNT):
@@ -97,14 +148,18 @@ def _assemble_two_stage_planetary_reducer(
             assembly=reducer,
             item=components["stage1_planet"],
             component_id=f"stage1_planet_{index + 1}",
-            placement=make_planet_component_rplacement(stage=STAGE_1, planet_index=index),
+            placement=make_planet_component_rplacement(
+                stage=STAGE_1, planet_index=index
+            ),
             name=f"Stage 1 planet gear {index + 1}",
         )
         reducer = scad.add_component_rassembly(
             assembly=reducer,
             item=components["stage2_planet"],
             component_id=f"stage2_planet_{index + 1}",
-            placement=make_planet_component_rplacement(stage=STAGE_2, planet_index=index),
+            placement=make_planet_component_rplacement(
+                stage=STAGE_2, planet_index=index
+            ),
             name=f"Stage 2 planet gear {index + 1}",
         )
     reducer = _add_bearing_components_rassembly(assembly=reducer, bearing=bearing)
@@ -122,14 +177,30 @@ def _runtime_components() -> dict[str, scad.Part]:
         "input_flange": make_input_flange_rpart(material=materials["shaft"]),
         "output_flange": make_output_flange_rpart(material=materials["shaft"]),
         "input_shaft": make_input_shaft_rpart(material=materials["shaft"]),
-        "stage1_ring": make_stage_ring_gear_rpart(stage=STAGE_1, material=materials["gear"]),
-        "stage1_sun": make_stage_sun_gear_rpart(stage=STAGE_1, bore_radius=1.56, material=materials["gear"]),
-        "stage1_planet": make_stage_planet_gear_rpart(stage=STAGE_1, bearing=STAGE1_PLANET_BEARING, material=materials["gear"]),
-        "stage1_carrier": make_stage_carrier_rpart(stage=STAGE_1, material=materials["carrier"]),
-        "stage2_ring": make_stage_ring_gear_rpart(stage=STAGE_2, material=materials["gear"]),
-        "stage2_sun": make_stage_sun_gear_rpart(stage=STAGE_2, bore_radius=1.43, material=materials["gear"]),
-        "stage2_planet": make_stage_planet_gear_rpart(stage=STAGE_2, bearing=STAGE2_PLANET_BEARING, material=materials["gear"]),
-        "stage2_carrier": make_stage_carrier_rpart(stage=STAGE_2, material=materials["carrier"]),
+        "stage1_ring": make_stage_ring_gear_rpart(
+            stage=STAGE_1, material=materials["gear"]
+        ),
+        "stage1_sun": make_stage_sun_gear_rpart(
+            stage=STAGE_1, bore_radius=1.56, material=materials["gear"]
+        ),
+        "stage1_planet": make_stage_planet_gear_rpart(
+            stage=STAGE_1, bearing=STAGE1_PLANET_BEARING, material=materials["gear"]
+        ),
+        "stage1_carrier": make_stage_carrier_rpart(
+            stage=STAGE_1, material=materials["carrier"]
+        ),
+        "stage2_ring": make_stage_ring_gear_rpart(
+            stage=STAGE_2, material=materials["gear"]
+        ),
+        "stage2_sun": make_stage_sun_gear_rpart(
+            stage=STAGE_2, bore_radius=1.43, material=materials["gear"]
+        ),
+        "stage2_planet": make_stage_planet_gear_rpart(
+            stage=STAGE_2, bearing=STAGE2_PLANET_BEARING, material=materials["gear"]
+        ),
+        "stage2_carrier": make_stage_carrier_rpart(
+            stage=STAGE_2, material=materials["carrier"]
+        ),
     }
 
 
@@ -254,24 +325,19 @@ def _durable_bearing() -> scad.AssemblyBuildResult:
             drive_angle_degrees=None,
             name="Inner ring spins in outer ring",
         )
-        offset = scad.make_placement_rplacement(
-            origin=(0.0, 0.0, -spec.width / 2.0)
-        )
-        bearing = scad.forward_connector_rassembly(
+        bearing = scad.set_public_connector_rassembly(
             assembly=bearing,
-            connector_id="outer_axis",
+            public_connector_id="outer_axis",
             source_component_id="outer_ring",
             source_connector_id="axis",
             name="Outer ring housing axis",
-            offset=offset,
         )
-        return scad.forward_connector_rassembly(
+        return scad.set_public_connector_rassembly(
             assembly=bearing,
-            connector_id="inner_axis",
+            public_connector_id="inner_axis",
             source_component_id="inner_ring",
             source_connector_id="axis",
             name="Inner ring shaft axis",
-            offset=offset,
         )
 
     return build()
@@ -279,18 +345,98 @@ def _durable_bearing() -> scad.AssemblyBuildResult:
 
 def build_two_stage_planetary_reducer_product() -> scad.AssemblyBuildResult:
     factories: tuple[tuple[str, str, Callable[[], scad.Part]], ...] = (
-        ("housing", "reducer_housing", lambda: make_reducer_housing_rpart(material=make_reducer_material_rmaterial(key="housing"))),
-        ("input_flange", "input_flange", lambda: make_input_flange_rpart(material=make_reducer_material_rmaterial(key="shaft"))),
-        ("output_flange", "output_flange", lambda: make_output_flange_rpart(material=make_reducer_material_rmaterial(key="shaft"))),
-        ("input_shaft", "input_shaft", lambda: make_input_shaft_rpart(material=make_reducer_material_rmaterial(key="shaft"))),
-        ("stage1_ring", "stage1_ring_gear", lambda: make_stage_ring_gear_rpart(stage=STAGE_1, material=make_reducer_material_rmaterial(key="gear"))),
-        ("stage1_sun", "stage1_sun_gear", lambda: make_stage_sun_gear_rpart(stage=STAGE_1, bore_radius=1.56, material=make_reducer_material_rmaterial(key="gear"))),
-        ("stage1_planet", "stage1_planet_gear", lambda: make_stage_planet_gear_rpart(stage=STAGE_1, bearing=STAGE1_PLANET_BEARING, material=make_reducer_material_rmaterial(key="gear"))),
-        ("stage1_carrier", "stage1_carrier", lambda: make_stage_carrier_rpart(stage=STAGE_1, material=make_reducer_material_rmaterial(key="carrier"))),
-        ("stage2_ring", "stage2_ring_gear", lambda: make_stage_ring_gear_rpart(stage=STAGE_2, material=make_reducer_material_rmaterial(key="gear"))),
-        ("stage2_sun", "stage2_sun_gear", lambda: make_stage_sun_gear_rpart(stage=STAGE_2, bore_radius=1.43, material=make_reducer_material_rmaterial(key="gear"))),
-        ("stage2_planet", "stage2_planet_gear", lambda: make_stage_planet_gear_rpart(stage=STAGE_2, bearing=STAGE2_PLANET_BEARING, material=make_reducer_material_rmaterial(key="gear"))),
-        ("stage2_carrier", "stage2_carrier", lambda: make_stage_carrier_rpart(stage=STAGE_2, material=make_reducer_material_rmaterial(key="carrier"))),
+        (
+            "housing",
+            "reducer_housing",
+            lambda: make_reducer_housing_rpart(
+                material=make_reducer_material_rmaterial(key="housing")
+            ),
+        ),
+        (
+            "input_flange",
+            "input_flange",
+            lambda: make_input_flange_rpart(
+                material=make_reducer_material_rmaterial(key="shaft")
+            ),
+        ),
+        (
+            "output_flange",
+            "output_flange",
+            lambda: make_output_flange_rpart(
+                material=make_reducer_material_rmaterial(key="shaft")
+            ),
+        ),
+        (
+            "input_shaft",
+            "input_shaft",
+            lambda: make_input_shaft_rpart(
+                material=make_reducer_material_rmaterial(key="shaft")
+            ),
+        ),
+        (
+            "stage1_ring",
+            "stage1_ring_gear",
+            lambda: make_stage_ring_gear_rpart(
+                stage=STAGE_1, material=make_reducer_material_rmaterial(key="gear")
+            ),
+        ),
+        (
+            "stage1_sun",
+            "stage1_sun_gear",
+            lambda: make_stage_sun_gear_rpart(
+                stage=STAGE_1,
+                bore_radius=1.56,
+                material=make_reducer_material_rmaterial(key="gear"),
+            ),
+        ),
+        (
+            "stage1_planet",
+            "stage1_planet_gear",
+            lambda: make_stage_planet_gear_rpart(
+                stage=STAGE_1,
+                bearing=STAGE1_PLANET_BEARING,
+                material=make_reducer_material_rmaterial(key="gear"),
+            ),
+        ),
+        (
+            "stage1_carrier",
+            "stage1_carrier",
+            lambda: make_stage_carrier_rpart(
+                stage=STAGE_1, material=make_reducer_material_rmaterial(key="carrier")
+            ),
+        ),
+        (
+            "stage2_ring",
+            "stage2_ring_gear",
+            lambda: make_stage_ring_gear_rpart(
+                stage=STAGE_2, material=make_reducer_material_rmaterial(key="gear")
+            ),
+        ),
+        (
+            "stage2_sun",
+            "stage2_sun_gear",
+            lambda: make_stage_sun_gear_rpart(
+                stage=STAGE_2,
+                bore_radius=1.43,
+                material=make_reducer_material_rmaterial(key="gear"),
+            ),
+        ),
+        (
+            "stage2_planet",
+            "stage2_planet_gear",
+            lambda: make_stage_planet_gear_rpart(
+                stage=STAGE_2,
+                bearing=STAGE2_PLANET_BEARING,
+                material=make_reducer_material_rmaterial(key="gear"),
+            ),
+        ),
+        (
+            "stage2_carrier",
+            "stage2_carrier",
+            lambda: make_stage_carrier_rpart(
+                stage=STAGE_2, material=make_reducer_material_rmaterial(key="carrier")
+            ),
+        ),
     )
     results = {
         key: _durable_part(definition_id=definition_id, factory=factory)
@@ -314,9 +460,11 @@ def build_two_stage_planetary_reducer_product() -> scad.AssemblyBuildResult:
     return build()
 
 
-def _add_fixed_components_rassembly(*,
-assembly: scad.Assembly,
-components: tuple[tuple[str, scad.Part, scad.Placement, str], ...],) -> scad.Assembly:
+def _add_fixed_components_rassembly(
+    *,
+    assembly: scad.Assembly,
+    components: tuple[tuple[str, scad.Part, scad.Placement, str], ...],
+) -> scad.Assembly:
     for component_id, item, placement, name in components:
         assembly = scad.add_component_rassembly(
             assembly=assembly,
@@ -329,9 +477,11 @@ components: tuple[tuple[str, scad.Part, scad.Placement, str], ...],) -> scad.Ass
     return assembly
 
 
-def _add_bearing_components_rassembly(*,
-assembly: scad.Assembly,
-bearing: scad.Assembly,) -> scad.Assembly:
+def _add_bearing_components_rassembly(
+    *,
+    assembly: scad.Assembly,
+    bearing: scad.Assembly,
+) -> scad.Assembly:
     bearing_component_count = 0
     for component_id, bearing, placement, name in (
         (
@@ -388,40 +538,83 @@ bearing: scad.Assembly,) -> scad.Assembly:
     return assembly
 
 
-def _add_public_interface_connectors_rassembly(*, assembly: scad.Assembly) -> scad.Assembly:
+def _add_public_interface_connectors_rassembly(
+    *, assembly: scad.Assembly
+) -> scad.Assembly:
     """Expose stable actuator module datums without leaking private component ids."""
 
-    forwarded = (
+    public_connectors = (
         ("housing_mount_axis", "housing", "output_axis", "Fixed case mounting datum"),
-        ("input_motor_axis", "input_flange", "axis", "Input flange datum for motor can"),
-        ("output_link_axis", "output_flange", "axis", "Output flange datum for driven link"),
+        (
+            "input_motor_axis",
+            "input_flange",
+            "axis",
+            "Input flange datum for motor can",
+        ),
+        (
+            "output_link_axis",
+            "output_flange",
+            "axis",
+            "Output flange datum for driven link",
+        ),
     )
-    for connector_id, source_component_id, source_connector_id, name in forwarded:
-        assembly = scad.forward_connector_rassembly(
+    for (
+        public_connector_id,
+        source_component_id,
+        source_connector_id,
+        name,
+    ) in public_connectors:
+        assembly = scad.set_public_connector_rassembly(
             assembly=assembly,
-            connector_id=connector_id,
+            public_connector_id=public_connector_id,
             source_component_id=source_component_id,
             source_connector_id=source_connector_id,
             name=name,
         )
-    print("reducer_public_connectors: " + ",".join(connector_id for connector_id, *_ in forwarded))
+    print(
+        "reducer_public_connectors: " + ",".join(item[0] for item in public_connectors)
+    )
     return assembly
 
 
 def _add_reducer_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assembly:
-    assembly = scad.ground_component_rassembly(assembly=assembly, component_id="housing")
-    assembly = scad.ground_component_rassembly(assembly=assembly, component_id="stage1_ring")
-    assembly = scad.ground_component_rassembly(assembly=assembly, component_id="stage2_ring")
+    assembly = scad.ground_component_rassembly(
+        assembly=assembly, component_id="housing"
+    )
+    assembly = scad.ground_component_rassembly(
+        assembly=assembly, component_id="stage1_ring"
+    )
+    assembly = scad.ground_component_rassembly(
+        assembly=assembly, component_id="stage2_ring"
+    )
 
     fixed_pairs = (
         ("stage1_ring_fixed", "housing", "stage1_axis", "stage1_ring", "axis"),
         ("stage2_ring_fixed", "housing", "stage2_axis", "stage2_ring", "axis"),
         ("input_flange_to_shaft", "input_flange", "axis", "input_shaft", "flange_axis"),
         ("stage1_sun_to_input_shaft", "input_shaft", "sun_axis", "stage1_sun", "axis"),
-        ("stage2_sun_to_stage1_carrier", "stage1_carrier", "stage2_sun_axis", "stage2_sun", "axis"),
-        ("output_flange_to_stage2_carrier", "stage2_carrier", "output_axis", "output_flange", "axis"),
+        (
+            "stage2_sun_to_stage1_carrier",
+            "stage1_carrier",
+            "stage2_sun_axis",
+            "stage2_sun",
+            "axis",
+        ),
+        (
+            "output_flange_to_stage2_carrier",
+            "stage2_carrier",
+            "output_axis",
+            "output_flange",
+            "axis",
+        ),
     )
-    for constraint_id, a_component, a_connector, b_component, b_connector in fixed_pairs:
+    for (
+        constraint_id,
+        a_component,
+        a_connector,
+        b_component,
+        b_connector,
+    ) in fixed_pairs:
         assembly = scad.add_fixed_constraint_rassembly(
             assembly=assembly,
             constraint_id=constraint_id,
@@ -432,8 +625,20 @@ def _add_reducer_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assem
 
     revolutes = (
         ("input_shaft_revolute", "housing", "input_axis", "input_shaft", "sun_axis"),
-        ("stage1_carrier_revolute", "housing", "stage2_axis", "stage1_carrier", "carrier_axis"),
-        ("stage2_carrier_revolute", "housing", "output_axis", "stage2_carrier", "carrier_axis"),
+        (
+            "stage1_carrier_revolute",
+            "housing",
+            "stage2_axis",
+            "stage1_carrier",
+            "carrier_axis",
+        ),
+        (
+            "stage2_carrier_revolute",
+            "housing",
+            "output_axis",
+            "stage2_carrier",
+            "carrier_axis",
+        ),
     )
     for constraint_id, a_component, a_connector, b_component, b_connector in revolutes:
         assembly = scad.add_revolute_constraint_rassembly(
@@ -467,25 +672,74 @@ def _add_reducer_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assem
     return assembly
 
 
-def _add_bearing_interface_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assembly:
+def _add_bearing_interface_constraints_rassembly(
+    *, assembly: scad.Assembly
+) -> scad.Assembly:
     coaxial_interfaces = (
-        ("input_bearing_outer_to_housing", "housing", "input_bearing_axis", "input_bearing", "outer_axis"),
-        ("input_bearing_inner_to_shaft", "input_shaft", "input_bearing_axis", "input_bearing", "inner_axis"),
-        ("intermediate_bearing_outer_to_housing", "housing", "intermediate_bearing_axis", "intermediate_bearing", "outer_axis"),
-        ("intermediate_bearing_inner_to_stage1_carrier", "stage1_carrier", "intermediate_bearing_axis", "intermediate_bearing", "inner_axis"),
-        ("output_bearing_outer_to_housing", "housing", "output_bearing_axis", "output_bearing", "outer_axis"),
-        ("output_bearing_inner_to_stage2_carrier", "stage2_carrier", "output_bearing_axis", "output_bearing", "inner_axis"),
+        (
+            "input_bearing_outer_to_housing",
+            "housing",
+            "input_bearing_axis",
+            "input_bearing",
+            "outer_axis",
+        ),
+        (
+            "input_bearing_inner_to_shaft",
+            "input_shaft",
+            "input_bearing_axis",
+            "input_bearing",
+            "inner_axis",
+        ),
+        (
+            "intermediate_bearing_outer_to_housing",
+            "housing",
+            "intermediate_bearing_axis",
+            "intermediate_bearing",
+            "outer_axis",
+        ),
+        (
+            "intermediate_bearing_inner_to_stage1_carrier",
+            "stage1_carrier",
+            "intermediate_bearing_axis",
+            "intermediate_bearing",
+            "inner_axis",
+        ),
+        (
+            "output_bearing_outer_to_housing",
+            "housing",
+            "output_bearing_axis",
+            "output_bearing",
+            "outer_axis",
+        ),
+        (
+            "output_bearing_inner_to_stage2_carrier",
+            "stage2_carrier",
+            "output_bearing_axis",
+            "output_bearing",
+            "inner_axis",
+        ),
     )
-    for constraint_id, a_component, a_connector, bearing_component, bearing_connector in coaxial_interfaces:
+    for (
+        constraint_id,
+        a_component,
+        a_connector,
+        bearing_component,
+        bearing_connector,
+    ) in coaxial_interfaces:
         assembly = scad.add_fixed_constraint_rassembly(
             assembly=assembly,
             constraint_id=constraint_id,
             connector_a=_ref(component_id=a_component, connector_id=a_connector),
-            connector_b=_ref(component_id=bearing_component, connector_id=bearing_connector),
+            connector_b=_ref(
+                component_id=bearing_component, connector_id=bearing_connector
+            ),
             name=constraint_id.replace("_", " "),
         )
 
-    for stage, carrier_component_id in ((STAGE_1, "stage1_carrier"), (STAGE_2, "stage2_carrier")):
+    for stage, carrier_component_id in (
+        (STAGE_1, "stage1_carrier"),
+        (STAGE_2, "stage2_carrier"),
+    ):
         for index in range(PLANET_COUNT):
             planet_id = f"{stage.stage_id}_planet_{index + 1}"
             bearing_id = f"{stage.stage_id}_planet_bearing_{index + 1}"
@@ -509,13 +763,15 @@ def _add_bearing_interface_constraints_rassembly(*, assembly: scad.Assembly) -> 
     return assembly
 
 
-def _add_stage_mesh_constraints_rassembly(*,
-assembly: scad.Assembly,
-stage: StageSpec,
-driver_component_id: str,
-driver_connector_id: str,
-ring_component_id: str,
-carrier_component_id: str,) -> scad.Assembly:
+def _add_stage_mesh_constraints_rassembly(
+    *,
+    assembly: scad.Assembly,
+    stage: StageSpec,
+    driver_component_id: str,
+    driver_connector_id: str,
+    ring_component_id: str,
+    carrier_component_id: str,
+) -> scad.Assembly:
     for index in range(PLANET_COUNT):
         planet_component_id = f"{stage.stage_id}_planet_{index + 1}"
         assembly = scad.add_revolute_constraint_rassembly(
@@ -533,7 +789,9 @@ carrier_component_id: str,) -> scad.Assembly:
         assembly = scad.add_gear_constraint_rassembly(
             assembly=assembly,
             constraint_id=f"{stage.stage_id}_sun_planet_{index + 1}_external_mesh",
-            connector_a=_ref(component_id=driver_component_id, connector_id=driver_connector_id),
+            connector_a=_ref(
+                component_id=driver_component_id, connector_id=driver_connector_id
+            ),
             connector_b=_ref(component_id=planet_component_id, connector_id="axis"),
             pitch_radius_a=stage.sun_pitch_radius,
             pitch_radius_b=stage.planet_pitch_radius,
