@@ -330,8 +330,19 @@ def test_public_connectors_close_nested_revolute_between_fixed_interfaces():
         scad.make_connector_ref_rconnectorref("bearing", "inner_axis"),
     )
 
-    with pytest.raises(Exception, match="residual exceeds tolerance"):
-        scad.solve_assembly_constraints_rassembly(root)
+    solved = scad.solve_assembly_constraints_rassembly(root)
+
+    report = solved._get_runtime("constraint_report")
+    assert report["solved"] is True
+    assert all(item["within_tolerance"] for item in report["residuals"])
+    bearing_instance = solved.get_component("bearing").item
+    inner_ring = bearing_instance.get_component("inner_ring")
+    shaft = solved.get_component("shaft")
+    assert inner_ring.placement.x_axis == shaft.placement.x_axis
+    assert inner_ring.placement.y_axis == shaft.placement.y_axis
+    outer_ring = bearing_instance.get_component("outer_ring")
+    housing = solved.get_component("housing")
+    assert outer_ring.placement.x_axis == housing.placement.x_axis
 
 
 def test_public_connector_validation_reports_missing_sources():
