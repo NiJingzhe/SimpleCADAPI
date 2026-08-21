@@ -83,7 +83,12 @@ def read_product_package_translation_units(
     visited: set[tuple[str, str]] = set()
 
     def visit(definition: Definition) -> None:
-        key = (definition.definition_kind, definition.content_hash)
+        # Deduplicate by definition identity, not content hash: consumers
+        # (STEP label index, product-graph reference resolution, FreeCAD
+        # tokens) all look units up by definition_id, and a package may
+        # legitimately contain two same-content definitions with different
+        # ids.
+        key = (definition.definition_kind, definition.definition_id)
         if key in visited:
             return
         if isinstance(definition, AssemblyDefinition):
