@@ -207,34 +207,18 @@ def build_package_matrix_cases(
             )
         )
 
-    forwarded_scene, _forwarded_entity, forwarded_blobs = deepcopy(nested)
+    missing_source_scene, _missing_source_entity, missing_source_blobs = deepcopy(nested)
     root_connector = next(
         record
-        for record in forwarded_scene["connectors"]
+        for record in missing_source_scene["connectors"]
         if record["connector_id"] == "root_mount"
     )
-    root_connector["local_transform"]["origin"] = [0, 0, 6]
+    root_connector["source_connector_snapshot_id"] = "connector/root/assembly/nested_assembly/missing"
     cases.append(
         inline_package_case(
-            "forwarded_transform_mismatch",
-            with_scene_revision(forwarded_scene),
-            forwarded_blobs,
-            blob_pool,
-        )
-    )
-
-    missing_child_scene, _missing_child_entity, missing_child_blobs = deepcopy(nested)
-    root_connector = next(
-        record
-        for record in missing_child_scene["connectors"]
-        if record["connector_id"] == "root_mount"
-    )
-    root_connector["forwarded_from"]["source_component_id"] = "missing"
-    cases.append(
-        inline_package_case(
-            "forwarded_direct_child_missing",
-            with_scene_revision(missing_child_scene),
-            missing_child_blobs,
+            "public_source_snapshot_missing",
+            with_scene_revision(missing_source_scene),
+            missing_source_blobs,
             blob_pool,
         )
     )
@@ -254,10 +238,11 @@ def build_package_matrix_cases(
     )
     cases.append(
         inline_package_case(
-            "forwarded_owner_not_assembly",
+            "public_owner_not_assembly",
             with_scene_revision(part_owner_scene),
             part_owner_blobs,
             blob_pool,
         )
     )
     return cases
+

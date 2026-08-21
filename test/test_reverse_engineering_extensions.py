@@ -6,10 +6,11 @@ import pytest
 
 import simplecadapi as scad
 from simplecadapi.inspect import brep
+from simplecadapi.kernel.ocp_export import export_step_shapes
 
 
 def _export(shape: scad.Solid, path: Path) -> Path:
-    scad.export_step(shape, str(path))
+    export_step_shapes([shape.wrapped], str(path))
     return path
 
 

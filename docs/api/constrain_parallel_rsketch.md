@@ -6,7 +6,7 @@
 def constrain_parallel_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch
 ```
 
-*Source: operations.py*
+*Source: _operators_sketch.py*
 
 ## Import Surface
 

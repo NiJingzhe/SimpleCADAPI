@@ -6,7 +6,7 @@
 def make_sphere_rsolid(radius: ScalarLike, center: Tuple[float, float, float] = (0, 0, 0)) -> Solid
 ```
 
-*Source: operations.py*
+*Source: _operators_geometry.py*
 
 ## Import Surface
 

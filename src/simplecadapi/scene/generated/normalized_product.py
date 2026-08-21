@@ -70,17 +70,17 @@ class PlacementAnchor(TypedDict):
     placement: Transform
 
 
-class ForwardedAnchor(TypedDict):
-    anchor_kind: Literal["forwarded"]
-    source_component_id: ProductId
-    source_connector_id: ProductId
-    offset: Transform | None
+class PublicConnector(TypedDict):
+    public_connector_id: ProductId
+    component_id: ProductId
+    connector_id: ProductId
+    name: str | None
 
 
 class Connector(TypedDict):
     connector_id: ProductId
     name: str | None
-    anchor: GeometryAnchor | PlacementAnchor | ForwardedAnchor
+    anchor: GeometryAnchor | PlacementAnchor
     geometry_ref: NotRequired[GeometryRef | None]
 
 
@@ -136,7 +136,7 @@ class Assembly(TypedDict):
     assembly_id: ProductId
     name: str | None
     components: list[Component]
-    connectors: list[Connector]
+    public_connectors: list[PublicConnector]
     constraints: list[Constraint]
     grounded_component_ids: list[ProductId]
     metadata: dict[str, Any]

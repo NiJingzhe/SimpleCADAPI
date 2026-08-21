@@ -10,7 +10,7 @@ def evaluate_reconstruction_rdescriptor(target: ModelInput, current: ModelInput,
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.evaluate_reconstruction_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.evaluate_reconstruction_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

@@ -10,7 +10,7 @@ def render_region_rpath(model_or_path: BRepModel | TopoDS_Shape | str | Path, en
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.render_region_rpath(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.render_region_rpath(...)`; unavailable inside GraphSession
 
 ## Description
 

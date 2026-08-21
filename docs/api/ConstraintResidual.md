@@ -6,7 +6,7 @@
 class ConstraintResidual(constraint_id: str, translation_error: float, angular_error_degrees: float, within_tolerance: bool)
 ```
 
-*Source: product.py*
+*Source: constraint.py*
 
 ## Import Surface
 

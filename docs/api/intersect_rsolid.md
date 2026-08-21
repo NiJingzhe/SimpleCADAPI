@@ -6,7 +6,7 @@
 def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid
 ```
 
-*Source: operations.py*
+*Source: _operators_boolean.py*
 
 ## Import Surface
 

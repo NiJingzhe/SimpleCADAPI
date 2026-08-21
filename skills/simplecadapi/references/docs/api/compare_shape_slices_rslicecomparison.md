@@ -10,7 +10,7 @@ def compare_shape_slices_rslicecomparison(target: TopoDS_Shape, candidate: TopoD
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_shape_slices_rslicecomparison(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_shape_slices_rslicecomparison(...)`; unavailable inside GraphSession
 
 ## Description
 

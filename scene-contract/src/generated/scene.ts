@@ -24,7 +24,7 @@ export type Token = string;
  * This interface was referenced by `SceneDocument`'s JSON-Schema
  * via the `definition` "sceneSource".
  */
-export type SceneSource = ModelSource | ImportedSource | ManualSource;
+export type SceneSource = ModelSource | ProductPackageSource | ImportedSource | ManualSource;
 /**
  * This interface was referenced by `SceneDocument`'s JSON-Schema
  * via the `definition` "productId".
@@ -69,7 +69,12 @@ export type StructuralId = string;
  * via the `definition` "definitionSource".
  */
 export type DefinitionSource =
-  ProductModelSource | ProductManualSource | ModelOutputSource | ImportedDefinitionSource | ManualDefinitionSource;
+  | ProductModelSource
+  | ProductManualSource
+  | ProductPackageDefinitionSource
+  | ModelOutputSource
+  | ImportedDefinitionSource
+  | ManualDefinitionSource;
 /**
  * @minItems 3
  * @maxItems 3
@@ -107,11 +112,11 @@ export type Connector = {
   owner_definition_id: StructuralId;
   connector_id: ProductId;
   name: string | null;
-  anchor_kind: "geometry" | "placement" | "forwarded";
+  anchor_kind: "geometry" | "placement" | "public";
   local_transform: Transform;
   target?: ConnectorTarget;
-  forwarded_from?: ForwardedFrom;
-  source: null | ModelOperationSource | ManualConnectorSource;
+  source_connector_snapshot_id: null | StructuralId;
+  source: null | ModelOperationSource | ManualConnectorSource | ProductPackageConnectorSource;
   sdk_metadata: {
     [k: string]: unknown;
   };
@@ -206,6 +211,16 @@ export interface SourceFile {
 }
 /**
  * This interface was referenced by `SceneDocument`'s JSON-Schema
+ * via the `definition` "productPackageSource".
+ */
+export interface ProductPackageSource {
+  kind: "part_package" | "assembly_package";
+  definition_id: ProductId;
+  revision: Hash;
+  artifact_hash: Hash;
+}
+/**
+ * This interface was referenced by `SceneDocument`'s JSON-Schema
  * via the `definition` "importedSource".
  */
 export interface ImportedSource {
@@ -275,6 +290,18 @@ export interface ProductManualSource {
   root_id: LogicalId;
   semantic_type: "Part" | "Assembly";
   semantic_id: ProductId;
+}
+/**
+ * This interface was referenced by `SceneDocument`'s JSON-Schema
+ * via the `definition` "productPackageDefinitionSource".
+ */
+export interface ProductPackageDefinitionSource {
+  kind: "product_package";
+  root_id: LogicalId;
+  semantic_type: "Part" | "Assembly";
+  semantic_id: ProductId;
+  package_kind: "part_package" | "assembly_package";
+  package_revision: Hash;
 }
 /**
  * This interface was referenced by `SceneDocument`'s JSON-Schema
@@ -457,17 +484,6 @@ export interface ConnectorTarget {
 }
 /**
  * This interface was referenced by `SceneDocument`'s JSON-Schema
- * via the `definition` "forwardedFrom".
- */
-export interface ForwardedFrom {
-  source_component_id: ProductId;
-  source_definition_id: StructuralId;
-  source_connector_id: ProductId;
-  source_connector_snapshot_id: StructuralId;
-  offset: null | Transform;
-}
-/**
- * This interface was referenced by `SceneDocument`'s JSON-Schema
  * via the `definition` "modelOperationSource".
  */
 export interface ModelOperationSource {
@@ -483,6 +499,16 @@ export interface ModelOperationSource {
 export interface ManualConnectorSource {
   kind: "manual";
   source_id: LogicalId;
+}
+/**
+ * This interface was referenced by `SceneDocument`'s JSON-Schema
+ * via the `definition` "productPackageConnectorSource".
+ */
+export interface ProductPackageConnectorSource {
+  kind: "product_package";
+  package_kind: "part_package" | "assembly_package";
+  package_revision: Hash;
+  definition_id: ProductId;
 }
 /**
  * This interface was referenced by `SceneDocument`'s JSON-Schema

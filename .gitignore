@@ -1,7 +1,7 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
-build/
+/build/
 dist/
 wheels/
 *.egg-info
@@ -35,3 +35,7 @@ viewer/pnpm-lock.yaml
 design-docs/
 
 **/.vite/
+
+
+# SimpleCAD content-addressed cache
+.simplecad/

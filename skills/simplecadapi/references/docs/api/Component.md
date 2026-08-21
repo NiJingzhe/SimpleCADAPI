@@ -6,7 +6,7 @@
 class Component(component_id: str, item: AssemblyItem, placement: Placement, name: Optional[str] = None)
 ```
 
-*Source: product.py*
+*Source: assembly.py*
 
 ## Import Surface
 

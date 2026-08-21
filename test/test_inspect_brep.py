@@ -21,6 +21,7 @@ from OCP.TColStd import TColStd_Array2OfReal
 from OCP.TColgp import TColgp_Array2OfPnt
 from OCP.TopoDS import TopoDS_Compound
 from OCP.gp import gp_Ax2, gp_Dir, gp_Elips, gp_Pnt, gp_Trsf, gp_Vec
+from simplecadapi.kernel.ocp_export import export_step_shapes
 from simplecadapi.inspect import brep
 import simplecadapi.inspect.brep.compare as compare_module
 
@@ -639,7 +640,7 @@ def test_compare_shape_slices_has_zero_xor_for_same_shape():
 
 def test_step_round_trip_uses_public_inspection_namespace(tmp_path: Path):
     step = tmp_path / "box.step"
-    scad.export_step(shapes=_box(), filename=str(step))
+    export_step_shapes([_box().wrapped], str(step))
 
     report = brep.inspect_step_rbrepinspection(path=step)
     comparison = brep.compare_steps_rbrepcomparison(
@@ -665,7 +666,7 @@ def test_step_round_trip_uses_public_inspection_namespace(tmp_path: Path):
 
 def test_step_model_helpers_cache_and_return_stable_ids(tmp_path: Path):
     step = tmp_path / "box.step"
-    scad.export_step(shapes=_box(), filename=str(step))
+    export_step_shapes([_box().wrapped], str(step))
     brep.clear_step_model_cache_rnone()
 
     first = brep.load_step_rbrepmodel(step)

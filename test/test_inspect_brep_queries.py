@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -32,6 +35,8 @@ from simplecadapi.inspect.brep.render import (
     _entity_map_legend,
     _load_step_xcaf,
     _mesh_polydata,
+    _point_polydata,
+    _run_render_worker,
     inspect_step_components_rdescriptorlist,
     render_entity_kind_maps_rpath,
     render_entity_map_rpath,
@@ -660,6 +665,36 @@ def test_render_entity_map_rejects_empty_duplicate_and_invalid_options(tmp_path)
             model, ["vertex:0"], tmp_path / "point-size.png", highlight_point_size=0.0
         )
 
+
+
+def test_render_worker_retries_crash_and_requires_clean_exit(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        del kwargs
+        calls.append(tuple(command))
+        payload = json.loads(Path(command[-1]).read_text(encoding="utf-8"))
+        Path(payload["output_path"]).write_bytes(b"crashed-image")
+        Path(payload["completion_path"]).touch()
+        if len(calls) == 1:
+            return SimpleNamespace(returncode=-11, stderr="", stdout="")
+        Path(payload["output_path"]).write_bytes(b"complete-image")
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(
+        "simplecadapi.inspect.brep.render.subprocess.run", fake_run
+    )
+    output = tmp_path / "worker.png"
+    result = _run_render_worker(
+        mode="views",
+        output_path=output,
+        datasets={"base": _point_polydata([(0.0, 0.0, 0.0)])},
+        options={},
+    )
+
+    assert result == output
+    assert output.read_bytes() == b"complete-image"
+    assert len(calls) == 2
 
 def test_render_region_does_not_mutate_cached_model_geometry(tmp_path):
     model = _model()

@@ -24,12 +24,15 @@ _CANONICAL_OPS = (
     "make_spline_redge",
     "make_interpolated_spline_redge",
     "make_bezier_surface_rface",
+    "make_cylindrical_surface_rface",
     "fit_point_grid_rface",
     "make_ruled_surface_rface",
     "make_gordon_surface_rface",
     "make_surface_patch_rface",
+    "trim_surface_rface",
     "make_loft_rshell",
     "sew_faces_rshell",
+    "make_solid_from_shell_rsolid",
     "free_boundaries_rwirelist",
     "fill_holes_rshell",
     "make_helix_redge",
@@ -75,6 +78,8 @@ _CANONICAL_OPS = (
     "make_part_rpart",
     "make_assign_material_rpart",
     "make_assembly_rassembly",
+    "reference_definition",
+    "evaluate_assembly_definition",
     "make_add_component_rassembly",
     "make_place_component_rassembly",
     "make_compound_from_assembly_rcompound",
@@ -83,8 +88,8 @@ _CANONICAL_OPS = (
     "make_vertex_connector_rconnector",
     "make_placement_connector_rconnector",
     "make_add_connector_rpart",
-    "make_add_connector_rassembly",
-    "make_forward_connector_rassembly",
+    "make_set_public_connector_rassembly",
+
     "make_connector_ref_rconnectorref",
     "make_scalar_limit_rscalarlimit",
     "make_ground_component_rassembly",
@@ -136,6 +141,10 @@ OP_SUPPORT["make_point_rvertex"] = OperationCapability(
     reason="The FreeCAD point emitter has not been implemented yet.",
 )
 for _op, _reason in {
+    "make_cylindrical_surface_rface": (
+        "FreeCAD reconstructs the bounded carrier from a native partial cylinder "
+        "and retains its cylindrical side face."
+    ),
     "fit_point_grid_rface": (
         "FreeCAD approximates the point grid with its native BSplineSurface fitter; "
         "small rejected grids fall back to exact grid interpolation."
@@ -148,11 +157,19 @@ for _op, _reason in {
         "FreeCAD fills and trims the boundary because it cannot map the full "
         "support continuity and interior constraint contract parametrically."
     ),
+    "trim_surface_rface": (
+        "FreeCAD rebuilds the carrier trim loops and intersects them with the "
+        "existing carrier bounds."
+    ),
     "free_boundaries_rwirelist": (
         "FreeCAD reconstructs free boundaries from shell edges referenced by one face."
     ),
     "fill_holes_rshell": (
         "FreeCAD fills selected closed boundary wires and sews them back to the shell."
+    ),
+    "make_solid_from_shell_rsolid": (
+        "FreeCAD converts the validated closed shell to a Part solid while "
+        "preserving the source faces."
     ),
 }.items():
     OP_SUPPORT[_op] = OperationCapability(SupportLevel.EMULATED, reason=_reason)
@@ -204,7 +221,7 @@ OP_SUPPORT["apply_tag_rselection"] = OperationCapability(
 CAPABILITIES = BackendCapabilities(
     backend_id=BACKEND_NAME,
     display_name="FreeCAD",
-    input_schema_versions=("2.0",),
+    input_schema_versions=("product-package-2.0",),
     targets=(
         TranslationTarget(
             target_id="freecad_script",

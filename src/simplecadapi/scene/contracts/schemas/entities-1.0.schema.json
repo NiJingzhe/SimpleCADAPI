@@ -39,11 +39,15 @@
       "kind": {"const": "model_topology"}, "graph_id": {"$ref": "#/$defs/productId"}, "node_id": {"$ref": "#/$defs/productId"}, "output_slot": {"$ref": "#/$defs/safeInteger"},
       "topology_kind": {"enum": ["SOLID", "FACE", "EDGE", "VERTEX"]}, "topo_id": {"type": "string", "minLength": 1}
     }},
+    "packageGeometry": {"type": "object", "additionalProperties": false, "required": ["kind", "package_kind", "package_revision", "definition_id"], "properties": {
+      "kind": {"const": "package_geometry"}, "package_kind": {"enum": ["part_package", "assembly_package"]},
+      "package_revision": {"$ref": "#/$defs/hash"}, "definition_id": {"$ref": "#/$defs/productId"}
+    }},
     "importedPrimitive": {"type": "object", "additionalProperties": false, "required": ["kind", "source_element_id"], "properties": {
       "kind": {"const": "imported_primitive"}, "source_element_id": {"type": "string", "minLength": 1}
     }},
     "unbound": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "unbound"}}},
-    "source": {"oneOf": [{"$ref": "#/$defs/modelOutput"}, {"$ref": "#/$defs/modelTopology"}, {"$ref": "#/$defs/importedPrimitive"}, {"$ref": "#/$defs/unbound"}]},
+    "source": {"oneOf": [{"$ref": "#/$defs/modelOutput"}, {"$ref": "#/$defs/modelTopology"}, {"$ref": "#/$defs/packageGeometry"}, {"$ref": "#/$defs/importedPrimitive"}, {"$ref": "#/$defs/unbound"}]},
     "brepSolid": {"type": "object", "additionalProperties": false, "required": ["type"], "properties": {"type": {"const": "brep_solid"}}},
     "point": {"type": "object", "additionalProperties": false, "required": ["type", "position"], "properties": {"type": {"const": "point"}, "position": {"$ref": "#/$defs/vec3"}}},
     "line": {"type": "object", "additionalProperties": false, "required": ["type", "origin", "direction"], "properties": {"type": {"const": "line"}, "origin": {"$ref": "#/$defs/vec3"}, "direction": {"$ref": "#/$defs/vec3"}}},

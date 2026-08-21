@@ -11,6 +11,7 @@ import simplecadapi as scad
 from simplecadapi.inspect import brep
 from simplecadapi._canonical_json import canonical_json_bytes, parse_canonical_json
 from simplecadapi._brep_region import HEADER
+from simplecadapi.kernel.ocp_export import export_step_shapes
 
 
 KETTLE_STEP = os.environ.get("SIMPLECADAPI_KETTLE_STEP")
@@ -23,7 +24,7 @@ def _write_box_step(path: Path) -> scad.Solid:
         depth=30.0,
         bottom_face_center=(5.0, 0.0, 0.0),
     )
-    scad.export_step(box, str(path))
+    export_step_shapes([box.wrapped], str(path))
     return box
 
 
@@ -36,9 +37,7 @@ def _rewrite_snapshot_manifest(path: Path, update) -> None:
     update(manifest)
     manifest_bytes = canonical_json_bytes(manifest)
     path.write_bytes(
-        HEADER.pack(
-            magic, major, minor, flags, len(manifest_bytes), payload_size
-        )
+        HEADER.pack(magic, major, minor, flags, len(manifest_bytes), payload_size)
         + manifest_bytes
         + data[payload_start:]
     )
@@ -90,9 +89,7 @@ def test_complete_step_region_loads_as_one_replayable_solid(tmp_path: Path) -> N
     assert len(replayed) == 1
     assert isinstance(replayed[0], scad.Solid)
     assert replayed[0].get_volume() == pytest.approx(source.get_volume(), abs=1.0e-9)
-    assert "kettle.transcribed.solid" in scad.list_tags(
-        replayed[0], scope="local"
-    )
+    assert "kettle.transcribed.solid" in scad.list_tags(replayed[0], scope="local")
 
 
 def test_brep_region_load_rejects_changed_snapshot(tmp_path: Path) -> None:
@@ -124,7 +121,10 @@ def test_graph_rejects_absolute_snapshot_path(tmp_path: Path) -> None:
 
 
 def test_graph_rejects_alternate_data_stream_snapshot_path() -> None:
-    with scad.GraphSession(), pytest.raises(scad.SimpleCADError, match="must not contain"):
+    with (
+        scad.GraphSession(),
+        pytest.raises(scad.SimpleCADError, match="must not contain"),
+    ):
         scad.load_brep_region_rsolid(
             path="body:hidden.scadbrep",
             sha256="0" * 64,
@@ -167,8 +167,7 @@ def test_face_region_loads_as_one_replayable_shell(tmp_path: Path) -> None:
     assert "kettle.copied.shell" in scad.list_tags(loaded, scope="local")
     assert "provenance.exact_transcription" in scad.list_tags(loaded)
     assert all(
-        face.get_metadata("provenance")["construction"]
-        == "exact_transcription"
+        face.get_metadata("provenance")["construction"] == "exact_transcription"
         for face in loaded.get_faces()
     )
     assert loaded.get_faces()[0].get_metadata("provenance")["source_face_id"] == (
@@ -250,7 +249,7 @@ def test_snapshot_is_deterministic_and_preserves_trimmed_topology(
         bottom_face_center=(0.0, 0.0, -5.0),
     )
     drilled = scad.cut_rsolid(body, cutter, skip_non_intersecting=False)
-    scad.export_step(drilled, str(target))
+    export_step_shapes([drilled.wrapped], str(target))
     first = tmp_path / "first.scadbrep"
     second = tmp_path / "second.scadbrep"
 
@@ -265,9 +264,10 @@ def test_snapshot_is_deterministic_and_preserves_trimmed_topology(
     assert loaded_summary["face_count"] == source_summary["face_count"]
     assert loaded_summary["edge_count"] == source_summary["edge_count"]
     assert loaded_summary["vertex_count"] == source_summary["vertex_count"]
-    assert loaded_summary["surface_type_statistics"] == source_summary[
-        "surface_type_statistics"
-    ]
+    assert (
+        loaded_summary["surface_type_statistics"]
+        == source_summary["surface_type_statistics"]
+    )
 
 
 def test_failed_copy_does_not_replace_existing_snapshot(tmp_path: Path) -> None:
@@ -364,9 +364,7 @@ def test_snapshot_loader_rejects_trailing_native_payload_data(tmp_path: Path) ->
     payload = data[payload_start:] + b"trailing"
     manifest = parse_canonical_json(data[manifest_start:payload_start])
     manifest["shape"]["byte_length"] = len(payload)
-    manifest["shape"]["content_hash"] = (
-        "sha256:" + hashlib.sha256(payload).hexdigest()
-    )
+    manifest["shape"]["content_hash"] = "sha256:" + hashlib.sha256(payload).hexdigest()
     manifest_bytes = canonical_json_bytes(manifest)
     artifact = (
         HEADER.pack(
@@ -462,8 +460,7 @@ def test_copied_face_provenance_survives_downstream_boolean(
     descendants = [
         face
         for face in cut.get_faces()
-        if "provenance.exact_transcription"
-        in scad.list_tags(face, scope="lineage")
+        if "provenance.exact_transcription" in scad.list_tags(face, scope="lineage")
     ]
     assert descendants
     assert len(descendants) < len(cut.get_faces())
@@ -523,7 +520,7 @@ def test_shell_faces_sew_and_solid_conversion_replay(tmp_path: Path) -> None:
                 )[0]["binding_id"]
                 for face in solid.get_faces()
             }
-            scad.capture_result(value=solid)
+            session.capture_result(value=solid)
         payload = scad.export_model_json(session)
         replayed = scad.replay_model_json(payload, strict=True)[0]
     finally:
@@ -538,9 +535,9 @@ def test_shell_faces_sew_and_solid_conversion_replay(tmp_path: Path) -> None:
     )
     assert len(
         {
-            scad.explain_tag(
-                face, "provenance.exact_transcription", scope="local"
-            )[0]["binding_id"]
+            scad.explain_tag(face, "provenance.exact_transcription", scope="local")[0][
+                "binding_id"
+            ]
             for face in replayed.get_faces()
         }
     ) == len(replayed.get_faces())
@@ -588,19 +585,24 @@ def test_semantically_tagged_face_replays_as_sewing_input(tmp_path: Path) -> Non
             )
             sewn = scad.sew_faces_rshell([*copied.get_faces(), feature_face])
             solid = scad.make_solid_from_shell_rsolid(sewn)
-            scad.capture_result(value=solid)
+            session.capture_result(value=solid)
         replayed = scad.replay_model_json(scad.export_model_json(session))[0]
     finally:
         os.chdir(previous_cwd)
 
     assert isinstance(replayed, scad.Solid)
-    assert sum(
-        "provenance.feature_constructed" in scad.list_tags(face)
-        for face in replayed.get_faces()
-    ) == 1
+    assert (
+        sum(
+            "provenance.feature_constructed" in scad.list_tags(face)
+            for face in replayed.get_faces()
+        )
+        == 1
+    )
 
 
-@pytest.mark.skipif(not KETTLE_STEP, reason="set SIMPLECADAPI_KETTLE_STEP for corpus probe")
+@pytest.mark.skipif(
+    not KETTLE_STEP, reason="set SIMPLECADAPI_KETTLE_STEP for corpus probe"
+)
 def test_kettle_bspline_regions_roundtrip_as_two_exact_shells(tmp_path: Path) -> None:
     from collections import deque
 
@@ -611,8 +613,7 @@ def test_kettle_bspline_regions_roundtrip_as_two_exact_shells(tmp_path: Path) ->
     remaining = {
         index
         for index, face in enumerate(model.faces)
-        if BRepAdaptor_Surface(face, True).GetType().name
-        == "GeomAbs_BSplineSurface"
+        if BRepAdaptor_Surface(face, True).GetType().name == "GeomAbs_BSplineSurface"
     }
     components = []
     while remaining:
@@ -644,9 +645,7 @@ def test_kettle_bspline_regions_roundtrip_as_two_exact_shells(tmp_path: Path) ->
             face_ids=[f"face:{face_index}" for face_index in component],
         )
         digest = hashlib.sha256(snapshot.read_bytes()).hexdigest()
-        loaded_shells.append(
-            scad.load_brep_region_rshell(path=snapshot, sha256=digest)
-        )
+        loaded_shells.append(scad.load_brep_region_rshell(path=snapshot, sha256=digest))
 
     assert sorted(len(shell.get_faces()) for shell in loaded_shells) == [53, 70]
     assert sum(len(shell.get_faces()) for shell in loaded_shells) == 123

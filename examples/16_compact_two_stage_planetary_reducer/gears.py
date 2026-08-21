@@ -28,12 +28,9 @@ from dimensions import (
 )
 
 
-@scad.requires_session
-def make_stage_ring_gear_rpart(
-    *,
-    stage: StageSpec,
-    material: scad.Material,
-) -> scad.Part:
+def make_stage_ring_gear_rpart(*,
+stage: StageSpec,
+material: scad.Material,) -> scad.Part:
     """Create one fixed internal herringbone ring gear part for a stage."""
 
     ring = scad.std.gear.make_herringbone_ring_gear_rsolid(
@@ -102,13 +99,10 @@ def make_stage_ring_gear_rpart(
     )
 
 
-@scad.requires_session
-def make_stage_sun_gear_rpart(
-    *,
-    stage: StageSpec,
-    bore_radius: float,
-    material: scad.Material,
-) -> scad.Part:
+def make_stage_sun_gear_rpart(*,
+stage: StageSpec,
+bore_radius: float,
+material: scad.Material,) -> scad.Part:
     """Create one bored external herringbone sun gear part for a stage."""
 
     sun = scad.std.gear.make_herringbone_gear_rsolid(
@@ -153,13 +147,10 @@ def make_stage_sun_gear_rpart(
     )
 
 
-@scad.requires_session
-def make_stage_planet_gear_rpart(
-    *,
-    stage: StageSpec,
-    bearing: BearingSpec,
-    material: scad.Material,
-) -> scad.Part:
+def make_stage_planet_gear_rpart(*,
+stage: StageSpec,
+bearing: BearingSpec,
+material: scad.Material,) -> scad.Part:
     """Create a reusable bored herringbone planet gear part for a stage."""
 
     planet = scad.std.gear.make_herringbone_gear_rsolid(
@@ -211,12 +202,9 @@ def make_stage_planet_gear_rpart(
     )
 
 
-@scad.requires_session
-def make_planet_component_rplacement(
-    *,
-    stage: StageSpec,
-    planet_index: int,
-) -> scad.Placement:
+def make_planet_component_rplacement(*,
+stage: StageSpec,
+planet_index: int,) -> scad.Placement:
     """Return the placed and phased component placement for one planet gear."""
 
     carrier_angle = 360.0 * planet_index / 3.0
@@ -234,14 +222,11 @@ def make_planet_component_rplacement(
     return make_z_rotation_rplacement(origin=center, angle_degrees=planet_spin)
 
 
-@scad.requires_session
-def _cut_bore_rsolid(
-    *,
-    label: str,
-    solid: scad.Solid,
-    bore_radius: float,
-    tag_prefix: str,
-) -> scad.Solid:
+def _cut_bore_rsolid(*,
+label: str,
+solid: scad.Solid,
+bore_radius: float,
+tag_prefix: str,) -> scad.Solid:
     cutter = scad.make_cylinder_rsolid(
         radius=bore_radius,
         height=GEAR_HEIGHT + 2.0,

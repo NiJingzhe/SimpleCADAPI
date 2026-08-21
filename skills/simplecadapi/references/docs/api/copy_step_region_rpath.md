@@ -10,7 +10,7 @@ def copy_step_region_rpath(path: str | Path, output_path: str | Path, *, face_id
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.copy_step_region_rpath(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.copy_step_region_rpath(...)`; unavailable inside GraphSession
 
 ## Description
 

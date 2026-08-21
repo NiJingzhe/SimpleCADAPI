@@ -60,7 +60,9 @@ class PrimitiveEmitterMixin:
                 f"{var_name}.Height = {var_name}_depth",
                 f"{var_name}.Placement = App.Placement({var_name}_corner, App.Rotation())",
             ]
-            lines.append(f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})")
+            lines.append(
+                f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
+            )
             lines.extend(finish())
             return lines
         if node.op == "make_cylinder_rsolid":
@@ -70,7 +72,9 @@ class PrimitiveEmitterMixin:
                 f"{var_name}.Height = float(_resolve_param_value({rp}, {re}, 'height'))",
                 f"{var_name}.Placement = App.Placement(_vec(_resolve_vec3_param({rp}, {re}, 'bottom_face_center')), App.Rotation(App.Vector(0.0, 0.0, 1.0), _vec(_resolve_vec3_param({rp}, {re}, 'axis'))))",
             ]
-            lines.append(f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})")
+            lines.append(
+                f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
+            )
             lines.extend(finish())
             return lines
         if node.op == "make_cone_rsolid":
@@ -81,7 +85,9 @@ class PrimitiveEmitterMixin:
                 f"{var_name}.Height = float(_resolve_param_value({rp}, {re}, 'height'))",
                 f"{var_name}.Placement = App.Placement(_vec(_resolve_vec3_param({rp}, {re}, 'bottom_face_center')), App.Rotation(App.Vector(0.0, 0.0, 1.0), _vec(_resolve_vec3_param({rp}, {re}, 'axis'))))",
             ]
-            lines.append(f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})")
+            lines.append(
+                f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
+            )
             lines.extend(finish())
             return lines
         if node.op == "make_sphere_rsolid":
@@ -90,7 +96,9 @@ class PrimitiveEmitterMixin:
                 f"{var_name}.Radius = float(_resolve_param_value({rp}, {re}, 'radius'))",
                 f"{var_name}.Placement = App.Placement(_vec(_resolve_vec3_param({rp}, {re}, 'center')), App.Rotation())",
             ]
-            lines.append(f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})")
+            lines.append(
+                f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
+            )
             lines.extend(finish())
             return lines
         return None

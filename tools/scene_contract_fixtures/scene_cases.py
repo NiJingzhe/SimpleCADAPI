@@ -88,9 +88,9 @@ def _manual_connector(
     anchor_kind: str,
     local_transform: JsonObject,
     *,
-    forwarded_from: JsonObject | None = None,
+    source_connector_snapshot_id: str | None = None,
 ) -> JsonObject:
-    connector: JsonObject = {
+    return {
         "anchor_kind": anchor_kind,
         "connector_id": connector_id,
         "connector_snapshot_id": (
@@ -101,10 +101,8 @@ def _manual_connector(
         "owner_definition_id": owner_definition_id,
         "sdk_metadata": {},
         "source": {"kind": "manual", "source_id": "fixture"},
+        "source_connector_snapshot_id": source_connector_snapshot_id,
     }
-    if forwarded_from is not None:
-        connector["forwarded_from"] = forwarded_from
-    return connector
 
 
 def build_product_scene_package(
@@ -152,35 +150,20 @@ def build_product_scene_package(
             "assembly",
             "nested_assembly",
             "nested_mount",
-            "forwarded",
+            "public",
             transform(),
-            forwarded_from={
-                "offset": None,
-                "source_component_id": "part",
-                "source_connector_id": "mount",
-                "source_connector_snapshot_id": part_connector[
-                    "connector_snapshot_id"
-                ],
-                "source_definition_id": part_definition_id,
-            },
+            source_connector_snapshot_id=part_connector["connector_snapshot_id"],
         )
-        root_offset = transform([0, 0, 5])
         root_connector = _manual_connector(
             root_definition_id,
             "assembly",
             "root_assembly",
             "root_mount",
-            "forwarded",
-            deepcopy(root_offset),
-            forwarded_from={
-                "offset": root_offset,
-                "source_component_id": "subassembly",
-                "source_connector_id": "nested_mount",
-                "source_connector_snapshot_id": nested_connector[
-                    "connector_snapshot_id"
-                ],
-                "source_definition_id": nested_definition_id,
-            },
+            "public",
+            transform([0, 0, 5]),
+            source_connector_snapshot_id=nested_connector[
+                "connector_snapshot_id"
+            ],
         )
         connectors = [part_connector, nested_connector, root_connector]
         scene["scene_id"] = "nested_fixture"

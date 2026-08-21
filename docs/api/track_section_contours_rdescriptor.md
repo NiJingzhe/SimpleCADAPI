@@ -10,7 +10,7 @@ def track_section_contours_rdescriptor(*, sections: Sequence[Mapping[str, Any]],
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.track_section_contours_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.track_section_contours_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

@@ -208,15 +208,13 @@ def _resource_count_value(
         return {field: [None] * count}
     if kind == "hierarchy":
         return {"nodes": [{"source": {"component_path": ["x"] * count}}]}
-    if kind == "forwarded":
+    if kind == "public":
         return {
             "connectors": [
                 {
-                    "anchor_kind": "forwarded",
+                    "anchor_kind": "public",
                     "connector_snapshot_id": f"c{index}",
-                    "forwarded_from": {
-                        "source_connector_snapshot_id": f"c{index + 1}"
-                    },
+                    "source_connector_snapshot_id": f"c{index + 1}",
                 }
                 for index in range(count)
             ]
@@ -586,18 +584,18 @@ def build_resource_cases(
                 {"hierarchy_depth": 2, "nodes": 10},
             ),
             _resource_count_case(
-                "forwarded_connector_depth_exact_limit",
+                "public_connector_depth_exact_limit",
                 "scene",
-                "forwarded",
+                "public",
                 2,
-                {"connectors": 10, "forwarded_connector_depth": 2},
+                {"connectors": 10, "public_connector_depth": 2},
             ),
             _resource_count_case(
-                "forwarded_connector_depth_over_limit",
+                "public_connector_depth_over_limit",
                 "scene",
-                "forwarded",
+                "public",
                 3,
-                {"connectors": 10, "forwarded_connector_depth": 2},
+                {"connectors": 10, "public_connector_depth": 2},
             ),
             _glb_count_case(
                 "triangle_vertices_per_asset_exact_limit",

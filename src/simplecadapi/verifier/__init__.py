@@ -15,7 +15,9 @@ from typing import Any, Iterable, Sequence, Tuple
 import numpy as np
 
 from .. import _mesh
-from ..product import Assembly, Part, Placement, compose_placements, identity_placement
+from ..assembly import Assembly
+from ..part import Part
+from ..placement import Placement, compose_placements, identity_placement
 
 
 ComponentPath = Tuple[str, ...]

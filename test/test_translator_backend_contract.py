@@ -1,4 +1,4 @@
-"""Contract tests shared by translator backends."""
+"""Contract tests shared by product-package translator backends."""
 
 from __future__ import annotations
 
@@ -7,8 +7,9 @@ from pathlib import Path
 import unittest
 
 import simplecadapi as scad
-from simplecadapi.graph import GraphSession
-from simplecadapi.serializer import CANONICAL_OP_SET, _canonical_contract_payload
+from simplecadapi.serializer import CANONICAL_OP_SET
+from simplecadapi.topology import OperationGraph
+from simplecadapi.translator.freecad_translator.translator import _FreeCADCompiler
 from simplecadapi.translator.base import BaseTranslator
 from simplecadapi.translator.freecad_translator import FreeCADTranslator
 from simplecadapi.translator.freecad_translator.emitters.registry import (
@@ -23,13 +24,13 @@ from simplecadapi.translator.types import SupportLevel
 class TestTranslatorBackendContract(unittest.TestCase):
     def test_backend_packages_have_required_modules(self):
         translator_root = (
-            Path(__file__).resolve().parents[1]
-            / "src"
-            / "simplecadapi"
-            / "translator"
+            Path(__file__).resolve().parents[1] / "src" / "simplecadapi" / "translator"
         )
-        backend_dirs = sorted(translator_root.glob("*_translator"))
-        self.assertTrue(backend_dirs)
+        backend_dirs = sorted(
+            path
+            for path in translator_root.glob("*_translator")
+            if (path / "__init__.py").is_file()
+        )
 
         for backend_dir in backend_dirs:
             for filename in (
@@ -56,9 +57,15 @@ class TestTranslatorBackendContract(unittest.TestCase):
             capabilities = backend.CAPABILITIES
             expected_backend_name = backend_package_name.removesuffix("_translator")
             self.assertEqual(capabilities.backend_id, expected_backend_name)
-            self.assertEqual(
-                set(capabilities.operations), set(CANONICAL_OP_SET)
+            self.assertEqual(set(capabilities.operations), set(CANONICAL_OP_SET))
+            self.assertIn(
+                "make_set_public_connector_rassembly", capabilities.operations
             )
+            self.assertNotIn("make_add_connector_rassembly", capabilities.operations)
+            self.assertNotIn(
+                "make_forward_connector_rassembly", capabilities.operations
+            )
+
             for op, capability in capabilities.operations.items():
                 if capability.level is SupportLevel.UNSUPPORTED:
                     self.assertTrue(capability.reason, op)
@@ -92,57 +99,121 @@ class TestTranslatorBackendContract(unittest.TestCase):
         self.assertTrue(runtime_source)
         compile(runtime_source, "<freecad-runtime>", "exec")
 
-    def test_freecad_translator_is_reusable_and_emits_valid_python(self):
-        with GraphSession() as session:
-            scad.make_box_rsolid(1.0, 2.0, 3.0)
+    def test_all_translators_are_reusable_for_product_packages(self):
+        cache = scad.CachePolicy(mode="off")
 
-        model_json = scad.export_model_json(session)
-        translator = FreeCADTranslator(document_name="ContractTest")
-        first = translator.translate_model_json_to_script(model_json)
-        second = translator.translate_model_json_to_script(model_json)
+        @scad.part(id="contract_part", cache=cache)
+        def build_part() -> scad.Part:
+            body = scad.make_box_rsolid(1.0, 2.0, 3.0)
+            return scad.make_part_rpart("contract_part", body)
 
-        self.assertEqual(first, second)
-        self.assertIn('DOC_NAME = "ContractTest"', first)
-        compile(first, "<generated-freecad-script>", "exec")
+        package = scad.build_product_package(build_part())
 
-    def test_translator_rejects_snapshot_operation_before_backend_emission(self):
-        import json
+        from simplecadapi import translator
 
-        payload = {
-            "schema_version": "2.0",
-            "canonical_contract": _canonical_contract_payload(),
-            "graph": {
-                "schema_version": "2.0",
-                "graph_id": "snapshot",
-                "nodes": [
-                    {
-                        "node_id": "n1",
-                        "op": "load_brep_region_rsolid",
-                        "params": {
-                            "path": "body.scadbrep",
-                            "sha256": "sha256:" + "0" * 64,
-                        },
-                        "inputs": [],
-                        "output_count": 1,
-                        "tags": [],
-                    }
-                ],
-                "edges": [],
+        for backend_name in translator.__all__:
+            backend = getattr(translator, backend_name)
+            translator_class = getattr(
+                backend, f"{backend.CAPABILITIES.display_name}Translator"
+            )
+            instance = translator_class(document_name="ContractTest")
+            first = instance.translate_product_package(package)
+            second = instance.translate_product_package(package)
+
+            self.assertEqual(first.content, second.content, backend_name)
+            self.assertEqual(first.metadata["root_definition_id"], "contract_part")
+            self.assertEqual(
+                backend.CAPABILITIES.input_schema_versions,
+                ("product-package-2.0",),
+            )
+            compile(first.content, f"<{backend_name}-script>", "exec")
+
+    def test_translator_public_surfaces_do_not_expose_model_json(self):
+        from simplecadapi import translator
+
+        for backend_name in translator.__all__:
+            backend = getattr(translator, backend_name)
+            self.assertFalse(
+                any("model_json" in name for name in backend.__all__),
+                backend_name,
+            )
+            self.assertFalse(
+                any("ScriptTranslator" in name for name in backend.__all__),
+                backend_name,
+            )
+
+    def test_new_surface_operations_use_product_translator_compiler(self):
+        graph = OperationGraph(graph_id="new_surface_ops")
+        carrier = graph.add_node(
+            op="make_cylindrical_surface_rface",
+            params={
+                "radius": 2.0,
+                "u_range": (0.0, 1.0),
+                "v_range": (0.0, 3.0),
+                "origin": (0.0, 0.0, 0.0),
+                "axis": (0.0, 0.0, 1.0),
+                "x_direction": (1.0, 0.0, 0.0),
+                "tolerance": 1.0e-7,
             },
-            "leaf_ids": ["n1"],
-            "expression_graph": {"schema_version": "2.0", "nodes": []},
-            "tolerance_graph": {"schema_version": "1.0", "requirements": []},
-            "frame_graph": {},
-            "geometry_registry": [],
-            "semantic_entity_registry": [],
-            "sketch_profile_registry": [],
-            "semantic_delta_log": [],
-            "topology_delta_log": [],
-            "semantic_bindings": [],
-        }
+            node_id="carrier",
+        )
+        boundary = graph.add_node(
+            op="make_circle_redge",
+            params={
+                "radius": 2.0,
+                "center": (0.0, 0.0, 0.0),
+                "normal": (0.0, 0.0, 1.0),
+            },
+            node_id="boundary",
+        )
+        wire = graph.add_node(
+            op="make_wire_from_edges_rwire",
+            params={"edge_count": 1},
+            inputs=[boundary],
+            node_id="wire",
+        )
+        trimmed = graph.add_node(
+            op="trim_surface_rface",
+            params={"hole_count": 0, "tolerance": 1.0e-7},
+            inputs=[carrier, wire],
+            node_id="trimmed",
+        )
+        shell = graph.add_node(
+            op="sew_faces_rshell",
+            params={"face_count": 1, "tolerance": 1.0e-6},
+            inputs=[trimmed],
+            node_id="shell",
+        )
+        solid = graph.add_node(
+            op="make_solid_from_shell_rsolid",
+            params={},
+            inputs=[shell],
+            node_id="solid",
+        )
 
-        with self.assertRaisesRegex(ValueError, "load_brep_region_rsolid"):
-            FreeCADTranslator().translate_model_json(json.dumps(payload))
+        script = _FreeCADCompiler().translate_model_payload_to_script(
+            {"graph": graph, "leaf_ids": [solid.node_id]}, graph=graph
+        )
+
+        self.assertIn("_cylindrical_surface_shape", script)
+        self.assertIn("_trim_surface_shape", script)
+        self.assertIn("_solid_from_shell_shape", script)
+        compile(script, "<freecad-new-surface-ops>", "exec")
+
+    def test_sidecar_operations_remain_unsupported_by_product_translators(self):
+        from simplecadapi import translator
+
+        for backend_name in translator.__all__:
+            backend = getattr(translator, backend_name)
+            for operation in (
+                "load_brep_region_rshell",
+                "load_brep_region_rsolid",
+            ):
+                with self.subTest(backend=backend_name, operation=operation):
+                    self.assertIs(
+                        backend.CAPABILITIES.operations[operation].level,
+                        SupportLevel.UNSUPPORTED,
+                    )
 
 
 if __name__ == "__main__":

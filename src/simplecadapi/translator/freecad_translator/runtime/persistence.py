@@ -278,6 +278,7 @@ def _set_part_body_visibility(product_value, visible):
         if _is_connector_object(child):
             _set_visibility(child, False)
             continue
+        _set_tree_visibility(child, True)
         _set_visibility(child, bool(visible and child is body))
     if body is not None:
         _set_visibility(body, visible)
@@ -387,3 +388,4 @@ def _apply_result_visibility(result_node_ids):
                 _set_visibility(obj, is_visible)
     _apply_product_result_visibility(display_product_ids)
     _hide_all_origin_trees()
+    _hide_all_connector_datums()

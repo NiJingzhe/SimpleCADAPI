@@ -6,7 +6,7 @@
 def make_compound_from_assembly_rcompound(assembly: Assembly) -> Compound
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

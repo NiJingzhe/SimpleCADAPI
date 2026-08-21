@@ -3,20 +3,59 @@
 Run examples from the repository root with `uv run python <path>`.
 Generated artifacts are written to `examples/out/`, which is ignored by git.
 
-Replayable examples use one top-level `@scad.model` entry. That entry owns the
-single `GraphSession` and returns a `ModelResult`; reusable graph-producing
-builders use `@scad.requires_session`. Final outputs are selected with
-`scad.capture_result(...)`; `@scad.model(export_dir=...)` can automatically
-write one self-contained Scene ZIP after execution. It embeds the replayable
-model, mapped Python source files, render GLBs, and entity sidecars. Examples
-that call explicit export or translator APIs may also write STEP, JSON, or
-FreeCAD files.
+Every formal single-script example emits three synchronized artifacts under `examples/out/`:
+the canonical self-contained `.scadpkg`, an AP242 `.step`, and an editable
+FreeCAD `.FCStd`. Single-solid products use `@scad.part`; assemblies use
+`@scad.assemble` with explicit immutable definitions for every physical part or
+nested assembly. Both downstream CAD files are translated from the same product
+package, so they retain the same definition closure, evaluated geometry,
+assembly instances, names, solved placements, materials, and available semantic
+metadata.
+
+`tools/run_examples.py` requires every formal single-script example to rewrite
+and validate all three CAD artifacts. The split AP242/Gmsh workflow below is
+run directly, one script per stage.
 
 ## Examples
 
-- `04_dimension_tolerance_chain.py` — expression-driven dimension tolerance analysis and validation.
-- `08_constrained_sketch.py` — fully constrained sketch profiles, feature promotion, replay, and FreeCAD export.
-- `09_naca0016_blade_freecad.py` — NACA 0016 B-spline blade model JSON, STEP, and FreeCAD translation.
-- `10_part_assembly.py` — hydraulic rod assembly with sleeve/piston parts, prismatic motion, and automatic self-contained Scene ZIP export.
-- `16_compact_two_stage_planetary_reducer/` — modular 58.8 mm diameter, 30 mm tall, 20:1 two-stage herringbone planetary reducer with graph/model JSON replay, STEP export, solved constraints, and a static collision probe.
-- `20_integrated_bldc_joint_actuator/` — compact 50 mm OD joint actuator with a 12-slot/14-pole inner-rotor BLDC motor, two-stage planetary reducer, split housing, output bearings, and controller electronics.
+- `04_dimension_tolerance_chain.py` — `out/dimension_tolerance_chain/dimension_tolerance_chain.scadpkg`
+- `08_constrained_sketch.py` — `out/constrained_sketch/constrained_sketch.scadpkg`
+- `09_naca0016_blade_freecad.py` — `out/naca0016_blade/naca0016_blade.scadpkg`
+- `10_part_assembly.py` — `out/hydraulic_rod_assembly/hydraulic_rod_assembly.scadpkg`
+- `11_external_reference_gear_train.py` — `out/external_reference_gear_train/nested_external_reference_gear_trains.scadpkg`
+- `12_ap242_gmsh_volume_mesh/model.py` — `out/ap242_gmsh_volume_mesh/ap242_gmsh_bracket.scadpkg`
+- `7ep_caplcd_enclosure.py` — `out/7ep_caplcd_enclosure/caplcd_enclosure_7ep.scadpkg`
+- `16_compact_two_stage_planetary_reducer/` — `out/compact_two_stage_planetary_reducer/compact_two_stage_planetary_reducer.scadpkg`
+- `20_integrated_bldc_joint_actuator/` — `out/integrated_bldc_joint_actuator/integrated_bldc_joint_actuator.scadpkg`
+
+## Product Package Exporter And Translator Matrix
+
+Build the canonical package once:
+
+```bash
+uv run python examples/12_ap242_gmsh_volume_mesh/model.py
+```
+
+Then run any downstream exporter or translator directly:
+
+```bash
+uv run python examples/12_ap242_gmsh_volume_mesh/export_fcstd.py
+uv run python examples/12_ap242_gmsh_volume_mesh/export_step.py
+uv run --extra gmsh python examples/12_ap242_gmsh_volume_mesh/export_stl.py
+uv run --extra gmsh python examples/12_ap242_gmsh_volume_mesh/export_obj.py
+uv run python examples/12_ap242_gmsh_volume_mesh/translate_freecad_script.py
+uv run python examples/12_ap242_gmsh_volume_mesh/translate_fusion360_script.py
+uv run python examples/12_ap242_gmsh_volume_mesh/translate_solidworks_script.py
+```
+
+The outputs are editable FreeCAD `.FCStd`, AP242 `.step`, triangulated `.stl`,
+quad-preserving `.obj`, and standalone Python scripts for FreeCAD, Fusion 360,
+and SolidWorks. Every command above reads the same `.scadpkg` directly.
+
+FEM meshing consumes the STEP produced by `export_step.py`:
+
+```bash
+uv run --extra gmsh python examples/12_ap242_gmsh_volume_mesh/export_fem_mesh.py
+```
+
+It imports AP242 through Gmsh's OpenCASCADE kernel and writes a 3D `.msh`.

@@ -1,12 +1,12 @@
 # SimpleCAD API Index
 
-This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, inspection tools, expressions, QL, and export helpers.
+This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, durable product builds, persistent cache controls, inspection tools, expressions, QL, and export helpers.
 
 ## Import Surfaces
 
 - Entries marked `top-level` are exported from `simplecadapi` and can be imported with `from simplecadapi import <name>`.
 - Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.
-- Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession` or `@model`.
+- Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession`.
 - Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.
 - Entries marked `reverse-engineering evaluator` are available through `simplecadapi.inverse_engineer.brep`; their acceptance inputs and reports belong to the trusted harness, not participant code.
 
@@ -94,21 +94,24 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 ## Export
 
-- [export_step](export_step.md) *(from operations.py)* `top-level`
-- [export_stl](export_stl.md) *(from operations.py)* `top-level`
+- [ProductMJCFExportReport](ProductMJCFExportReport.md) *(from exporter/mjcf.py)* `exporter namespace`
+- [ProductOBJExportReport](ProductOBJExportReport.md) *(from exporter/obj.py)* `exporter namespace`
+- [ProductSTEPExportReport](ProductSTEPExportReport.md) *(from exporter/step.py)* `exporter namespace`
+- [ProductSTLExportReport](ProductSTLExportReport.md) *(from exporter/stl.py)* `exporter namespace`
+- [export_product_package_to_mjcf](export_product_package_to_mjcf.md) *(from exporter/mjcf.py)* `exporter namespace`
+- [export_product_package_to_obj](export_product_package_to_obj.md) *(from exporter/obj.py)* `exporter namespace`
+- [export_product_package_to_step](export_product_package_to_step.md) *(from exporter/step.py)* `exporter namespace`
+- [export_product_package_to_stl](export_product_package_to_stl.md) *(from exporter/stl.py)* `exporter namespace`
 
 ## Translator Backends
 
-- [FreeCADScriptTranslator](FreeCADScriptTranslator.md) *(from translator/freecad_translator/translator.py)* `translator backend`
 - [FreeCADTranslator](FreeCADTranslator.md) *(from translator/freecad_translator/translator.py)* `translator backend`
 - [Fusion360Translator](Fusion360Translator.md) *(from translator/fusion360_translator/translator.py)* `translator backend`
 - [SolidWorksTranslator](SolidWorksTranslator.md) *(from translator/solidworks_translator/translator.py)* `translator backend`
-- [export_model_json_to_fcstd](export_model_json_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
-- [export_model_json_to_solidworks_step](export_model_json_to_solidworks_step.md) *(from translator/solidworks_translator/api.py)* `translator backend`
-- [translate_model_json_to_fcstd](translate_model_json_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
-- [translate_model_json_to_freecad_script](translate_model_json_to_freecad_script.md) *(from translator/freecad_translator/api.py)* `translator backend`
-- [translate_model_json_to_fusion360_script](translate_model_json_to_fusion360_script.md) *(from translator/fusion360_translator/api.py)* `translator backend`
-- [translate_model_json_to_solidworks_script](translate_model_json_to_solidworks_script.md) *(from translator/solidworks_translator/api.py)* `translator backend`
+- [translate_product_package_to_fcstd](translate_product_package_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
+- [translate_product_package_to_freecad_script](translate_product_package_to_freecad_script.md) *(from translator/freecad_translator/api.py)* `translator backend`
+- [translate_product_package_to_fusion360_script](translate_product_package_to_fusion360_script.md) *(from translator/fusion360_translator/api.py)* `translator backend`
+- [translate_product_package_to_solidworks_script](translate_product_package_to_solidworks_script.md) *(from translator/solidworks_translator/api.py)* `translator backend`
 
 ## Math Helpers
 
@@ -118,8 +121,6 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 ## Modeling Graph and Replay
 
 - [GraphSession](GraphSession.md) *(from graph.py)* `top-level`
-- [ModelResult](ModelResult.md) *(from graph.py)* `top-level`
-- [capture_result](capture_result.md) *(from graph.py)* `top-level`
 - [export_graph_json](export_graph_json.md) *(from serializer.py)* `top-level`
 - [export_model_json](export_model_json.md) *(from serializer.py)* `top-level`
 - [export_session_json](export_session_json.md) *(from serializer.py)* `top-level`
@@ -127,10 +128,8 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [import_graph_json](import_graph_json.md) *(from serializer.py)* `top-level`
 - [import_model_json](import_model_json.md) *(from serializer.py)* `top-level`
 - [import_session_json](import_session_json.md) *(from serializer.py)* `top-level`
-- [model](model.md) *(from graph.py)* `top-level`
 - [replay_graph](replay_graph.md) *(from serializer.py)* `top-level`
 - [replay_model_json](replay_model_json.md) *(from serializer.py)* `top-level`
-- [requires_session](requires_session.md) *(from graph.py)* `top-level`
 - [suspend_graph_recording](suspend_graph_recording.md) *(from graph.py)* `top-level`
 
 ## Expressions and Parameters
@@ -243,6 +242,26 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [track_section_contours_rdescriptor](track_section_contours_rdescriptor.md) *(from inspect/brep/section_tracking.py)* `inspection namespace`
 - [validate_step_roundtrip_rdescriptor](validate_step_roundtrip_rdescriptor.md) *(from inspect/brep/persistence.py)* `inspection namespace`
 
+## Product Build and Cache
+
+- [AssemblyBuildResult](AssemblyBuildResult.md) *(from build/results.py)* `top-level`
+- [AssemblySolveReport](AssemblySolveReport.md) *(from build/incremental_solver.py)* `top-level`
+- [CacheEntry](CacheEntry.md) *(from cache/store.py)* `top-level`
+- [CacheLockTimeout](CacheLockTimeout.md) *(from cache/store.py)* `top-level`
+- [CacheMode](CacheMode.md) *(from cache/policy.py)* `top-level`
+- [CachePolicy](CachePolicy.md) *(from cache/policy.py)* `top-level`
+- [CacheRecord](CacheRecord.md) *(from cache/records.py)* `top-level`
+- [CacheReport](CacheReport.md) *(from build/results.py)* `top-level`
+- [CacheStats](CacheStats.md) *(from cache/store.py)* `top-level`
+- [ComponentSolveResult](ComponentSolveResult.md) *(from build/incremental_solver.py)* `top-level`
+- [ContentAddressedStore](ContentAddressedStore.md) *(from cache/store.py)* `top-level`
+- [FileInput](FileInput.md) *(from build/dependencies.py)* `top-level`
+- [PartBuildResult](PartBuildResult.md) *(from build/results.py)* `top-level`
+- [assemble](assemble.md) *(from build/assembly_builder.py)* `top-level`
+- [file_input](file_input.md) *(from build/dependencies.py)* `top-level`
+- [part](part_function.md) *(from build/part_builder.py)* `top-level`
+- [resolve_cache_policy](resolve_cache_policy.md) *(from cache/policy.py)* `top-level`
+
 ## Reconstruction Evaluation
 
 - [EvaluationConfig](EvaluationConfig.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
@@ -253,19 +272,23 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 
 ## Other
 
-- [Assembly](Assembly.md) *(from product.py)* `top-level`
-- [Component](Component.md) *(from product.py)* `top-level`
-- [Connector](Connector.md) *(from product.py)* `top-level`
-- [ConnectorAnchor](ConnectorAnchor.md) *(from product.py)* `top-level`
-- [ConnectorRef](ConnectorRef.md) *(from product.py)* `top-level`
-- [Constraint](Constraint.md) *(from product.py)* `top-level`
-- [ConstraintReport](ConstraintReport.md) *(from product.py)* `top-level`
-- [ConstraintResidual](ConstraintResidual.md) *(from product.py)* `top-level`
-- [GeometryRef](GeometryRef.md) *(from product.py)* `top-level`
-- [Material](Material.md) *(from product.py)* `top-level`
-- [Part](Part.md) *(from product.py)* `top-level`
-- [Placement](Placement.md) *(from product.py)* `top-level`
-- [ScalarLimit](ScalarLimit.md) *(from product.py)* `top-level`
+- [Assembly](Assembly.md) *(from assembly.py)* `top-level`
+- [CaptureResult](CaptureResult.md) *(from capture.py)* `top-level`
+- [Component](Component.md) *(from assembly.py)* `top-level`
+- [Connector](Connector.md) *(from connector.py)* `top-level`
+- [ConnectorAnchor](ConnectorAnchor.md) *(from connector.py)* `top-level`
+- [ConnectorRef](ConnectorRef.md) *(from connector.py)* `top-level`
+- [Constraint](Constraint.md) *(from constraint.py)* `top-level`
+- [ConstraintReport](ConstraintReport.md) *(from constraint.py)* `top-level`
+- [ConstraintResidual](ConstraintResidual.md) *(from constraint.py)* `top-level`
+- [GeometryRef](GeometryRef.md) *(from connector.py)* `top-level`
+- [Material](Material.md) *(from material.py)* `top-level`
+- [Part](Part.md) *(from part.py)* `top-level`
+- [Placement](Placement.md) *(from placement.py)* `top-level`
+- [ProductPackage](ProductPackage.md) *(from product_packages.py)* `top-level`
+- [ProductPackageError](ProductPackageError.md) *(from product_packages.py)* `top-level`
+- [PublicConnectorRef](PublicConnectorRef.md) *(from assembly.py)* `top-level`
+- [ScalarLimit](ScalarLimit.md) *(from constraint.py)* `top-level`
 - [SemanticDelta](SemanticDelta.md) *(from topology.py)* `top-level`
 - [SemanticRef](SemanticRef.md) *(from topology.py)* `top-level`
 - [SurfaceBoundary](SurfaceBoundary.md) *(from operations.py)* `top-level`
@@ -275,7 +298,6 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [add_bspline_rsketch](add_bspline_rsketch.md) *(from operations.py)* `top-level`
 - [add_circle_rsketch](add_circle_rsketch.md) *(from operations.py)* `top-level`
 - [add_component_rassembly](add_component_rassembly.md) *(from operations.py)* `top-level`
-- [add_connector_rassembly](add_connector_rassembly.md) *(from operations.py)* `top-level`
 - [add_connector_rpart](add_connector_rpart.md) *(from operations.py)* `top-level`
 - [add_fixed_constraint_rassembly](add_fixed_constraint_rassembly.md) *(from operations.py)* `top-level`
 - [add_gear_constraint_rassembly](add_gear_constraint_rassembly.md) *(from operations.py)* `top-level`
@@ -286,6 +308,8 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [add_revolute_constraint_rassembly](add_revolute_constraint_rassembly.md) *(from operations.py)* `top-level`
 - [and_](and_.md) *(from ql.py)* `submodule:ql`
 - [assign_material_rpart](assign_material_rpart.md) *(from operations.py)* `top-level`
+- [build_product_package](build_product_package.md) *(from product_packages.py)* `top-level`
+- [capture](capture.md) *(from capture.py)* `top-level`
 - [constrain_angle_rsketch](constrain_angle_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_coincident_rsketch](constrain_coincident_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_collinear_rsketch](constrain_collinear_rsketch.md) *(from operations.py)* `top-level`
@@ -308,10 +332,10 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [constrain_symmetric_rsketch](constrain_symmetric_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_tangent_rsketch](constrain_tangent_rsketch.md) *(from operations.py)* `top-level`
 - [constrain_vertical_rsketch](constrain_vertical_rsketch.md) *(from operations.py)* `top-level`
+- [encode_product_package](encode_product_package.md) *(from product_packages.py)* `top-level`
 - [explain_tag](explain_tag.md) *(from operations.py)* `top-level`
 - [fill_holes_rshell](fill_holes_rshell.md) *(from operations.py)* `top-level`
 - [fit_point_grid_rface](fit_point_grid_rface.md) *(from operations.py)* `top-level`
-- [forward_connector_rassembly](forward_connector_rassembly.md) *(from operations.py)* `top-level`
 - [free_boundaries_rwirelist](free_boundaries_rwirelist.md) *(from operations.py)* `top-level`
 - [geo](geo.md) *(from ql.py)* `submodule:ql`
 - [get_sketch_entity_rsketchref](get_sketch_entity_rsketchref.md) *(from operations.py)* `top-level`
@@ -323,6 +347,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [linear_pattern_rsolidlist](linear_pattern_rsolidlist.md) *(from operations.py)* `top-level`
 - [load_brep_region_rshell](load_brep_region_rshell.md) *(from operations.py)* `top-level`
 - [load_brep_region_rsolid](load_brep_region_rsolid.md) *(from operations.py)* `top-level`
+- [load_product_package](load_product_package.md) *(from product_packages.py)* `top-level`
 - [measure_constraint_residual_rconstraintresidual](measure_constraint_residual_rconstraintresidual.md) *(from operations.py)* `top-level`
 - [meta](meta.md) *(from ql.py)* `submodule:ql`
 - [not_](not_.md) *(from ql.py)* `submodule:ql`
@@ -332,8 +357,10 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [output_role](output_role.md) *(from ql.py)* `submodule:ql`
 - [place_component_rassembly](place_component_rassembly.md) *(from operations.py)* `top-level`
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)* `top-level`
+- [read_product_package](read_product_package.md) *(from product_packages.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`
+- [set_public_connector_rassembly](set_public_connector_rassembly.md) *(from operations.py)* `top-level`
 - [sew_faces_rshell](sew_faces_rshell.md) *(from operations.py)* `top-level`
 - [shells](shells.md) *(from ql.py)* `submodule:ql`
 - [solve_assembly_constraints_rassembly](solve_assembly_constraints_rassembly.md) *(from operations.py)* `top-level`
@@ -343,4 +370,5 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [trim_surface_rface](trim_surface_rface.md) *(from operations.py)* `top-level`
 - [twisted_sweep_rsolid](twisted_sweep_rsolid.md) *(from operations.py)* `top-level`
 - [unground_component_rassembly](unground_component_rassembly.md) *(from operations.py)* `top-level`
+- [validate_product_package](validate_product_package.md) *(from product_packages.py)* `top-level`
 - [value](value.md) *(from ql.py)* `submodule:ql`

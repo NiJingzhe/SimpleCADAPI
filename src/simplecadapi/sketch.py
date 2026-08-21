@@ -241,7 +241,7 @@ class Sketch(TaggedMixin, TopoMixein):
     def to_faces(self) -> List[Face]:
         if self.entities:
             return [self.to_face()]
-        from .operations import make_face_from_wire_rface
+        from ._operators_geometry import make_face_from_wire_rface
 
         return [make_face_from_wire_rface(wire) for wire in self.closed_wires()]
 
@@ -251,7 +251,7 @@ class Sketch(TaggedMixin, TopoMixein):
         *,
         inner_profiles: Sequence[int | str] = (),
     ) -> Face:
-        from .operations import make_face_from_sketch_rface
+        from ._operators_sketch import make_face_from_sketch_rface
 
         return make_face_from_sketch_rface(
             self,
@@ -467,7 +467,7 @@ class Sketch(TaggedMixin, TopoMixein):
         this sketch. The first and last poles always share the declared
         start/end point entities.
         """
-        from .operations import (
+        from ._operators_geometry import (
             _normalize_bspline_knots,
             _normalize_bspline_weights,
         )
@@ -648,7 +648,11 @@ class Sketch(TaggedMixin, TopoMixein):
         return self._wire_from_profile_payload(profile_payload)
 
     def _wire_from_profile_payload(self, profile_payload: Mapping[str, Any]) -> Wire:
-        from .operations import make_circle_redge, make_line_redge, make_wire_from_edges_rwire
+        from ._operators_geometry import (
+            make_circle_redge,
+            make_line_redge,
+            make_wire_from_edges_rwire,
+        )
 
         if profile_payload["kind"] == "circle":
             center = profile_payload["center"]
@@ -684,7 +688,7 @@ class Sketch(TaggedMixin, TopoMixein):
         """Build a wire from a mixed-edge profile (line + arc + bspline)."""
         from OCP.TopoDS import TopoDS
 
-        from .operations import (
+        from ._operators_geometry import (
             make_line_redge,
             make_spline_redge,
             make_three_point_arc_redge,
@@ -783,7 +787,7 @@ class Sketch(TaggedMixin, TopoMixein):
         inner_profiles: Sequence[int | str] = (),
         solve_result: Optional[SketchSolveResult] = None,
     ) -> Face:
-        from .operations import make_face_from_sketch_rface
+        from ._operators_sketch import make_face_from_sketch_rface
 
         if solve_result is not None:
             raise ValueError(

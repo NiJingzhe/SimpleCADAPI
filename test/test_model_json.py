@@ -8,6 +8,7 @@ from copy import deepcopy
 
 import simplecadapi as scad
 from simplecadapi.graph import GraphSession
+from simplecadapi.topology import TopoEvent
 
 
 class TestModelJson(unittest.TestCase):
@@ -592,7 +593,7 @@ class TestModelJson(unittest.TestCase):
                 ):
                     box = scad.make_box_rsolid(2.0, 4.0, 6.0)
                     original = scad.translate_shape(box, (0.0, 0.0, 2.0))
-                    scad.capture_result(value=original)
+                    session.capture_result(value=original)
 
         box_node = next(
             node
@@ -632,7 +633,7 @@ class TestModelJson(unittest.TestCase):
                     sketch = scad.add_circle_rsketch(sketch, "circle", "center", 1.0)
 
             original = scad.make_face_from_sketch_rface(sketch, profile="circle")
-            scad.capture_result(value=original)
+            session.capture_result(value=original)
 
         self.assertEqual(sketch.plane["origin"], (12.0, 24.0, 27.0))
         self.assertEqual(sketch.plane["x_axis"], (0.0, 0.0, -1.0))
@@ -697,6 +698,51 @@ class TestOperationGraphDeltaSerialization(unittest.TestCase):
         self.assertEqual(leaf.op, "make_cut_rsolid")
         self.assertIsNotNone(leaf.topo_delta)
         self.assertEqual(len(leaf.topo_delta.raw_event["steps"]), 2)
+
+        for entry in leaf.topo_delta.entries:
+            self.assertEqual(entry.ref.graph_id, session.graph.graph_id)
+            self.assertFalse(entry.ref.node_id.startswith("n_"))
+            for parent in entry.parent_refs:
+                self.assertEqual(parent.graph_id, session.graph.graph_id)
+                self.assertFalse(parent.node_id.startswith("n_"))
+
+        event_lists = {
+            TopoEvent.PRESERVED: leaf.topo_delta.preserved,
+            TopoEvent.MODIFIED: leaf.topo_delta.modified,
+            TopoEvent.GENERATED: leaf.topo_delta.generated,
+            TopoEvent.DELETED: leaf.topo_delta.deleted,
+        }
+        for event, refs in event_lists.items():
+            self.assertEqual(
+                set(refs),
+                {
+                    entry.ref
+                    for entry in leaf.topo_delta.entries
+                    if entry.event == event
+                },
+            )
+
+    def test_multi_tool_cut_model_json_is_deterministic(self):
+        def build_model_json():
+            with GraphSession(graph_id="deterministic_multi_cut") as session:
+                body = scad.make_box_rsolid(4.0, 4.0, 4.0)
+                tool_a = scad.make_box_rsolid(
+                    1.0,
+                    1.0,
+                    5.0,
+                    bottom_face_center=(1.0, 1.0, -0.5),
+                )
+                tool_b = scad.make_box_rsolid(
+                    1.0,
+                    1.0,
+                    5.0,
+                    bottom_face_center=(2.0, 2.0, -0.5),
+                )
+                result = scad.cut_rsolid(body, tool_a, tool_b)
+                session.capture_result(value=result)
+            return scad.export_model_json(session)
+
+        self.assertEqual(build_model_json(), build_model_json())
 
     def test_multi_tool_intersect_topology_delta_keeps_step_chain(self):
         with GraphSession() as session:

@@ -13,6 +13,12 @@ class FreeCADCompileContext:
     """Mutable state owned by one FreeCAD script compilation."""
 
     document_name: str
+    expression_sheet_name: str = "SimpleCADExpressions"
+    definition_token: str = ""
+    definition_id: str = ""
+    definition_kind: str = ""
+    definition_revision: str = ""
+    definition_content_hash: str = ""
     source_graph: Optional[OperationGraph] = None
     expression_aliases: Dict[str, str] = field(default_factory=dict)
     result_node_ids: Set[str] = field(default_factory=set)

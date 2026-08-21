@@ -10,7 +10,7 @@ def load_step_rbrepmodel(path: str | Path) -> BRepModel
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.load_step_rbrepmodel(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.load_step_rbrepmodel(...)`; unavailable inside GraphSession
 
 ## Description
 

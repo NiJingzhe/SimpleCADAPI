@@ -68,10 +68,10 @@ Removed public APIs include:
 - `stack_rassembly`
 - `stack`
 
-Current supported workflows should model final parts as ordinary geometry:
+Current supported workflows should model durable products through explicit boundaries:
 
-- Use `translate_shape(...)`, `rotate_shape(...)`, and `mirror_shape(...)` for explicit placement.
-- Use Python sequences of `Solid` objects plus `export_step([...], path)` / `export_stl(...)` for multi-body exports.
+- Use `@scad.part` for one physical solid and `@scad.assemble` for a multi-part product.
+- Use `scad.capture(result, path)` as the only public `.scadpkg` write boundary.
 - Use `union_rsolid(...)`, `cut_rsolid(...)`, and `intersect_rsolid(...)` when a single merged solid is required.
 
 `export_model_json(...)` no longer accepts `assembly=...`, and newly exported model JSON does not include `assembly`, `assembly_registry`, or `constraint_registry` fields.

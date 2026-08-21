@@ -20,6 +20,11 @@ class TestPublicApiSurface(unittest.TestCase):
         self.assertNotIn("topology", scad.__all__)
         self.assertNotIn("graph", scad.__all__)
         self.assertNotIn("serializer", scad.__all__)
+        self.assertNotIn("OperationCacheReport", scad.__all__)
+        self.assertNotIn("OperationSpec", scad.__all__)
+        self.assertNotIn("operation_cache_scope", scad.__all__)
+        self.assertFalse(hasattr(scad, "operation_cache_report"))
+        self.assertFalse(hasattr(scad, "operation_registry"))
 
     def test_only_necessary_new_top_level_apis_are_present(self):
         code = """
@@ -98,6 +103,74 @@ print(json.dumps({
 
         self.assertIn("TrackingPolicy", scad.__all__)
         self.assertIs(scad.TrackingPolicy, TrackingPolicy)
+
+    def test_unified_product_package_exports(self):
+        import simplecadapi as scad
+        from simplecadapi import product_packages
+
+        expected = {
+            "PRODUCT_PACKAGE_SCHEMA_VERSION": product_packages.PRODUCT_PACKAGE_SCHEMA_VERSION,
+            "ProductPackage": product_packages.ProductPackage,
+            "ProductPackageError": product_packages.ProductPackageError,
+            "build_product_package": product_packages.build_product_package,
+            "encode_product_package": product_packages.encode_product_package,
+            "load_product_package": product_packages.load_product_package,
+            "read_product_package": product_packages.read_product_package,
+            "validate_product_package": product_packages.validate_product_package,
+        }
+        for name, implementation in expected.items():
+            with self.subTest(name=name):
+                self.assertIn(name, scad.__all__)
+                self.assertIs(getattr(scad, name), implementation)
+
+        for legacy_name in (
+            "build_part_package",
+            "build_assembly_package",
+            "load_part_package",
+            "load_assembly_package",
+            "export_product_package",
+        ):
+            with self.subTest(legacy_name=legacy_name):
+                self.assertNotIn(legacy_name, scad.__all__)
+                self.assertFalse(hasattr(scad, legacy_name))
+
+        self.assertFalse(hasattr(product_packages, "export_product_package"))
+
+    def test_scene_implementation_is_not_top_level_product_api(self):
+        import simplecadapi as scad
+        from simplecadapi import scene
+
+        internal_scene_names = (
+            "CanonicalEdgeBlock",
+            "CanonicalTriangleBlock",
+            "CompiledScenePackage",
+            "ProductSceneError",
+            "ProductScenePackage",
+            "RenderEdgeMesh",
+            "RenderGroup",
+            "RenderMesh",
+            "SceneCompileOptions",
+            "SceneRoot",
+            "SceneSource",
+            "build_edge_mesh",
+            "build_render_mesh",
+            "cad_direction_to_gltf",
+            "cad_to_gltf",
+            "compile_product_scene",
+            "compile_scene",
+            "encode_product_scene",
+            "export_scene",
+            "read_scene_package",
+            "solid_asset_bounds",
+            "validate_product_scene_package",
+            "write_line_glb",
+            "write_triangle_glb",
+        )
+        for name in internal_scene_names:
+            with self.subTest(name=name):
+                self.assertNotIn(name, scad.__all__)
+                self.assertFalse(hasattr(scad, name))
+                self.assertTrue(hasattr(scene, name))
 
     def test_unused_brep_inspection_interfaces_are_not_public(self):
         from simplecadapi.inspect import brep

@@ -31,8 +31,7 @@ def _build_reducer_quietly() -> tuple[scad.Assembly, int, float]:
     log_buffer = io.StringIO()
     start = time.perf_counter()
     with contextlib.redirect_stdout(log_buffer):
-        result = _build_compact_two_stage_planetary_reducer()
-        assembly, _preview = result.value
+        assembly, _preview, _model_json, _session_json = _build_compact_two_stage_planetary_reducer()
     elapsed = time.perf_counter() - start
     return assembly, len(log_buffer.getvalue().splitlines()), elapsed
 

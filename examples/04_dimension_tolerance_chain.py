@@ -10,11 +10,19 @@ from pathlib import Path
 import simplecadapi as scad
 
 
-OUT = Path("examples/out")
+OUT = Path(__file__).resolve().parent / "out" / "dimension_tolerance_chain"
+PACKAGE_PATH = OUT / "dimension_tolerance_chain.scadpkg"
+STEP_PATH = OUT / "dimension_tolerance_chain.step"
+FCSTD_PATH = OUT / "dimension_tolerance_chain.FCStd"
 
 
-@scad.model(graph_id="dimension_tolerance_chain")
-def build_model():
+@scad.part(
+    id="dimension_tolerance_chain",
+    revision="1.0.0",
+    cache="off",
+    project_root=Path(__file__).resolve().parents[1],
+)
+def build_dimension_tolerance_chain_part() -> scad.Part:
     housing_span = scad.var(
         name="housing_span",
         default=100.0,
@@ -38,13 +46,8 @@ def build_model():
         comment="Spacer width",
     )
     axial_clearance = housing_span - bearing_width - spacer_width
-
-    worst_case = scad.analyze_tolerance(
-        value=axial_clearance,
-        method="worst_case",
-    )
-    rss = scad.analyze_tolerance(value=axial_clearance, method="rss")
-
+    scad.analyze_tolerance(value=axial_clearance, method="worst_case")
+    scad.analyze_tolerance(value=axial_clearance, method="rss")
     housing = scad.make_box_rsolid(
         width=housing_span,
         height=10.0,
@@ -54,7 +57,7 @@ def build_model():
     )
     session = scad.get_active_session()
     if session is None:
-        raise RuntimeError("dimension tolerance model has no active session")
+        raise RuntimeError("dimension tolerance builder requires an active session")
     session.require_tolerance(
         value=axial_clearance,
         tolerance=(-0.25, 0.24),
@@ -62,28 +65,60 @@ def build_model():
         method="worst_case",
         name="axial_clearance",
     )
-    report = session.validate_tolerances(raise_on_failure=True)
-    scad.capture_result(value=housing)
-    return {
-        "housing": housing,
+    session.validate_tolerances(raise_on_failure=True)
+    return scad.make_part_rpart(
+        part_id="dimension_tolerance_chain",
+        body=housing,
+        name="Dimension tolerance chain housing",
+    )
+
+
+def build_model():
+    result = build_dimension_tolerance_chain_part()
+    session = result.feature_graph.restore_session()
+    requirement = session.tolerance_graph.requirements[0]
+    expression = session.expression_graph.get(requirement.target_expr_id)
+    if expression is None:
+        raise RuntimeError("tolerance target expression was not restored")
+    worst_case = scad.analyze_tolerance(value=expression, method="worst_case")
+    rss = scad.analyze_tolerance(value=expression, method="rss")
+    data = {
+        "housing": result.part,
         "worst_case": worst_case,
         "rss": rss,
-        "report": report,
+        "report": session.validate_tolerances(raise_on_failure=True),
     }
+    return (
+        data,
+        scad.export_model_json(session),
+        scad.export_session_json(session),
+        result,
+    )
 
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    result = build_model()
-    report_data = result.value
+    report_data, model_json, session_json, result = build_model()
     (OUT / "dimension_tolerance_chain.model.json").write_text(
-        result.model_json,
+        model_json,
         encoding="utf-8",
+    )
+    (OUT / "dimension_tolerance_chain.session.json").write_text(
+        session_json,
+        encoding="utf-8",
+    )
+    package_path = OUT / "dimension_tolerance_chain.scadpkg"
+    scad.capture(result, package_path)
+    step_report = scad.exporter.export_product_package_to_step(package_path, STEP_PATH)
+    scad.translator.freecad_translator.translate_product_package_to_fcstd(
+        package_path,
+        str(FCSTD_PATH),
+        document_name="DimensionToleranceChain",
     )
 
     worst_case = report_data["worst_case"]
     rss = report_data["rss"]
-    print("housing_volume", round(report_data["housing"].get_volume(), 3))
+    print("housing_volume", round(report_data["housing"].body.get_volume(), 3))
     print(
         "worst_case",
         round(worst_case.nominal, 3),
@@ -98,10 +133,10 @@ def main() -> None:
         round(rss.upper_bound, 3),
     )
     print("requirements_passed", report_data["report"].passed)
-    print(
-        "serialized_tolerance_graph",
-        "tolerance_graph" in json.loads(result.model_json),
-    )
+    print("serialized_tolerance_graph", "tolerance_graph" in json.loads(model_json))
+    print("product_package", package_path)
+    print("ap242_step", step_report.output_path)
+    print("fcstd", FCSTD_PATH)
 
 
 if __name__ == "__main__":

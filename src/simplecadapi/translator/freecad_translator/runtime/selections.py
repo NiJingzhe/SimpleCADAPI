@@ -5,7 +5,10 @@ def _subshape_candidates_for_kind(shape, kind):
     if kind == "face":
         return list(getattr(shape, "Faces", []) or [])
     if kind == "shell":
-        return list(getattr(shape, "Shells", []) or ([shape] if getattr(shape, "ShapeType", "") == "Shell" else []))
+        return list(
+            getattr(shape, "Shells", [])
+            or ([shape] if getattr(shape, "ShapeType", "") == "Shell" else [])
+        )
     if kind == "edge":
         return list(getattr(shape, "Edges", []) or [])
     if kind == "wire":

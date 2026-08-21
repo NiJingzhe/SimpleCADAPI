@@ -60,6 +60,13 @@ class ModelTopology(TypedDict):
     topo_id: str
 
 
+class PackageGeometry(TypedDict):
+    kind: Literal["package_geometry"]
+    package_kind: Literal["part_package", "assembly_package"]
+    package_revision: Hash
+    definition_id: ProductId
+
+
 class ImportedPrimitive(TypedDict):
     kind: Literal["imported_primitive"]
     source_element_id: str
@@ -69,7 +76,7 @@ class Unbound(TypedDict):
     kind: Literal["unbound"]
 
 
-Source = ModelOutput | ModelTopology | ImportedPrimitive | Unbound
+Source = ModelOutput | ModelTopology | PackageGeometry | ImportedPrimitive | Unbound
 
 
 class BrepSolid(TypedDict):

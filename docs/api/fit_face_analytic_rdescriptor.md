@@ -10,7 +10,7 @@ def fit_face_analytic_rdescriptor(model_or_path: BRepModel | TopoDS_Shape | str 
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.fit_face_analytic_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.fit_face_analytic_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

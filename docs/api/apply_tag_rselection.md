@@ -6,7 +6,7 @@
 def apply_tag_rselection(scope: AnyShape, targets: Union[ShapeSelector, Sequence[AnyShape]], tag: str, topology_propagation: str | TopologyPropagation = TopologyPropagation.LOCAL, lineage_policy: str | LineagePolicy = LineagePolicy.CONTINUATION_FRAGMENT) -> AnyShape
 ```
 
-*Source: operations.py*
+*Source: _operators_selection.py*
 
 ## Import Surface
 

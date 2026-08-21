@@ -344,6 +344,224 @@ and logs are diagnostic only.
 The manifest records paths, SHA-256, byte sizes, prompt/config/SDK identity,
 classification, budget status, and authoritative/derived/diagnostic role.
 
+## Phase 2: Construct
+
+Create:
+
+```text
+{OUTPUT_DIR}/{CASE_NAME}_rebuild_simplecadapi.py
+```
+
+The program must:
+
+- be readable and parameterized;
+- run in a fresh process;
+- export `{CASE_NAME}_rebuilt.step` under `OUTPUT_DIR`;
+- produce a valid BREP;
+- record supported feature operations in an explicit `GraphSession` and verify strict replay;
+- clearly label exact transcription, fitting, and approximation.
+
+Prefer compact design intent over arbitrary point clouds. Do not describe a
+polyline or fitted Loft as exact NURBS transcription.
+
+### Sketch-first profile policy
+
+Use a declarative Sketch as the default authoring representation for a planar
+closed profile that drives:
+
+- an extrusion or revolution;
+- an additive boss or subtractive hole, pocket, slot, notch, or through-cut;
+- a planar section whose design intent is a named, editable profile.
+
+Build it with `make_sketch_rsketch(...)`, stable point/entity IDs,
+`add_*_rsketch(...)`, and constraints supported by the reconstruction
+evidence. Promote it with `make_face_from_sketch_rface(...)` or, when a feature
+requires a section Wire, `make_wire_from_sketch_rwire(...)`. Use
+`require_fully_constrained=True` when the intended dimensions and relations can
+be represented without inventing unsupported design intent.
+
+Prefer dimensional and geometric constraints such as radius, distance,
+horizontal/vertical, parallel, perpendicular, tangent, and concentric when
+they are supported by evidence. If only recovered coordinates are known,
+fixed points are allowed for deterministic replay, but label the result as a
+coordinate-locked reconstruction rather than claiming recovered parametric
+intent.
+
+Use `inner_profiles=(...)` only when topology and adjacent-carrier evidence
+show that the loops belong to the same generating Sketch. Model a later hole,
+slot, or pocket as its own ordered feature instead of folding its final-face
+trace into the base Sketch.
+
+Before promoting a Sketch profile, verify:
+
+- the Sketch plane and local-to-world mapping;
+- a closed non-construction loop with the intended entity segmentation;
+- Arc sweep direction and minor/major choice; `add_arc_rsketch(...)` uses the
+  positive local angular sweep, so swapping endpoints changes the geometry;
+- B-spline degree, knots, multiplicities, weights, and endpoint poles; use the
+  shared endpoint point refs as first/last poles when exact connectivity is
+  intended;
+- solve status, remaining DOF, and diagnostics.
+
+Direct Wire construction is allowed only for a concrete reason:
+
+- a non-planar path, 3-D guide curve, Helix, or other path geometry;
+- freeform carrier/trim geometry or exact BREP/NURBS transcription that is not
+  a planar design Sketch;
+- an entity, constraint, or multi-loop relationship the current Sketch API
+  cannot represent faithfully;
+- report-derived geometry whose projection onto a Sketch plane changes its
+  control data or measured geometry;
+- a demonstrated kernel or modeling regression in the Sketch path.
+
+Do not force a spatial path, freeform surface boundary, or unsupported exact
+transcription into a fake Sketch merely to satisfy Sketch-first. Record every
+direct-Wire exception and its evidence in the iteration log.
+
+When a planar Wire exception is proposed, or when Sketch promotion may change
+geometry, use the cheapest A/B sequence that can decide it:
+
+1. Keep one shared parameter source and independently build Wire and Sketch
+   profiles.
+2. Compare profile closure, area, bounds, edge count, and ordered edge lengths.
+3. If those agree, rebuild the complete Wire and Sketch candidates in fresh
+   processes and run `compare_global_properties`.
+4. Only when the candidates are close enough, compare strict bidirectional
+   material and a bounded boundary distance. Do not run `compare_brep_strict`
+   solely for this A/B unless `exact_brep` was requested.
+5. Prefer Sketch when it preserves or improves target evidence. Keep Wire when
+   Sketch introduces avoidable measured drift or changes the acceptance result,
+   and document the exception rather than hiding it.
+
+Candidate-to-target evidence remains the acceptance basis. Wire-to-Sketch A/B
+selects the authoring strategy; it does not by itself prove reconstruction
+quality.
+
+### Boolean construction policy
+
+Use the simplest direct feature sequence supported by the evidence. Prefer a
+base feature followed by independent local additive or subtractive tools over
+whole-model complements, large clipping constructions, or coincident Boolean
+operands.
+
+For a through opening or slot, prefer a simple cutter that deliberately
+overshoots both terminal sides. For multiple local cuts, validate one
+representative base/tool pair before constructing all tools, then apply the
+tools individually or as a flat list so the failing feature can be identified.
+
+If a Boolean fails:
+
+1. Verify that the base and tool are each valid solids and that the intended
+   overlap has positive volume, not only overlapping bounding boxes.
+2. Remove exact tangencies and coincident end faces with small intentional tool
+   overshoot; do not change target dimensions merely to hide the failure.
+3. Retry the isolated base/tool pair with a simpler tool and no unnecessary
+   upstream union or complement.
+4. Use `TrackingPolicy.GRAPH` when topology lineage is unnecessary and history
+   tracking is the suspected cost. This does not repair wrong geometry or alter
+   intersection validation.
+5. Use `skip_non_intersecting=False` for strict cut diagnostics when available;
+   it exposes a missed cut instead of silently accepting it.
+6. After repeated failure, reconsider the operation order or feature-family
+   hypothesis. Do not replace a locally supported feature tree with a global
+   clipping construction solely as a Boolean workaround.
+
+Never classify a skipped or silently ineffective cut as a completed feature.
+
+## Phase 3: Iterate
+
+For each complete candidate iteration:
+
+1. Run the program in a fresh process and regenerate the STEP.
+2. Require successful exit, a newly generated STEP, and valid BREP.
+3. For every promoted Sketch used by the candidate, require a closed profile
+   and record solve status, DOF, and diagnostics.
+4. Run `compare_global_properties`.
+5. If global/material scale is clearly wrong, fix the construction before any
+   dense boundary or topology work.
+6. Use sections or local diagnostics only to answer the next modeling question.
+7. When the candidate is plausibly final, attempt one bounded
+   `compute_material_difference(include_components=true)` for the strict
+   material result.
+
+An attempt that fails to replay, does not generate a new STEP, or produces an
+invalid BREP is a failed construction attempt, not a complete candidate
+iteration. Record the failure and diagnostic evidence, but do not consume
+`MAX_ITERATIONS` or count it toward the three non-improving complete iterations.
+Do not make more than three consecutive failed construction attempts on the
+same feature family or Boolean arrangement; revert to the best valid candidate
+and change the hypothesis or operation order.
+
+One parameter-only retry may reuse the same construction strategy. A changed
+feature family or construction method starts a new complete iteration only when
+it produces a freshly replayed valid candidate.
+
+Stop blind tuning after three non-improving iterations. Preserve the best valid
+candidate and report the blocker. Select the best candidate using material,
+focused section/boundary, carrier, and global evidence together; global
+properties alone must not override a locally falsified feature family.
+
+## Classification
+
+Assign exactly one classification.
+
+### exact_brep
+
+Complete reverse engineering — the best endpoint. Requires fresh replay, valid
+BREP, strict bidirectional material equality, geometry-labelled incidence graph
+isomorphism, and required representation checks. Minor parameter drift
+attributable to export float error does not break topology identity. This is
+expensive: evaluate it only when the candidate is near structure match, not as
+a routine iteration step.
+
+### geometry_equivalent
+
+Requires fresh replay, valid BREP, and strict bidirectional material equality.
+Boundary, section, seam, surface representation, and topology equality are not
+additional requirements. A structure-matched candidate with float-level
+parameter drift classifies here or as `exact_brep` — never as `approximation`.
+
+### approximation
+
+Use when a valid replayable candidate exists but strict material equality
+fails or remains unproved (including Boolean timeout), AND optimization is
+genuinely exhausted: no better feature operation order/combination is findable,
+or the required operation type is not supported by the SDK. Record which reason
+and its evidence. Report measured global and local errors without upgrading the
+result based on visual similarity. A "looks close" result is not a valid stop
+on its own.
+
+### unsupported_or_incomplete
+
+Use when no valid replayable candidate exists or the target cannot be
+represented by the available SDK. Do not manufacture a success-shaped result.
+
+## Required Artifacts
+
+Keep the artifact set minimal:
+
+```text
+{CASE_NAME}_rebuild_simplecadapi.py
+{CASE_NAME}_reconstruction_params.json        # only if needed
+{CASE_NAME}_rebuilt.step
+{CASE_NAME}_rebuilt_brep_report.json
+{CASE_NAME}_evaluation.json
+{CASE_NAME}_iteration_log.json
+```
+
+The iteration log records:
+
+- hypothesis and exact source/parameter change;
+- replay and validity result;
+- Sketch solve evidence and every direct-Wire exception;
+- global errors;
+- diagnostics actually used and why;
+- strict material result or timeout when attempted;
+- evidence selecting the next change.
+
+Optional renders or Scene packages may be generated for human inspection, but
+they are not acceptance evidence.
+
 ## Final Response
 
 Report concisely:

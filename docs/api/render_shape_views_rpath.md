@@ -10,7 +10,7 @@ def render_shape_views_rpath(shape: TopoDS_Shape, output_path: str | Path, *, ti
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.render_shape_views_rpath(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.render_shape_views_rpath(...)`; unavailable inside GraphSession
 
 ## Description
 

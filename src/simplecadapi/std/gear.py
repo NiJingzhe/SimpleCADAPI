@@ -15,8 +15,10 @@ continuous twisted sweep, and herringbone gears fuse two opposite twisted
 halves.
 Spur ring gears build a multi-loop face from an outer rim wire and an inward
 internal-tooth inner wire, then extrude it directly.  Helical and herringbone
-ring gears loft the internal tooth void and subtract it from an extruded outer
-rim.  Racks build a trapezoidal-tooth profile along a straight line.  Cycloidal
+ring gears sweep that same multi-loop face with a continuous twist; the
+twisted-sweep kernel sweeps every wire of the face and sews the shells with
+rotated profile caps, producing the ring directly without boolean cuts.
+Racks build a trapezoidal-tooth profile along a straight line.  Cycloidal
 reducer discs build a lobed pin-wheel profile as one fitted cubic B-spline
 segment per lobe.
 """
@@ -1314,10 +1316,9 @@ def make_helical_ring_gear_rsolid(
 ) -> Solid:
     """Create an internal helical ring gear.
 
-    The outer rim is extruded directly. The internal tooth void is built as a
-    small-step ruled loft through rotated copies of the internal profile, then
-    subtracted from the rim. Ruled sections avoid smooth loft bulging in STEP
-    exports while preserving stable section correspondence.
+    The multi-loop ring face (outer rim plus internal tooth profile) is swept
+    with one continuous twist along the axis, producing one continuous side
+    face per profile edge per wire and no boolean subtraction.
 
     Parameters
     ----------
@@ -1362,41 +1363,20 @@ def make_helical_ring_gear_rsolid(
         / (math.pi * pitch_diameter)
     )
 
-    n_sections = max(6, int(abs(twist_total) / 5.0) + 2)
-    _pitch_radius, _internal_tip_radius, _internal_root_radius, outer_radius = (
-        _internal_ring_radii(
-            n_teeth,
-            module,
-            rim_thickness,
-            addendum_factor=addendum_factor,
-            clearance_factor=clearance_factor,
-        )
-    )
-
-    outer_wire = make_circle_rwire(center=(0.0, 0.0, 0.0), radius=outer_radius)
-    outer_solid = extrude_rsolid(
-        make_face_from_wire_rface(outer_wire),
-        direction=(0.0, 0.0, 1.0),
-        distance=gear_height,
-    )
-    inner_wire = _build_internal_gear_profile_wire(
+    face = _build_ring_gear_face(
         n_teeth,
         module,
         pa,
-        backlash=backlash,
+        rim_thickness,
+        backlash,
         addendum_factor=addendum_factor,
         clearance_factor=clearance_factor,
     )
-
-    inner_sections = []
-    for i in range(n_sections + 1):
-        frac = i / n_sections
-        z = gear_height * frac
-        twist = twist_total * frac
-        inner_sections.append(_rotate_profile_wire_3d(inner_wire, twist, z))
-
-    inner_loft = loft_rsolid(inner_sections, ruled=True)
-    return cut_rsolid(outer_solid, inner_loft)
+    return twisted_sweep_rsolid(
+        profile=face,
+        distance=gear_height,
+        twist_angle=twist_total,
+    )
 
 
 @graph_tracking_scope
@@ -1414,10 +1394,9 @@ def make_herringbone_ring_gear_rsolid(
 ) -> Solid:
     """Create an internal herringbone ring gear.
 
-    The outer rim is extruded directly. The internal tooth void is built as two
-    small-step ruled loft halves sharing the center herringbone section, then
-    subtracted from the rim. Ruled sections avoid smooth loft bulging in STEP
-    exports while preserving stable section correspondence.
+    The multi-loop ring face is swept as two continuous twisted-sweep halves
+    with opposite handedness sharing the rotated center section, then fused,
+    mirroring the external herringbone gear construction.
 
     Parameters
     ----------
@@ -1463,54 +1442,36 @@ def make_herringbone_ring_gear_rsolid(
         / (math.pi * pitch_diameter)
     )
 
-    n_sections_per_half = max(4, int(abs(half_twist) / 5.0) + 2)
-    _pitch_radius, _internal_tip_radius, _internal_root_radius, outer_radius = (
-        _internal_ring_radii(
-            n_teeth,
-            module,
-            rim_thickness,
-            addendum_factor=addendum_factor,
-            clearance_factor=clearance_factor,
-        )
-    )
-
-    outer_wire = make_circle_rwire(center=(0.0, 0.0, 0.0), radius=outer_radius)
-    outer_solid = extrude_rsolid(
-        make_face_from_wire_rface(outer_wire),
-        direction=(0.0, 0.0, 1.0),
-        distance=gear_height,
-    )
-    inner_wire = _build_internal_gear_profile_wire(
+    face = _build_ring_gear_face(
         n_teeth,
         module,
         pa,
-        backlash=backlash,
+        rim_thickness,
+        backlash,
         addendum_factor=addendum_factor,
         clearance_factor=clearance_factor,
     )
-
-    inner_sections: List[Wire] = []
-
-    for i in range(n_sections_per_half + 1):
-        frac = i / n_sections_per_half
-        z = half_height * frac
-        twist = half_twist * frac
-        inner_sections.append(_rotate_profile_wire_3d(inner_wire, twist, z))
-
-    for i in range(1, n_sections_per_half + 1):
-        frac = i / n_sections_per_half
-        z = half_height + half_height * frac
-        twist = half_twist * (1.0 - frac)
-        inner_sections.append(_rotate_profile_wire_3d(inner_wire, twist, z))
-
-    inner_loft = loft_rsolid(
-        inner_sections,
-        ruled=True,
-        tracking_policy=TrackingPolicy.GRAPH,
+    lower = twisted_sweep_rsolid(
+        profile=face,
+        distance=half_height,
+        twist_angle=half_twist,
     )
-    return cut_rsolid(
-        outer_solid,
-        inner_loft,
+    upper_profile = rotate_shape(
+        face,
+        half_twist,
+        axis=(0.0, 0.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+    )
+    upper_profile = translate_shape(upper_profile, (0.0, 0.0, half_height))
+    upper = twisted_sweep_rsolid(
+        profile=upper_profile,
+        distance=half_height,
+        twist_angle=-half_twist,
+        origin=(0.0, 0.0, half_height),
+    )
+    return union_rsolid(
+        lower,
+        upper,
         tracking_policy=TrackingPolicy.GRAPH,
     )
 

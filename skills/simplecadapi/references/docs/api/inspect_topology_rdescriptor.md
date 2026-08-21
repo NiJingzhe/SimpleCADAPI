@@ -10,7 +10,7 @@ def inspect_topology_rdescriptor(model_or_shape: ModelInput, *, max_problem_edge
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_topology_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_topology_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

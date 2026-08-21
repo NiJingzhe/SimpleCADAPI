@@ -6,7 +6,7 @@
 def add_component_rassembly(assembly: Assembly, item: Union[Part, Assembly], component_id: str, placement: Placement, name: Optional[str] = None) -> Assembly
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

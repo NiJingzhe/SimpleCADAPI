@@ -12,8 +12,7 @@ from simplecadapi import ql
 OUT_DIR = Path(__file__).resolve().parent / "out" / "hydraulic_rod_assembly"
 
 
-@scad.model(graph_id="hydraulic_rod_assembly", export_dir=OUT_DIR)
-def build_hydraulic_rod_assembly():
+def _build_hydraulic_rod_assembly_body():
     flange_holes = [
         ("zplus", 0.0, 16.0),
         ("yplus", 16.0, 0.0),
@@ -21,7 +20,6 @@ def build_hydraulic_rod_assembly():
         ("yminus", -16.0, 0.0),
     ]
 
-    @scad.requires_session
     def _build_in_session():
         def _named_cylinder(
             *,
@@ -403,73 +401,129 @@ def build_hydraulic_rod_assembly():
             part=piston_rod_part, connector=rod_connector
         )
 
-        hydraulic_assembly = scad.make_assembly_rassembly(
-            assembly_id="hydraulic_rod_assembly", name="Hydraulic rod assembly"
-        )
-        hydraulic_assembly = scad.add_component_rassembly(
-            assembly=hydraulic_assembly,
-            item=sleeve_part,
-            component_id="outer_sleeve",
-            placement=scad.identity_placement_rplacement(),
-        )
-        hydraulic_assembly = scad.add_component_rassembly(
-            assembly=hydraulic_assembly,
-            item=piston_rod_part,
-            component_id="inner_piston_rod",
-            placement=scad.identity_placement_rplacement(),
-        )
-        hydraulic_assembly = scad.ground_component_rassembly(
-            assembly=hydraulic_assembly, component_id="outer_sleeve"
-        )
-        hydraulic_assembly = scad.add_prismatic_constraint_rassembly(
-            assembly=hydraulic_assembly,
-            constraint_id="rod_slide",
-            connector_a=scad.make_connector_ref_rconnectorref(
-                component_id="outer_sleeve", connector_id="slide_axis"
-            ),
-            connector_b=scad.make_connector_ref_rconnectorref(
-                component_id="inner_piston_rod", connector_id="slide_axis"
-            ),
-            drive_distance=0.0,
-            distance_limit=scad.make_scalar_limit_rscalarlimit(
-                lower_value=0.0, upper_value=100.0
-            ),
-        )
-        hydraulic_assembly = scad.solve_assembly_constraints_rassembly(
-            assembly=hydraulic_assembly
+        return sleeve_part, piston_rod_part
+
+    return _build_in_session()
+
+
+def _assemble_hydraulic_rod(*, sleeve_part: scad.Part, piston_rod_part: scad.Part):
+    hydraulic_assembly = scad.make_assembly_rassembly(
+        assembly_id="hydraulic_rod_assembly", name="Hydraulic rod assembly"
+    )
+    identity = scad.identity_placement_rplacement()
+    hydraulic_assembly = scad.add_component_rassembly(
+        assembly=hydraulic_assembly,
+        item=sleeve_part,
+        component_id="outer_sleeve",
+        placement=identity,
+    )
+    hydraulic_assembly = scad.add_component_rassembly(
+        assembly=hydraulic_assembly,
+        item=piston_rod_part,
+        component_id="inner_piston_rod",
+        placement=identity,
+    )
+    hydraulic_assembly = scad.ground_component_rassembly(
+        assembly=hydraulic_assembly, component_id="outer_sleeve"
+    )
+    hydraulic_assembly = scad.add_prismatic_constraint_rassembly(
+        assembly=hydraulic_assembly,
+        constraint_id="rod_slide",
+        connector_a=scad.make_connector_ref_rconnectorref(
+            component_id="outer_sleeve", connector_id="slide_axis"
+        ),
+        connector_b=scad.make_connector_ref_rconnectorref(
+            component_id="inner_piston_rod", connector_id="slide_axis"
+        ),
+        drive_distance=0.0,
+        distance_limit=scad.make_scalar_limit_rscalarlimit(
+            lower_value=0.0, upper_value=100.0
+        ),
+    )
+    return scad.solve_assembly_constraints_rassembly(assembly=hydraulic_assembly)
+
+
+@scad.part(
+    id="outer_sleeve",
+    revision="1.0.0",
+    cache="off",
+    project_root=Path(__file__).resolve().parents[1],
+)
+def build_outer_sleeve_part() -> scad.Part:
+    return _build_hydraulic_rod_assembly_body()[0]
+
+
+@scad.part(
+    id="piston_rod",
+    revision="1.0.0",
+    cache="off",
+    project_root=Path(__file__).resolve().parents[1],
+)
+def build_piston_rod_part() -> scad.Part:
+    return _build_hydraulic_rod_assembly_body()[1]
+
+
+def build_hydraulic_product() -> scad.AssemblyBuildResult:
+    sleeve_result = build_outer_sleeve_part()
+    rod_result = build_piston_rod_part()
+
+    @scad.assemble(
+        id="hydraulic_rod_assembly",
+        revision="1.0.0",
+        definitions=(sleeve_result, rod_result),
+        cache="off",
+        project_root=Path(__file__).resolve().parents[1],
+    )
+    def build_assembly() -> scad.Assembly:
+        return _assemble_hydraulic_rod(
+            sleeve_part=sleeve_result.part,
+            piston_rod_part=rod_result.part,
         )
 
-        preview = scad.make_compound_from_assembly_rcompound(
-            assembly=hydraulic_assembly
+    return build_assembly()
+
+
+def build_hydraulic_rod_assembly():
+    session = scad.GraphSession(graph_id="hydraulic_rod_assembly")
+    with session:
+        sleeve_part, piston_rod_part = _build_hydraulic_rod_assembly_body()
+        assembly = _assemble_hydraulic_rod(
+            sleeve_part=sleeve_part,
+            piston_rod_part=piston_rod_part,
         )
+        preview = scad.make_compound_from_assembly_rcompound(assembly=assembly)
         preview = scad.apply_tag(
             shape=preview,
             tag="assembly.hydraulic.preview",
         )
-        return hydraulic_assembly, preview
-
-    hydraulic_assembly, preview = _build_in_session()
-    scad.capture_result(value=(hydraulic_assembly, preview))
-    return hydraulic_assembly, preview
+        session.capture_result(value=(assembly, preview))
+        model_json = scad.export_model_json(session)
+        session_json = scad.export_session_json(session)
+    return assembly, preview, model_json, session_json
 
 
 def main() -> None:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    result = build_hydraulic_rod_assembly()
-    assembly, preview = result.value
+    product_result = build_hydraulic_product()
+    assembly = product_result.assembly
+    preview = scad.make_compound_from_assembly_rcompound(assembly=assembly)
+    package_path = OUT_DIR / "hydraulic_rod_assembly.scadpkg"
+    scad.capture(product_result, package_path)
+    _, _, model_json, session_json = build_hydraulic_rod_assembly()
+    model_path = OUT_DIR / "hydraulic_rod_assembly.model.json"
+    session_path = OUT_DIR / "hydraulic_rod_assembly.session.json"
+    model_path.write_text(model_json, encoding="utf-8")
+    session_path.write_text(session_json, encoding="utf-8")
 
+    step_path = OUT_DIR / "hydraulic_rod_assembly.step"
     fcstd_path = OUT_DIR / "hydraulic_rod_assembly.FCStd"
-    fcstd_status = "skipped"
-    try:
-        scad.translator.freecad_translator.translate_model_json_to_fcstd(
-            json_str=result.model_json,
-            output_path=str(fcstd_path.resolve()),
-        )
-        fcstd_status = str(fcstd_path)
-    except Exception as exc:  # pragma: no cover - depends on local FreeCAD install
-        fcstd_status = f"skipped ({exc.__class__.__name__})"
+    step_report = scad.exporter.export_product_package_to_step(package_path, step_path)
+    scad.translator.freecad_translator.translate_product_package_to_fcstd(
+        package_path,
+        str(fcstd_path.resolve()),
+        document_name="HydraulicRodAssembly",
+    )
 
-    payload = json.loads(result.model_json)
+    payload = json.loads(model_json)
     face_count = len(ql.faces().resolve(preview))
     print("assembly", assembly.assembly_id)
     print("components", assembly.component_ids())
@@ -477,9 +531,11 @@ def main() -> None:
     print("preview_faces", face_count)
     print("preview_volume", round(preview.get_volume(), 3))
     print("graph_nodes", len(payload["graph"]["nodes"]))
-    for path in result.artifact_paths.values():
-        print("wrote", path)
-    print("fcstd", fcstd_status)
+    print("wrote", model_path)
+    print("wrote", session_path)
+    print("step", step_report.output_path)
+    print("fcstd", fcstd_path)
+    print("product_package", package_path)
 
 
 if __name__ == "__main__":

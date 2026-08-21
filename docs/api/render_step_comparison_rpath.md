@@ -10,7 +10,7 @@ def render_step_comparison_rpath(target_step_path: str | Path, current_step_path
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.render_step_comparison_rpath(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.render_step_comparison_rpath(...)`; unavailable inside GraphSession
 
 ## Description
 

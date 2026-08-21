@@ -6,7 +6,7 @@
 def make_2d_union_rface(face_a: Face, face_b: Face) -> Face
 ```
 
-*Source: operations.py*
+*Source: _operators_boolean.py*
 
 ## Import Surface
 

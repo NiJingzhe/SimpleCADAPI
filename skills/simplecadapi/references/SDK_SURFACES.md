@@ -67,15 +67,13 @@ Use `apply_tag(shape=..., tag=...)` for user-authored semantic tags and `list_ta
 
 ```python
 import simplecadapi as scad
+from simplecadapi import GraphSession, export_model_json, replay_model_json
 
-@scad.model(graph_id="demo")
-def build_model():
+with GraphSession(graph_id="demo") as session:
     result = ...
-    scad.capture_result(value=result)
-    return result
+    session.capture_result(value=result)
+    model_json = export_model_json(session=session)
 
-model = build_model()
-model_json = model.model_json
-rebuilt = model.replay()
+rebuilt = replay_model_json(json_str=model_json)
 print(len(rebuilt))
 ```
