@@ -14,21 +14,43 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
-
 DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "operations.py",
+    "_operators_geometry.py",
+    "_operators_transform.py",
+    "_operators_boolean.py",
+    "_operators_product.py",
+    "_operators_sketch.py",
+    "_operators_selection.py",
+    "_operators_features.py",
     "evolve.py",
     "ql.py",
     "serializer.py",
     "math.py",
-    "product.py",
+    "placement.py",
+    "material.py",
+    "connector.py",
+    "constraint.py",
+    "part.py",
+    "assembly.py",
+    "assembly_solver.py",
     "expr.py",
     "tolerance.py",
     "units.py",
     "graph.py",
     "sketch.py",
     "errors.py",
+    "capture.py",
+    "product_packages.py",
     "topology.py",
+    "build/assembly_builder.py",
+    "build/dependencies.py",
+    "build/incremental_solver.py",
+    "build/part_builder.py",
+    "build/results.py",
+    "cache/policy.py",
+    "cache/records.py",
+    "cache/store.py",
     "inverse_engineer/brep/evaluation.py",
     "inspect/brep/compare.py",
     "inspect/brep/diagnostics.py",
@@ -42,6 +64,10 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "inspect/brep/render.py",
     "inspect/brep/section_tracking.py",
     "inspect/brep/slices.py",
+    "exporter/step.py",
+    "exporter/obj.py",
+    "exporter/stl.py",
+    "exporter/mjcf.py",
     "inspect/brep/snapshots.py",
     "inspect/brep/topology_inspection.py",
 )
@@ -54,10 +80,17 @@ DEFAULT_STDLIB_SOURCE_FILENAMES: tuple[str, ...] = (
 FULL_PUBLIC_FUNCTION_MODULES = frozenset(
     {
         "operations.py",
+        "_operators_geometry.py",
+        "_operators_transform.py",
+        "_operators_boolean.py",
+        "_operators_product.py",
+        "_operators_sketch.py",
+        "_operators_selection.py",
+        "_operators_features.py",
         "evolve.py",
         "ql.py",
         "math.py",
-        "product.py",
+        "placement.py",
     }
 )
 
@@ -69,6 +102,15 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "tolerance.py",
         "units.py",
         "errors.py",
+        "capture.py",
+        "product_packages.py",
+        "assembly_solver.py",
+        "connector.py",
+        "placement.py",
+        "build/assembly_builder.py",
+        "build/dependencies.py",
+        "build/part_builder.py",
+        "cache/policy.py",
         "inverse_engineer/brep/evaluation.py",
         "inspect/brep/compare.py",
         "inspect/brep/diagnostics.py",
@@ -82,13 +124,32 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "inspect/brep/render.py",
         "inspect/brep/section_tracking.py",
         "inspect/brep/slices.py",
+        "exporter/step.py",
+        "exporter/obj.py",
+        "exporter/stl.py",
+        "exporter/mjcf.py",
         "inspect/brep/snapshots.py",
         "inspect/brep/topology_inspection.py",
     }
 )
 
 EXPORTED_CALLABLE_MODULES = frozenset(
-    {"expr.py", "tolerance.py", "units.py", "graph.py", "sketch.py", "errors.py", "topology.py", "math.py", "product.py"}
+    {
+        "expr.py",
+        "tolerance.py",
+        "units.py",
+        "graph.py",
+        "sketch.py",
+        "errors.py",
+        "topology.py",
+        "math.py",
+        "placement.py",
+        "material.py",
+        "connector.py",
+        "constraint.py",
+        "part.py",
+        "assembly.py",
+    }
 )
 
 MISSING = object()
@@ -114,9 +175,10 @@ def _default_source_files(package_root: Path) -> List[Path]:
     source_files = [package_root / name for name in DEFAULT_SOURCE_FILENAMES]
     translator_root = package_root / "translator"
     for backend_dir in sorted(translator_root.glob("*_translator")):
-        source_files.extend(
-            [backend_dir / "api.py", backend_dir / "translator.py"]
-        )
+        source_files.extend([backend_dir / "api.py", backend_dir / "translator.py"])
+        types_file = backend_dir / "types.py"
+        if types_file.is_file():
+            source_files.append(types_file)
     return source_files
 
 
@@ -126,7 +188,7 @@ def _translator_backend_name(module_name: str) -> str | None:
         len(parts) == 3
         and parts[0] == "translator"
         and parts[1].endswith("_translator")
-        and parts[2] in {"api.py", "translator.py"}
+        and parts[2] in {"api.py", "translator.py", "types.py"}
     ):
         return parts[1]
     return None
@@ -308,6 +370,10 @@ class APIDocumentGenerator:
     ) -> bool:
         if name.startswith("_"):
             return False
+        if module_name.startswith("exporter/"):
+            return True
+        if name.startswith("_"):
+            return False
         if module_name in FULL_PUBLIC_FUNCTION_MODULES:
             return True
         if _translator_backend_name(module_name) is not None:
@@ -351,6 +417,8 @@ class APIDocumentGenerator:
     ) -> bool:
         if name.startswith("_"):
             return False
+        if module_name.startswith("exporter/"):
+            return True
         if _translator_backend_name(module_name) is not None:
             return True
         if module_name.startswith("inspect/brep/"):
@@ -409,6 +477,13 @@ class APIDocumentGenerator:
         if name in self.exported_names:
             return f"top-level: `from simplecadapi import {name}`"
 
+        if module_name.startswith("exporter/"):
+            exporter_module = module_name.removeprefix("exporter/").removesuffix(".py")
+            return (
+                f"exporter namespace: `from simplecadapi import exporter` "
+                f"then `exporter.{exporter_module}.{name}(...)`"
+            )
+
         translator_backend = _translator_backend_name(module_name)
         if translator_backend is not None:
             return (
@@ -419,7 +494,7 @@ class APIDocumentGenerator:
         if module_name.startswith("inspect/brep/"):
             return (
                 "inspection namespace: `from simplecadapi.inspect import brep` "
-                f"then `brep.{name}(...)`; unavailable inside GraphSession/@model"
+                f"then `brep.{name}(...)`; unavailable inside GraphSession"
             )
 
         module_stem = module_name.removesuffix(".py")
@@ -575,6 +650,7 @@ class APIDocumentGenerator:
             "Advanced Features": [],
             "Evolve": [],
             "STEP/BREP Inspection": [],
+            "Product Build and Cache": [],
             "Reconstruction Evaluation": [],
             "Other": [],
         }
@@ -584,6 +660,9 @@ class APIDocumentGenerator:
 
             if api.source_file.startswith("inspect/brep/"):
                 categories["STEP/BREP Inspection"].append(api)
+                continue
+            if api.source_file.startswith(("build/", "cache/")):
+                categories["Product Build and Cache"].append(api)
                 continue
 
             if api.source_file == "inverse_engineer/brep/evaluation.py":
@@ -598,6 +677,9 @@ class APIDocumentGenerator:
                 categories["Modeling Graph and Replay"].append(api)
                 continue
 
+            if api.source_file.startswith("exporter/"):
+                categories["Export"].append(api)
+                continue
             if _translator_backend_name(api.source_file) is not None:
                 categories["Translator Backends"].append(api)
                 continue
@@ -640,13 +722,13 @@ class APIDocumentGenerator:
         md_lines: List[str] = [
             "# SimpleCAD API Index",
             "",
-            "This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, inspection tools, expressions, QL, and export helpers.",
+            "This index includes generated docs for the public SimpleCAD API surface, including geometry operations, graph/model JSON workflows, durable product builds, persistent cache controls, inspection tools, expressions, QL, and export helpers.",
             "",
             "## Import Surfaces",
             "",
             "- Entries marked `top-level` are exported from `simplecadapi` and can be imported with `from simplecadapi import <name>`.",
             "- Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.",
-            "- Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession` or `@model`.",
+            "- Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession`.",
             "- Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.",
             "- Entries marked `reverse-engineering evaluator` are available through `simplecadapi.inverse_engineer.brep`; their acceptance inputs and reports belong to the trusted harness, not participant code.",
             "",
@@ -663,6 +745,8 @@ class APIDocumentGenerator:
                     surface_info = " `top-level`"
                 elif api.source_file.startswith("inspect/brep/"):
                     surface_info = " `inspection namespace`"
+                elif api.source_file.startswith("exporter/"):
+                    surface_info = " `exporter namespace`"
                 elif api.source_file.startswith("translator/"):
                     surface_info = " `translator backend`"
                 elif api.source_file == "inverse_engineer/brep/evaluation.py":
@@ -997,12 +1081,16 @@ class APIDocumentGenerator:
         constructor signature.
         """
         is_dataclass = any(
-            isinstance(dec, ast.Name) and dec.id == "dataclass"
-            or isinstance(dec, ast.Attribute) and dec.attr == "dataclass"
+            isinstance(dec, ast.Name)
+            and dec.id == "dataclass"
+            or isinstance(dec, ast.Attribute)
+            and dec.attr == "dataclass"
             or isinstance(dec, ast.Call)
             and (
                 (isinstance(dec.func, ast.Name) and dec.func.id == "dataclass")
-                or (isinstance(dec.func, ast.Attribute) and dec.func.attr == "dataclass")
+                or (
+                    isinstance(dec.func, ast.Attribute) and dec.func.attr == "dataclass"
+                )
             )
             for dec in node.decorator_list
         )

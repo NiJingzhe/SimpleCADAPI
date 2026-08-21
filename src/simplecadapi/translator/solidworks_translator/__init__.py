@@ -1,19 +1,11 @@
-"""SolidWorks translator backend for SimpleCAD model JSON."""
+"""SolidWorks translator backend for SimpleCAD product packages."""
 
-from .api import (
-    export_model_json_to_solidworks_step,
-    translate_model_json_to_solidworks_script,
-    translate_model_json_to_solidworks_step,
-)
+from .api import translate_product_package_to_solidworks_script
 from .capabilities import CAPABILITIES
-from .compiler import SolidWorksScriptTranslator
 from .translator import SolidWorksTranslator
 
 __all__ = [
     "CAPABILITIES",
-    "SolidWorksScriptTranslator",
     "SolidWorksTranslator",
-    "export_model_json_to_solidworks_step",
-    "translate_model_json_to_solidworks_script",
-    "translate_model_json_to_solidworks_step",
+    "translate_product_package_to_solidworks_script",
 ]

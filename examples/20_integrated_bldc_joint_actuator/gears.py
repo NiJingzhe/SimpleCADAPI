@@ -8,11 +8,14 @@ import simplecadapi as scad
 
 try:
     from .common import (
+        PART_INPUTS,
+        CACHE,
         apply_tags,
         make_axis_part_rpart,
         make_axial_hole_cutters_rsolids,
         make_z_rotation_rplacement,
     )
+    from .materials import make_actuator_material_rmaterial
     from .dimensions import (
         ADDENDUM_FACTOR,
         BACKLASH,
@@ -59,11 +62,14 @@ try:
     )
 except ImportError:  # Support direct execution from this example directory.
     from common import (
+        PART_INPUTS,
+        CACHE,
         apply_tags,
         make_axis_part_rpart,
         make_axial_hole_cutters_rsolids,
         make_z_rotation_rplacement,
     )
+    from materials import make_actuator_material_rmaterial
     from dimensions import (
         ADDENDUM_FACTOR,
         BACKLASH,
@@ -110,12 +116,9 @@ except ImportError:  # Support direct execution from this example directory.
     )
 
 
-@scad.requires_session
-def make_stage_ring_gear_rpart(
-    *,
-    stage: StageSpec,
-    material: scad.Material,
-) -> scad.Part:
+def make_stage_ring_gear_rpart(*,
+stage: StageSpec,
+material: scad.Material,) -> scad.Part:
     """Create one herringbone ring insert with a full housing support rim."""
 
     ring = scad.std.gear.make_herringbone_ring_gear_rsolid(
@@ -153,7 +156,11 @@ def make_stage_ring_gear_rpart(
     ring = scad.union_rsolid(ring, support, glue=False)
     ring = apply_tags(
         shape=ring,
-        tags=(f"role.{stage.stage_id}.fixed_ring_gear", "role.ring_gear_press_fit", "group.two_stage_reducer"),
+        tags=(
+            f"role.{stage.stage_id}.fixed_ring_gear",
+            "role.ring_gear_press_fit",
+            "group.two_stage_reducer",
+        ),
     )
     print(
         f"{stage.stage_id}_ring: teeth={stage.ring_teeth} pitch_r={stage.ring_pitch_radius:.3f} "
@@ -168,12 +175,9 @@ def make_stage_ring_gear_rpart(
     )
 
 
-@scad.requires_session
-def make_stage_planet_gear_rpart(
-    *,
-    stage: StageSpec,
-    material: scad.Material,
-) -> scad.Part:
+def make_stage_planet_gear_rpart(*,
+stage: StageSpec,
+material: scad.Material,) -> scad.Part:
     """Create one reusable herringbone planet with a standard-bearing seat."""
 
     planet = scad.std.gear.make_herringbone_gear_rsolid(
@@ -202,9 +206,15 @@ def make_stage_planet_gear_rpart(
     planet = scad.cut_rsolid(planet, bearing_seat, skip_non_intersecting=False)
     planet = apply_tags(
         shape=planet,
-        tags=(f"role.{stage.stage_id}.planet_gear", "role.planet_bearing_seat", "group.two_stage_reducer"),
+        tags=(
+            f"role.{stage.stage_id}.planet_gear",
+            "role.planet_bearing_seat",
+            "group.two_stage_reducer",
+        ),
     )
-    root_radius = stage.planet_pitch_radius - stage.module * (ADDENDUM_FACTOR + CLEARANCE_FACTOR)
+    root_radius = stage.planet_pitch_radius - stage.module * (
+        ADDENDUM_FACTOR + CLEARANCE_FACTOR
+    )
     print(
         f"{stage.stage_id}_planet: teeth={stage.planet_teeth} pitch_r={stage.planet_pitch_radius:.3f} "
         f"bearing_seat_r={bearing_seat_radius:.3f} root_ligament={root_radius - bearing_seat_radius:.3f}"
@@ -216,12 +226,15 @@ def make_stage_planet_gear_rpart(
         material=material,
         connectors=(
             ("axis", (0.0, 0.0, GEAR_HEIGHT / 2.0), "Planet spin axis"),
-            ("bearing_axis", (0.0, 0.0, GEAR_HEIGHT / 2.0), "Planet bearing outer-ring axis"),
+            (
+                "bearing_axis",
+                (0.0, 0.0, GEAR_HEIGHT / 2.0),
+                "Planet bearing outer-ring axis",
+            ),
         ),
     )
 
 
-@scad.requires_session
 def make_stage1_carrier_sun_rpart(*, material: scad.Material) -> scad.Part:
     """Create the first carrier and integral second-stage sun/shaft."""
 
@@ -257,14 +270,25 @@ def make_stage1_carrier_sun_rpart(*, material: scad.Material) -> scad.Part:
         shape=stage2_sun,
         tag="solid.stdlib.stage2.integral.herringbone.sun.gear",
     )
-    stage2_sun = scad.translate_shape(shape=stage2_sun, vector=(0.0, 0.0, STAGE_2.bottom_z))
+    stage2_sun = scad.translate_shape(
+        shape=stage2_sun, vector=(0.0, 0.0, STAGE_2.bottom_z)
+    )
     carrier = scad.union_rsolid(carrier, shaft, stage2_sun, glue=False)
     carrier = apply_tags(
         shape=carrier,
-        tags=("role.stage1.planet_carrier", "role.stage2.sun_gear", "role.integral_interstage_drive", "group.two_stage_reducer"),
+        tags=(
+            "role.stage1.planet_carrier",
+            "role.stage2.sun_gear",
+            "role.integral_interstage_drive",
+            "group.two_stage_reducer",
+        ),
     )
     connectors = [
-        ("carrier_axis", (0.0, 0.0, INTERSTAGE_BEARING_CENTER_Z), "Stage 1 carrier bearing axis"),
+        (
+            "carrier_axis",
+            (0.0, 0.0, INTERSTAGE_BEARING_CENTER_Z),
+            "Stage 1 carrier bearing axis",
+        ),
         (
             "interstage_bearing_axis",
             (0.0, 0.0, INTERSTAGE_BEARING_CENTER_Z),
@@ -276,8 +300,16 @@ def make_stage1_carrier_sun_rpart(*, material: scad.Material) -> scad.Part:
         center = planet_center_xy(stage=STAGE_1, index=index)
         connectors.extend(
             (
-                (f"planet_{index + 1}_axis", (*center, STAGE_1.mid_z), f"Stage 1 planet {index + 1} axis"),
-                (f"planet_{index + 1}_bearing_axis", (*center, STAGE_1.mid_z), f"Stage 1 planet {index + 1} bearing pin"),
+                (
+                    f"planet_{index + 1}_axis",
+                    (*center, STAGE_1.mid_z),
+                    f"Stage 1 planet {index + 1} axis",
+                ),
+                (
+                    f"planet_{index + 1}_bearing_axis",
+                    (*center, STAGE_1.mid_z),
+                    f"Stage 1 planet {index + 1} bearing pin",
+                ),
             )
         )
     print(
@@ -293,12 +325,9 @@ def make_stage1_carrier_sun_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
-def make_output_carrier_flange_rpart(
-    *,
-    stage: StageSpec,
-    material: scad.Material,
-) -> scad.Part:
+def make_output_carrier_flange_rpart(*,
+stage: StageSpec,
+material: scad.Material,) -> scad.Part:
     """Create the second carrier, 16 mm bearing land, and output flange."""
 
     carrier = _make_carrier_body_rsolid(
@@ -348,23 +377,54 @@ def make_output_carrier_flange_rpart(
     )
     output = apply_tags(
         shape=output,
-        tags=("role.stage2.output_carrier", "role.output_bearing_land", "role.output_link_flange", "group.two_stage_reducer"),
+        tags=(
+            "role.stage2.output_carrier",
+            "role.output_bearing_land",
+            "role.output_link_flange",
+            "group.two_stage_reducer",
+        ),
     )
     connectors = [
-        ("carrier_axis", (0.0, 0.0, STAGE2_CARRIER_BOTTOM_Z + STAGE2_CARRIER_THICKNESS / 2.0), "Stage 2 output carrier axis"),
-        ("bearing_1_axis", (0.0, 0.0, OUTPUT_BEARING_1_CENTER_Z), "Rear output bearing inner-ring seat"),
-        ("bearing_2_axis", (0.0, 0.0, OUTPUT_BEARING_2_CENTER_Z), "Front output bearing inner-ring seat"),
-        ("output_link_axis", (0.0, 0.0, OUTPUT_FLANGE_TOP_Z), "Six-hole driven-link flange"),
+        (
+            "carrier_axis",
+            (0.0, 0.0, STAGE2_CARRIER_BOTTOM_Z + STAGE2_CARRIER_THICKNESS / 2.0),
+            "Stage 2 output carrier axis",
+        ),
+        (
+            "bearing_1_axis",
+            (0.0, 0.0, OUTPUT_BEARING_1_CENTER_Z),
+            "Rear output bearing inner-ring seat",
+        ),
+        (
+            "bearing_2_axis",
+            (0.0, 0.0, OUTPUT_BEARING_2_CENTER_Z),
+            "Front output bearing inner-ring seat",
+        ),
+        (
+            "output_link_axis",
+            (0.0, 0.0, OUTPUT_FLANGE_TOP_Z),
+            "Six-hole driven-link flange",
+        ),
     ]
     for index in range(PLANET_COUNT):
         center = planet_center_xy(stage=stage, index=index)
         connectors.extend(
             (
-                (f"planet_{index + 1}_axis", (*center, stage.mid_z), f"Stage 2 planet {index + 1} axis"),
-                (f"planet_{index + 1}_bearing_axis", (*center, stage.mid_z), f"Stage 2 planet {index + 1} bearing pin"),
+                (
+                    f"planet_{index + 1}_axis",
+                    (*center, stage.mid_z),
+                    f"Stage 2 planet {index + 1} axis",
+                ),
+                (
+                    f"planet_{index + 1}_bearing_axis",
+                    (*center, stage.mid_z),
+                    f"Stage 2 planet {index + 1} bearing pin",
+                ),
             )
         )
-    radial_ligament = OUTPUT_FLANGE_RADIUS - (OUTPUT_LINK_HOLE_PCD / 2.0 + OUTPUT_LINK_TAP_RADIUS)
+    radial_ligament = OUTPUT_FLANGE_RADIUS - (
+        OUTPUT_LINK_HOLE_PCD / 2.0 + OUTPUT_LINK_TAP_RADIUS
+    )
     print(
         f"output_carrier_flange: shaft_d={OUTPUT_SHAFT_RADIUS * 2.0:.2f} "
         f"pilot_h={OUTPUT_REGISTER_HEIGHT:.1f} tapped_holes={OUTPUT_LINK_BOLT_COUNT} "
@@ -380,7 +440,6 @@ def make_output_carrier_flange_rpart(
     )
 
 
-@scad.requires_session
 def make_planet_rplacement(*, stage: StageSpec, index: int) -> scad.Placement:
     """Place and visually phase one planet at its pitch center."""
 
@@ -407,18 +466,15 @@ def planet_center_xy(*, stage: StageSpec, index: int) -> tuple[float, float]:
     )
 
 
-@scad.requires_session
-def _make_carrier_body_rsolid(
-    *,
-    stage: StageSpec,
-    plate_bottom_z: float,
-    plate_thickness: float,
-    pin_bottom_z: float,
-    pin_radius: float,
-    hub_radius: float,
-    arm_width: float,
-    pad_radius: float,
-) -> scad.Solid:
+def _make_carrier_body_rsolid(*,
+stage: StageSpec,
+plate_bottom_z: float,
+plate_thickness: float,
+pin_bottom_z: float,
+pin_radius: float,
+hub_radius: float,
+arm_width: float,
+pad_radius: float,) -> scad.Solid:
     hub = scad.make_cylinder_rsolid(
         radius=hub_radius,
         height=plate_thickness,
@@ -478,3 +534,58 @@ def _make_carrier_body_rsolid(
         f"hub_embed={hub_radius - arm_inner_radius:.3f} pin_height={pin_height:.3f}"
     )
     return carrier
+
+
+@scad.part(id="stage1_fixed_ring", inputs=PART_INPUTS, cache=CACHE)
+def build_stage1_fixed_ring_part() -> scad.Part:
+    return make_stage_ring_gear_rpart(
+        stage=STAGE_1,
+        material=make_actuator_material_rmaterial(key="gear"),
+    )
+
+
+@scad.part(id="stage1_reusable_planet", inputs=PART_INPUTS, cache=CACHE)
+def build_stage1_reusable_planet_part() -> scad.Part:
+    return make_stage_planet_gear_rpart(
+        stage=STAGE_1,
+        material=make_actuator_material_rmaterial(key="gear"),
+    )
+
+
+@scad.part(
+    id="stage1_carrier_integral_stage2_sun",
+    inputs=PART_INPUTS,
+    cache=CACHE,
+)
+def build_stage1_carrier_part() -> scad.Part:
+    return make_stage1_carrier_sun_rpart(
+        material=make_actuator_material_rmaterial(key="gear")
+    )
+
+
+@scad.part(id="stage2_fixed_ring", inputs=PART_INPUTS, cache=CACHE)
+def build_stage2_fixed_ring_part() -> scad.Part:
+    return make_stage_ring_gear_rpart(
+        stage=STAGE_2,
+        material=make_actuator_material_rmaterial(key="gear"),
+    )
+
+
+@scad.part(id="stage2_reusable_planet", inputs=PART_INPUTS, cache=CACHE)
+def build_stage2_reusable_planet_part() -> scad.Part:
+    return make_stage_planet_gear_rpart(
+        stage=STAGE_2,
+        material=make_actuator_material_rmaterial(key="gear"),
+    )
+
+
+@scad.part(
+    id="stage2_output_carrier_flange",
+    inputs=PART_INPUTS,
+    cache=CACHE,
+)
+def build_stage2_output_carrier_part() -> scad.Part:
+    return make_output_carrier_flange_rpart(
+        stage=STAGE_2,
+        material=make_actuator_material_rmaterial(key="carrier"),
+    )

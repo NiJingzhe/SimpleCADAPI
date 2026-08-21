@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class Fusion360Translator(document_name: str = 'SimpleCADModel', result_node_ids: Optional[Sequence[str]] = None, *, selection_mode: str = 'gsm', source_kernel_fallback: bool = False)
+class Fusion360Translator(document_name: str = 'SimpleCADProduct', *, selection_mode: str = 'gsm', source_kernel_fallback: bool = False)
 ```
 
 *Source: translator/fusion360_translator/translator.py*
@@ -14,4 +14,4 @@ class Fusion360Translator(document_name: str = 'SimpleCADModel', result_node_ids
 
 ## Description
 
-Translate canonical model JSON into a Fusion 360 Python script.
+Translate validated `.scadpkg` products into Fusion 360 scripts.

@@ -57,7 +57,7 @@ class SelectionEmitterMixin:
                 "make_select_rshell",
                 "make_select_rsolid",
             }
-            and len(inputs) == 1
+            and inputs
         ):
             downstream_nodes = [
                 graph.get_node(node_id)

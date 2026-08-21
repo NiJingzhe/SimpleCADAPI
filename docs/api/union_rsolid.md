@@ -6,7 +6,7 @@
 def union_rsolid(*solids: Union[Solid, Sequence[Solid]], clean: bool = True, glue: bool = _DEFAULT_UNION_GLUE, tol: Optional[float] = None, tracking_policy: TrackingPolicy | str = TrackingPolicy.FULL) -> Solid
 ```
 
-*Source: operations.py*
+*Source: _operators_boolean.py*
 
 ## Import Surface
 

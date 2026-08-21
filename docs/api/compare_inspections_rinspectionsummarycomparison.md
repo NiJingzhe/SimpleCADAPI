@@ -10,7 +10,7 @@ def compare_inspections_rinspectionsummarycomparison(target: BRepInspection, can
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_inspections_rinspectionsummarycomparison(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_inspections_rinspectionsummarycomparison(...)`; unavailable inside GraphSession
 
 ## Description
 

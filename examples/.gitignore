@@ -6,6 +6,6 @@ out/
 *.FCBak
 *.fcstd
 *.fcbak
-*.scene.zip
+*.scadpkg
 *.zip
 *.log

@@ -37,6 +37,15 @@ CORE_EXPORTS = [
 ]
 
 MODULE_ORDER = ("operations", "evolve", "ql")
+OPERATOR_MODULES = (
+    "_operators_geometry",
+    "_operators_transform",
+    "_operators_boolean",
+    "_operators_product",
+    "_operators_sketch",
+    "_operators_selection",
+    "_operators_features",
+)
 MODULE_LABELS = {
     "operations": "Operations",
     "evolve": "Evolve",
@@ -110,8 +119,6 @@ ALIAS_RULES = {
     "union_rsolid": "union",
     "cut_rsolid": "cut",
     "intersect_rsolid": "intersect",
-    "export_step": "to_step",
-    "export_stl": "to_stl",
 }
 
 
@@ -126,6 +133,17 @@ class ModuleInventory:
 def _module_file(module_name: str, package_root: Path | None = None) -> Path:
     root = package_root.resolve() if package_root is not None else PACKAGE_ROOT
     return root / f"{module_name}.py"
+
+
+def _operator_function_names(package_root: Path) -> List[str]:
+    names: List[str] = []
+    seen: set[str] = set()
+    for module_name in OPERATOR_MODULES:
+        for name in extract_public_functions(_module_file(module_name, package_root)):
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
+    return names
 
 
 def _parse_module(file_path: Path) -> ast.Module | None:
@@ -173,10 +191,15 @@ def collect_api_inventory(
 
     for module_name in MODULE_ORDER:
         file_path = _module_file(module_name, root)
+        functions = (
+            _operator_function_names(root)
+            if module_name == "operations"
+            else extract_public_functions(file_path)
+        )
         inventory[module_name] = ModuleInventory(
             name=module_name,
             display_name=MODULE_LABELS[module_name],
-            functions=extract_public_functions(file_path),
+            functions=functions,
             classes=[],
         )
 

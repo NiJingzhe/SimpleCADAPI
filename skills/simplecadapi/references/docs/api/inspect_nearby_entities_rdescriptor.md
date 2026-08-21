@@ -10,7 +10,7 @@ def inspect_nearby_entities_rdescriptor(model: ModelInput, *, location: Sequence
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_nearby_entities_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_nearby_entities_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

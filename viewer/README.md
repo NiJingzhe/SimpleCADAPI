@@ -1,42 +1,47 @@
-# SimpleCAD Scene Viewer
+# SimpleCAD Product Viewer
 
-This is a browser-only viewer for exported `Scene Schema 1.0` packages. It
-does not import SimpleCAD, Python, or OpenCascade. The loader reads the
-canonical `.scene.zip`, parses `scene.json`, and loads the referenced GLB and
-entity sidecar assets. When present, it also loads `model/model.json` and the
-manifest-declared Python files under `sources/`. ZIP resource limits and every
-referenced member's exact byte length and SHA-256 are checked before scene
-assets are parsed.
+This browser-only viewer opens canonical `.scadpkg` product packages without
+importing SimpleCAD, Python, or OpenCascade. The loader validates `package.json`,
+the complete content-addressed definition closure, and the embedded evaluated
+scene before parsing GLB or entity assets. It rejects standalone Scene ZIPs and
+any package with missing, extra, length-mismatched, or hash-mismatched members.
 
 ## Run
 
 ```bash
 npm install
-npm run prepare:example
 npm run dev
 ```
 
-Open `http://localhost:5173/`, click **Open .scene.zip**, and select the package
-generated at `examples/out/hydraulic_rod_assembly/hydraulic_rod_assembly.scene.zip`.
+Open `http://localhost:5173/`, click **Open .scadpkg**, and select a package
+written directly by the functional capture API:
+
+```python
+scad.capture(result, "out/product.scadpkg")
+```
+
 The same file can be dropped directly into the viewport.
 
-The file picker accepts any local `.scene.zip` package. The viewer does not
-load scenes from URL query parameters or require a built-in case registry.
+The file picker accepts local `.scadpkg` product packages only. The viewer does
+not load packages from URL query parameters or require a built-in case registry.
 
-## Inspecting A Model
+## Inspecting A Product
 
-The left **ASSEMBLY** tab shows the evaluated occurrence hierarchy. Click an
-occurrence to inspect its definition, visibility, and evaluated body data. Use
-the visibility control on a row to hide or show that occurrence.
+The **Components** tab shows the evaluated occurrence hierarchy. Select an
+occurrence to inspect its definition, visibility, and evaluated body data. The
+visibility control on each row hides or shows that occurrence.
 
-The **FEATURES** tab shows the embedded replayable operation tree from
-`model/model.json`. Select an operation to inspect its canonical operation name,
-category, inputs, output count, parameters, and summary. For mapped operations,
-the inspector shows assignment targets and the complete embedded Python file,
-scrolls to the originating call, and highlights its source line range.
+The **Features** tab federates the immutable feature DAGs embedded by every part
+and nested assembly definition. Selecting a feature shows its operation,
+definition-local identity, inputs, outputs, parameters, source spans, and linked
+geometry. Connector and joint selections resolve through the package indexes to
+the exact producing feature when that evidence exists.
 
-Click a rendered face or CAD edge in the viewport to select the corresponding
-evaluated entity. The selected face or edge is highlighted and its measured
-properties are shown in the inspector. The scene package must contain the
-embedded model artifact for the Features tab; older scene packages still retain
-assembly-tree and geometry selection support.
+The source panel lists the content-addressed source snapshots embedded by the
+definition closure. Selecting a mapped feature opens the exact source asset,
+scrolls to its recorded line range, and highlights that range without reading
+files from the local machine.
+
+Select components, solids, faces, edges, or vertices in the viewport to inspect
+evaluated geometry and measurements. Geometry selections link back to the
+feature DAG through stable definition, node, output-slot, and topology evidence.

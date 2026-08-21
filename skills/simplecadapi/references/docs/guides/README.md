@@ -5,6 +5,10 @@
   compact, versioned run contract for controlled STEP reconstruction trials.
 - [Reconstruction Agent Strategy](reconstruction-agent-strategy.md):
   advisory inspection, feature-selection, Sketch, Boolean, and iteration tactics.
+- [Persistent Cache and Product Build Workflow](cache-build-workflow.md):
+  durable `@part`/`@assemble` boundaries, PRT reuse, unified cache policy,
+  diagnostics, `.scadpkg` delivery, FreeCAD/AP242 targets, and optional Gmsh
+  volume meshing.
 
 The corresponding runnable module and examples live in:
 

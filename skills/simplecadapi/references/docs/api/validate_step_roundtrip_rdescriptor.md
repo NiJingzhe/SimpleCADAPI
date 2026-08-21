@@ -10,7 +10,7 @@ def validate_step_roundtrip_rdescriptor(model_or_shape: ModelInput, output_path:
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.validate_step_roundtrip_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.validate_step_roundtrip_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

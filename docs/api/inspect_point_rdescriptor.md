@@ -10,7 +10,7 @@ def inspect_point_rdescriptor(model_or_path: BRepModel | TopoDS_Shape | str | Pa
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_point_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_point_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

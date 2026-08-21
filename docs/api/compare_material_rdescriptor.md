@@ -10,7 +10,7 @@ def compare_material_rdescriptor(target: ModelInput, current: ModelInput, *, boo
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_material_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_material_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

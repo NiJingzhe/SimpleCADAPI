@@ -105,10 +105,13 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             backend_root.mkdir(parents=True)
             (backend_root / "api.py").write_text("", encoding="utf-8")
             (backend_root / "translator.py").write_text("", encoding="utf-8")
+            (backend_root / "types.py").write_text("", encoding="utf-8")
 
             resolved = auto_docs_gen._default_source_files(package_root)
 
-            resolved_names = [path.relative_to(package_root).as_posix() for path in resolved]
+            resolved_names = [
+                path.relative_to(package_root).as_posix() for path in resolved
+            ]
             self.assertIn("serializer.py", resolved_names)
             self.assertIn("graph.py", resolved_names)
             self.assertIn("expr.py", resolved_names)
@@ -120,8 +123,60 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 "translator/freecad_translator/translator.py",
                 resolved_names,
             )
+            self.assertIn(
+                "translator/freecad_translator/types.py",
+                resolved_names,
+            )
             self.assertIn("inspect/brep/inspect.py", resolved_names)
             self.assertIn("inspect/brep/queries.py", resolved_names)
+            self.assertIn("exporter/mjcf.py", resolved_names)
+
+    def test_default_source_files_include_cache_build_public_surface(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            package_root = Path(tmp_dir) / "src/simplecadapi"
+            package_root.mkdir(parents=True, exist_ok=True)
+            resolved = auto_docs_gen._default_source_files(package_root)
+            resolved_names = [
+                path.relative_to(package_root).as_posix() for path in resolved
+            ]
+
+            self.assertIn("build/part_builder.py", resolved_names)
+            self.assertIn("build/assembly_builder.py", resolved_names)
+            self.assertIn("build/dependencies.py", resolved_names)
+            self.assertIn("build/results.py", resolved_names)
+            self.assertIn("capture.py", resolved_names)
+            self.assertIn("cache/policy.py", resolved_names)
+            self.assertIn("cache/store.py", resolved_names)
+
+    def test_real_cache_build_sources_document_only_top_level_surface(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            generator = auto_docs_gen.APIDocumentGenerator(
+                source_files=auto_docs_gen._default_source_files(
+                    Path(__file__).resolve().parents[1] / "src/simplecadapi"
+                ),
+                output_dirs=[Path(tmp_dir) / "docs/api"],
+                quiet=True,
+            )
+            names = {api.name for api in generator.extract_apis()}
+            for name in (
+                "capture",
+                "CaptureResult",
+                "assemble",
+                "file_input",
+                "part",
+                "AssemblyBuildResult",
+                "AssemblySolveReport",
+                "CachePolicy",
+                "CacheReport",
+                "ContentAddressedStore",
+                "ProductMJCFExportReport",
+                "export_product_package_to_mjcf",
+            ):
+                self.assertIn(name, names)
+            self.assertNotIn("snapshot_file_inputs", names)
+            self.assertNotIn("OperationCacheReport", names)
+            self.assertNotIn("operation_cache_scope", names)
+            self.assertNotIn("operation_cache_report", names)
 
     def test_inspect_brep_api_docs_use_inspection_namespace(self):
         class InspectionDocGenerator(auto_docs_gen.APIDocumentGenerator):
@@ -139,7 +194,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             )
             source_file.write_text(
                 "def inspect_step_rsummary(path: str) -> dict:\n"
-                "    \"\"\"Inspect one STEP summary.\"\"\"\n"
+                '    """Inspect one STEP summary."""\n'
                 "    return {}\n",
                 encoding="utf-8",
             )
@@ -153,13 +208,11 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             generator.generate_markdown_docs()
 
             readme = (output_dir / "README.md").read_text(encoding="utf-8")
-            page = (output_dir / "inspect_step_rsummary.md").read_text(
-                encoding="utf-8"
-            )
+            page = (output_dir / "inspect_step_rsummary.md").read_text(encoding="utf-8")
             self.assertIn("## STEP/BREP Inspection", readme)
             self.assertIn("`inspection namespace`", readme)
             self.assertIn("from simplecadapi.inspect import brep", page)
-            self.assertIn("unavailable inside GraphSession/@model", page)
+            self.assertIn("unavailable inside GraphSession", page)
 
     def test_evaluator_api_docs_preserve_schemas_units_and_trust_boundaries(self):
         class EvaluationDocGenerator(auto_docs_gen.APIDocumentGenerator):
@@ -550,9 +603,7 @@ def _private_helper():
             generator.generate_markdown_docs()
 
             readme = (output_dir / "README.md").read_text(encoding="utf-8")
-            page = (output_dir / "make_spur_gear_rsolid.md").read_text(
-                encoding="utf-8"
-            )
+            page = (output_dir / "make_spur_gear_rsolid.md").read_text(encoding="utf-8")
 
             self.assertIn("# SimpleCAD Standard Library Index", readme)
             self.assertIn("[make_spur_gear_rsolid](make_spur_gear_rsolid.md)", readme)

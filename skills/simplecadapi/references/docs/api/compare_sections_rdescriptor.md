@@ -10,7 +10,7 @@ def compare_sections_rdescriptor(target: ModelInput, current: ModelInput, plane_
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_sections_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.compare_sections_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

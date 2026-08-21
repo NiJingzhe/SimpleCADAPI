@@ -12,6 +12,10 @@ _FIT_POINT_GRID_EMULATION = (
     "FreeCAD approximates the point grid with its native BSplineSurface fitter; "
     "when that fitter rejects a small grid, translation falls back to exact grid interpolation."
 )
+_CYLINDRICAL_SURFACE_EMULATION = (
+    "FreeCAD reconstructs the bounded carrier from a native partial cylinder and "
+    "retains its cylindrical side face."
+)
 _GORDON_EMULATION = (
     "FreeCAD has no native Gordon curve-network builder. Translation interpolates a "
     "BSpline surface through the unique profile-guide intersection grid; the surface "
@@ -22,6 +26,10 @@ _SURFACE_PATCH_EMULATION = (
     "Translation fills the boundary edges and preserves hole trims; support-face continuity, "
     "interior constraint points, and detailed filling settings are not parametrically mapped."
 )
+_TRIM_SURFACE_EMULATION = (
+    "FreeCAD rebuilds the carrier trim loops and intersects them with the existing "
+    "carrier bounds."
+)
 _FREE_BOUNDARIES_EMULATION = (
     "FreeCAD exposes no direct free-boundary operation. Translation reconstructs boundary "
     "wires from shell edges referenced by exactly one face."
@@ -29,6 +37,10 @@ _FREE_BOUNDARIES_EMULATION = (
 _FILL_HOLES_EMULATION = (
     "FreeCAD fills selected closed free-boundary wires with native filled faces and sews them "
     "back to the shell; detailed SimpleCAD filling settings are not parametrically mapped."
+)
+_SOLID_FROM_SHELL_EMULATION = (
+    "FreeCAD converts the validated closed shell to a Part solid while preserving "
+    "the source faces."
 )
 
 
@@ -62,6 +74,11 @@ class SurfaceEmitterMixin:
             return [
                 f"{var_name} = _make_feature({_json_ascii(object_name)}, _bezier_surface_shape({rp}, {context_literal}), {register_args})"
             ]
+        if node.op == "make_cylindrical_surface_rface":
+            return [
+                f"{var_name} = _make_feature({_json_ascii(object_name)}, _cylindrical_surface_shape({rp}, {context_literal}), {register_args})",
+                f"_mark_emulated_translation({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, reason={_json_ascii(_CYLINDRICAL_SURFACE_EMULATION)})",
+            ]
         if node.op == "fit_point_grid_rface":
             return [
                 f"{var_name} = _make_feature({_json_ascii(object_name)}, _fit_point_grid_surface_shape({rp}, {context_literal}), {register_args})",
@@ -81,6 +98,11 @@ class SurfaceEmitterMixin:
                 f"{var_name} = _make_feature({_json_ascii(object_name)}, _surface_patch_shape({rp}, {var_name}_inputs, {context_literal}), {register_args})",
                 f"_mark_emulated_translation({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, reason={_json_ascii(_SURFACE_PATCH_EMULATION)})",
             ]
+        if node.op == "trim_surface_rface":
+            return [
+                f"{var_name} = _make_feature({_json_ascii(object_name)}, _trim_surface_shape({rp}, {var_name}_inputs), {register_args})",
+                f"_mark_emulated_translation({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, reason={_json_ascii(_TRIM_SURFACE_EMULATION)})",
+            ]
         if node.op == "make_loft_rshell":
             return [
                 f"{var_name} = _make_feature({_json_ascii(object_name)}, _loft_shell_shape({rp}, {var_name}_inputs), {register_args})"
@@ -88,6 +110,11 @@ class SurfaceEmitterMixin:
         if node.op == "sew_faces_rshell":
             return [
                 f"{var_name} = _make_feature({_json_ascii(object_name)}, _sew_faces_shell_shape({rp}, {var_name}_inputs), {register_args})"
+            ]
+        if node.op == "make_solid_from_shell_rsolid":
+            return [
+                f"{var_name} = _make_feature({_json_ascii(object_name)}, _solid_from_shell_shape({rp}, {var_name}_inputs), {register_args})",
+                f"_mark_emulated_translation({var_name}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, reason={_json_ascii(_SOLID_FROM_SHELL_EMULATION)})",
             ]
         if node.op == "free_boundaries_rwirelist":
             return [

@@ -6,7 +6,7 @@
 class GeometryRef(kind: str, source_node_id: Optional[str], geo_selector: Dict[str, Any], flip: bool = False)
 ```
 
-*Source: product.py*
+*Source: connector.py*
 
 ## Import Surface
 

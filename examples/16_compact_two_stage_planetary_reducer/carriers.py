@@ -35,12 +35,9 @@ from dimensions import (
 )
 
 
-@scad.requires_session
-def make_stage_carrier_rpart(
-    *,
-    stage: StageSpec,
-    material: scad.Material,
-) -> scad.Part:
+def make_stage_carrier_rpart(*,
+stage: StageSpec,
+material: scad.Material,) -> scad.Part:
     """Create one carrier with three planet pins and any coaxial drive shaft."""
 
     if stage.stage_id == "stage1":
@@ -145,22 +142,19 @@ def make_stage_carrier_rpart(
     return part
 
 
-@scad.requires_session
-def _make_carrier_solid_rsolid(
-    *,
-    stage: StageSpec,
-    plate_bottom_z: float,
-    plate_thickness: float,
-    pin_bottom_z: float,
-    pin_radius: float,
-    pin_land_radius: float,
-    hub_radius: float,
-    arm_width: float,
-    pad_radius: float,
-    central_shaft_radius: float,
-    central_shaft_top_z: float,
-    tag_prefix: str,
-) -> scad.Solid:
+def _make_carrier_solid_rsolid(*,
+stage: StageSpec,
+plate_bottom_z: float,
+plate_thickness: float,
+pin_bottom_z: float,
+pin_radius: float,
+pin_land_radius: float,
+hub_radius: float,
+arm_width: float,
+pad_radius: float,
+central_shaft_radius: float,
+central_shaft_top_z: float,
+tag_prefix: str,) -> scad.Solid:
     hub = scad.make_cylinder_rsolid(
         radius=hub_radius,
         height=plate_thickness,

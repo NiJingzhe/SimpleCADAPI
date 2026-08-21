@@ -51,15 +51,15 @@ SimpleCADAPI 的顶层 API 选择是正确的：它没有把用户拖进传统 C
 - `GraphSession` + `export_model_json` + `replay_model_json` 的主线是对的。它把脚本建模提升为可交换、可 replay 的模型记录。参考：`src/simplecadapi/graph.py:44`、`src/simplecadapi/serializer.py:416`、`src/simplecadapi/serializer.py:732`。
 - `ql` 被放到子模块而非全部塞进顶层，是正确的边界意识。参考：`src/simplecadapi/__init__.py`、`docs/api/README.md:5`。
 
-问题：
+当前问题与已完成清理：
 
-- 顶层 API 被 aliases 稀释了。`create_box`、`create_line`、`extrude`、`union`、`to_step` 等别名降低了 canonical API 的唯一性。对用户友好，但对文档、LLM、图记录和长期兼容不友好。参考：`src/simplecadapi/__init__.py:145`、`src/simplecadapi/__init__.py:318`。
-- README 说 API 函数统一用 return type 反映命名，但公开面包含 `translate_shape`、`rotate_shape`、`export_step`、`export_stl` 和大量 aliases。这个声明过强。参考：`README.md:200`、`src/simplecadapi/__init__.py:47`、`src/simplecadapi/__init__.py:187`。
-- `rsolidlist` 命名混杂了“参数类型”和“返回类型”：`cut_rsolid`、`intersect_rsolid` 实际返回 `Solid`，而 `linear_pattern_rsolidlist` 返回 `List[Solid]`。这会伤害 API 语义一致性。参考：`src/simplecadapi/operations.py:2994`、`src/simplecadapi/operations.py:3102`、`src/simplecadapi/operations.py:4121`。
-- public op 名和 graph op 名不完全一致：`translate_shape` 记录为 `make_translate_rshape`，`extrude_rsolid` 记录为 `make_extrude_rsolid`。这种分层可以接受，但必须正式化为“source API”和“canonical IR”的稳定映射表。参考：`src/simplecadapi/operations.py:117`、`src/simplecadapi/serializer.py:116`。
-- 一些非 session 分支仍记录 legacy op 名，如 `make_box`、`make_cylinder`、`make_segment_wire`，和 canonical `make_*_r*` 命名不一致。参考：`src/simplecadapi/operations.py:785`、`src/simplecadapi/operations.py:1534`、`src/simplecadapi/operations.py:1638`。
+- 已完成：顶层 convenience aliases 以及 `export_step`、`export_stl`、`to_step`、`to_stl` 已从公开面移除，不保留兼容转发。
+- 已完成：持久产品只通过 `capture(result, path)` 写出 `.scadpkg`；STEP、STL 和原生 CAD 输出从该产品包显式派生。
+- 仍需关注：`rsolidlist` 命名混杂了“参数类型”和“返回类型”：`cut_rsolid`、`intersect_rsolid` 实际返回 `Solid`，而 `linear_pattern_rsolidlist` 返回 `List[Solid]`。
+- 仍需关注：public op 名和 graph op 名不完全一致，例如 `translate_shape` 记录为 `make_translate_rshape`，`extrude_rsolid` 记录为 `make_extrude_rsolid`；这种分层需要稳定的 source API 到 canonical IR 映射。
+- 仍需关注：部分非 session 分支记录的 graph op 命名与 canonical `make_*_r*` 形式不一致，需要继续收敛。
 
-建议：保留 `make_*_r*`，但把 aliases 降级为 compatibility surface，不作为文档主路径；把 source API 到 canonical graph op 的映射写成稳定规范；把 `rsolidlist` 这种历史命名列入 3.0 前清理清单。
+后续重点是稳定 source API 到 canonical graph op 的映射，并在下一次不兼容版本中清理剩余历史命名。
 
 ## 函数式架构评价
 

@@ -3,10 +3,10 @@
 ## Class Definition
 
 ```python
-class ConnectorAnchor(anchor_kind: str, geometry_ref: Optional[GeometryRef] = None, placement: Optional[Placement] = None, source_component_id: Optional[str] = None, source_connector_id: Optional[str] = None, offset: Optional[Placement] = None)
+class ConnectorAnchor(anchor_kind: str, geometry_ref: Optional[GeometryRef] = None, placement: Optional[Placement] = None)
 ```
 
-*Source: product.py*
+*Source: connector.py*
 
 ## Import Surface
 
@@ -16,4 +16,5 @@ class ConnectorAnchor(anchor_kind: str, geometry_ref: Optional[GeometryRef] = No
 
 Serializable source for a connector datum frame.
 
-Supported `anchor_kind` values are `geometry`, `placement`, and `forwarded`.
+Supported ``anchor_kind`` values are ``geometry`` and ``placement``.
+Assembly public exposure is modeled separately by ``PublicConnectorRef``.

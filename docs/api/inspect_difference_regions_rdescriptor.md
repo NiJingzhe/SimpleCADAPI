@@ -10,7 +10,7 @@ def inspect_difference_regions_rdescriptor(target: ModelInput, current: ModelInp
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_difference_regions_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_difference_regions_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 

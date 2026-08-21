@@ -66,6 +66,13 @@ class Generator(TypedDict):
     profile: Literal["scene-1.0-ocp-glb-1", "scene-1.0-ocp-glb-2"]
 
 
+class ProductPackageSource(TypedDict):
+    kind: Literal["part_package", "assembly_package"]
+    definition_id: ProductId
+    revision: Hash
+    artifact_hash: Hash
+
+
 class SourceFile(TypedDict):
     path: str
     uri: Uri
@@ -125,6 +132,15 @@ class ProductManualSource(TypedDict):
     semantic_id: ProductId
 
 
+class ProductPackageDefinitionSource(TypedDict):
+    kind: Literal["product_package"]
+    root_id: LogicalId
+    semantic_type: Literal["Part", "Assembly"]
+    semantic_id: ProductId
+    package_kind: Literal["part_package", "assembly_package"]
+    package_revision: Hash
+
+
 class ModelOutputSource(TypedDict):
     kind: Literal["model_output"]
     root_id: LogicalId
@@ -148,6 +164,7 @@ class ManualDefinitionSource(TypedDict):
 DefinitionSource = (
     ProductModelSource
     | ProductManualSource
+    | ProductPackageDefinitionSource
     | ModelOutputSource
     | ImportedDefinitionSource
     | ManualDefinitionSource
@@ -279,17 +296,16 @@ class ManualConnectorSource(TypedDict):
     source_id: LogicalId
 
 
+class ProductPackageConnectorSource(TypedDict):
+    kind: Literal["product_package"]
+    package_kind: Literal["part_package", "assembly_package"]
+    package_revision: Hash
+    definition_id: ProductId
+
+
 class ConnectorTarget(TypedDict):
     entity_asset_id: Hash
     entity_id: str
-
-
-class ForwardedFrom(TypedDict):
-    source_component_id: ProductId
-    source_definition_id: StructuralId
-    source_connector_id: ProductId
-    source_connector_snapshot_id: StructuralId
-    offset: Transform | None
 
 
 class Connector(TypedDict):
@@ -297,11 +313,16 @@ class Connector(TypedDict):
     owner_definition_id: StructuralId
     connector_id: ProductId
     name: str | None
-    anchor_kind: Literal["geometry", "placement", "forwarded"]
+    anchor_kind: Literal["geometry", "placement", "public"]
     local_transform: Transform
     target: NotRequired[ConnectorTarget]
-    forwarded_from: NotRequired[ForwardedFrom]
-    source: ModelOperationSource | ManualConnectorSource | None
+    source_connector_snapshot_id: StructuralId | None
+    source: (
+        ModelOperationSource
+        | ManualConnectorSource
+        | ProductPackageConnectorSource
+        | None
+    )
     sdk_metadata: dict[str, Any]
 
 
@@ -349,7 +370,7 @@ class ModelSource(TypedDict):
     source_files: NotRequired[list[SourceFile]]
 
 
-SceneSource = ModelSource | ImportedSource | ManualSource
+SceneSource = ModelSource | ProductPackageSource | ImportedSource | ManualSource
 
 
 class SceneDocument(TypedDict):

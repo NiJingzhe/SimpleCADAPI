@@ -48,7 +48,6 @@ from dimensions import (
 )
 
 
-@scad.requires_session
 def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
     """Create the through-bolted housing sleeve with internal datum collars."""
 
@@ -160,15 +159,12 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
     return part
 
 
-@scad.requires_session
-def _make_end_flange_rsolid(
-    *,
-    label: str,
-    inner_radius: float,
-    thickness: float,
-    bottom_z: float,
-    tag_prefix: str,
-) -> scad.Solid:
+def _make_end_flange_rsolid(*,
+label: str,
+inner_radius: float,
+thickness: float,
+bottom_z: float,
+tag_prefix: str,) -> scad.Solid:
     """Build one sealed housing end cap.
 
     The end cap is only the annular plate around the rotating input/output
@@ -191,7 +187,6 @@ def _make_end_flange_rsolid(
     return flange
 
 
-@scad.requires_session
 def _make_mount_sector_pad_rsolid(*, tag_prefix: str) -> scad.Solid:
     """Build four graceful full-height sector pads before the global hole cut."""
 
@@ -224,7 +219,6 @@ def _make_mount_sector_pad_rsolid(*, tag_prefix: str) -> scad.Solid:
     return pad
 
 
-@scad.requires_session
 def _make_mount_gap_cutters_rsolids(*, tag_prefix: str) -> list[scad.Solid]:
     """Build shallow radial gap cutters that divide the outer band into sectors."""
 
@@ -261,7 +255,6 @@ def _make_mount_gap_cutters_rsolids(*, tag_prefix: str) -> list[scad.Solid]:
     return cutters
 
 
-@scad.requires_session
 def _make_mount_hole_cutters_rsolids(*, tag_prefix: str) -> list[scad.Solid]:
     """Build one shared cutter set for the boss and housing body holes."""
 
@@ -290,12 +283,9 @@ def _make_mount_hole_cutters_rsolids(*, tag_prefix: str) -> list[scad.Solid]:
     return cutters
 
 
-@scad.requires_session
-def _make_single_mount_hole_cutters_rsolids(
-    *,
-    angle: float,
-    tag_prefix: str,
-) -> list[scad.Solid]:
+def _make_single_mount_hole_cutters_rsolids(*,
+angle: float,
+tag_prefix: str,) -> list[scad.Solid]:
     """Build through and counterbore cutters for one housing screw."""
 
     x = HOUSING_MOUNT_HOLE_CIRCLE_RADIUS * math.cos(angle)

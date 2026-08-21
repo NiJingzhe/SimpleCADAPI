@@ -60,8 +60,8 @@ _PRODUCT_OPS = {
     "make_add_component_rassembly",
     "make_place_component_rassembly",
     "make_add_connector_rpart",
-    "make_add_connector_rassembly",
-    "make_forward_connector_rassembly",
+    "make_set_public_connector_rassembly",
+
     "make_ground_component_rassembly",
     "make_unground_component_rassembly",
     "make_fixed_constraint_rassembly",
@@ -71,6 +71,7 @@ _PRODUCT_OPS = {
     "make_belt_constraint_rassembly",
     "make_rack_pinion_constraint_rassembly",
     "make_solve_assembly_constraints_rassembly",
+    "evaluate_assembly_definition",
 }
 
 _PRODUCT_VALUE_OPS = _PRODUCT_OPS | {
@@ -82,6 +83,7 @@ _PRODUCT_VALUE_OPS = _PRODUCT_OPS | {
     "make_vertex_connector_rconnector",
     "make_placement_connector_rconnector",
     "make_connector_ref_rconnectorref",
+    "reference_definition",
     "make_scalar_limit_rscalarlimit",
 }
 

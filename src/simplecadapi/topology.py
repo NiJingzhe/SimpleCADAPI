@@ -17,7 +17,6 @@ from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from .source_mapping import canonical_source_payload
 
-
 GRAPH_SCHEMA_VERSION = "2.0"
 
 
@@ -204,9 +203,7 @@ def topo_role_entry_from_dict(data: Dict[str, Any]) -> "TopoRoleEntry":
         ref=topo_ref_from_dict(data["ref"]),
         role=str(data["role"]),
         origin_role=(
-            str(data["origin_role"])
-            if data.get("origin_role") is not None
-            else None
+            str(data["origin_role"]) if data.get("origin_role") is not None else None
         ),
         parent_refs=tuple(
             topo_ref_from_dict(item) for item in data.get("parent_refs", [])
@@ -238,9 +235,7 @@ def topo_delta_from_dict(data: Dict[str, Any]) -> "TopoDelta":
             topo_ref_from_dict(item) for item in data.get("section_edges", [])
         ),
         entries=tuple(topo_entry_from_dict(item) for item in data.get("entries", [])),
-        roles=tuple(
-            topo_role_entry_from_dict(item) for item in data.get("roles", [])
-        ),
+        roles=tuple(topo_role_entry_from_dict(item) for item in data.get("roles", [])),
         raw_event=dict(data.get("raw_event", {})),
     )
 
@@ -557,6 +552,15 @@ class OperationGraph:
         self._radj: Dict[str, List[str]] = defaultdict(list)
         self._counter: int = 0
 
+    def allocate_node_id(self, prefix: str = "node") -> str:
+        """Allocate the next deterministic graph-local node identifier."""
+
+        while True:
+            self._counter += 1
+            node_id = f"{prefix}_{self._counter:08x}"
+            if node_id not in self._nodes:
+                return node_id
+
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
@@ -579,7 +583,7 @@ class OperationGraph:
 
         Returns the created :class:`OperationNode`.
         """
-        nid = node_id or _make_id()
+        nid = node_id or self.allocate_node_id()
         if nid in self._nodes:
             raise ValueError(f"node id '{nid}' already exists in graph")
 
@@ -759,7 +763,9 @@ class OperationGraph:
         return json.dumps(self.to_dict(), indent=indent)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], *, strict: bool = True) -> "OperationGraph":
+    def from_dict(
+        cls, data: Dict[str, Any], *, strict: bool = True
+    ) -> "OperationGraph":
         """Reconstruct a graph from a dictionary.
 
         Nodes are added in topological order so that input references resolve.

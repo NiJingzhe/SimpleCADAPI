@@ -371,8 +371,8 @@ projection:
 - The outer sleeve is one single-body `Part` with a barrel, gland flange, bolt-hole details, rear eye, and pin hole.
 - The inner piston rod is another single-body `Part` with piston lands, a seal groove, chrome rod, rod-eye neck, and rod-eye pin hole.
 - The final `Assembly` instantiates both parts with component placement.
-- `make_compound_from_assembly_rcompound(...)` produces the flattened preview/STEP projection.
-- `translate_model_json_to_fcstd(...)` writes a native FreeCAD Assembly Workbench document where the assembly tree remains visible and editable.
+- `make_compound_from_assembly_rcompound(...)` produces the flattened preview projection; `scad.exporter.export_product_package_to_step(...)` writes the package STEP projection.
+- `scad.translator.freecad_translator.translate_product_package_to_fcstd(...)` writes a native FreeCAD Assembly Workbench document where the assembly tree remains visible and editable.
 
 Run it from the source checkout:
 

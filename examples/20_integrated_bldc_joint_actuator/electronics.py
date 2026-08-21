@@ -8,6 +8,8 @@ import simplecadapi as scad
 
 try:
     from .common import (
+        PART_INPUTS,
+        CACHE,
         apply_tags,
         connector_ref,
         ground_constraint_report,
@@ -15,6 +17,7 @@ try:
         make_axis_part_rpart,
         radial_centers,
     )
+    from .materials import make_actuator_material_rmaterial
     from .dimensions import (
         PCB_BOTTOM_Z,
         PCB_CENTER_BORE_RADIUS,
@@ -26,6 +29,8 @@ try:
     )
 except ImportError:  # Support direct execution from this example directory.
     from common import (
+        PART_INPUTS,
+        CACHE,
         apply_tags,
         connector_ref,
         ground_constraint_report,
@@ -33,6 +38,7 @@ except ImportError:  # Support direct execution from this example directory.
         make_axis_part_rpart,
         radial_centers,
     )
+    from materials import make_actuator_material_rmaterial
     from dimensions import (
         PCB_BOTTOM_Z,
         PCB_CENTER_BORE_RADIUS,
@@ -49,12 +55,9 @@ POWER_CAN_TERMINAL_CENTER = (11.0, 0.0)
 MOSFET_ANGLES = (22.5, 67.5, 112.5, 202.5, 247.5, 292.5)
 
 
-@scad.requires_session
-def make_integrated_controller_rassembly(
-    *,
-    pcb_material: scad.Material,
-    terminal_material: scad.Material,
-) -> scad.Assembly:
+def make_integrated_controller_rassembly(*,
+pcb_material: scad.Material,
+terminal_material: scad.Material,) -> scad.Assembly:
     """Build the circular ESC with six power devices and two service terminals."""
 
     pcb = _make_controller_pcb_rpart(material=pcb_material)
@@ -84,7 +87,9 @@ def make_integrated_controller_rassembly(
         placement=scad.identity_placement_rplacement(),
         name="Circular controller PCB",
     )
-    controller = scad.ground_component_rassembly(assembly=controller, component_id="pcb")
+    controller = scad.ground_component_rassembly(
+        assembly=controller, component_id="pcb"
+    )
 
     for index, angle in enumerate(MOSFET_ANGLES):
         radians = math.radians(angle)
@@ -102,45 +107,54 @@ def make_integrated_controller_rassembly(
             assembly=controller,
             constraint_id=f"{component_id}_soldered",
             connector_a=connector_ref(component_id="pcb", connector_id=component_id),
-            connector_b=connector_ref(component_id=component_id, connector_id="solder_axis"),
+            connector_b=connector_ref(
+                component_id=component_id, connector_id="solder_axis"
+            ),
             name=f"MOSFET {index + 1} solder attachment",
         )
 
     for component_id, item, center, connector_id in (
         ("phase_terminal", phase_terminal, PHASE_TERMINAL_CENTER, "phase_terminal"),
-        ("power_can_terminal", power_terminal, POWER_CAN_TERMINAL_CENTER, "power_can_terminal"),
+        (
+            "power_can_terminal",
+            power_terminal,
+            POWER_CAN_TERMINAL_CENTER,
+            "power_can_terminal",
+        ),
     ):
         controller = scad.add_component_rassembly(
             assembly=controller,
             item=item,
             component_id=component_id,
-            placement=scad.make_placement_rplacement(origin=(center[0], center[1], -38.5)),
+            placement=scad.make_placement_rplacement(
+                origin=(center[0], center[1], -38.5)
+            ),
             name=item.name,
         )
         controller = scad.add_fixed_constraint_rassembly(
             assembly=controller,
             constraint_id=f"{component_id}_soldered",
             connector_a=connector_ref(component_id="pcb", connector_id=connector_id),
-            connector_b=connector_ref(component_id=component_id, connector_id="solder_axis"),
+            connector_b=connector_ref(
+                component_id=component_id, connector_id="solder_axis"
+            ),
             name=f"{component_id.replace('_', ' ')} solder and screw retention",
         )
 
-    for connector_id in ("cover_axis", "phase_access", "power_can_access"):
-        controller = scad.forward_connector_rassembly(
-            assembly=controller,
-            connector_id=connector_id,
-            source_component_id="pcb",
-            source_connector_id=connector_id,
-            name=connector_id.replace("_", " "),
-            offset=None,
-        )
-    controller = scad.solve_assembly_constraints_rassembly(assembly=controller, strict=True)
+    for public_connector_id in ("cover_axis", "phase_access", "power_can_access"):
+        controller = scad.set_public_connector_rassembly(assembly=controller,
+        public_connector_id=public_connector_id,
+        source_component_id="pcb",
+        source_connector_id=public_connector_id,
+        name=public_connector_id.replace("_", " "),)
+    controller = scad.solve_assembly_constraints_rassembly(
+        assembly=controller, strict=True
+    )
     ground_constraint_report(label="controller", assembly=controller)
     print("controller_packaging: pcb_d=44.4 mosfets=6 phase_pins=3 power_can_pins=4")
     return controller
 
 
-@scad.requires_session
 def _make_controller_pcb_rpart(*, material: scad.Material) -> scad.Part:
     board = scad.make_cylinder_rsolid(
         radius=PCB_RADIUS,
@@ -200,14 +214,38 @@ def _make_controller_pcb_rpart(*, material: scad.Material) -> scad.Part:
     board = scad.cut_rsolid(board, cutters, skip_non_intersecting=False)
     board = apply_tags(
         shape=board,
-        tags=("role.circular_esc_pcb", "role.controller_mounting_holes", "group.integrated_electronics"),
+        tags=(
+            "role.circular_esc_pcb",
+            "role.controller_mounting_holes",
+            "group.integrated_electronics",
+        ),
     )
     connectors = [
-        ("cover_axis", (0.0, 0.0, PCB_BOTTOM_Z + PCB_THICKNESS / 2.0), "Rear-cover PCB plane"),
-        ("phase_terminal", (*PHASE_TERMINAL_CENTER, PCB_BOTTOM_Z), "Phase terminal solder datum"),
-        ("power_can_terminal", (*POWER_CAN_TERMINAL_CENTER, PCB_BOTTOM_Z), "Power/CAN terminal solder datum"),
-        ("phase_access", (*PHASE_TERMINAL_CENTER, -37.0), "Phase terminal service axis"),
-        ("power_can_access", (*POWER_CAN_TERMINAL_CENTER, -37.0), "Power/CAN service axis"),
+        (
+            "cover_axis",
+            (0.0, 0.0, PCB_BOTTOM_Z + PCB_THICKNESS / 2.0),
+            "Rear-cover PCB plane",
+        ),
+        (
+            "phase_terminal",
+            (*PHASE_TERMINAL_CENTER, PCB_BOTTOM_Z),
+            "Phase terminal solder datum",
+        ),
+        (
+            "power_can_terminal",
+            (*POWER_CAN_TERMINAL_CENTER, PCB_BOTTOM_Z),
+            "Power/CAN terminal solder datum",
+        ),
+        (
+            "phase_access",
+            (*PHASE_TERMINAL_CENTER, -37.0),
+            "Phase terminal service axis",
+        ),
+        (
+            "power_can_access",
+            (*POWER_CAN_TERMINAL_CENTER, -37.0),
+            "Power/CAN service axis",
+        ),
     ]
     for index, angle in enumerate(MOSFET_ANGLES):
         radians = math.radians(angle)
@@ -229,7 +267,6 @@ def _make_controller_pcb_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
 def _make_mosfet_package_rpart(*, material: scad.Material) -> scad.Part:
     package = scad.make_box_rsolid(
         width=4.0,
@@ -239,7 +276,9 @@ def _make_mosfet_package_rpart(*, material: scad.Material) -> scad.Part:
         tag_prefix="controller.mosfet.package",
         result_tag="feature.controller.mosfet.package",
     )
-    package = apply_tags(shape=package, tags=("role.power_mosfet", "group.three_phase_bridge"))
+    package = apply_tags(
+        shape=package, tags=("role.power_mosfet", "group.three_phase_bridge")
+    )
     return make_axis_part_rpart(
         part_id="reusable_power_mosfet",
         body=package,
@@ -249,15 +288,12 @@ def _make_mosfet_package_rpart(*, material: scad.Material) -> scad.Part:
     )
 
 
-@scad.requires_session
-def _make_terminal_block_rpart(
-    *,
-    part_id: str,
-    name: str,
-    width: float,
-    pin_count: int,
-    material: scad.Material,
-) -> scad.Part:
+def _make_terminal_block_rpart(*,
+part_id: str,
+name: str,
+width: float,
+pin_count: int,
+material: scad.Material,) -> scad.Part:
     terminal_tag_prefix = part_id.replace("_", ".")
     body = scad.make_box_rsolid(
         width=width,
@@ -281,12 +317,52 @@ def _make_terminal_block_rpart(
             )
         )
     body = scad.cut_rsolid(body, access_cutters, skip_non_intersecting=False)
-    body = apply_tags(shape=body, tags=("role.rear_wiring_terminal", "role.service_access"))
-    print(f"terminal_{part_id}: pins={pin_count} access_holes={pin_count} width={width:.1f}")
+    body = apply_tags(
+        shape=body, tags=("role.rear_wiring_terminal", "role.service_access")
+    )
+    print(
+        f"terminal_{part_id}: pins={pin_count} access_holes={pin_count} width={width:.1f}"
+    )
     return make_axis_part_rpart(
         part_id=part_id,
         body=body,
         name=name,
         material=material,
         connectors=(("solder_axis", (0.0, 0.0, 4.9), "PCB solder and screw datum"),),
+    )
+
+
+@scad.part(id="circular_controller_pcb", inputs=PART_INPUTS, cache=CACHE)
+def build_controller_pcb_part() -> scad.Part:
+    return _make_controller_pcb_rpart(
+        material=make_actuator_material_rmaterial(key="pcb")
+    )
+
+
+@scad.part(id="reusable_power_mosfet", inputs=PART_INPUTS, cache=CACHE)
+def build_mosfet_part() -> scad.Part:
+    return _make_mosfet_package_rpart(
+        material=make_actuator_material_rmaterial(key="terminal")
+    )
+
+
+@scad.part(id="three_phase_terminal", inputs=PART_INPUTS, cache=CACHE)
+def build_phase_terminal_part() -> scad.Part:
+    return _make_terminal_block_rpart(
+        part_id="three_phase_terminal",
+        name="Three-position motor phase terminal",
+        width=8.0,
+        pin_count=3,
+        material=make_actuator_material_rmaterial(key="terminal"),
+    )
+
+
+@scad.part(id="power_can_terminal", inputs=PART_INPUTS, cache=CACHE)
+def build_power_can_terminal_part() -> scad.Part:
+    return _make_terminal_block_rpart(
+        part_id="power_can_terminal",
+        name="Four-position DC power and CAN terminal",
+        width=8.0,
+        pin_count=4,
+        material=make_actuator_material_rmaterial(key="terminal"),
     )

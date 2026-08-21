@@ -6,7 +6,7 @@
 def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyShape
 ```
 
-*Source: operations.py*
+*Source: _operators_transform.py*
 
 ## Import Surface
 

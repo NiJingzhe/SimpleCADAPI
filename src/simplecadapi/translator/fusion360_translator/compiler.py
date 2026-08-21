@@ -1,9 +1,7 @@
-"""Translate SimpleCAD model/graph payloads into Autodesk Fusion 360 scripts.
+"""Compile validated product graphs into Autodesk Fusion 360 scripts.
 
-Generated scripts are intended to run inside Fusion 360's Python environment.
-They interpret the same canonical low-level graph consumed by
-``freecad_translator.py`` and intentionally select detail-feature edges/faces by
-geometry signatures instead of topology indices.
+Generated scripts run inside Fusion 360's Python environment and select
+detail-feature geometry by signatures instead of topology indices.
 """
 
 from __future__ import annotations
@@ -18,7 +16,7 @@ import tempfile
 import zlib
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from ...serializer import _execute_graph, import_model_json
+from ...serializer import _execute_graph
 from ...topology import OperationGraph, OperationNode
 
 
@@ -86,21 +84,17 @@ def _normalized_spline_params(params: Dict[str, Any]) -> Dict[str, Any]:
             float(curve.Knot(index)) for index in range(1, curve.NbKnots() + 1)
         ]
         result["multiplicities"] = [
-            int(curve.Multiplicity(index))
-            for index in range(1, curve.NbKnots() + 1)
+            int(curve.Multiplicity(index)) for index in range(1, curve.NbKnots() + 1)
         ]
         result["fusion_knots"] = [
             knot
-            for knot, multiplicity in zip(
-                result["knots"], result["multiplicities"]
-            )
+            for knot, multiplicity in zip(result["knots"], result["multiplicities"])
             for _ in range(multiplicity)
         ]
         result["periodic"] = bool(curve.IsPeriodic())
         if curve.IsRational():
             result["weights"] = [
-                float(curve.Weight(index))
-                for index in range(1, curve.NbPoles() + 1)
+                float(curve.Weight(index)) for index in range(1, curve.NbPoles() + 1)
             ]
     except Exception:
         return result
@@ -158,7 +152,9 @@ def _assembly_state_result_node_ids(
         )
     if len({count for _, _, count in snapshots}) != 1:
         return {}
-    common_prefix = os.path.commonprefix([assembly_id for _, assembly_id, _ in snapshots])
+    common_prefix = os.path.commonprefix(
+        [assembly_id for _, assembly_id, _ in snapshots]
+    )
     separator_index = common_prefix.rfind("_")
     if separator_index <= 0:
         return {}
@@ -237,7 +233,9 @@ def _dominant_result_node_id(
             return max(0.0, float(props.Mass()))
 
         shapes = [getattr(result, "wrapped", None) for result in results]
-        volumes = [shape_volume(shape) if shape is not None else 0.0 for shape in shapes]
+        volumes = [
+            shape_volume(shape) if shape is not None else 0.0 for shape in shapes
+        ]
     except Exception:
         return None
 
@@ -259,7 +257,10 @@ def _dominant_result_node_id(
             fused_volume = shape_volume(fused_shape)
             largest_index = max(range(len(volumes)), key=volumes.__getitem__)
             tolerance = max(1.0e-12, fused_volume * 1.0e-8)
-            if fused_volume > 0.0 and abs(volumes[largest_index] - fused_volume) <= tolerance:
+            if (
+                fused_volume > 0.0
+                and abs(volumes[largest_index] - fused_volume) <= tolerance
+            ):
                 return node_ids[largest_index]
         except Exception:
             return None
@@ -302,8 +303,7 @@ def _dependency_subgraph(
     omitted_selector_ids = {
         str(node.node_id)
         for node in graph.nodes
-        if node.op in {"make_select_redge", "make_select_rface"}
-        and not node.inputs
+        if node.op in {"make_select_redge", "make_select_rface"} and not node.inputs
     }
     result = OperationGraph(graph_id=graph.graph_id)
     for node in graph.topological_order():
@@ -370,7 +370,10 @@ def _seam_split_circle_node_ids(graph: OperationGraph) -> List[str]:
         if node.op != "make_select_redge":
             continue
         selector = node.params.get("geo_selector")
-        if not isinstance(selector, dict) or str(selector.get("geom_type", "")).upper() != "LINE":
+        if (
+            not isinstance(selector, dict)
+            or str(selector.get("geom_type", "")).upper() != "LINE"
+        ):
             continue
         source = (
             node_by_id.get(str(node.inputs[0].node_id))
@@ -424,11 +427,14 @@ def _seam_split_circle_node_ids(graph: OperationGraph) -> List[str]:
                     normal_v = tuple(value / normal_len for value in normal_v)
 
                     def radial_distance(point):
-                        delta = tuple(point[index] - center_v[index] for index in range(3))
-                        axial = sum(delta[index] * normal_v[index] for index in range(3))
+                        delta = tuple(
+                            point[index] - center_v[index] for index in range(3)
+                        )
+                        axial = sum(
+                            delta[index] * normal_v[index] for index in range(3)
+                        )
                         radial = tuple(
-                            delta[index] - axial * normal_v[index]
-                            for index in range(3)
+                            delta[index] - axial * normal_v[index] for index in range(3)
                         )
                         return abs(axial), sum(value * value for value in radial) ** 0.5
 
@@ -448,7 +454,9 @@ def _seam_split_circle_node_ids(graph: OperationGraph) -> List[str]:
                                 edge_direction[index] * normal_v[index]
                                 for index in range(3)
                             )
-                        ) / edge_length >= 1.0 - 1.0e-6
+                        )
+                        / edge_length
+                        >= 1.0 - 1.0e-6
                     ):
                         result.add(str(node.node_id))
                 except (TypeError, ValueError):
@@ -482,13 +490,13 @@ def _source_kernel_step_payloads(
     detail_input_ids = [
         str(input_ref.node_id)
         for node in replay_graph.nodes
-        if node.op in {'make_fillet_rsolid', 'make_chamfer_rsolid'}
+        if node.op in {"make_fillet_rsolid", "make_chamfer_rsolid"}
         for input_ref in node.inputs[:1]
     ]
     boolean_input_ids = [
         str(input_ref.node_id)
         for node in replay_graph.nodes
-        if node.op in {'make_cut_rsolid', 'make_union_rsolid', 'make_intersect_rsolid'}
+        if node.op in {"make_cut_rsolid", "make_union_rsolid", "make_intersect_rsolid"}
         for input_ref in node.inputs
     ]
     node_ids = list(
@@ -575,7 +583,9 @@ class Fusion360ScriptTranslator:
         source_kernel_fallback: bool = False,
     ) -> None:
         if selection_mode not in {"gsm", "index", "sample"}:
-            raise ValueError(f"Unsupported Fusion topology selection mode: {selection_mode}")
+            raise ValueError(
+                f"Unsupported Fusion topology selection mode: {selection_mode}"
+            )
         self.document_name = document_name
         self.selection_mode = selection_mode
         self.source_kernel_fallback = bool(source_kernel_fallback)
@@ -593,19 +603,6 @@ class Fusion360ScriptTranslator:
         self._source_kernel_steps: Dict[str, str] = {}
         self._source_kernel_signatures: Dict[str, Dict[str, Any]] = {}
         self._seam_split_circle_node_ids: List[str] = []
-
-    def translate_model_json_to_script(self, json_str: str) -> str:
-        payload = import_model_json(json_str)
-        graph = payload.get("graph")
-        if not isinstance(graph, OperationGraph):
-            raise ValueError(
-                "Fusion 360 translation requires model JSON with a canonical low-level graph"
-            )
-        if graph.node_count == 0:
-            raise ValueError(
-                "Fusion 360 translation requires model JSON with a non-empty canonical low-level graph"
-            )
-        return self.translate_model_payload_to_script(payload, graph=graph)
 
     def translate_model_payload_to_script(
         self,
@@ -658,9 +655,7 @@ class Fusion360ScriptTranslator:
             (
                 self._source_kernel_steps,
                 self._source_kernel_signatures,
-            ) = _source_kernel_step_payloads(
-                source_graph, self._result_node_id_list
-            )
+            ) = _source_kernel_step_payloads(source_graph, self._result_node_id_list)
         else:
             self._source_kernel_steps = {}
             self._source_kernel_signatures = {}
@@ -681,20 +676,28 @@ class Fusion360ScriptTranslator:
         emit(f"DOC_NAME = {_json_ascii(self.document_name)}")
         emit(f"SELECTION_MODE = {_json_ascii(self.selection_mode)}")
         emit(f"MODEL_PAYLOAD = {_py_literal(payload_dict)}")
-        emit(f"DECLARED_RESULT_NODE_IDS = {_py_literal(self._declared_result_node_id_list)}")
+        emit(
+            f"DECLARED_RESULT_NODE_IDS = {_py_literal(self._declared_result_node_id_list)}"
+        )
         emit(f"RESULT_STATE_NODE_IDS = {_py_literal(self._result_state_node_ids)}")
         emit(f"ACTIVE_RESULT_STATE = {_py_literal(self._active_result_state)}")
         emit(f"RESULT_NODE_IDS = {_py_literal(self._result_node_id_list)}")
         emit(f"SOURCE_KERNEL_STEPS = {_py_literal(self._source_kernel_steps)}")
-        emit(f"SOURCE_KERNEL_SIGNATURES = {_py_literal(self._source_kernel_signatures)}")
-        emit(f"SEAM_SPLIT_CIRCLE_NODE_IDS = {_py_literal(self._seam_split_circle_node_ids)}")
+        emit(
+            f"SOURCE_KERNEL_SIGNATURES = {_py_literal(self._source_kernel_signatures)}"
+        )
+        emit(
+            f"SEAM_SPLIT_CIRCLE_NODE_IDS = {_py_literal(self._seam_split_circle_node_ids)}"
+        )
         emit("")
         emit(self._script_helpers())
         emit("")
         emit("def run(context):")
         emit("    app = adsk.core.Application.get()")
         emit("    try:")
-        emit("        translator = SimpleCADFusionRuntime(MODEL_PAYLOAD, DOC_NAME, RESULT_NODE_IDS, SOURCE_KERNEL_STEPS, SOURCE_KERNEL_SIGNATURES, SEAM_SPLIT_CIRCLE_NODE_IDS)")
+        emit(
+            "        translator = SimpleCADFusionRuntime(MODEL_PAYLOAD, DOC_NAME, RESULT_NODE_IDS, SOURCE_KERNEL_STEPS, SOURCE_KERNEL_SIGNATURES, SEAM_SPLIT_CIRCLE_NODE_IDS)"
+        )
         emit("        return translator.run()")
         emit("    except Exception:")
         emit("        message = traceback.format_exc()")
@@ -726,8 +729,7 @@ class Fusion360ScriptTranslator:
                     "op": str(node.op),
                     "params": self._sanitize_payload_for_fusion(params),
                     "inputs": [
-                        {"node_id": str(input_ref.node_id)}
-                        for input_ref in node.inputs
+                        {"node_id": str(input_ref.node_id)} for input_ref in node.inputs
                     ],
                 }
             )
@@ -1556,6 +1558,7 @@ class SimpleCADFusionRuntime:
         self.materialized_native_node_ids = set()
         self.materialized_component_definitions = {}
         self.precreated_component_occurrences = {}
+        self.product_definition_components = {}
         self.part_body_node_ids = {
             self._input_ids(node)[0]
             for node in self.nodes
@@ -2623,6 +2626,64 @@ class SimpleCADFusionRuntime:
             if curve is None:
                 raise RuntimeError('Fusion could not create angle arc geometry')
             return self._set_output(node, curve)
+        if op == 'make_box_rsolid':
+            width = float(params.get('width', 0.0)) * SCALE
+            height = float(params.get('height', 0.0)) * SCALE
+            depth = float(params.get('depth', 0.0)) * SCALE
+            bottom = _v3(params.get('bottom_face_center') or (0.0, 0.0, 0.0))
+            center = _pt(
+                (
+                    bottom[0],
+                    bottom[1],
+                    bottom[2] + float(params.get('depth', 0.0)) * 0.5,
+                )
+            )
+            bounds = adsk.core.OrientedBoundingBox3D.create(
+                center,
+                adsk.core.Vector3D.create(1.0, 0.0, 0.0),
+                adsk.core.Vector3D.create(0.0, 1.0, 0.0),
+                width,
+                height,
+                depth,
+            )
+            body = self.tmp.createBox(bounds)
+            if body is None:
+                raise RuntimeError(f'Fusion box creation failed for {node_id}')
+            return self._set_output(node, body)
+        if op in {'make_cylinder_rsolid', 'make_cone_rsolid'}:
+            bottom = _v3(params.get('bottom_face_center') or (0.0, 0.0, 0.0))
+            axis = _unit(params.get('axis') or (0.0, 0.0, 1.0))
+            height = float(params.get('height', 0.0))
+            top = _add(bottom, _scale(axis, height))
+            bottom_radius = float(
+                params.get('bottom_radius', params.get('radius', 0.0))
+            ) * SCALE
+            top_radius = float(
+                params.get('top_radius', params.get('radius', 0.0))
+            ) * SCALE
+            body = self.tmp.createCylinderOrCone(
+                _pt(bottom), bottom_radius, _pt(top), top_radius
+            )
+            if body is None:
+                raise RuntimeError(f'Fusion cylinder/cone creation failed for {node_id}')
+            return self._set_output(node, body)
+        if op == 'make_sphere_rsolid':
+            body = self.tmp.createSphere(
+                _pt(params.get('center') or (0.0, 0.0, 0.0)),
+                float(params.get('radius', 0.0)) * SCALE,
+            )
+            if body is None:
+                raise RuntimeError(f'Fusion sphere creation failed for {node_id}')
+            return self._set_output(node, body)
+        if op == 'apply_tag_rselection':
+            value = self._first_output(inputs[0])
+            _set_simplecad_attribute(
+                value,
+                'AppliedTag',
+                str(params.get('tag') or params.get('normalized_tag') or ''),
+            )
+            return self._set_output(node, value)
+
         if op == 'make_three_point_arc_redge':
             curve = adsk.core.Arc3D.createByThreePoints(_pt(params.get('start')), _pt(params.get('middle')), _pt(params.get('end')))
             return self._set_output(node, curve)
@@ -2864,9 +2925,13 @@ class SimpleCADFusionRuntime:
         if op == 'make_add_component_rassembly':
             assembly = dict(self._first_output(inputs[0]))
             components = list(assembly.get('components') or [])
+            placement = self._first_output(inputs[2]) if len(inputs) > 2 else {
+                'kind': 'placement',
+                'params': dict(params.get('placement') or {}),
+            }
             components.append({
                 'item': self._first_output(inputs[1]),
-                'placement': self._first_output(inputs[2]) if len(inputs) > 2 else {'kind': 'placement', 'params': {}},
+                'placement': placement,
                 'component_id': str(params.get('component_id') or ''),
                 'node_id': node_id,
                 'params': params,
@@ -2876,7 +2941,10 @@ class SimpleCADFusionRuntime:
             return self._set_output(node, assembly)
         if op == 'make_place_component_rassembly':
             assembly = dict(self._first_output(inputs[0]))
-            placement = self._first_output(inputs[1]) if len(inputs) > 1 else {}
+            placement = self._first_output(inputs[1]) if len(inputs) > 1 else {
+                'kind': 'placement',
+                'params': dict(params.get('placement') or {}),
+            }
             component_id = str(params.get('component_id') or '')
             components = []
             for component in assembly.get('components') or []:
@@ -2900,6 +2968,27 @@ class SimpleCADFusionRuntime:
             assembly['components'] = components
             self.product_values[node_id] = assembly
             return self._set_output(node, assembly)
+        if op == 'evaluate_assembly_definition':
+            assembly = dict(self._first_output(inputs[0]))
+            placements = {
+                str(record.get('instance_id') or ''): {
+                    'kind': 'placement',
+                    'params': dict(record.get('placement') or {}),
+                }
+                for record in (params.get('component_placements') or [])
+                if isinstance(record, dict)
+            }
+            components = []
+            for component in assembly.get('components') or []:
+                component = dict(component)
+                component_id = str(component.get('component_id') or '')
+                if component_id in placements:
+                    component['placement'] = placements[component_id]
+                components.append(component)
+            assembly['components'] = components
+            assembly['evaluation'] = params
+            self.product_values[node_id] = assembly
+            return self._set_output(node, assembly)
         if op == 'make_compound_from_assembly_rcompound':
             assembly = self._first_output(inputs[0])
             if not isinstance(assembly, dict) or not assembly.get('components'):
@@ -2912,8 +3001,9 @@ class SimpleCADFusionRuntime:
         if op.startswith('make_') and op.endswith('_rconnector'):
             return self._set_output(node, {'kind': 'connector', 'params': params})
         if op in {
-            'make_add_connector_rpart', 'make_add_connector_rassembly',
+            'make_add_connector_rpart', 'make_set_public_connector_rassembly',
             'make_connector_ref_rconnectorref', 'make_scalar_limit_rscalarlimit',
+
             'make_ground_component_rassembly', 'make_unground_component_rassembly',
             'make_fixed_constraint_rassembly', 'make_revolute_constraint_rassembly',
             'make_prismatic_constraint_rassembly',
@@ -3755,286 +3845,134 @@ class SimpleCADFusionRuntime:
             return [body for body in bodies if body is not None]
         return []
 
-    def _materialize_product_value(self, value, node_id, placements=()):
-        if not isinstance(value, dict):
-            return 0
+    def _product_definition_key(self, value, node_id):
+        params = value.get('params') or {}
+        kind = str(value.get('kind') or '')
+        if kind == 'part':
+            definition_id = str(params.get('part_id') or params.get('id') or node_id)
+        else:
+            definition_id = str(params.get('assembly_id') or params.get('id') or node_id)
+        return kind, definition_id
+
+    def _set_occurrence_visibility(self, occurrence, visible):
+        try:
+            occurrence.isLightBulbOn = bool(visible)
+        except Exception:
+            pass
+
+    def _ensure_product_definition(self, value, result_node_id):
+        if not isinstance(value, dict) or value.get('kind') not in {'part', 'assembly', 'state'}:
+            raise RuntimeError('Fusion product definition must be a part or assembly')
+        key = self._product_definition_key(value, result_node_id)
+        existing = self.product_definition_components.get(key)
+        if existing is not None:
+            return existing
+
+        params = value.get('params') or {}
+        display_name = str(
+            params.get('name')
+            or params.get('part_id')
+            or params.get('assembly_id')
+            or key[1]
+        )
+        identity = adsk.core.Matrix3D.create()
+
         if value.get('kind') == 'part':
             body = value.get('body')
             if body is None:
-                return 0
+                raise RuntimeError(f'Fusion part definition {key[1]} has no body')
             body_node = str(value.get('body_node') or '')
-            native = self.native_bodies.get(body_node)
-            native_set = self.native_body_sets.get(body_node) or []
-            can_use_native_set = (
-                bool(native_set)
-                and all(_placement_is_identity(placement) for placement in placements)
-                and self._native_body_set_close(native_set, body)
-            )
-            if can_use_native_set:
-                for index, native_part in enumerate(native_set):
-                    _apply_name(native_part, f'SimpleCAD_{node_id}_{body_node}_{index}')
-                    try:
-                        native_part.isVisible = True
-                    except Exception:
-                        pass
-                return len(native_set)
-            can_use_native = (
-                native is not None
-                and body_node not in self.materialized_native_node_ids
-                and all(_placement_is_identity(placement) for placement in placements)
-                and self._native_body_close(native, body)
-            )
-            if can_use_native:
-                self.materialized_native_node_ids.add(body_node)
-                _apply_name(native, f'SimpleCAD_{node_id}_{body_node}')
+            seed = self.precreated_component_occurrences.get(body_node)
+            if seed is not None:
+                component = seed.component
+            else:
+                seed = self.root.occurrences.addNewComponent(identity)
+                if seed is None:
+                    raise RuntimeError(
+                        f'Fusion could not create part definition {key[1]}'
+                    )
+                component = seed.component
+                base_feature = component.features.baseFeatures.add()
+                base_feature.startEdit()
                 try:
-                    native.isVisible = True
-                except Exception:
-                    pass
-                return 1
-            persisted_body = self._body_copy(body)
-            for placement in reversed(tuple(placements)):
-                self.tmp.transform(persisted_body, _matrix_from_placement(placement))
-            persisted = self._add_base_body(persisted_body)
-            _apply_name(persisted, f'SimpleCAD_{node_id}_{body_node or "static"}')
-            try:
-                persisted.isVisible = True
-            except Exception:
-                pass
-            return 1
-        if value.get('kind') in {'assembly', 'state'}:
-            if not placements:
-                components = list(value.get('components') or [])
-                if components and all(
-                    isinstance(component.get('item'), dict)
-                    and component.get('item', {}).get('kind') == 'part'
-                    for component in components
-                ):
-                    return sum(
-                        self._materialize_component_occurrence(component, node_id)
-                        for component in components
-                    )
-            count = 0
-            for component in value.get('components') or []:
-                component_placement = component.get('placement') or {}
-                count += self._materialize_product_value(
-                    component.get('item'),
-                    node_id,
-                    tuple(placements) + (component_placement,),
-                )
-            return count
-        return 0
-
-    def _materialize_component_occurrence(self, component_record, result_node_id):
-        item = component_record.get('item') or {}
-        body = item.get('body')
-        if body is None:
-            return 0
-        component_id = str(component_record.get('component_id') or '')
-        component_node_id = str(component_record.get('node_id') or '')
-        body_node = str(item.get('body_node') or '')
-        params = component_record.get('params') or {}
-        placement = component_record.get('placement') or {}
-        placement_matrix = _matrix_from_placement(placement)
-        precreated_occurrence = self.precreated_component_occurrences.pop(
-            body_node, None
-        )
-        if precreated_occurrence is not None:
-            occurrence = precreated_occurrence
-            child = occurrence.component
-            result_bodies = list(child.bRepBodies)
-            if (
-                len(result_bodies) != 1
-                or not self._native_body_close(result_bodies[0], body)
-            ):
-                raise RuntimeError(
-                    f'precreated component geometry mismatch for {component_id}; '
-                    f'body_count={len(result_bodies)}'
-                )
-            display_name = str(params.get('name') or component_id or component_node_id)
-            _apply_name(child, display_name)
-            _apply_name(occurrence, f'SimpleCAD_{component_id or component_node_id}')
-            _set_simplecad_attribute(occurrence, 'ComponentId', component_id)
-            _set_simplecad_attribute(occurrence, 'NodeId', component_node_id)
-            _set_simplecad_attribute(occurrence, 'ResultNodeId', result_node_id)
-            _set_simplecad_attribute(child, 'BodyNodeId', body_node)
-            _set_simplecad_attribute(child, 'ResultNodeId', result_node_id)
-            result_body = result_bodies[0]
-            _apply_name(result_body, f'SimpleCAD_{component_id}_{body_node}_0')
-            _set_simplecad_attribute(result_body, 'ComponentId', component_id)
-            _set_simplecad_attribute(result_body, 'NodeId', body_node)
-            try:
-                occurrence.isGroundToParent = False
-            except Exception:
-                pass
-            if not _placement_is_identity(placement):
-                if bool(getattr(occurrence, 'isValidForEditInitialPosition', False)):
-                    occurrence.initialTransform = placement_matrix
-                elif not self.root.transformOccurrences(
-                    [occurrence], [placement_matrix], True
-                ):
-                    raise RuntimeError(
-                        f'Fusion rejected placement for component {component_id}'
-                    )
-                if self.design.snapshots.hasPendingSnapshot:
-                    snapshot = self.design.snapshots.add()
-                    if snapshot is None:
+                    added = component.bRepBodies.add(self._body_copy(body), base_feature)
+                    if added is None:
                         raise RuntimeError(
-                            f'Fusion could not capture placement for {component_id}'
+                            f'Fusion could not add body for part definition {key[1]}'
                         )
-            try:
-                result_body.isVisible = True
-            except Exception:
-                pass
-            self.materialized_native_node_ids.add(body_node)
-            self.materialized_component_definitions[body_node] = child
-            self.logs.append(
-                f'adopted precreated live component for {component_id}: '
-                f'body_node={body_node}'
-            )
-            return 1
-        existing_component = self.materialized_component_definitions.get(body_node)
-        if existing_component is not None:
-            try:
-                occurrence = self.root.occurrences.addExistingComponent(
-                    existing_component, placement_matrix
-                )
-            except Exception:
-                occurrence = None
-            if occurrence is None:
-                raise RuntimeError(
-                    f'Fusion could not reuse component definition for {component_id}'
-                )
-            _apply_name(occurrence, f'SimpleCAD_{component_id or component_node_id}')
-            _set_simplecad_attribute(occurrence, 'ComponentId', component_id)
-            _set_simplecad_attribute(occurrence, 'NodeId', component_node_id)
-            _set_simplecad_attribute(occurrence, 'ResultNodeId', result_node_id)
-            try:
-                occurrence.isGroundToParent = False
-            except Exception:
-                pass
-            return max(1, int(existing_component.bRepBodies.count))
+                finally:
+                    base_feature.finishEdit()
+            _apply_name(component, display_name)
+            _apply_name(seed, f'SimpleCAD_definition_{key[1]}')
+            _set_simplecad_attribute(component, 'DefinitionKind', 'single_solid')
+            _set_simplecad_attribute(component, 'DefinitionId', key[1])
+            _set_simplecad_attribute(component, 'BodyNodeId', body_node)
+            self._set_occurrence_visibility(seed, False)
+            record = {'component': component, 'seed': seed, 'solid_count': 1}
+            self.product_definition_components[key] = record
+            return record
 
-        native_set = list(self.native_body_sets.get(body_node) or [])
-        can_use_native_set = (
-            bool(native_set)
-            and body_node not in self.materialized_native_node_ids
-            and self._native_body_set_close(native_set, body)
+        seed = self.root.occurrences.addNewComponent(identity)
+        if seed is None:
+            raise RuntimeError(
+                f'Fusion could not create assembly definition {key[1]}'
+            )
+        component = seed.component
+        _apply_name(component, display_name)
+        _apply_name(seed, f'SimpleCAD_definition_{key[1]}')
+        _set_simplecad_attribute(component, 'DefinitionKind', 'assembly')
+        _set_simplecad_attribute(component, 'DefinitionId', key[1])
+        _set_simplecad_chunked_attribute(
+            component,
+            'AssemblyEvaluation',
+            json.dumps(value.get('evaluation') or {}, sort_keys=True),
         )
-        native = self.native_bodies.get(body_node)
-        can_use_native = (
-            not can_use_native_set
-            and native is not None
-            and body_node not in self.materialized_native_node_ids
-            and self._native_body_close(native, body)
-        )
-        live_bodies = native_set if can_use_native_set else ([native] if can_use_native else [])
-        created_live_body = None
-        if len(live_bodies) == 1:
-            created_live_body = live_bodies[0].createComponent()
-            if created_live_body is None:
-                raise RuntimeError(
-                    f'Fusion could not create a live component for {component_id}'
-                )
-            child = created_live_body.parentComponent
-            occurrences = [
-                candidate
-                for candidate in self.root.occurrences
-                if candidate.component == child
-            ]
-            if len(occurrences) != 1:
-                raise RuntimeError(
-                    f'Fusion did not expose one occurrence for live component '
-                    f'{component_id}; found {len(occurrences)}'
-                )
-            occurrence = occurrences[0]
-        else:
-            occurrence = self.root.occurrences.addNewComponent(
-                adsk.core.Matrix3D.create() if live_bodies else placement_matrix
+        record = {'component': component, 'seed': seed, 'solid_count': 0}
+        self.product_definition_components[key] = record
+        solid_count = 0
+        for child_record in value.get('components') or []:
+            item = child_record.get('item') or {}
+            child_definition = self._ensure_product_definition(item, result_node_id)
+            placement = child_record.get('placement') or {}
+            occurrence = component.occurrences.addExistingComponent(
+                child_definition['component'], _matrix_from_placement(placement)
             )
             if occurrence is None:
                 raise RuntimeError(
-                    f'Fusion could not create occurrence for component {component_id}'
+                    f"Fusion could not instantiate component {child_record.get('component_id')!r} "
+                    f"inside assembly {key[1]!r}"
                 )
-            child = occurrence.component
-        display_name = str(params.get('name') or component_id or component_node_id)
-        _apply_name(child, display_name)
-        _apply_name(occurrence, f'SimpleCAD_{component_id or component_node_id}')
-        _set_simplecad_attribute(occurrence, 'ComponentId', component_id)
-        _set_simplecad_attribute(occurrence, 'NodeId', component_node_id)
-        _set_simplecad_attribute(occurrence, 'ResultNodeId', result_node_id)
-        _set_simplecad_attribute(child, 'BodyNodeId', body_node)
-        _set_simplecad_attribute(child, 'ResultNodeId', result_node_id)
-
-        if live_bodies:
-            result_bodies = []
-            for index, live_body in enumerate(live_bodies):
-                moved = (
-                    created_live_body
-                    if index == 0 and created_live_body is not None
-                    else live_body.moveToComponent(occurrence)
-                )
-                if moved is None:
-                    raise RuntimeError(
-                        f'Fusion could not move live body into component {component_id}'
-                    )
-                _apply_name(moved, f'SimpleCAD_{component_id}_{body_node}_{index}')
-                _set_simplecad_attribute(moved, 'ComponentId', component_id)
-                _set_simplecad_attribute(moved, 'NodeId', body_node)
-                result_bodies.append(moved)
-            self.materialized_native_node_ids.add(body_node)
-            self.materialized_component_definitions[body_node] = child
-            try:
-                occurrence.isGroundToParent = False
-            except Exception:
-                pass
-            if not _placement_is_identity(placement):
-                if bool(getattr(occurrence, 'isValidForEditInitialPosition', False)):
-                    occurrence.initialTransform = placement_matrix
-                else:
-                    if not self.root.transformOccurrences(
-                        [occurrence], [placement_matrix], True
-                    ):
-                        raise RuntimeError(
-                            f'Fusion rejected placement for component {component_id}'
-                        )
-                    if self.design.snapshots.hasPendingSnapshot:
-                        snapshot = self.design.snapshots.add()
-                        if snapshot is None:
-                            raise RuntimeError(
-                                f'Fusion could not capture placement for {component_id}'
-                            )
-            self.logs.append(
-                f'live component body used for {component_id}: '
-                f'body_node={body_node}; body_count={len(result_bodies)}'
+            component_id = str(child_record.get('component_id') or '')
+            child_params = child_record.get('params') or {}
+            _apply_name(
+                occurrence,
+                str(child_params.get('name') or component_id or child_definition['component'].name),
             )
-        else:
-            base_feature = child.features.baseFeatures.add()
-            base_feature.startEdit()
+            _set_simplecad_attribute(occurrence, 'ComponentId', component_id)
+            _set_simplecad_attribute(occurrence, 'ParentDefinitionId', key[1])
+            _set_simplecad_attribute(
+                occurrence,
+                'DefinitionId',
+                self._product_definition_key(item, result_node_id)[1],
+            )
             try:
-                source_body = child.bRepBodies.add(self._body_copy(body), base_feature)
-                if source_body is None:
-                    raise RuntimeError(
-                        f'Fusion could not add body for component {component_id}'
-                    )
-            finally:
-                base_feature.finishEdit()
-            result_bodies = list(base_feature.bodies)
-            if len(result_bodies) != 1:
-                raise RuntimeError(
-                    f'expected one result body for component {component_id}, '
-                    f'found {len(result_bodies)}'
+                occurrence.isGroundToParent = component_id in set(
+                    value.get('grounded_component_ids') or []
                 )
-            _apply_name(result_bodies[0], f'SimpleCAD_{component_id}_{body_node}')
-            _set_simplecad_attribute(result_bodies[0], 'ComponentId', component_id)
-            _set_simplecad_attribute(result_bodies[0], 'NodeId', body_node)
-
-        for result_body in result_bodies:
-            try:
-                result_body.isVisible = True
             except Exception:
                 pass
-        return len(result_bodies)
+            solid_count += int(child_definition['solid_count'])
+        record['solid_count'] = solid_count
+        self._set_occurrence_visibility(seed, False)
+        return record
+
+    def _materialize_product_value(self, value, node_id, placements=()):
+        if placements:
+            raise RuntimeError('Fusion product roots cannot carry external placements')
+        definition = self._ensure_product_definition(value, node_id)
+        self._set_occurrence_visibility(definition['seed'], True)
+        _set_simplecad_attribute(definition['component'], 'RootProduct', 'true')
+        return int(definition['solid_count'])
 
     def _materialize_results(self):
         if not self.result_node_ids:
@@ -4165,21 +4103,3 @@ def _safe_label(op, node_id):
         token = 'simplecad_' + token
     return token[:80]
 '''
-
-
-def translate_model_json_to_fusion360_script(
-    json_str: str,
-    document_name: str = "SimpleCADModel",
-    result_node_ids: Optional[Sequence[str]] = None,
-    *,
-    selection_mode: str = "gsm",
-    source_kernel_fallback: bool = False,
-) -> str:
-    """Translate exported model JSON into a Fusion 360 Python script."""
-
-    return Fusion360ScriptTranslator(
-        document_name=document_name,
-        result_node_ids=result_node_ids,
-        selection_mode=selection_mode,
-        source_kernel_fallback=source_kernel_fallback,
-    ).translate_model_json_to_script(json_str)

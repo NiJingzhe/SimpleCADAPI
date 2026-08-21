@@ -6,7 +6,7 @@
 def make_line_redge(start: Tuple[ScalarLike, ScalarLike, ScalarLike], end: Tuple[ScalarLike, ScalarLike, ScalarLike], *, tag_prefix: Optional[str] = None) -> Edge
 ```
 
-*Source: operations.py*
+*Source: _operators_geometry.py*
 
 ## Import Surface
 

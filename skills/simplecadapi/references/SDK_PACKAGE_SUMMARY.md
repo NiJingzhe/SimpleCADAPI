@@ -1,7 +1,7 @@
 # SDK Package Summary
 
 - Project: `simplecadapi`
-- Version: `2.0.4b2`
+- Version: `2.0.4b3`
 - Summary: A simplified OCP-native CAD modeling Python API
 
 ## Scope

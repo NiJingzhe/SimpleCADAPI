@@ -78,8 +78,7 @@ def test_source_mapping_records_complex_targets_and_return():
     assert second.source["assignment_targets"] == ["items[index]"]
 
 
-def test_source_mapping_records_return_and_requires_session_builder():
-    @scad.requires_session
+def test_source_mapping_records_return_from_plain_builder():
     def build_box():
         return scad.make_box_rsolid(1.0, 1.0, 1.0)
 

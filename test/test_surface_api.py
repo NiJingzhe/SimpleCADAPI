@@ -17,7 +17,9 @@ class TestSurfaceApi(unittest.TestCase):
         return scad.make_wire_from_edges_rwire([scad.make_line_redge(start, end)])
 
     def test_public_surface_namespace_and_basic_faces(self):
-        self.assertIs(scad.surface.make_bezier_surface_rface, scad.make_bezier_surface_rface)
+        self.assertIs(
+            scad.surface.make_bezier_surface_rface, scad.make_bezier_surface_rface
+        )
         self.assertIs(
             scad.surface.make_cylindrical_surface_rface,
             scad.make_cylindrical_surface_rface,
@@ -67,8 +69,12 @@ class TestSurfaceApi(unittest.TestCase):
             trimmed = scad.trim_surface_rface(carrier, outer, tag_prefix="trimmed")
 
         replayed = scad.replay_model_json(scad.export_model_json(session))[0]
-        self.assertEqual(BRepAdaptor_Surface(carrier.wrapped).GetType(), GeomAbs_Cylinder)
-        self.assertEqual(BRepAdaptor_Surface(trimmed.wrapped).GetType(), GeomAbs_Cylinder)
+        self.assertEqual(
+            BRepAdaptor_Surface(carrier.wrapped).GetType(), GeomAbs_Cylinder
+        )
+        self.assertEqual(
+            BRepAdaptor_Surface(trimmed.wrapped).GetType(), GeomAbs_Cylinder
+        )
         self.assertAlmostEqual(carrier.get_area(), 8.0 * math.pi, places=6)
         self.assertAlmostEqual(trimmed.get_area(), 8.0, places=5)
         self.assertAlmostEqual(replayed.get_area(), trimmed.get_area(), places=7)
@@ -106,7 +112,9 @@ class TestSurfaceApi(unittest.TestCase):
                 (0.0, scad.var("u_max", math.pi, unit="rad")),
                 (0.0, 2.0),
             )
-        with self.assertRaisesRegex(scad.SimpleCADError, "tolerance must use model length"):
+        with self.assertRaisesRegex(
+            scad.SimpleCADError, "tolerance must use model length"
+        ):
             scad.make_cylindrical_surface_rface(
                 2.0,
                 (0.0, math.pi),
@@ -216,9 +224,7 @@ class TestSurfaceApi(unittest.TestCase):
         self.assertAlmostEqual(solid.get_volume(), 6.0, places=6)
         self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=7)
         self.assertIn("body.solid", scad.list_tags(replayed))
-        self.assertEqual(
-            solid._get_runtime("semantic.lineage.coverage"), "partial"
-        )
+        self.assertEqual(solid._get_runtime("semantic.lineage.coverage"), "partial")
         self.assertTrue(
             all(
                 face.topo_id in source_face_tags
@@ -274,7 +280,7 @@ class TestSurfaceApi(unittest.TestCase):
                 shell.get_faces(0),
                 "role.shell_face",
             )
-            scad.capture_result(value=tagged_face)
+            session.capture_result(value=tagged_face)
 
         replayed = scad.replay_model_json(scad.export_model_json(session))[0]
         self.assertIsInstance(replayed, scad.Face)
@@ -338,7 +344,7 @@ class TestSurfaceApi(unittest.TestCase):
                 [scad.SurfaceBoundary(edge) for edge in edges],
                 tag_prefix="patch",
             )
-            scad.capture_result(value=[gordon, patch])
+            session.capture_result(value=[gordon, patch])
 
         replayed = scad.replay_model_json(scad.export_model_json(session))
         self.assertEqual(len(replayed), 2)
@@ -507,9 +513,11 @@ class TestSurfaceApi(unittest.TestCase):
                 end_wire_tag="anchor.outlet",
                 side_faces_tag="group.side",
             )
-            scad.capture_result(value=open_shell)
+            session.capture_result(value=open_shell)
 
-        replayed = scad.replay_model_json(scad.export_model_json(session), strict=True)[0]
+        replayed = scad.replay_model_json(scad.export_model_json(session), strict=True)[
+            0
+        ]
         self.assertIsInstance(replayed, scad.Shell)
         self.assertFalse(replayed.is_closed())
         self.assertEqual(len(replayed.get_wires()), 2)
@@ -543,7 +551,7 @@ class TestSurfaceApi(unittest.TestCase):
             )
             shell = scad.sew_faces_rshell([face])
             boundaries = scad.free_boundaries_rwirelist(shell)
-            scad.capture_result(value=boundaries)
+            session.capture_result(value=boundaries)
 
         replayed = scad.replay_model_json(scad.export_model_json(session))
         self.assertEqual(len(boundaries), 1)
@@ -558,7 +566,7 @@ class TestSurfaceApi(unittest.TestCase):
             upper = scad.make_circle_rwire((0, 0, 2), 1.0)
             lofted = scad.loft_rshell([lower, upper])
             resewn = scad.sew_faces_rshell(lofted.get_faces())
-            scad.capture_result(value=resewn)
+            session.capture_result(value=resewn)
 
         payload = scad.export_model_json(session)
         sew_node = next(
@@ -582,7 +590,7 @@ class TestSurfaceApi(unittest.TestCase):
             retained_ref = retained_face._get_runtime("topo.ref")
             scad.make_solid_from_shell_rsolid(shell)
             moved = scad.translate_shape(retained_face, (1.0, 0.0, 0.0))
-            scad.capture_result(value=moved)
+            session.capture_result(value=moved)
 
         self.assertEqual(retained_face._get_runtime("topo.ref"), retained_ref)
         replayed = scad.replay_model_json(scad.export_model_json(session), strict=True)
@@ -616,7 +624,7 @@ class TestSurfaceApi(unittest.TestCase):
             shell = scad.sew_faces_rshell(box.get_faces())
             solid = scad.make_solid_from_shell_rsolid(shell)
             moved = scad.translate_shape(solid.get_faces(0), (1.0, 0.0, 0.0))
-            scad.capture_result(value=moved)
+            session.capture_result(value=moved)
 
         replayed = scad.replay_model_json(scad.export_model_json(session), strict=True)
         self.assertEqual(len(replayed), 1)
@@ -676,7 +684,7 @@ class TestSurfaceApi(unittest.TestCase):
                 (0.0, 2.0),
                 tolerance=tolerance,
             )
-            scad.capture_result(value=carrier)
+            session.capture_result(value=carrier)
 
         payload = json.loads(scad.export_model_json(session))
         node = next(

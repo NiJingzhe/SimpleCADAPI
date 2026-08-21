@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set
 
-from ...serializer import import_model_json
 from ...topology import OperationGraph, OperationNode
 from ..base import BaseTranslator
 from ..types import BackendCapabilities, TranslationArtifact
@@ -155,8 +154,26 @@ class _FreeCADCompiler(
       geometry translation
     """
 
-    def __init__(self, document_name: str = "SimpleCADModel") -> None:
-        self._context = FreeCADCompileContext(document_name=document_name)
+    def __init__(
+        self,
+        document_name: str = "SimpleCADModel",
+        *,
+        expression_sheet_name: str = "SimpleCADExpressions",
+        definition_token: str = "",
+        definition_id: str = "",
+        definition_kind: str = "",
+        definition_revision: str = "",
+        definition_content_hash: str = "",
+    ) -> None:
+        self._context = FreeCADCompileContext(
+            document_name=document_name,
+            expression_sheet_name=expression_sheet_name,
+            definition_token=definition_token,
+            definition_id=definition_id,
+            definition_kind=definition_kind,
+            definition_revision=definition_revision,
+            definition_content_hash=definition_content_hash,
+        )
 
     @property
     def document_name(self) -> str:
@@ -203,7 +220,7 @@ class _FreeCADCompiler(
         alias = self._expr_alias_by_id.get(expr_id)
         if not alias:
             alias = _sanitize_expr_alias(expr_id, prefix="expr")
-        return f"<<SimpleCADExpressions>>.{alias}"
+        return f"<<{self._context.expression_sheet_name}>>.{alias}"
 
     def _angle_arc_span_formula(self, param_exprs: Dict[str, Any]) -> Optional[str]:
         start_expr = self._compile_time_expr_formula(
@@ -237,24 +254,16 @@ class _FreeCADCompiler(
             return f"0 - ({start_expr})"
         return f"({end_expr}) - ({start_expr})"
 
-    def translate_model_json_to_script(self, json_str: str) -> str:
-        payload = import_model_json(json_str)
-        graph = payload.get("graph")
-        if not isinstance(graph, OperationGraph):
-            raise ValueError(
-                "FreeCAD translation requires model JSON with a canonical low-level graph"
-            )
-        if graph.node_count == 0:
-            raise ValueError(
-                "FreeCAD translation requires model JSON with a non-empty canonical low-level graph"
-            )
-        return self.translate_model_payload_to_script(payload, graph=graph)
 
     def translate_model_payload_to_script(
         self,
         payload: Dict[str, Any],
         *,
         graph: Optional[OperationGraph] = None,
+        include_preamble: bool = True,
+        include_runtime: bool = True,
+        finalize: bool = True,
+        register_definition: Optional[Dict[str, str]] = None,
     ) -> str:
         source_graph = graph or payload.get("graph")
         if not isinstance(source_graph, OperationGraph):
@@ -268,7 +277,7 @@ class _FreeCADCompiler(
         self._context.source_graph = source_graph
         leaf_ids = payload.get("leaf_ids")
         if isinstance(leaf_ids, list) and leaf_ids:
-            self._result_node_id_list = [str(v) for v in leaf_ids]
+            self._result_node_id_list = [str(value) for value in leaf_ids]
         else:
             self._result_node_id_list = [
                 leaf.node_id for leaf in source_graph.leaf_nodes()
@@ -284,34 +293,38 @@ class _FreeCADCompiler(
         )
         lines: List[str] = []
         emit = lines.append
-
-        emit("import json")
-        emit("import math")
-        emit("import FreeCAD as App")
-        emit("import Part")
-        emit("try:")
-        emit("    import Sketcher")
-        emit("except Exception:")
-        emit("    Sketcher = None")
-        emit("try:")
-        emit("    import Assembly")
-        emit("except Exception:")
-        emit("    Assembly = None")
-        emit("try:")
-        emit("    import JointObject")
-        emit("except Exception:")
-        emit("    JointObject = None")
-        emit("try:")
-        emit("    import Spreadsheet")
-        emit("except Exception:")
-        emit("    Spreadsheet = None")
-        emit("import os")
-        emit("import zipfile")
-        emit("")
-        emit(f"DOC_NAME = {_json_ascii(self.document_name)}")
-        emit(
-            "doc = App.getDocument(DOC_NAME) if DOC_NAME in App.listDocuments() else App.newDocument(DOC_NAME)"
-        )
+        if include_preamble:
+            emit("import json")
+            emit("import math")
+            emit("import FreeCAD as App")
+            emit("import Part")
+            emit("try:")
+            emit("    import Sketcher")
+            emit("except Exception:")
+            emit("    Sketcher = None")
+            emit("try:")
+            emit("    import Assembly")
+            emit("except Exception:")
+            emit("    Assembly = None")
+            emit("try:")
+            emit("    import JointObject")
+            emit("except Exception:")
+            emit("    JointObject = None")
+            emit("try:")
+            emit("    import Spreadsheet")
+            emit("except Exception:")
+            emit("    Spreadsheet = None")
+            emit("import os")
+            emit("import zipfile")
+            emit("")
+            emit(f"DOC_NAME = {_json_ascii(self.document_name)}")
+            emit(
+                "doc = App.getDocument(DOC_NAME) if DOC_NAME in App.listDocuments() else App.newDocument(DOC_NAME)"
+            )
+            emit("DEFINITION_REGISTRY = {}")
+        if include_runtime:
+            emit("# FreeCAD runtime")
+            emit(assemble_runtime_source())
         emit("GRAPH_NODES = {}")
         emit("GRAPH_OUTPUTS = {}")
         emit("GRAPH_METADATA = {}")
@@ -342,6 +355,12 @@ class _FreeCADCompiler(
         if isinstance(nodes, list):
             self._expr_alias_by_id = _spreadsheet_expr_aliases(nodes)
         emit(f"EXPRESSION_GRAPH = {_py_literal(expression_graph_payload)}")
+        emit(
+            f"SIMPLECAD_EXPRESSION_SHEET = {_json_ascii(self._context.expression_sheet_name)}"
+        )
+        emit("EXPR_CELL_BY_ID = {}")
+        emit("EXPR_ALIAS_BY_ID = {}")
+        emit("expr_sheet = None")
         tolerance_graph_payload = payload.get("tolerance_graph", {})
         if hasattr(tolerance_graph_payload, "to_dict"):
             tolerance_graph_payload = tolerance_graph_payload.to_dict()
@@ -349,13 +368,9 @@ class _FreeCADCompiler(
         emit(f"OP_EXPRESSION_BINDINGS = {_py_literal(_OP_EXPRESSION_BINDINGS)}")
         emit(f"OP_EXPRESSION_LIMITATIONS = {_py_literal(_OP_EXPRESSION_LIMITATIONS)}")
         emit("")
-        emit(assemble_runtime_source())
-        emit("")
-
         for line in self._emit_expression_graph(expression_graph_payload):
             emit(line)
         emit("")
-
         emit("EXPRESSION_GRAPH_META = EXPRESSION_GRAPH")
         emit("TOLERANCE_GRAPH_META = TOLERANCE_GRAPH")
         emit("if TOLERANCE_GRAPH.get('requirements'):")
@@ -363,13 +378,12 @@ class _FreeCADCompiler(
             "    _make_metadata_note('simplecad_tolerance_graph', 'SimpleCAD Tolerance Graph', TOLERANCE_GRAPH)"
         )
         emit("")
-
         for node in source_graph.topological_order():
             emit(f"# Step {node.node_id}: {node.op}")
-            for line in self._emit_node(node):
+            node_lines = self._emit_node(node)
+            for line in node_lines:
                 emit(line)
             emit("")
-
         emit("if GRAPH_LIMITATIONS:")
         emit(
             "    _make_metadata_note('simplecad_expression_limitations', 'SimpleCAD Expression Limitations', GRAPH_LIMITATIONS)"
@@ -378,20 +392,30 @@ class _FreeCADCompiler(
         emit(
             "    _make_metadata_note('simplecad_translation_limitations', 'SimpleCAD Translation Limitations', GRAPH_TRANSLATION_LIMITATIONS)"
         )
-        emit("")
-
         emit("doc.recompute()")
-        emit("")
-        emit("# Leaf/result metadata")
-        emit(f"RESULT_NODE_IDS = {_py_literal(self._result_node_id_list)}")
-        emit(
-            "RESULT_OBJECTS = [obj for node_id in RESULT_NODE_IDS for obj in GRAPH_OUTPUTS.get(node_id, [])]"
-        )
-        emit("_apply_result_visibility(RESULT_NODE_IDS)")
-        emit("_set_active_result_object(RESULT_NODE_IDS)")
-        emit("_apply_occurrence_tree(SEMANTIC_PLAN)")
-        emit("_restore_occurrence_tree_visibility()")
-        emit("doc.TransientDir = getattr(doc, 'TransientDir', '')")
+        if register_definition is not None:
+            required = {"definition_kind", "definition_id", "revision", "content_hash"}
+            if set(register_definition) != required:
+                raise ValueError("register_definition identity fields are incomplete")
+            result_node_id = self._result_node_id_list[-1]
+            emit(
+                f"DEFINITION_REGISTRY[{_json_ascii(register_definition['definition_id'])}] = {{"
+                f"'definition_kind': {_json_ascii(register_definition['definition_kind'])}, "
+                f"'revision': {_json_ascii(register_definition['revision'])}, "
+                f"'content_hash': {_json_ascii(register_definition['content_hash'])}, "
+                f"'product': PRODUCT_VALUES.get({_json_ascii(result_node_id)})}}"
+            )
+        if finalize:
+            emit("")
+            emit("RESULT_NODE_IDS = " + _py_literal(self._result_node_id_list))
+            emit(
+                "RESULT_OBJECTS = [obj for node_id in RESULT_NODE_IDS for obj in GRAPH_OUTPUTS.get(node_id, [])]"
+            )
+            emit("_apply_result_visibility(RESULT_NODE_IDS)")
+            emit("_set_active_result_object(RESULT_NODE_IDS)")
+            emit("_apply_occurrence_tree(SEMANTIC_PLAN)")
+            emit("_restore_occurrence_tree_visibility()")
+            emit("doc.TransientDir = getattr(doc, 'TransientDir', '')")
         return "\n".join(lines).rstrip() + "\n"
 
     def _find_cylinder_profile_nodes(self, graph: OperationGraph) -> Set[str]:
@@ -414,7 +438,7 @@ class _FreeCADCompiler(
         lines.append("EXPR_ALIAS_BY_ID = {}")
         lines.append("if Spreadsheet is not None:")
         lines.append(
-            "    expr_sheet = doc.addObject('Spreadsheet::Sheet', 'SimpleCADExpressions')"
+            f"    expr_sheet = doc.addObject('Spreadsheet::Sheet', {_json_ascii(self._context.expression_sheet_name)})"
         )
         alias_by_id = _spreadsheet_expr_aliases(nodes)
         dimension_by_id, unit_aware_by_id = _expression_physical_metadata(nodes)
@@ -509,7 +533,7 @@ class _FreeCADCompiler(
             alias = alias_by_id.get(str(arg))
             if not alias:
                 return None
-            args.append(f"<<SimpleCADExpressions>>.{alias}")
+            args.append(f"<<{self._context.expression_sheet_name}>>.{alias}")
         if op == "add" and len(args) == 2:
             return f"={args[0]} + {args[1]}"
         if op == "sub" and len(args) == 2:
@@ -564,6 +588,25 @@ class _FreeCADCompiler(
 
     def _emit_node(self, node: OperationNode) -> List[str]:
         params = dict(node.params)
+        if node.op == "make_set_public_connector_rassembly":
+            required = {
+                "public_connector_id",
+                "source_component_id",
+                "source_connector_id",
+            }
+            allowed = {*required, "assembly_id", "name"}
+            missing = sorted(required - set(params))
+            unexpected = sorted(set(params) - allowed)
+            if missing:
+                raise ValueError(
+                    f"Graph node {node.node_id!r} ({node.op}) is missing required parameter(s): "
+                    + ", ".join(missing)
+                )
+            if unexpected:
+                raise ValueError(
+                    f"Graph node {node.node_id!r} ({node.op}) contains unsupported parameter(s): "
+                    + ", ".join(unexpected)
+                )
         if node.op in {"make_angle_arc_redge", "make_circle_redge"}:
             params = _curve_params_with_kernel_axes(params)
         if node.op == "make_interpolated_spline_redge":
@@ -581,7 +624,19 @@ class _FreeCADCompiler(
         )
 
         var_name = _safe_name(node.node_id)
-        object_name = _safe_name(f"{node.op}_{node.node_id}", prefix="step")
+        object_token = (
+            f"{self._context.definition_token}_"
+            if self._context.definition_token
+            else ""
+        )
+        object_name = _safe_name(
+            f"{object_token}{node.op}_{node.node_id}", prefix="step"
+        )
+        assignment_targets = (
+            list(node.source.get("assignment_targets") or [])
+            if isinstance(node.source, dict)
+            else []
+        )
         lines = [
             f"{var_name}_params = {params_literal}",
             f"{var_name}_inputs = {inputs_literal}",
@@ -600,6 +655,10 @@ class _FreeCADCompiler(
         )
         if native_lines is not None:
             lines.extend(native_lines)
+            if assignment_targets:
+                lines.append(
+                    f"_apply_graph_assignment_name(GRAPH_OUTPUTS.get({_json_ascii(node.node_id)}, []), node_id={_json_ascii(node.node_id)}, assignment_targets={_py_literal(assignment_targets)}, op={_json_ascii(node.op)})"
+                )
             return lines
         raise ValueError(f"Unsupported FreeCAD native graph translation op: {node.op}")
 
@@ -695,58 +754,69 @@ class _FreeCADCompiler(
 
 
 class FreeCADTranslator(BaseTranslator):
-    """Public, stateless facade for FreeCAD script translation."""
+    """Translate validated `.scadpkg` products into FreeCAD scripts."""
 
-    def __init__(self, document_name: str = "SimpleCADModel") -> None:
-        self.document_name = document_name
+    def __init__(self, document_name: str = "SimpleCADProduct") -> None:
+        self.document_name = str(document_name)
 
     @property
     def capabilities(self) -> BackendCapabilities:
         return CAPABILITIES
 
-    def translate_model_json_to_script(self, json_str: str) -> str:
-        return _FreeCADCompiler(self.document_name).translate_model_json_to_script(
-            json_str
-        )
+    def _translate_product_package_to_script(self, units: Any) -> str:
+        if not units:
+            raise ValueError("Product package contains no definition units")
+        sections: List[str] = []
+        for index, unit in enumerate(units):
+            token = _safe_name(unit.definition_id, prefix="definition")
+            compiler = _FreeCADCompiler(
+                self.document_name,
+                expression_sheet_name=f"SimpleCADExpressions_{token}",
+                definition_token=token,
+                definition_id=unit.definition_id,
+                definition_kind=unit.definition_kind,
+                definition_revision=unit.revision,
+                definition_content_hash=unit.content_hash,
+            )
+            sections.append(
+                compiler.translate_model_payload_to_script(
+                    unit.model_payload(),
+                    graph=unit.graph,
+                    include_preamble=index == 0,
+                    include_runtime=index == 0,
+                    finalize=index == len(units) - 1,
+                    register_definition={
+                        "definition_kind": unit.definition_kind,
+                        "definition_id": unit.definition_id,
+                        "revision": unit.revision,
+                        "content_hash": unit.content_hash,
+                    },
+                )
+            )
+        return "\n".join(section.rstrip() for section in sections) + "\n"
 
-    def translate_model_payload_to_script(
+    def translate_product_package(
         self,
-        payload: Dict[str, Any],
-        *,
-        graph: Optional[OperationGraph] = None,
-    ) -> str:
-        return _FreeCADCompiler(self.document_name).translate_model_payload_to_script(
-            payload, graph=graph
-        )
-
-    def translate_model_json(self, json_str: str) -> TranslationArtifact:
-        return TranslationArtifact(
-            backend_id="freecad",
-            target_id="freecad_script",
-            media_type="text/x-python",
-            suggested_suffix=".py",
-            content=self.translate_model_json_to_script(json_str),
-            metadata={"document_name": self.document_name},
-        )
-
-    def translate_model_payload(
-        self,
-        payload: Dict[str, Any],
-        *,
-        graph: Optional[OperationGraph] = None,
+        data: Any,
+        **_options: Any,
     ) -> TranslationArtifact:
+        from ..package_units import read_product_package_translation_units
+
+        package, units = read_product_package_translation_units(data)
         return TranslationArtifact(
             backend_id="freecad",
             target_id="freecad_script",
             media_type="text/x-python",
             suggested_suffix=".py",
-            content=self.translate_model_payload_to_script(payload, graph=graph),
-            metadata={"document_name": self.document_name},
+            content=self._translate_product_package_to_script(units),
+            metadata={
+                "document_name": self.document_name,
+                "root_definition_id": package.root_definition.definition_id,
+                "root_definition_kind": package.root_definition.definition_kind,
+                "definition_ids": tuple(unit.definition_id for unit in units),
+                "target_runtime_validated": False,
+            },
         )
 
 
-class FreeCADScriptTranslator(FreeCADTranslator):
-    """Backward-compatible class name for the FreeCAD translator."""
-
-
-__all__ = ["FreeCADScriptTranslator", "FreeCADTranslator"]
+__all__ = ["FreeCADTranslator"]

@@ -6,17 +6,21 @@
 
 [中文说明](README.zh-CN.md)
 
-## Update Notes (2.0.4b2)
+## Update Notes (2.0.4b3 development)
 
-> **Beta release:** Review reconstructed geometry and generated CAD documents
-> before using this version in production.
+> **Beta release:** Validate generated definitions, assembly constraints, and
+> manufacturing geometry before production use.
 
-SimpleCADAPI 2.0.4b2 adds an Agent-oriented STEP/BREP reconstruction workflow
-with stable entity IDs, 17 schema-validated inspection and diagnostic tools,
-focused material/boundary/topology acceptance gates, and replayable
-interpolated B-spline profiles. See the
-[full English update notes](docs/updates/2.0.4b2.md) for implementation details,
-operating modes, limitations, and verification coverage.
+SimpleCADAPI 2.0.4b3 adds reproducible `@part`/`@assemble` product boundaries,
+incremental assembly solves, and a persistent crash-safe cache for whole parts.
+See the [full English update notes](docs/updates/2.0.4b3.md) for contracts,
+cache modes, diagnostics, limitations, and verification coverage.
+
+All formal single-script examples emit a synchronized `.scadpkg`, AP242
+`.step`, and editable `.FCStd` from the same product package. Run
+`uv run python tools/run_examples.py` to rebuild and validate that set. The
+split AP242/Gmsh example under `examples/12_ap242_gmsh_volume_mesh/` exposes
+each build and export stage as a separate directly runnable script.
 
 ---
 
@@ -36,16 +40,15 @@ in a compact public API for creating solids, applying features, tagging semantic
 intent, querying topology, exporting manufacturing files, and translating recorded
 models into FreeCAD workflows.
 
-Current published beta release: `simplecadapi==2.0.4b2`. See the
-[2.0.4b2 update notes](docs/updates/2.0.4b2.md) for release details.
+Current development beta: `simplecadapi==2.0.4b3`.
 
 ## What It Provides
 
 - OCP-native shape types: `Vertex`, `Edge`, `Wire`, `Face`, and `Solid`.
 - Functional modeling operations for primitives, profiles, extrude, revolve,
   loft, sweep, booleans, transforms, patterns, fillets, chamfers, and shells.
-- Replayable modeling with `@model`, `ModelResult`, `capture_result(...)`,
-  `import_model_json(...)`, and `replay_model_json(...)`.
+- Replayable operation graphs with explicit `GraphSession`,
+  `export_model_json(...)`, `import_model_json(...)`, and `replay_model_json(...)`.
 - Expression parameters with `var(...)`, arithmetic expressions, and serialized
   expression graphs.
 - Physical units with automatic dimension inference, canonical CAD conversion,
@@ -53,11 +56,14 @@ Current published beta release: `simplecadapi==2.0.4b2`. See the
 - QL selectors for geometry grounding, topology queries, and stable feature
   selections.
 - Semantic tags through `apply_tag(shape=..., tag=...)` and `list_tags(shape=...)`.
-- STEP/STL export and FreeCAD translation helpers for script or `.FCStd` output.
+- STEP/STL export, editable FreeCAD product-package translation, and AP242
+  product-structure export with material and named metadata properties.
 - Agent-oriented STEP/BREP reconstruction with stable entity IDs, focused local
   diagnostics, highlighted region renders, and measured acceptance gates.
 - Replayable open and periodic interpolated B-spline Edges/Wires for freeform
   profiles and Loft sections.
+- Durable `@part`/`@assemble` definitions, incremental assembly solving, and a
+  persistent content-addressed cache with corruption quarantine and JSON diagnostics.
 
 ## Install
 
@@ -85,45 +91,48 @@ from pathlib import Path
 import simplecadapi as scad
 
 out = Path("out")
-out.mkdir(exist_ok=True)
 
-base = scad.make_box_rsolid(
-    width=60.0, height=36.0, depth=8.0, bottom_face_center=(0.0, 0.0, 0.0)
-)
-hole = scad.make_cylinder_rsolid(
-    radius=5.0, height=14.0, bottom_face_center=(0.0, 0.0, -3.0)
-)
-slot = scad.make_box_rsolid(
-    width=18.0, height=8.0, depth=14.0, bottom_face_center=(14.0, 0.0, -3.0)
-)
+@scad.part(id="bracket")
+def build_bracket() -> scad.Solid:
+    base = scad.make_box_rsolid(
+        width=60.0, height=36.0, depth=8.0, bottom_face_center=(0.0, 0.0, 0.0)
+    )
+    hole = scad.make_cylinder_rsolid(
+        radius=5.0, height=14.0, bottom_face_center=(0.0, 0.0, -3.0)
+    )
+    slot = scad.make_box_rsolid(
+        width=18.0, height=8.0, depth=14.0, bottom_face_center=(14.0, 0.0, -3.0)
+    )
+    body = scad.cut_rsolid(base, hole, slot)
+    boss = scad.make_cylinder_rsolid(
+        radius=8.0, height=7.0, bottom_face_center=(-18.0, 0.0, 8.0)
+    )
+    return scad.apply_tag(
+        shape=scad.union_rsolid(body, boss),
+        tag="role.demo.bracket",
+    )
 
-part = scad.cut_rsolid(base, hole, slot)
-boss = scad.make_cylinder_rsolid(
-    radius=8.0, height=7.0, bottom_face_center=(-18.0, 0.0, 8.0)
-)
-part = scad.union_rsolid(part, boss)
-part = scad.apply_tag(shape=part, tag="role.demo.bracket")
-
-print("volume", round(part.get_volume(), 3))
-print("faces", len(part.get_faces()))
-print("tags", scad.list_tags(shape=part))
-
-scad.export_step(shapes=part, filename=str(out / "bracket.step"))
-scad.export_stl(shapes=part, filename=str(out / "bracket.stl"))
+result = build_bracket()
+package_path = out / "bracket.scadpkg"
+scad.capture(result, package_path)
+print("volume", round(result.part.body.get_volume(), 3))
+print("tags", scad.list_tags(shape=result.part.body))
+scad.exporter.export_product_package_to_step(package_path, out / "bracket.step")
+scad.exporter.export_product_package_to_stl(package_path, out / "bracket.stl")
+scad.exporter.export_product_package_to_obj(package_path, out / "bracket.obj")
 ```
 
-## Replayable Modeling
+## Replayable Operation Graphs
 
-Use one `@scad.model` entry point when a model should be inspectable,
-serializable, replayable, or translated into another CAD environment. The
-decorated function owns its `GraphSession` and returns a `ModelResult`.
+Use an explicit `GraphSession` when a geometry flow should be inspectable,
+serializable, replayable, or translated into another CAD environment.
 
 ```python
 import simplecadapi as scad
+from simplecadapi import GraphSession, export_model_json, replay_model_json
 from simplecadapi import ql as Q
 
-@scad.model(graph_id="chamfered_block")
-def build_model():
+with GraphSession(graph_id="chamfered_block") as session:
     body = scad.make_box_rsolid(
         width=40.0, height=24.0, depth=10.0,
         bottom_face_center=(0.0, 0.0, 0.0),
@@ -141,25 +150,105 @@ def build_model():
         .exactly(1)
     )
     final = scad.chamfer_rsolid(solid=drilled, edges=bottom_circle, distance=0.6)
-    scad.capture_result(value=final)
-    return final
+    session.capture_result(value=final)
+    model_json = export_model_json(session=session)
+    recorded_nodes = session.graph.node_count
 
-result = build_model()
-model_json = result.model_json
-rebuilt = result.replay()
-
-print("recorded_nodes", result.session.graph.node_count)
+rebuilt = replay_model_json(json_str=model_json)
+print("recorded_nodes", recorded_nodes)
 print("replayed_outputs", len(rebuilt))
 ```
 
-Pass `export_dir=...` to `@scad.model` when the invocation should also write
-one self-contained `<graph_id>.scene.zip`. The package contains `scene.json`,
-`model/model.json`, the complete project-relative Python files referenced by
-operation source mappings under `sources/`, and the GLB/entity assets required
-by the Viewer. Automatic export does not write adjacent model/session JSON,
-STEP, STL, or FCStd files; those explicit export APIs remain available. The
-package path is `result.artifact_paths["scene"]`. Without `export_dir`, model
-execution remains in memory.
+An explicit `GraphSession` remains in memory until an export API is called.
+For a durable CAD/viewer deliverable, define one physical single-solid part with
+`@scad.part` or an assembly with `@scad.assemble`, then capture and write it in one call:
+
+```python
+scad.capture(result, "out/product.scadpkg")
+```
+
+The package embeds the definition closure, evaluated scene, feature graphs,
+source snapshots, topology, and render/selection assets. STEP, STL, FCStd, and
+low-level JSON remain explicit exports.
+
+## Persistent Product Builds And Cache
+
+Use `@scad.part` for one physical single-solid part and `@scad.assemble` for an
+assembly with explicit external definitions. Both use the unified `CachePolicy`;
+same-key part calls reuse the runtime PRT in process, while durable part bundles
+persist unchanged PRTs across later runs.
+
+```python
+@scad.part(id="mounting_plate", cache="auto")
+def build_plate(width: float = 30.0) -> scad.Part:
+    body = scad.make_box_rsolid(width=width, height=20.0, depth=3.0)
+    return scad.make_part_rpart(part_id="mounting_plate", body=body)
+
+cold = build_plate()
+warm = build_plate()
+print(cold.cache_report.hit, warm.cache_report.hit)
+```
+
+Inspect or maintain the cache with stable JSON output:
+
+```bash
+simplecad-cache status
+simplecad-cache verify
+simplecad-cache prune
+```
+
+See the [persistent cache and product build workflow](docs/guides/cache-build-workflow.md)
+for cache modes, configuration precedence, PRT reuse, incremental invalidation,
+corruption repair, and destructive-command confirmation.
+
+```python
+scad.capture(warm, "out/mounting_plate.scadpkg")
+scad.translator.freecad_translator.translate_product_package_to_fcstd(
+    "out/mounting_plate.scadpkg", "out/mounting_plate.FCStd"
+)
+scad.exporter.export_product_package_to_step(
+    "out/mounting_plate.scadpkg", "out/mounting_plate.step"
+)
+scad.exporter.export_product_package_to_stl(
+    "out/mounting_plate.scadpkg", "out/mounting_plate.stl"
+)
+scad.exporter.export_product_package_to_obj(
+    "out/mounting_plate.scadpkg", "out/mounting_plate.obj"
+)
+```
+STL and OBJ share one direct OpenCASCADE tessellation of the evaluated BREP.
+Both outputs contain the same oriented triangles and require no optional
+remeshing dependency. Control curved-surface accuracy with `linear_deflection`
+and `angular_deflection_degrees`.
+
+The AP242/Gmsh example also includes an optional CalculiX FEM workflow. Install
+the Python-side FEM dependencies with `uv sync --extra fem`, and install the
+external CalculiX solver separately (on macOS: `brew install
+costerwi/homebrew-calculix/calculix-ccx`). The example uses consistent `mm`,
+`N`, and `MPa` units:
+
+```bash
+uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/run_calculix.py \
+  --ccx "$(brew --prefix calculix-ccx)/bin/ccx_2.23"
+uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/visualize_calculix.py
+uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/study_mesh_convergence.py \
+  --ccx "$(brew --prefix calculix-ccx)/bin/ccx_2.23" \
+  --linear-solver "ITERATIVE CHOLESKY" --solver-timeout 2400
+```
+
+The analysis writes CalculiX `.inp`, `.dat`, `.frd`, solver-log, summary JSON,
+ParaView `.vtu`, and displaced von-Mises PNG artifacts. The preview shows the
+load physical group's yellow boundary and red `-Z` force arrows without
+covering the stress heatmap. The convergence study supports `--resume`; failed
+solver levels are reported separately and never enter the numerical sequence.
+
+The checked-in `-1000 N` study evaluates eleven mesh sizes from `h=3.0 mm` to
+`h=0.25 mm`. A platform requires three consecutive refinement pairs below `5%`
+maximum-displacement change and `10%` peak integration-point von-Mises change.
+The verification level N is `h=0.25 mm` (`0.0331843 mm`, `98.6392 MPa`), so the
+recommended production level N-1 is `h=0.27 mm`. Fine levels use iterative
+Cholesky after a same-mesh comparison at `h=0.375 mm` matched SPOOLES within
+`0.005%`; this avoids the direct solver's in-memory capacity limit.
 
 ## STEP/BREP Inspection
 
@@ -172,7 +261,7 @@ pip install "simplecadapi[inspect]"
 
 Inspection lives under `simplecadapi.inspect.brep`. These APIs are diagnostic
 tools, not modeling operations: they do not enter the graph and are rejected
-inside `GraphSession` and `@model`. Export or obtain the geometry first, then
+inside `GraphSession`. Export or obtain the geometry first, then
 inspect it outside the modeling script.
 
 Choose calls from the evidence required by the case instead of following a
@@ -252,27 +341,21 @@ expression.
   child-geometry getter, such as `get_edges(index)`, `get_faces(index)`,
   `get_wires(index)`, or `get_vertices(index)`, so replayable graph workflows
   preserve the pick as a geo select node.
-- Use model JSON as the interchange boundary for replay, tests, and FreeCAD
-  translation.
-
-## FreeCAD Translation
-
-Recorded model JSON can be translated into a FreeCAD Python script:
+Use model JSON only for graph replay and inspection. External CAD translation and
+file export consume the validated `.scadpkg` closure:
 
 ```python
-script = scad.translator.freecad_translator.translate_model_json_to_freecad_script(model_json)
-```
-
-If FreeCAD or FreeCADCmd is available, the same model JSON can be written as an
-`.FCStd` file:
-
-```python
-scad.translator.freecad_translator.translate_model_json_to_fcstd(model_json, "bracket.FCStd")
+script = scad.translator.freecad_translator.translate_product_package_to_freecad_script(
+    package_path
+)
+scad.translator.freecad_translator.translate_product_package_to_fcstd(
+    package_path, "bracket.FCStd"
+)
 ```
 
 Part/Assembly models are written as editable FreeCAD assembly structure: parts are
 `App::Part`, assemblies are `Assembly::AssemblyObject`, and components are links.
-Explicit compound projections remain available for geometry-only STEP export.
+The exporter namespace owns neutral STEP and STL file output.
 
 ## Examples
 
@@ -282,18 +365,20 @@ Run examples from the source checkout:
 uv run python examples/04_dimension_tolerance_chain.py
 uv run python examples/08_constrained_sketch.py
 uv run python examples/09_naca0016_blade_freecad.py
-uv run python examples/10_part_assembly.py
+uv run python examples/11_external_reference_gear_train.py
 uv run python examples/16_compact_two_stage_planetary_reducer/main.py
 uv run python examples/20_integrated_bldc_joint_actuator/main.py
 ```
 
 ## Documentation
 
-- 2.0.4b2 update notes: [`docs/updates/2.0.4b2.md`](docs/updates/2.0.4b2.md)
+- 2.0.4b3 update notes: [`docs/updates/2.0.4b3.md`](docs/updates/2.0.4b3.md)
 - Reconstruction Agent test specification:
   [`docs/guides/reconstruction-agent-test-prompt.md`](docs/guides/reconstruction-agent-test-prompt.md)
 - STEP BREP reverse-engineering guide:
   [`docs/guides/step-brep-reverse-engineering.md`](docs/guides/step-brep-reverse-engineering.md)
+- Persistent cache and product build workflow:
+  [`docs/guides/cache-build-workflow.md`](docs/guides/cache-build-workflow.md)
 - Public API reference: [`docs/api/`](docs/api/)
 - Core type and modeling notes: [`docs/core/`](docs/core/)
 - Serialization and replay details:
@@ -304,6 +389,7 @@ uv run python examples/20_integrated_bldc_joint_actuator/main.py
   [`docs/core/physical-units.md`](docs/core/physical-units.md)
 - Operation graph JSON spec:
   [`docs/core/operation_graph_json_spec.md`](docs/core/operation_graph_json_spec.md)
+  `.scadpkg` 产品包规范（中文）：[`design-docs/scadpkg-spec.md`](design-docs/scadpkg-spec.md)
 
 ## Releasing the Agent Skill
 

@@ -53,7 +53,8 @@ def _occurrence_slug(value):
 def _occurrence_label(source, labels):
     node_id = str(getattr(source, "SimpleCADNodeId", "") or "")
     base = str(
-        labels.get(node_id)
+        getattr(source, "SimpleCADAssignmentName", "")
+        or labels.get(node_id)
         or getattr(source, "Label", "")
         or getattr(source, "SimpleCADOp", "")
         or "Operation"
@@ -193,6 +194,19 @@ def _occurrence_copy_expressions(source, clone):
             pass
 
 
+def _prepare_occurrence_definition_label(source):
+    assignment = str(getattr(source, "SimpleCADAssignmentName", "") or "").strip()
+    if not assignment:
+        return source
+    marker = " [definition]"
+    if not str(getattr(source, "Label", "")).endswith(marker):
+        try:
+            source.Label = assignment + marker
+        except Exception:
+            pass
+    return source
+
+
 def _copy_occurrence(source, *, root_token, path, labels):
     if not _occurrence_is_object(source):
         return None
@@ -201,6 +215,7 @@ def _copy_occurrence(source, *, root_token, path, labels):
         or str(getattr(source, "TypeId", "")) == "Assembly::AssemblyLink"
     )
     try:
+        _prepare_occurrence_definition_label(source)
         clone = doc.copyObject(source, False)
     except Exception as exc:
         raise RuntimeError(
@@ -252,19 +267,22 @@ def _occurrence_protected_objects():
     protected = {
         id(root) for root in OCCURRENCE_ROOT_OBJECTS.values() if root is not None
     }
+
+    def protect(obj):
+        if not _occurrence_is_object(obj) or id(obj) in protected:
+            return
+        protected.add(id(obj))
+        for child in list(getattr(obj, "Group", []) or []):
+            protect(child)
+
     for value in list(PRODUCT_VALUES.values()):
         if not isinstance(value, dict):
             continue
         for key in ("container", "body", "material_object"):
-            obj = value.get(key)
-            if _occurrence_is_object(obj):
-                protected.add(id(obj))
+            protect(value.get(key))
         for component in list(value.get("components", []) or []):
-            if not isinstance(component, dict):
-                continue
-            link = component.get("link")
-            if _occurrence_is_object(link):
-                protected.add(id(link))
+            if isinstance(component, dict):
+                protect(component.get("link"))
     return protected
 
 
@@ -364,7 +382,10 @@ def _occurrence_make_root(root, source, labels):
     if clone is None:
         return None
     try:
-        clone.Label = str(root.get("result_label") or _occurrence_label(source, labels))
+        if not str(getattr(clone, "SimpleCADAssignmentName", "") or "").strip():
+            result_label = root.get("result_label")
+            if result_label:
+                clone.Label = str(result_label)
     except Exception:
         pass
     _ensure_string_property(clone, "SimpleCADSemanticRole", "SimpleCAD Semantic")
@@ -390,49 +411,24 @@ def _occurrence_make_part_root(root, source, labels):
     if not isinstance(product, dict):
         return None
     container = product.get("container")
-    if not _occurrence_is_object(container):
+    body = product.get("body")
+    if not _occurrence_is_object(container) or not _occurrence_is_object(body):
         return None
     container.Label = str(root.get("label") or container.Label)
-    was_visible = bool(getattr(container, "Visibility", False))
-    old_body = product.get("body")
-    clone = _copy_occurrence(
-        source,
-        root_token=_occurrence_slug(root.get("root_id") or "part"),
-        path=("body",),
-        labels=labels,
-    )
-    if clone is None:
-        return None
-    try:
-        clone.Label = str(root.get("result_label") or _occurrence_label(source, labels))
-        _ensure_string_property(clone, "SimpleCADSourceBodyNodeId")
-        clone.SimpleCADSourceBodyNodeId = str(root.get("result_node_id") or "")
-        _attach_tag_metadata_for_node(clone, clone.SimpleCADSourceBodyNodeId)
-        container.addObject(clone)
-    except Exception as exc:
-        raise RuntimeError(
-            f"FreeCAD could not attach part occurrence {clone.Name!r}"
-        ) from exc
-    if old_body is not None and old_body is not clone:
-        _occurrence_remove_object(old_body)
+    if not str(getattr(body, "SimpleCADAssignmentName", "") or "").strip():
+        body.Label = str(root.get("result_label") or _occurrence_label(body, labels))
+    _attach_tag_metadata_for_node(body, str(root.get("result_node_id") or ""))
     material = product.get("material")
-    for value in list(PRODUCT_VALUES.values()):
-        if isinstance(value, dict) and value.get("container") is container:
-            value["body"] = clone
-            if value.get("material"):
-                material = value.get("material")
     if material:
-        _apply_material_to_object(clone, material)
-    _set_visibility(container, was_visible)
+        _apply_material_to_object(body, material)
+    _set_visibility(container, True)
     _set_expanded(container, True)
-    _occurrence_complete_root(
-        container,
-        root,
-        _occurrence_slug(root.get("root_id") or "part"),
-        labels,
-    )
-    _set_visibility(clone, was_visible)
-    _set_expanded(clone, True)
+    for child in list(getattr(container, "Group", []) or []):
+        if _is_origin_object(child) or _is_connector_object(child):
+            _set_visibility(child, False)
+        else:
+            _set_visibility(child, child is body)
+            _set_tree_visibility(child, True)
     _hide_origin_tree(container)
     return container
 

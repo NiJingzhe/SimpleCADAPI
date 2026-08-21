@@ -150,7 +150,9 @@ class TestSkillPackPathResolution(unittest.TestCase):
                 (result.skill_root / "references/docs/stdlib/README.md").exists()
             )
             self.assertTrue(
-                (result.skill_root / "references/inspect/brep-reverse-engineering.md").exists()
+                (
+                    result.skill_root / "references/inspect/brep-reverse-engineering.md"
+                ).exists()
             )
             package_summary = (
                 result.skill_root / "references/SDK_PACKAGE_SUMMARY.md"
@@ -211,14 +213,15 @@ class TestSkillPackPathResolution(unittest.TestCase):
             content = packager._build_skill_markdown()
 
             self.assertIn("GraphSession", content)
-            self.assertIn("ModelResult", content)
-            self.assertIn("@model", content)
-            self.assertIn("capture_result", content)
+            self.assertNotIn("ModelResult", content)
+            self.assertNotIn("@model", content)
+            self.assertIn("session.capture_result", content)
             self.assertIn("export_model_json", content)
             self.assertIn("replay_model_json", content)
             self.assertIn("Use the graph/model JSON workflow", content)
             self.assertIn("use keyword arguments", content)
-            self.assertIn("do not use positional arguments", content)
+            self.assertIn("capture(result, path)", content)
+            self.assertIn("two required arguments are positional", content)
             self.assertIn("Standard Parts Library", content)
             self.assertIn("references/docs/stdlib/README.md", content)
             self.assertIn("scad.std.gear", content)
@@ -240,10 +243,16 @@ class TestSkillPackPathResolution(unittest.TestCase):
             self.assertIn("packaged contract copy", content)
             self.assertIn("advisory tactics", content)
             self.assertIn("simplecadapi.inspect.brep", content)
-            self.assertIn("outside `GraphSession` and `@model`", content)
+            self.assertIn("outside `GraphSession`", content)
+            self.assertNotIn("outside `GraphSession` and `@model`", content)
             self.assertIn("acceptance/classification rules", content)
             self.assertIn("model-specific inspection code", content)
             self.assertIn("SDK_PACKAGE_SUMMARY.md", content)
+            self.assertIn("@part", content)
+            self.assertIn("@assemble", content)
+            self.assertIn("one physical single-solid product", content)
+            self.assertIn("cache-build-workflow.md", content)
+            self.assertIn("Cache mutation requires explicit", content)
             self.assertNotIn("scripts/", content)
             self.assertNotIn("v1", content.lower())
             self.assertNotIn("v2", content.lower())

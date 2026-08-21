@@ -37,13 +37,17 @@ from OCP.BRepAlgoAPI import (
     BRepAlgoAPI_Common,
     BRepAlgoAPI_BooleanOperation,
 )
+from OCP.BRep import BRep_Tool
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
+    BRepBuilderAPI_MakeSolid,
+    BRepBuilderAPI_MakeWire,
+    BRepBuilderAPI_Sewing,
     BRepBuilderAPI_Transform,
     BRepBuilderAPI_MakeShape,
-    BRepBuilderAPI_MakeWire,
 )
+from OCP.gp import gp_Ax1, gp_Ax3, gp_Dir, gp_Pnt, gp_Pnt2d, gp_Trsf, gp_Vec
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepFill import BRepFill_TypeOfContact
 from OCP.BRepLib import BRepLib
@@ -62,7 +66,6 @@ from OCP.BRepOffset import BRepOffset_Skin
 from OCP.GeomAbs import GeomAbs_Arc, GeomAbs_Plane
 from OCP.GCE2d import GCE2d_MakeSegment
 from OCP.Geom import Geom_CylindricalSurface
-from OCP.gp import gp_Ax3, gp_Dir, gp_Pnt, gp_Pnt2d, gp_Vec
 from OCP.TopTools import TopTools_ListOfShape
 from OCP.TopExp import TopExp, TopExp_Explorer
 from OCP.TopAbs import (
@@ -1878,6 +1881,36 @@ def tracked_sweep(profile: Face, path: Wire, is_frenet: bool = False) -> Tracked
     )
 
 
+def _axial_cap_face(
+    solid_shape: Any,
+    axis: Tuple[float, float, float],
+    *,
+    axial_coordinate: float,
+) -> Optional[Any]:
+    """Find the planar cap face whose vertices sit at one axial station."""
+
+    matches: List[Any] = []
+    explorer = TopExp_Explorer(solid_shape, TopAbs_FACE)
+    while explorer.More():
+        face = TopoDS.Face_s(explorer.Current())
+        explorer.Next()
+        coordinates: List[float] = []
+        vertex_explorer = TopExp_Explorer(face, TopAbs_VERTEX)
+        while vertex_explorer.More():
+            point = BRep_Tool.Pnt_s(TopoDS.Vertex_s(vertex_explorer.Current()))
+            coordinates.append(
+                point.X() * axis[0] + point.Y() * axis[1] + point.Z() * axis[2]
+            )
+            vertex_explorer.Next()
+        if not coordinates:
+            continue
+        if max(abs(value - axial_coordinate) for value in coordinates) < 1.0e-7:
+            matches.append(face)
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
 def tracked_twisted_sweep(
     profile: Face,
     *,
@@ -1887,13 +1920,17 @@ def tracked_twisted_sweep(
     twist_angle: float,
     guide_radius: float,
 ) -> TrackedResult:
-    """Sweep a profile along a line with a linear axial rotation law."""
+    """Sweep a profile along a line with a linear axial rotation law.
+
+    Profiles with inner wires are supported: every wire of the face is swept
+    into its own shell and the shells are sewn with rotated copies of the
+    profile face as end caps, so annular and multi-hole profiles produce the
+    swept region directly without boolean subtraction.
+    """
 
     graph_id = _make_id("g")
     node_id = _make_id("n")
 
-    if profile.get_inner_wires():
-        raise ValueError("Twisted sweep profiles with inner wires are unsupported")
     if BRepAdaptor_Surface(profile.wrapped, True).GetType() != GeomAbs_Plane:
         raise ValueError("Twisted sweep requires a planar profile")
 
@@ -1950,31 +1987,72 @@ def tracked_twisted_sweep(
     guide = guide_builder.Wire()
     BRepLib.BuildCurves3d_s(guide, 1.0e-7, MaxSegment=2000)
 
-    sweep_op = BRepOffsetAPI_MakePipeShell(spine)
-    sweep_op.SetTolerance(1.0e-6, 1.0e-6, 1.0e-4)
-    sweep_op.SetMaxDegree(11)
-    sweep_op.SetMaxSegments(200)
-    sweep_op.SetMode(
-        guide,
-        True,
-        BRepFill_TypeOfContact.BRepFill_NoContact,
-    )
-    sweep_op.Add(
-        profile.get_outer_wire().wrapped,
-        TopExp.FirstVertex_s(spine_edge, True),
-        False,
-        False,
-    )
-    if not sweep_op.IsReady():
-        raise ValueError("Twisted sweep is not ready after adding the profile")
-    sweep_op.Build()
-    if not sweep_op.IsDone():
-        raise ValueError(f"Twisted sweep failed: {sweep_op.GetStatus().name}")
-    approximation_error = float(sweep_op.ErrorOnSurface())
-    if not sweep_op.MakeSolid():
-        raise ValueError("Twisted sweep failed to convert its shell into a solid")
+    def _pipe_shell(wire):
+        sweep_op = BRepOffsetAPI_MakePipeShell(spine)
+        sweep_op.SetTolerance(1.0e-6, 1.0e-6, 1.0e-4)
+        sweep_op.SetMaxDegree(11)
+        sweep_op.SetMaxSegments(200)
+        sweep_op.SetMode(
+            guide,
+            True,
+            BRepFill_TypeOfContact.BRepFill_NoContact,
+        )
+        sweep_op.Add(
+            wire.wrapped,
+            TopExp.FirstVertex_s(spine_edge, True),
+            False,
+            False,
+        )
+        sweep_op.Build()
+        if not sweep_op.IsDone():
+            raise ValueError(f"Twisted sweep failed: {sweep_op.GetStatus().name}")
+        return sweep_op
 
-    result_solid = Solid(sweep_op.Shape())
+    profile_wires = [profile.get_outer_wire(), *profile.get_inner_wires()]
+    sweep_ops = [_pipe_shell(wire) for wire in profile_wires]
+    approximation_error = max(float(op.ErrorOnSurface()) for op in sweep_ops)
+
+    rotation = gp_Trsf()
+    rotation.SetRotation(
+        gp_Ax1(start, axis_dir),
+        math.radians(twist_angle),
+    )
+    translation = gp_Trsf()
+    translation.SetTranslation(
+        gp_Vec(
+            axis[0] * distance,
+            axis[1] * distance,
+            axis[2] * distance,
+        )
+    )
+    end_transform = translation.Multiplied(rotation)
+    end_face = BRepBuilderAPI_Transform(profile.wrapped, end_transform, True).Shape()
+
+    sewing = BRepBuilderAPI_Sewing(1.0e-6, True)
+    for op in sweep_ops:
+        sewing.Add(op.Shape())
+    sewing.Add(profile.wrapped)
+    sewing.Add(end_face)
+    sewing.Perform()
+    sewed = sewing.SewedShape()
+
+    sewed_shell = None
+    if sewed.ShapeType() == TopAbs_SHELL:
+        sewed_shell = TopoDS.Shell_s(sewed)
+    elif sewed.ShapeType() == TopAbs_COMPOUND:
+        explorer = TopExp_Explorer(sewed, TopAbs_SHELL)
+        if explorer.IsDone() and explorer.More():
+            sewed_shell = TopoDS.Shell_s(explorer.Current())
+    if sewed_shell is None or sewed_shell.IsNull():
+        raise ValueError("Twisted sweep failed to sew its shells into a closed skin")
+
+    solid_builder = BRepBuilderAPI_MakeSolid(sewed_shell)
+    if not solid_builder.IsDone():
+        raise ValueError("Twisted sweep failed to convert its shell into a solid")
+    wrapped_solid = solid_builder.Solid()
+    BRepLib.OrientClosedSolid_s(wrapped_solid)
+
+    result_solid = Solid(wrapped_solid)
     if not BRepCheck_Analyzer(result_solid.wrapped, True).IsValid():
         raise ValueError("Twisted sweep produced an invalid solid")
     result_solid.set_metadata(
@@ -1982,33 +2060,60 @@ def tracked_twisted_sweep(
         {"surface_error": approximation_error},
     )
 
-    p_pres, p_mod, p_gen, p_del, history_entries = _query_history(
-        sweep_op,
-        profile.get_outer_wire().wrapped,
-        graph_id,
-        node_id,
-        "profile",
-        TopoKind.EDGE,
-        TopAbs_EDGE,
-        result_shape=result_solid.wrapped,
-        generated_result_role="twisted_sweep.side",
-        project_source_tags=True,
+    p_pres: List[Any] = []
+    p_mod: List[Any] = []
+    p_gen: List[Any] = []
+    p_del: List[Any] = []
+    history_entries: List[Any] = []
+
+    axis_tuple = tuple(float(value) for value in axis)
+    start_cap = _axial_cap_face(
+        result_solid.wrapped, axis_tuple, axial_coordinate=0.0
     )
-    roles = _roles_from_history(history_entries, evidence_method="Generated")
-    for candidate, role, method in (
-        (sweep_op.FirstShape(), "twisted_sweep.start", "FirstShape"),
-        (sweep_op.LastShape(), "twisted_sweep.end", "LastShape"),
+    end_cap = _axial_cap_face(
+        result_solid.wrapped,
+        axis_tuple,
+        axial_coordinate=float(distance),
+    )
+    cap_ids = {
+        _topo_id(face)
+        for face in (start_cap, end_cap)
+        if face is not None
+    }
+
+    roles: List[Dict[str, Any]] = []
+    face_explorer = TopExp_Explorer(result_solid.wrapped, TopAbs_FACE)
+    while face_explorer.More():
+        face = TopoDS.Face_s(face_explorer.Current())
+        face_explorer.Next()
+        if _topo_id(face) in cap_ids:
+            continue
+        side_entry = _operation_role(
+            face,
+            result_shape=result_solid.wrapped,
+            graph_id=graph_id,
+            node_id=node_id,
+            role="twisted_sweep.side",
+            evidence_method="SewnSide",
+        )
+        if side_entry is not None:
+            roles.append(side_entry)
+    for candidate, role in (
+        (start_cap, "twisted_sweep.start"),
+        (end_cap, "twisted_sweep.end"),
     ):
-        role_entry = _operation_role(
+        if candidate is None:
+            continue
+        cap_entry = _operation_role(
             candidate,
             result_shape=result_solid.wrapped,
             graph_id=graph_id,
             node_id=node_id,
             role=role,
-            evidence_method=method,
+            evidence_method="sewn_cap",
         )
-        if role_entry is not None:
-            roles.append(role_entry)
+        if cap_entry is not None:
+            roles.append(cap_entry)
 
     delta = TopoDelta(
         preserved=tuple(p_pres),

@@ -10,7 +10,7 @@ def inspect_step_rsummary(path: str | Path, *, include_parameter_groups: bool = 
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_step_rsummary(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.inspect_step_rsummary(...)`; unavailable inside GraphSession
 
 ## Description
 

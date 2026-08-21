@@ -29,11 +29,17 @@ if __package__:
             _module_name,
             importlib.import_module(f"{__package__}.{_module_name}"),
         )
-    from .assembly import make_two_stage_planetary_reducer_rassembly
+    from .assembly import (
+        build_two_stage_planetary_reducer_product,
+        make_two_stage_planetary_reducer_rassembly,
+    )
     from .common import _ground_compound
     from .dimensions import HOUSING_HEIGHT, HOUSING_OUTER_RADIUS, TOTAL_REDUCTION
 else:
-    from assembly import make_two_stage_planetary_reducer_rassembly
+    from assembly import (
+        build_two_stage_planetary_reducer_product,
+        make_two_stage_planetary_reducer_rassembly,
+    )
     from common import _ground_compound
     from dimensions import HOUSING_HEIGHT, HOUSING_OUTER_RADIUS, TOTAL_REDUCTION
 
@@ -44,50 +50,59 @@ sys.setrecursionlimit(30000)
 OUT_DIR = Path("examples/out/compact_two_stage_planetary_reducer")
 
 
-@scad.model(graph_id="compact_two_stage_planetary_reducer")
-def _build_compact_two_stage_planetary_reducer():
+def _build_compact_two_stage_planetary_reducer_body():
     """Build the reducer and return its assembly and preview compound."""
 
     assembly = make_two_stage_planetary_reducer_rassembly()
     preview = scad.make_compound_from_assembly_rcompound(assembly=assembly)
     preview = scad.apply_tag(shape=preview, tag="scene.reducer.preview")
     _ground_compound(label="reducer_preview", compound=preview)
-    scad.capture_result(value=(assembly, preview))
     return assembly, preview
 
 
+def _build_compact_two_stage_planetary_reducer():
+    session = scad.GraphSession(graph_id="compact_two_stage_planetary_reducer")
+    with session:
+        assembly, preview = _build_compact_two_stage_planetary_reducer_body()
+        session.capture_result(value=(assembly, preview))
+        model_json = scad.export_model_json(session)
+        session_json = scad.export_session_json(session)
+    return assembly, preview, model_json, session_json
+
+
 def main() -> None:
-    """Generate replayable JSON and STEP output for the reducer example."""
+    """Generate synchronized package, AP242 STEP, FCStd, and replay JSON."""
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     model_path = OUT_DIR / "compact_two_stage_planetary_reducer.model.json"
     session_path = OUT_DIR / "compact_two_stage_planetary_reducer.session.json"
     step_path = OUT_DIR / "compact_two_stage_planetary_reducer.step"
     fcstd_path = OUT_DIR / "compact_two_stage_planetary_reducer.FCStd"
-    if fcstd_path.exists():
-        fcstd_path.unlink()
 
-    result = _build_compact_two_stage_planetary_reducer()
-    assembly, preview = result.value
-    model_path.write_text(result.model_json, encoding="utf-8")
-    session_path.write_text(result.session_json, encoding="utf-8")
-    scad.export_step(shapes=preview, filename=str(step_path))
+    product_result = build_two_stage_planetary_reducer_product()
+    assembly = product_result.assembly
+    preview = scad.make_compound_from_assembly_rcompound(assembly=assembly)
+    preview = scad.apply_tag(shape=preview, tag="scene.reducer.preview")
+    _ground_compound(label="reducer_preview", compound=preview)
+    session = product_result.feature_graph.restore_session()
+    model_json = scad.export_model_json(session)
+    session_json = scad.export_session_json(session)
+    model_path.write_text(model_json, encoding="utf-8")
+    session_path.write_text(session_json, encoding="utf-8")
+    package_path = OUT_DIR / "compact_two_stage_planetary_reducer.scadpkg"
+    scad.capture(product_result, package_path)
+    step_report = scad.exporter.export_product_package_to_step(package_path, step_path)
+    scad.translator.freecad_translator.translate_product_package_to_fcstd(
+        package_path,
+        str(fcstd_path.resolve()),
+        document_name="CompactTwoStagePlanetaryReducer",
+    )
 
-    imported = scad.import_model_json(json_str=result.model_json)
-    replayed = scad.replay_model_json(json_str=result.model_json)
-    payload = json.loads(result.model_json)
+    imported = scad.import_model_json(json_str=model_json)
+    replayed = [product_result.replay()]
+    payload = json.loads(model_json)
 
-    fcstd_status = "not attempted"
-    try:
-        scad.translator.freecad_translator.translate_model_json_to_fcstd(
-            json_str=result.model_json,
-            output_path=str(fcstd_path.resolve()),
-            document_name="CompactTwoStagePlanetaryReducer",
-            freecad_cmd=None,
-        )
-        fcstd_status = f"{fcstd_path} ({fcstd_path.stat().st_size} bytes)"
-    except Exception as exc:  # pragma: no cover - depends on local FreeCAD install
-        fcstd_status = f"skipped ({exc.__class__.__name__}: {exc})"
+    fcstd_status = f"{fcstd_path} ({fcstd_path.stat().st_size} bytes)"
 
     solids = preview.get_solids()
     print(f"envelope_diameter={HOUSING_OUTER_RADIUS * 2.0:.1f}")
@@ -104,8 +119,9 @@ def main() -> None:
     print(f"graph_nodes={len(payload['graph']['nodes'])}")
     print(f"model={model_path}")
     print(f"session={session_path}")
-    print(f"step={step_path}")
+    print(f"step={step_report.output_path}")
     print(f"fcstd={fcstd_status}")
+    print(f"product_package={package_path}")
 
 
 if __name__ == "__main__":

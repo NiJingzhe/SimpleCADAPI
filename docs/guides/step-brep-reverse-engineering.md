@@ -10,8 +10,8 @@ src/simplecadapi/inspect/brep/
 
 All of these functions are diagnostic APIs, not modeling
 operations: they do not record graph nodes and must not run inside a
-`GraphSession` or `@model` modeling script. Export or obtain the geometry
-under test first, then call them outside the modeling script:
+`GraphSession`. Export or obtain the geometry under test first, then call them
+outside the modeling script:
 
 ```python
 from simplecadapi.inspect import brep

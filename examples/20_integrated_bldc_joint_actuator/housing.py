@@ -6,12 +6,15 @@ import simplecadapi as scad
 
 try:
     from .common import (
+        PART_INPUTS,
+        CACHE,
         apply_tags,
         make_annulus_rsolid,
         make_axis_part_rpart,
         make_axial_hole_cutters_rsolids,
         radial_centers,
     )
+    from .materials import make_actuator_material_rmaterial
     from .dimensions import (
         FRONT_MOTOR_BEARING,
         FRONT_MOTOR_BEARING_CENTER_Z,
@@ -54,12 +57,15 @@ try:
     )
 except ImportError:  # Support direct execution from this example directory.
     from common import (
+        PART_INPUTS,
+        CACHE,
         apply_tags,
         make_annulus_rsolid,
         make_axial_hole_cutters_rsolids,
         make_axis_part_rpart,
         radial_centers,
     )
+    from materials import make_actuator_material_rmaterial
     from dimensions import (
         FRONT_MOTOR_BEARING,
         FRONT_MOTOR_BEARING_CENTER_Z,
@@ -102,7 +108,6 @@ except ImportError:  # Support direct execution from this example directory.
     )
 
 
-@scad.requires_session
 def make_motor_shell_rpart(*, material: scad.Material) -> scad.Part:
     """Create the stator sleeve, front attachment land, and rear columns."""
 
@@ -170,19 +175,30 @@ def make_motor_shell_rpart(*, material: scad.Material) -> scad.Part:
         name="50 mm BLDC motor shell with rear structural columns",
         material=material,
         connectors=(
-            ("reducer_mount_axis", (0.0, 0.0, MOTOR_SHELL_TOP_Z), "Six-screw reducer mount"),
+            (
+                "reducer_mount_axis",
+                (0.0, 0.0, MOTOR_SHELL_TOP_Z),
+                "Six-screw reducer mount",
+            ),
             (
                 "stator_axis",
                 (0.0, 0.0, (MOTOR_STATOR_BOTTOM_Z + MOTOR_STATOR_TOP_Z) / 2.0),
                 "Stator thermal press-fit axis",
             ),
-            ("rear_spider_axis", (0.0, 0.0, REAR_SPIDER_BOTTOM_Z), "Rear bearing spider mount"),
-            ("rear_cover_axis", (0.0, 0.0, MOTOR_SHELL_BOTTOM_Z), "Rear electronics cover mount"),
+            (
+                "rear_spider_axis",
+                (0.0, 0.0, REAR_SPIDER_BOTTOM_Z),
+                "Rear bearing spider mount",
+            ),
+            (
+                "rear_cover_axis",
+                (0.0, 0.0, MOTOR_SHELL_BOTTOM_Z),
+                "Rear electronics cover mount",
+            ),
         ),
     )
 
 
-@scad.requires_session
 def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
     """Create the reducer sleeve and front motor-bearing bulkhead."""
 
@@ -248,7 +264,11 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
     )
     housing = apply_tags(
         shape=housing,
-        tags=("role.fixed_reducer_housing", "role.ring_gear_press_fit", "group.integrated_bldc_actuator"),
+        tags=(
+            "role.fixed_reducer_housing",
+            "role.ring_gear_press_fit",
+            "group.integrated_bldc_actuator",
+        ),
     )
     print(
         f"reducer_housing: bore_d={REDUCER_HOUSING_INNER_RADIUS * 2.0:.2f} "
@@ -262,24 +282,47 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
         name="50 mm reducer housing with motor bearing bulkhead",
         material=material,
         connectors=(
-            ("motor_mount_axis", (0.0, 0.0, MOTOR_SHELL_TOP_Z), "Motor shell six-screw interface"),
-            ("front_motor_bearing_axis", (0.0, 0.0, FRONT_MOTOR_BEARING_CENTER_Z), "Front motor bearing seat"),
+            (
+                "motor_mount_axis",
+                (0.0, 0.0, MOTOR_SHELL_TOP_Z),
+                "Motor shell six-screw interface",
+            ),
+            (
+                "front_motor_bearing_axis",
+                (0.0, 0.0, FRONT_MOTOR_BEARING_CENTER_Z),
+                "Front motor bearing seat",
+            ),
             ("stage1_ring_axis", (0.0, 0.0, STAGE_1.mid_z), "Stage 1 fixed ring seat"),
-            ("stage1_carrier_axis", (0.0, 0.0, INTERSTAGE_BEARING_CENTER_Z), "Stage 1 carrier axis"),
-            ("interstage_bearing_axis", (0.0, 0.0, INTERSTAGE_BEARING_CENTER_Z), "Interstage bearing outer seat"),
+            (
+                "stage1_carrier_axis",
+                (0.0, 0.0, INTERSTAGE_BEARING_CENTER_Z),
+                "Stage 1 carrier axis",
+            ),
+            (
+                "interstage_bearing_axis",
+                (0.0, 0.0, INTERSTAGE_BEARING_CENTER_Z),
+                "Interstage bearing outer seat",
+            ),
             ("stage2_ring_axis", (0.0, 0.0, STAGE_2.mid_z), "Stage 2 fixed ring seat"),
-            ("stage2_carrier_axis", (0.0, 0.0, STAGE2_CARRIER_BOTTOM_Z + 1.50), "Output carrier axis"),
+            (
+                "stage2_carrier_axis",
+                (0.0, 0.0, STAGE2_CARRIER_BOTTOM_Z + 1.50),
+                "Output carrier axis",
+            ),
             (
                 "case_clamp_axis",
                 (0.0, 0.0, OUTPUT_CASE_CLAMP_CENTER_Z),
                 "External split-clamp datum on reducer sleeve",
             ),
-            ("output_cap_axis", (0.0, 0.0, REDUCER_HOUSING_FRONT_Z), "Output bearing cap interface"),
+            (
+                "output_cap_axis",
+                (0.0, 0.0, REDUCER_HOUSING_FRONT_Z),
+                "Output bearing cap interface",
+            ),
         ),
     )
 
 
-@scad.requires_session
 def make_rear_bearing_spider_rpart(*, material: scad.Material) -> scad.Part:
     """Create a four-arm removable rear motor-bearing support."""
 
@@ -344,13 +387,20 @@ def make_rear_bearing_spider_rpart(*, material: scad.Material) -> scad.Part:
         name="Four-arm removable rear motor-bearing spider",
         material=material,
         connectors=(
-            ("shell_axis", (0.0, 0.0, REAR_SPIDER_BOTTOM_Z), "Motor shell column interface"),
-            ("bearing_axis", (0.0, 0.0, REAR_BEARING_CENTER_Z), "Rear motor bearing outer seat"),
+            (
+                "shell_axis",
+                (0.0, 0.0, REAR_SPIDER_BOTTOM_Z),
+                "Motor shell column interface",
+            ),
+            (
+                "bearing_axis",
+                (0.0, 0.0, REAR_BEARING_CENTER_Z),
+                "Rear motor bearing outer seat",
+            ),
         ),
     )
 
 
-@scad.requires_session
 def make_rear_electronics_cover_rpart(*, material: scad.Material) -> scad.Part:
     """Create the rear cover with PCB standoffs and terminal apertures."""
 
@@ -372,7 +422,11 @@ def make_rear_electronics_cover_rpart(*, material: scad.Material) -> scad.Part:
             scad.make_cylinder_rsolid(
                 radius=2.4,
                 height=PCB_BOTTOM_Z - REAR_COVER_BOTTOM_Z - REAR_COVER_THICKNESS + 0.1,
-                bottom_face_center=(center[0], center[1], REAR_COVER_BOTTOM_Z + REAR_COVER_THICKNESS - 0.1),
+                bottom_face_center=(
+                    center[0],
+                    center[1],
+                    REAR_COVER_BOTTOM_Z + REAR_COVER_THICKNESS - 0.1,
+                ),
                 axis=(0.0, 0.0, 1.0),
                 tag_prefix=f"housing.rear.cover.pcb.standoff{index + 1}",
                 result_tag=f"feature.housing.rear.cover.pcb.standoff{index + 1}",
@@ -429,24 +483,45 @@ def make_rear_electronics_cover_rpart(*, material: scad.Material) -> scad.Part:
     )
     cover = apply_tags(
         shape=cover,
-        tags=("role.rear_electronics_cover", "role.terminal_access", "group.integrated_bldc_actuator"),
+        tags=(
+            "role.rear_electronics_cover",
+            "role.terminal_access",
+            "group.integrated_bldc_actuator",
+        ),
     )
-    print("rear_cover_access: phase_opening=9.2x7.2 power_can_opening=9.2x7.2 pcb_holes=4")
+    print(
+        "rear_cover_access: phase_opening=9.2x7.2 power_can_opening=9.2x7.2 pcb_holes=4"
+    )
     return make_axis_part_rpart(
         part_id="rear_electronics_cover",
         body=cover,
         name="Rear electronics cover with terminal access",
         material=material,
         connectors=(
-            ("shell_axis", (0.0, 0.0, MOTOR_SHELL_BOTTOM_Z), "Four-screw motor shell interface"),
-            ("pcb_axis", (0.0, 0.0, PCB_BOTTOM_Z + 0.8), "Controller PCB mounting plane"),
-            ("phase_access", (-11.0, 0.0, REAR_COVER_BOTTOM_Z), "Three-phase terminal access"),
-            ("power_can_access", (11.0, 0.0, REAR_COVER_BOTTOM_Z), "Power and CAN terminal access"),
+            (
+                "shell_axis",
+                (0.0, 0.0, MOTOR_SHELL_BOTTOM_Z),
+                "Four-screw motor shell interface",
+            ),
+            (
+                "pcb_axis",
+                (0.0, 0.0, PCB_BOTTOM_Z + 0.8),
+                "Controller PCB mounting plane",
+            ),
+            (
+                "phase_access",
+                (-11.0, 0.0, REAR_COVER_BOTTOM_Z),
+                "Three-phase terminal access",
+            ),
+            (
+                "power_can_access",
+                (11.0, 0.0, REAR_COVER_BOTTOM_Z),
+                "Power and CAN terminal access",
+            ),
         ),
     )
 
 
-@scad.requires_session
 def make_output_bearing_cap_rpart(*, material: scad.Material) -> scad.Part:
     """Create the removable paired-bearing cartridge and front cap."""
 
@@ -483,7 +558,9 @@ def make_output_bearing_cap_rpart(*, material: scad.Material) -> scad.Part:
         tag_prefix="housing.output.cap.labyrinth.lip",
         tags=("role.output_labyrinth_lip",),
     )
-    cap = scad.union_rsolid(rear_flange, cartridge, bearing_retainer, outer_lip, glue=False)
+    cap = scad.union_rsolid(
+        rear_flange, cartridge, bearing_retainer, outer_lip, glue=False
+    )
     cap = scad.cut_rsolid(
         cap,
         make_axial_hole_cutters_rsolids(
@@ -510,9 +587,80 @@ def make_output_bearing_cap_rpart(*, material: scad.Material) -> scad.Part:
         name="Paired output-bearing cartridge and removable cap",
         material=material,
         connectors=(
-            ("housing_axis", (0.0, 0.0, OUTPUT_CAP_BOTTOM_Z), "Six-screw housing interface"),
-            ("bearing_1_axis", (0.0, 0.0, OUTPUT_BEARING_1_CENTER_Z), "Rear output bearing seat"),
-            ("bearing_2_axis", (0.0, 0.0, OUTPUT_BEARING_2_CENTER_Z), "Front output bearing seat"),
-            ("case_mount_axis", (0.0, 0.0, OUTPUT_CAP_TOP_Z), "Fixed actuator case datum"),
+            (
+                "housing_axis",
+                (0.0, 0.0, OUTPUT_CAP_BOTTOM_Z),
+                "Six-screw housing interface",
+            ),
+            (
+                "bearing_1_axis",
+                (0.0, 0.0, OUTPUT_BEARING_1_CENTER_Z),
+                "Rear output bearing seat",
+            ),
+            (
+                "bearing_2_axis",
+                (0.0, 0.0, OUTPUT_BEARING_2_CENTER_Z),
+                "Front output bearing seat",
+            ),
+            (
+                "case_mount_axis",
+                (0.0, 0.0, OUTPUT_CAP_TOP_Z),
+                "Fixed actuator case datum",
+            ),
         ),
+    )
+
+
+@scad.part(
+    id="motor_shell",
+    inputs=PART_INPUTS,
+    cache=CACHE,
+)
+def build_motor_shell_part() -> scad.Part:
+    return make_motor_shell_rpart(
+        material=make_actuator_material_rmaterial(key="housing")
+    )
+
+
+@scad.part(
+    id="reducer_housing",
+    inputs=PART_INPUTS,
+    cache=CACHE,
+)
+def build_reducer_housing_part() -> scad.Part:
+    return make_reducer_housing_rpart(
+        material=make_actuator_material_rmaterial(key="housing")
+    )
+
+
+@scad.part(
+    id="rear_bearing_spider",
+    inputs=PART_INPUTS,
+    cache=CACHE,
+)
+def build_rear_bearing_spider_part() -> scad.Part:
+    return make_rear_bearing_spider_rpart(
+        material=make_actuator_material_rmaterial(key="carrier")
+    )
+
+
+@scad.part(
+    id="rear_electronics_cover",
+    inputs=PART_INPUTS,
+    cache=CACHE,
+)
+def build_rear_electronics_cover_part() -> scad.Part:
+    return make_rear_electronics_cover_rpart(
+        material=make_actuator_material_rmaterial(key="housing")
+    )
+
+
+@scad.part(
+    id="output_bearing_cap",
+    inputs=PART_INPUTS,
+    cache=CACHE,
+)
+def build_output_bearing_cap_part() -> scad.Part:
+    return make_output_bearing_cap_rpart(
+        material=make_actuator_material_rmaterial(key="carrier")
     )

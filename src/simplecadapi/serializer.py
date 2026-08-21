@@ -24,7 +24,7 @@ import math
 from contextlib import nullcontext
 from pathlib import Path
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
 from .errors import raise_harness_error
 
@@ -47,16 +47,13 @@ from .graph import (
 )
 from .ql import output_role, selector_from_dict
 from .sketch import Sketch
-from .product import (
-    Assembly,
-    Connector,
-    ConnectorRef,
-    GeometryRef,
-    Material,
-    Part,
-    Placement,
-    ScalarLimit,
-)
+from .assembly import Assembly, _restore_component_occurrence_placements
+from .assembly_solver import constraint_reports_match
+from .connector import Connector, ConnectorRef, GeometryRef
+from .constraint import ScalarLimit
+from .material import Material
+from .part import Part
+from .placement import Placement
 from .topology import (
     GRAPH_SCHEMA_VERSION,
     OperationGraph,
@@ -74,7 +71,6 @@ from .kernel.ocp_properties import bounding_box
 MODEL_SCHEMA_VERSION = "2.0"
 CANONICAL_CONTRACT_VERSION = "2.1"
 SUPPORTED_CANONICAL_CONTRACT_VERSIONS = {"2.0", CANONICAL_CONTRACT_VERSION}
-
 
 PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     # Core geometry ops that are recorded and replayable
@@ -270,13 +266,9 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "op": "make_placement_connector_rconnector",
     },
     "add_connector_rpart": {"status": "replayable", "op": "make_add_connector_rpart"},
-    "add_connector_rassembly": {
+    "set_public_connector_rassembly": {
         "status": "replayable",
-        "op": "make_add_connector_rassembly",
-    },
-    "forward_connector_rassembly": {
-        "status": "replayable",
-        "op": "make_forward_connector_rassembly",
+        "op": "make_set_public_connector_rassembly",
     },
     "make_connector_ref_rconnectorref": {
         "status": "replayable",
@@ -545,6 +537,7 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_part_rpart",
     "make_assign_material_rpart",
     "make_assembly_rassembly",
+    "reference_definition",
     "make_add_component_rassembly",
     "make_place_component_rassembly",
     "make_compound_from_assembly_rcompound",
@@ -553,8 +546,7 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_vertex_connector_rconnector",
     "make_placement_connector_rconnector",
     "make_add_connector_rpart",
-    "make_add_connector_rassembly",
-    "make_forward_connector_rassembly",
+    "make_set_public_connector_rassembly",
     "make_connector_ref_rconnectorref",
     "make_scalar_limit_rscalarlimit",
     "make_ground_component_rassembly",
@@ -566,6 +558,7 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_belt_constraint_rassembly",
     "make_rack_pinion_constraint_rassembly",
     "make_solve_assembly_constraints_rassembly",
+    "evaluate_assembly_definition",
     "make_extrude_rsolid",
     "make_revolve_rsolid",
     "make_loft_rsolid",
@@ -2418,6 +2411,7 @@ def _execute_graph(
     leaf_node_ids: Optional[Sequence[str]] = None,
     *,
     strict: bool = True,
+    external_definitions: Mapping[str, Part | Assembly] | None = None,
 ) -> List[Any]:
     ctx = _ReplayContext(strict=strict)
     if graph.node_count == 0:
@@ -2473,6 +2467,134 @@ def _execute_graph(
 
             try:
                 with context_manager:
+                    if op_name == "reference_definition":
+                        ctx.require_params(
+                            node.node_id,
+                            op_name,
+                            params,
+                            (
+                                "definition_kind",
+                                "definition_id",
+                                "revision",
+                                "content_hash",
+                            ),
+                        )
+                        definition_id = str(params["definition_id"])
+                        value = (external_definitions or {}).get(definition_id)
+                        if value is None:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) cannot resolve definition {definition_id!r}"
+                            )
+                        expected_kind = (
+                            "single_solid" if isinstance(value, Part) else "assembly"
+                        )
+                        actual_id = (
+                            value.part_id
+                            if isinstance(value, Part)
+                            else value.assembly_id
+                        )
+                        if (
+                            actual_id != definition_id
+                            or expected_kind != params["definition_kind"]
+                            or value._get_runtime("definition.content_hash")
+                            != params["content_hash"]
+                        ):
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) resolved definition identity differs"
+                            )
+                        _store_semantic_outputs(node, value)
+                        continue
+
+                    if op_name == "evaluate_assembly_definition":
+                        ctx.require_params(
+                            node.node_id,
+                            op_name,
+                            params,
+                            (
+                                "solver_profile",
+                                "component_placements",
+                                "constraint_report",
+                            ),
+                        )
+                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
+                        if assembly_outputs:
+                            authored = cast(Assembly, assembly_outputs[0])
+                            placements = params["component_placements"]
+                            if not isinstance(placements, list):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) component_placements must be an array"
+                                )
+                            by_id: dict[str, Mapping[str, Any]] = {}
+                            for item in placements:
+                                if not isinstance(item, dict) or set(item) != {
+                                    "instance_id",
+                                    "placement",
+                                }:
+                                    ctx.fail(
+                                        f"Graph node '{node.node_id}' ({op_name}) has invalid placement record"
+                                    )
+                                instance_id = str(item["instance_id"])
+                                if instance_id in by_id or not isinstance(
+                                    item["placement"], Mapping
+                                ):
+                                    ctx.fail(
+                                        f"Graph node '{node.node_id}' ({op_name}) has invalid placement record"
+                                    )
+                                by_id[instance_id] = item["placement"]
+                            if set(by_id) != set(authored.component_ids()):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) placement ids differ from the assembly"
+                                )
+                            authored_placements = authored._get_runtime(
+                                "assembly.authored_component_placements"
+                            )
+                            if authored_placements is None:
+                                authored_placements = {
+                                    component.component_id: component.placement.to_dict()
+                                    for component in authored.components
+                                }
+                            occurrence_placements = params.get("occurrence_placements")
+                            if occurrence_placements is not None:
+                                if not isinstance(occurrence_placements, list):
+                                    ctx.fail(
+                                        f"Graph node '{node.node_id}' ({op_name}) occurrence_placements must be an array"
+                                    )
+                                result = _restore_component_occurrence_placements(
+                                    authored,
+                                    occurrence_placements,
+                                )
+                                if any(
+                                    result.get_component(
+                                        component_id
+                                    ).placement.to_dict()
+                                    != dict(by_id[component_id])
+                                    for component_id in authored.component_ids()
+                                ):
+                                    ctx.fail(
+                                        f"Graph node '{node.node_id}' ({op_name}) top-level and occurrence placements differ"
+                                    )
+                            else:
+                                result = authored
+                                for component_id in authored.component_ids():
+                                    result = result.with_component_placement(
+                                        component_id,
+                                        Placement(**dict(by_id[component_id])),
+                                    )
+                            report = ops.inspect_assembly_constraints_rconstraintreport(
+                                assembly=result
+                            )
+                            if not constraint_reports_match(
+                                report.to_dict(), params["constraint_report"]
+                            ):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) residual report differs"
+                                )
+                            result._set_runtime(
+                                "assembly.authored_component_placements",
+                                authored_placements,
+                            )
+                            _store_semantic_outputs(node, result)
+                        continue
                     if op_name == "apply_tag_rselection":
                         ctx.require_params(
                             node.node_id, op_name, params, ("tag_binding",)
@@ -2821,17 +2943,31 @@ def _execute_graph(
 
                     if op_name == "make_add_component_rassembly":
                         ctx.require_params(
-                            node.node_id, op_name, params, ("component_id",)
+                            node.node_id,
+                            op_name,
+                            params,
+                            ("component_id",),
                         )
                         assembly_outputs = _input_outputs(ctx, outputs, node, 0)
                         item_outputs = _input_outputs(ctx, outputs, node, 1)
-                        placement_outputs = _input_outputs(ctx, outputs, node, 2)
-                        if assembly_outputs and item_outputs and placement_outputs:
+                        placement = None
+                        if len(node.inputs) > 2:
+                            placement_outputs = _input_outputs(ctx, outputs, node, 2)
+                            if placement_outputs:
+                                placement = cast(Placement, placement_outputs[0])
+                        if placement is None:
+                            raw_placement = params.get("placement")
+                            if not isinstance(raw_placement, Mapping):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) is missing placement data"
+                                )
+                            placement = Placement(**dict(raw_placement))
+                        if assembly_outputs and item_outputs:
                             result = ops.add_component_rassembly(
                                 cast(Assembly, assembly_outputs[0]),
                                 cast(Any, item_outputs[0]),
                                 component_id=str(params["component_id"]),
-                                placement=cast(Placement, placement_outputs[0]),
+                                placement=placement,
                                 name=cast(Optional[str], params.get("name")),
                             )
                             _store_outputs(node, result)
@@ -2839,15 +2975,29 @@ def _execute_graph(
 
                     if op_name == "make_place_component_rassembly":
                         ctx.require_params(
-                            node.node_id, op_name, params, ("component_id",)
+                            node.node_id,
+                            op_name,
+                            params,
+                            ("component_id",),
                         )
                         assembly_outputs = _input_outputs(ctx, outputs, node, 0)
-                        placement_outputs = _input_outputs(ctx, outputs, node, 1)
-                        if assembly_outputs and placement_outputs:
+                        placement = None
+                        if len(node.inputs) > 1:
+                            placement_outputs = _input_outputs(ctx, outputs, node, 1)
+                            if placement_outputs:
+                                placement = cast(Placement, placement_outputs[0])
+                        if placement is None:
+                            raw_placement = params.get("placement")
+                            if not isinstance(raw_placement, Mapping):
+                                ctx.fail(
+                                    f"Graph node '{node.node_id}' ({op_name}) is missing placement data"
+                                )
+                            placement = Placement(**dict(raw_placement))
+                        if assembly_outputs:
                             result = ops.place_component_rassembly(
                                 cast(Assembly, assembly_outputs[0]),
                                 str(params["component_id"]),
-                                cast(Placement, placement_outputs[0]),
+                                placement,
                             )
                             _store_outputs(node, result)
                         continue
@@ -2944,66 +3094,48 @@ def _execute_graph(
                             _store_outputs(node, result)
                         continue
 
-                    if op_name == "make_add_connector_rassembly":
-                        assembly_outputs = _input_outputs(ctx, outputs, node, 0)
-                        connector_outputs = _input_outputs(ctx, outputs, node, 1)
-                        if assembly_outputs and connector_outputs:
-                            result = ops.add_connector_rassembly(
-                                cast(Assembly, assembly_outputs[0]),
-                                cast(Connector, connector_outputs[0]),
+                    if op_name == "make_set_public_connector_rassembly":
+                        allowed_params = {
+                            "assembly_id",
+                            "public_connector_id",
+                            "source_component_id",
+                            "source_connector_id",
+                            "name",
+                        }
+                        unexpected = sorted(set(params) - allowed_params)
+                        if unexpected:
+                            ctx.fail(
+                                f"Graph node '{node.node_id}' ({op_name}) contains unsupported parameter(s): "
+                                + ", ".join(unexpected)
                             )
-                            _store_outputs(node, result)
-                        continue
-
-                    if op_name == "make_forward_connector_rassembly":
                         ctx.require_params(
                             node.node_id,
                             op_name,
                             params,
                             (
-                                "connector_id",
+                                "public_connector_id",
                                 "source_component_id",
                                 "source_connector_id",
                             ),
                         )
                         assembly_outputs = _input_outputs(ctx, outputs, node, 0)
-                        offset_outputs = (
-                            _input_outputs(ctx, outputs, node, 1)
-                            if len(node.inputs) > 1
-                            else []
-                        )
-                        offset = (
-                            cast(Optional[Placement], offset_outputs[0])
-                            if offset_outputs
-                            else None
-                        )
-                        if offset is None and isinstance(params.get("offset"), dict):
-                            offset_data = cast(Dict[str, Any], params["offset"])
-                            offset = Placement(
-                                cast(
-                                    Any,
-                                    tuple(offset_data.get("origin", (0.0, 0.0, 0.0))),
-                                ),
-                                x_axis=cast(
-                                    Any,
-                                    tuple(offset_data.get("x_axis", (1.0, 0.0, 0.0))),
-                                ),
-                                y_axis=cast(
-                                    Any,
-                                    tuple(offset_data.get("y_axis", (0.0, 1.0, 0.0))),
-                                ),
-                            )
                         if assembly_outputs:
-                            result = ops.forward_connector_rassembly(
-                                cast(Assembly, assembly_outputs[0]),
-                                str(params["connector_id"]),
-                                str(params["source_component_id"]),
-                                str(params["source_connector_id"]),
+                            result = ops.set_public_connector_rassembly(
+                                assembly=cast(Assembly, assembly_outputs[0]),
+                                public_connector_id=str(
+                                    params["public_connector_id"]
+                                ),
+                                source_component_id=str(
+                                    params["source_component_id"]
+                                ),
+                                source_connector_id=str(
+                                    params["source_connector_id"]
+                                ),
                                 name=cast(Optional[str], params.get("name")),
-                                offset=offset,
                             )
                             _store_outputs(node, result)
                         continue
+
 
                     if op_name == "make_connector_ref_rconnectorref":
                         ctx.require_params(
@@ -3946,6 +4078,51 @@ def _execute_graph(
         leaf_results.extend(outputs[node_id])
 
     return leaf_results
+
+
+def replay_feature_graph(
+    artifact: Any,
+    *,
+    strict: bool = True,
+    external_definitions: Mapping[str, Any] | None = None,
+) -> List[Any]:
+    """Replay a durable FeatureGraphArtifact with immutable child definitions."""
+
+    from .artifacts.assembly_definition import AssemblyDefinition
+    from .artifacts.assembly_io import materialize_definition
+    from .artifacts.feature_graph import FeatureGraphArtifact
+    from .artifacts.part_definition import PartDefinition
+
+    if not isinstance(artifact, FeatureGraphArtifact):
+        raise TypeError("artifact must be a FeatureGraphArtifact")
+    provided = dict(external_definitions or {})
+    expected = {
+        str(item["definition_id"]): item for item in artifact.external_definitions
+    }
+    if set(provided) != set(expected):
+        raise ValueError("external definition resolver keys differ from feature graph")
+    runtime: Dict[str, Part | Assembly] = {}
+    for definition_id, record in expected.items():
+        definition = provided[definition_id]
+        if not isinstance(definition, (PartDefinition, AssemblyDefinition)):
+            raise TypeError("external resolver values must be durable definitions")
+        actual = {
+            "definition_kind": definition.definition_kind,
+            "definition_id": definition.definition_id,
+            "revision": definition.revision,
+            "content_hash": definition.content_hash,
+        }
+        if actual != dict(record):
+            raise ValueError(
+                f"external definition {definition_id!r} identity differs from feature graph"
+            )
+        runtime[definition_id] = materialize_definition(definition)
+    return _execute_graph(
+        OperationGraph.from_dict(dict(artifact.graph)),
+        artifact.result_node_ids,
+        strict=strict,
+        external_definitions=runtime,
+    )
 
 
 def replay_graph(graph: OperationGraph, *, strict: bool = True) -> List[Any]:

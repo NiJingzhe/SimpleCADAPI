@@ -951,7 +951,7 @@ def _record_indexed_topology_selection(source: Any, selected_shapes: Iterable[An
     if not shapes:
         return
     try:
-        from .operations import _ensure_geo_selection_node_ids
+        from ._operation_support import _ensure_geo_selection_node_ids
 
         _ensure_geo_selection_node_ids(cast(AnyShape, source), cast(List[AnyShape], shapes))
     except Exception:
@@ -1178,12 +1178,14 @@ class Face(TaggedMixin, TopoMixein):
             outer_wire = Wire(outer_wire_of(self.wrapped), cache=self._topology_cache)
             outer_wire._apply_tag("wire.outer", propagate=False)
             self.add_child(outer_wire)
+            outer_wire._entity.incident_face_ids.add(self.topo_id)
             for edge in outer_wire.get_edges():
                 edge._entity.incident_face_ids.add(self.topo_id)
             for wire in inner_wires_of(self.wrapped):
                 inner = Wire(wire, cache=self._topology_cache)
                 inner._apply_tag("wire.inner", propagate=False)
                 self.add_child(inner)
+                inner._entity.incident_face_ids.add(self.topo_id)
                 for edge in inner.get_edges():
                     edge._entity.incident_face_ids.add(self.topo_id)
         except Exception as e:

@@ -1,97 +1,107 @@
-"""Host-independent tests for the SolidWorks translator backend."""
+"""Host-independent tests for the SolidWorks product translator."""
 
 from __future__ import annotations
 
+import ast
 import importlib
+from pathlib import Path
 import sys
-import unittest
 
-import simplecadapi as scad
-from simplecadapi import GraphSession
-from simplecadapi.translator.errors import TranslationRequestError
+from test_product_exporter import _build_nested_package
 
 
-def _rectangle_extrusion_model() -> str:
-    with GraphSession() as session:
-        profile = scad.make_rectangle_rface(width=2.0, height=1.0)
-        scad.extrude_rsolid(
-            profile=profile,
-            direction=(0.0, 0.0, 1.0),
-            distance=3.0,
+def _model_payload(script: str) -> dict:
+    module = ast.parse(script)
+    return next(
+        ast.literal_eval(node.value)
+        for node in module.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "MODEL_PAYLOAD"
+            for target in node.targets
         )
-    return scad.export_model_json(session=session)
+    )
 
 
-class TestSolidWorksTranslator(unittest.TestCase):
-    def test_backend_imports_without_target_runtime_modules(self):
-        before = set(sys.modules)
+def test_backend_imports_without_target_runtime_modules() -> None:
+    before = set(sys.modules)
 
-        solidworks = importlib.import_module(
-            "simplecadapi.translator.solidworks_translator"
-        )
+    solidworks = importlib.import_module(
+        "simplecadapi.translator.solidworks_translator"
+    )
 
-        self.assertNotIn("pythoncom", set(sys.modules) - before)
-        self.assertNotIn("win32com.client", set(sys.modules) - before)
-        self.assertEqual(solidworks.CAPABILITIES.backend_id, "solidworks")
-
-    def test_supported_graph_emits_deterministic_compilable_script(self):
-        model_json = _rectangle_extrusion_model()
-        from simplecadapi.translator.solidworks_translator import SolidWorksTranslator
-
-        translator = SolidWorksTranslator(document_name="ContractSolidWorks")
-        first = translator.translate_model_json(model_json)
-        second = translator.translate_model_json(model_json)
-
-        self.assertEqual(first.content, second.content)
-        compile(first.content, "<solidworks-script>", "exec")
-        self.assertFalse(first.metadata["target_runtime_validated"])
-        self.assertTrue(translator.capabilities.targets[0].requires_external_runtime)
-
-    def test_fallback_scripts_are_deterministic(self):
-        with GraphSession() as session:
-            profile = scad.make_rectangle_rface(3.0, 3.0)
-            solid = scad.extrude_rsolid(profile, (0.0, 0.0, 1.0), 3.0)
-            scad.fillet_rsolid(solid, [solid.get_edges(0)], 0.2)
-        model_json = scad.export_model_json(session)
-
-        from simplecadapi.translator.solidworks_translator import SolidWorksTranslator
-
-        translator = SolidWorksTranslator(source_kernel_fallback=True)
-        first = translator.translate_model_json(model_json).content
-        second = translator.translate_model_json(model_json).content
-
-        self.assertEqual(first, second)
-        compile(first, "<solidworks-fallback-script>", "exec")
-
-    def test_script_owns_com_and_only_its_created_document(self):
-        from simplecadapi.translator.solidworks_translator import SolidWorksTranslator
-
-        script = (
-            SolidWorksTranslator(visible=True)
-            .translate_model_json(_rectangle_extrusion_model())
-            .content
-        )
-
-        main_offset = script.index("def main():")
-        coinit_offset = script.index("pythoncom.CoInitialize()", main_offset)
-        runtime_offset = script.index(
-            "runtime = SimpleCADSolidWorksRuntime", main_offset
-        )
-        self.assertLess(coinit_offset, runtime_offset)
-        self.assertEqual(script.count("pythoncom.CoInitialize()"), 1)
-        self.assertIn("self.sw.CloseDoc(str(_maybe_call(self.model.GetTitle)))", script)
-        self.assertIn("if not self.visible:", script)
-        self.assertIn("self.sw.ExitApp()", script)
-
-    def test_unsupported_result_operation_is_rejected_before_host_execution(self):
-        with GraphSession() as session:
-            scad.make_box_rsolid(width=1.0, height=2.0, depth=3.0)
-
-        from simplecadapi.translator.solidworks_translator import SolidWorksTranslator
-
-        with self.assertRaises(TranslationRequestError):
-            SolidWorksTranslator().translate_model_json(scad.export_model_json(session))
+    assert "pythoncom" not in set(sys.modules) - before
+    assert "win32com.client" not in set(sys.modules) - before
+    assert solidworks.CAPABILITIES.backend_id == "solidworks"
+    assert solidworks.CAPABILITIES.input_schema_versions == ("product-package-2.0",)
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_nested_package_emits_deterministic_compilable_script(tmp_path: Path) -> None:
+    from simplecadapi.translator.solidworks_translator import SolidWorksTranslator
+
+    package = _build_nested_package(tmp_path)
+    translator = SolidWorksTranslator(document_name="ContractSolidWorks")
+    first = translator.translate_product_package(package)
+    second = translator.translate_product_package(package)
+
+    assert first.content == second.content
+    compile(first.content, "<solidworks-script>", "exec")
+    assert first.metadata["root_definition_id"] == "root"
+    assert first.metadata["root_definition_kind"] == "assembly"
+    assert first.metadata["definition_ids"] == ("linked", "child", "root")
+    assert first.metadata["target_runtime_validated"] is False
+    assert translator.capabilities.targets[0].requires_external_runtime
+
+
+def test_product_payload_resolves_references_and_keeps_solved_placements(
+    tmp_path: Path,
+) -> None:
+    from simplecadapi.translator.solidworks_translator import SolidWorksTranslator
+
+    script = SolidWorksTranslator().translate_product_package(
+        _build_nested_package(tmp_path)
+    ).content
+    payload = _model_payload(script)
+    operations = [node["op"] for node in payload["graph"]["nodes"]]
+    evaluations = [
+        node["params"]
+        for node in payload["graph"]["nodes"]
+        if node["op"] == "evaluate_assembly_definition"
+    ]
+
+    assert "reference_definition" not in operations
+    assert operations.count("make_box_rsolid") == 1
+    assert operations.count("evaluate_assembly_definition") == 2
+    assert evaluations[0]["constraint_report"]["solved"] is True
+
+
+def test_script_owns_com_and_contains_native_product_paths(tmp_path: Path) -> None:
+    from simplecadapi.translator.solidworks_translator import SolidWorksTranslator
+
+    script = SolidWorksTranslator(visible=True).translate_product_package(
+        _build_nested_package(tmp_path)
+    ).content
+
+    main_offset = script.index("def main():")
+    coinit_offset = script.index("pythoncom.CoInitialize()", main_offset)
+    runtime_offset = script.index(
+        "runtime = SimpleCADSolidWorksRuntime", main_offset
+    )
+    assert coinit_offset < runtime_offset
+    assert script.count("pythoncom.CoInitialize()") == 1
+    assert "self.sw.CloseDoc(str(_maybe_call(self.model.GetTitle)))" in script
+    assert "if not self.visible:" in script
+    assert "self.sw.ExitApp()" in script
+    assert "if op == 'make_box_rsolid':" in script
+    assert "self._extrude_profile(" in script
+    assert "if op == 'evaluate_assembly_definition':" in script
+    assert "_save_native_assembly" in script
+    assert "SimpleCADComponentMap" in script
+
+
+def test_public_surface_has_no_model_json_or_compiler_entrypoints() -> None:
+    from simplecadapi.translator import solidworks_translator as solidworks
+
+    assert "translate_product_package_to_solidworks_script" in solidworks.__all__
+    assert all("model_json" not in name for name in solidworks.__all__)
+    assert all("ScriptTranslator" not in name for name in solidworks.__all__)

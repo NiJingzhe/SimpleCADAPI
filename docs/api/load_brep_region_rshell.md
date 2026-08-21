@@ -6,7 +6,7 @@
 def load_brep_region_rshell(path: str | Path, sha256: str, *, tag_prefix: Optional[str] = None) -> Shell
 ```
 
-*Source: operations.py*
+*Source: _operators_geometry.py*
 
 ## Import Surface
 

@@ -10,7 +10,7 @@ def measure_entity_relation_rdescriptor(model_or_path: BRepModel | TopoDS_Shape 
 
 ## Import Surface
 
-- inspection namespace: `from simplecadapi.inspect import brep` then `brep.measure_entity_relation_rdescriptor(...)`; unavailable inside GraphSession/@model
+- inspection namespace: `from simplecadapi.inspect import brep` then `brep.measure_entity_relation_rdescriptor(...)`; unavailable inside GraphSession
 
 ## Description
 
