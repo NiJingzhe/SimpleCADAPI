@@ -6,10 +6,10 @@
 
 ## What this skill bundles
 
-- Skill instructions (`SKILL.md`)
-- Documentation references (`references/docs/`)
-- Generated core API docs (`references/docs/api/`) and standard-library docs (`references/docs/stdlib/`)
-- High-level SDK summaries (`references/*.md`)
+- Task router (`SKILL.md`) with six workflows
+- Capability domains (`references/domains/`)
+- Modeling discipline (`references/discipline/`)
+- Generated API/stdlib/core references (`references/docs/`)
 
 ## What this skill does not bundle
 

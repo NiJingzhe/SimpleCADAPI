@@ -6,7 +6,7 @@
 def add_bspline_rsketch(sketch: Sketch, entity_id: str, start: Union[SketchRef, str], end: Union[SketchRef, str], control_points: Sequence[Any], degree: int = 3, knots: Optional[Sequence[float]] = None, multiplicities: Optional[Sequence[int]] = None, weights: Optional[Sequence[float]] = None, periodic: bool = False, *, construction: bool = False) -> Sketch
 ```
 
-*Source: operations.py*
+*Source: _operators_sketch.py*
 
 ## Import Surface
 

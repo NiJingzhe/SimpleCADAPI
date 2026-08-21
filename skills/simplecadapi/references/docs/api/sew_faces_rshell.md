@@ -6,7 +6,7 @@
 def sew_faces_rshell(faces: Sequence[Face], *, tolerance: float = 1e-06, tag_prefix: Optional[str] = None) -> Shell
 ```
 
-*Source: operations.py*
+*Source: _operators_geometry.py*
 
 ## Import Surface
 

@@ -6,7 +6,7 @@
 def make_vertex_connector_rconnector(connector_id: str, vertex: Vertex, name: Optional[str] = None, flip: bool = False) -> Connector
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

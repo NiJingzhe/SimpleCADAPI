@@ -6,7 +6,7 @@
 def make_periodic_spline_rwire(*, points: Sequence[Sequence[ScalarLike]], tolerance: ScalarLike = 1e-06) -> Wire
 ```
 
-*Source: operations.py*
+*Source: _operators_geometry.py*
 
 ## Import Surface
 

@@ -14,4 +14,4 @@ class ProductPackage(manifest: Mapping[str, Any], objects: Mapping[str, bytes], 
 
 ## Description
 
-Validated package containing one root definition and its complete closure.
+Validated package containing definitions, shared blobs, and projections.

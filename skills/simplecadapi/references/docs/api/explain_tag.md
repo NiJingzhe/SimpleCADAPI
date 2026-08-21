@@ -6,7 +6,7 @@
 def explain_tag(shape: AnyShape, tag: str, scope: str | TagScope = TagScope.EFFECTIVE) -> List[Dict[str, Any]]
 ```
 
-*Source: operations.py*
+*Source: _operators_selection.py*
 
 ## Import Surface
 

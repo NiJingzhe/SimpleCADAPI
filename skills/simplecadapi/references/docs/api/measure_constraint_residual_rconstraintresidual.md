@@ -6,7 +6,7 @@
 def measure_constraint_residual_rconstraintresidual(assembly: Assembly, constraint_id: str) -> ConstraintResidual
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

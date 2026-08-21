@@ -16,10 +16,9 @@ def make_helical_ring_gear_rsolid(n_teeth: int, module: float, pressure_angle: f
 
 Create an internal helical ring gear.
 
-The outer rim is extruded directly. The internal tooth void is built as a
-small-step ruled loft through rotated copies of the internal profile, then
-subtracted from the rim. Ruled sections avoid smooth loft bulging in STEP
-exports while preserving stable section correspondence.
+The multi-loop ring face (outer rim plus internal tooth profile) is swept
+with one continuous twist along the axis, producing one continuous side
+face per profile edge per wire and no boolean subtraction.
 
 ## Parameters
 

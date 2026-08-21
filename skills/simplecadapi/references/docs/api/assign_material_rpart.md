@@ -6,7 +6,7 @@
 def assign_material_rpart(part: Part, material: Material) -> Part
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 
