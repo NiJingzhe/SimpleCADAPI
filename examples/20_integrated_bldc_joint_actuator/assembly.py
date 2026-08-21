@@ -8,14 +8,10 @@ import simplecadapi as scad
 
 try:
     from .bearings import (
-        build_bearing_ring_definitions,
         coaxial_bearing_placement,
-        make_coaxial_bearing_rplacement,
-        make_main_bearing_rassembly,
-        make_planet_bearing_rplacement,
-        make_standard_planet_bearing_rassembly,
         planet_bearing_placement,
     )
+    from .materials import make_actuator_material_rmaterial
     from .common import (
         CACHE,
         connector_ref,
@@ -90,14 +86,10 @@ try:
     )
 except ImportError:  # Support direct execution from this example directory.
     from bearings import (
-        build_bearing_ring_definitions,
         coaxial_bearing_placement,
-        make_coaxial_bearing_rplacement,
-        make_main_bearing_rassembly,
-        make_planet_bearing_rplacement,
-        make_standard_planet_bearing_rassembly,
         planet_bearing_placement,
     )
+    from materials import make_actuator_material_rmaterial
     from common import (
         CACHE,
         connector_ref,
@@ -752,6 +744,13 @@ def _add_bearing_constraints_rassembly(*, assembly: scad.Assembly) -> scad.Assem
             ),
             name=constraint_id.replace("_", " "),
         )
+
+    # Standard bearing topology (same as example 16): the nested bearing
+    # exposes public outer_axis/inner_axis over its own internal revolute,
+    # and the reducer fixes the outer ring into the planet seat and the
+    # inner ring onto the carrier pin. The bearing builder must return its
+    # assembly unsolved so the reducer-level solve keeps the internal
+    # revolute free to absorb the planet spin.
     for stage, carrier_component in (
         (STAGE_1, "stage1_carrier"),
         (STAGE_2, "output_carrier"),
@@ -789,80 +788,6 @@ def _stage_rplacement(*, stage: StageSpec) -> scad.Placement:
     return scad.make_placement_rplacement(origin=(0.0, 0.0, stage.bottom_z))
 
 
-def _build_bearing_definition(
-    *,
-    bearing_id: str,
-    spec: BearingSpec,
-) -> scad.AssemblyBuildResult:
-    outer, inner = build_bearing_ring_definitions(
-        bearing_id=bearing_id,
-        spec=spec,
-    )
-
-    @scad.assemble(
-        id=bearing_id,
-        definitions=(outer, inner),
-        cache=CACHE,
-    )
-    def build() -> scad.Assembly:
-        bearing = scad.make_assembly_rassembly(
-            assembly_id=bearing_id,
-            name=f"{bearing_id} fused rolling-element bearing",
-        )
-        identity = scad.identity_placement_rplacement()
-        bearing = scad.add_component_rassembly(
-            assembly=bearing,
-            item=outer.value,
-            component_id="outer_ring",
-            placement=identity,
-            name="Outer bearing ring with fused balls",
-        )
-        bearing = scad.add_component_rassembly(
-            assembly=bearing,
-            item=inner.value,
-            component_id="inner_ring",
-            placement=identity,
-            name="Inner bearing ring",
-        )
-        bearing = scad.ground_component_rassembly(
-            assembly=bearing,
-            component_id="outer_ring",
-        )
-        bearing = scad.add_revolute_constraint_rassembly(
-            assembly=bearing,
-            constraint_id="inner_outer_revolute",
-            connector_a=connector_ref(
-                component_id="outer_ring",
-                connector_id="axis",
-            ),
-            connector_b=connector_ref(
-                component_id="inner_ring",
-                connector_id="axis",
-            ),
-            drive_angle_degrees=None,
-            angle_limit=None,
-            name="Inner ring spins in outer ring",
-        )
-        bearing = scad.set_public_connector_rassembly(
-            assembly=bearing,
-            public_connector_id="outer_axis",
-            source_component_id="outer_ring",
-            source_connector_id="axis",
-            name="Outer ring housing axis",
-        )
-        bearing = scad.set_public_connector_rassembly(
-            assembly=bearing,
-            public_connector_id="inner_axis",
-            source_component_id="inner_ring",
-            source_connector_id="axis",
-            name="Inner ring shaft axis",
-        )
-        return scad.solve_assembly_constraints_rassembly(
-            assembly=bearing,
-            strict=True,
-        )
-
-    return build()
 
 
 def _build_stator_definition() -> scad.AssemblyBuildResult:
@@ -1141,25 +1066,59 @@ def build_integrated_bldc_joint_actuator() -> scad.AssemblyBuildResult:
     stage2_ring = build_stage2_fixed_ring_part()
     stage2_planet = build_stage2_reusable_planet_part()
     output_carrier = build_stage2_output_carrier_part()
-    rear_motor_bearing = _build_bearing_definition(
-        bearing_id="rear_motor_8x16x5",
-        spec=REAR_MOTOR_BEARING,
+    gear_material = make_actuator_material_rmaterial(key="gear")
+    bearing_kwargs = dict(
+        raceway_clearance=0.0,
+        edge_chamfer=0.0,
+        fuse_rolling_elements=True,
+        rolling_element_fuse_overlap=0.03,
+        material=gear_material,
+        cache=CACHE,
     )
-    front_motor_bearing = _build_bearing_definition(
-        bearing_id="front_motor_8x19x6",
-        spec=FRONT_MOTOR_BEARING,
+    rear_motor_bearing = scad.std.bearing.build_ball_bearing(
+        assembly_id="rear_motor_8x16x5",
+        bore_diameter=REAR_MOTOR_BEARING.bore_diameter,
+        outer_diameter=REAR_MOTOR_BEARING.outer_diameter,
+        bearing_width=REAR_MOTOR_BEARING.width,
+        ball_diameter=REAR_MOTOR_BEARING.ball_diameter,
+        ball_count=REAR_MOTOR_BEARING.ball_count,
+        **bearing_kwargs,
     )
-    interstage_bearing = _build_bearing_definition(
-        bearing_id="interstage_5x10x3",
-        spec=INTERSTAGE_BEARING,
+    front_motor_bearing = scad.std.bearing.build_ball_bearing(
+        assembly_id="front_motor_8x19x6",
+        bore_diameter=FRONT_MOTOR_BEARING.bore_diameter,
+        outer_diameter=FRONT_MOTOR_BEARING.outer_diameter,
+        bearing_width=FRONT_MOTOR_BEARING.width,
+        ball_diameter=FRONT_MOTOR_BEARING.ball_diameter,
+        ball_count=FRONT_MOTOR_BEARING.ball_count,
+        **bearing_kwargs,
     )
-    planet_bearing = _build_bearing_definition(
-        bearing_id="planet_3x6x3",
-        spec=PLANET_BEARING,
+    interstage_bearing = scad.std.bearing.build_ball_bearing(
+        assembly_id="interstage_5x10x3",
+        bore_diameter=INTERSTAGE_BEARING.bore_diameter,
+        outer_diameter=INTERSTAGE_BEARING.outer_diameter,
+        bearing_width=INTERSTAGE_BEARING.width,
+        ball_diameter=INTERSTAGE_BEARING.ball_diameter,
+        ball_count=INTERSTAGE_BEARING.ball_count,
+        **bearing_kwargs,
     )
-    output_bearing = _build_bearing_definition(
-        bearing_id="output_16x24x5",
-        spec=OUTPUT_BEARING,
+    planet_bearing = scad.std.bearing.build_ball_bearing(
+        assembly_id="planet_3x6x3",
+        bore_diameter=PLANET_BEARING.bore_diameter,
+        outer_diameter=PLANET_BEARING.outer_diameter,
+        bearing_width=PLANET_BEARING.width,
+        ball_diameter=PLANET_BEARING.ball_diameter,
+        ball_count=PLANET_BEARING.ball_count,
+        **bearing_kwargs,
+    )
+    output_bearing = scad.std.bearing.build_ball_bearing(
+        assembly_id="output_16x24x5",
+        bore_diameter=OUTPUT_BEARING.bore_diameter,
+        outer_diameter=OUTPUT_BEARING.outer_diameter,
+        bearing_width=OUTPUT_BEARING.width,
+        ball_diameter=OUTPUT_BEARING.ball_diameter,
+        ball_count=OUTPUT_BEARING.ball_count,
+        **bearing_kwargs,
     )
     definitions = (
         reducer_housing,
