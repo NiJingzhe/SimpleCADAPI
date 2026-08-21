@@ -6,7 +6,7 @@
 def make_part_rpart(part_id: str, body: Solid, name: Optional[str] = None) -> Part
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

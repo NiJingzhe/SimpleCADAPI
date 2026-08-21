@@ -6,7 +6,7 @@
 def extrude_rsolid(profile: Union[Wire, Face], direction: Tuple[float, float, float], distance: ScalarLike, *, tag_prefix: Optional[str] = None, result_tag: Optional[str] = None, start_face_tag: Optional[str] = None, end_face_tag: Optional[str] = None, side_faces_tag: Optional[str] = None) -> Solid
 ```
 
-*Source: operations.py*
+*Source: _operators_features.py*
 
 ## Import Surface
 

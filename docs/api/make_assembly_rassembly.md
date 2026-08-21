@@ -6,7 +6,7 @@
 def make_assembly_rassembly(assembly_id: str, name: Optional[str] = None) -> Assembly
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

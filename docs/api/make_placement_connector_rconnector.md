@@ -6,7 +6,7 @@
 def make_placement_connector_rconnector(connector_id: str, placement: Placement, name: Optional[str] = None) -> Connector
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

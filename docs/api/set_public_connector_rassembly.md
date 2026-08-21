@@ -6,7 +6,7 @@
 def set_public_connector_rassembly(assembly: Assembly, public_connector_id: str, source_component_id: str, source_connector_id: str, name: Optional[str] = None) -> Assembly
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

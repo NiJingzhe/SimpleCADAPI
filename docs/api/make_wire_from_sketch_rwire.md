@@ -6,7 +6,7 @@
 def make_wire_from_sketch_rwire(sketch: Sketch, profile: int | str = 0, *, require_fully_constrained: bool = False, strict: bool = True, tolerance: float = 1e-07, max_iterations: int = 80) -> Wire
 ```
 
-*Source: operations.py*
+*Source: _operators_sketch.py*
 
 ## Import Surface
 

@@ -6,7 +6,7 @@
 def make_edge_connector_rconnector(connector_id: str, edge: Edge, name: Optional[str] = None, flip: bool = False) -> Connector
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

@@ -6,7 +6,7 @@
 def make_polyline_rwire(points: List[Tuple[ScalarLike, ScalarLike, ScalarLike]], closed: bool = False) -> Wire
 ```
 
-*Source: operations.py*
+*Source: _operators_geometry.py*
 
 ## Import Surface
 

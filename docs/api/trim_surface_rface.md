@@ -6,7 +6,7 @@
 def trim_surface_rface(carrier: Face, outer: Wire, holes: Sequence[Wire] = (), *, tolerance: float = 1e-07, tag_prefix: Optional[str] = None) -> Face
 ```
 
-*Source: operations.py*
+*Source: _operators_geometry.py*
 
 ## Import Surface
 

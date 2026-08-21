@@ -6,7 +6,7 @@
 def make_sketch_rsketch(name: Optional[str] = None, *, plane: Any = 'XY', sketch_id: Optional[str] = None) -> Sketch
 ```
 
-*Source: operations.py*
+*Source: _operators_sketch.py*
 
 ## Import Surface
 

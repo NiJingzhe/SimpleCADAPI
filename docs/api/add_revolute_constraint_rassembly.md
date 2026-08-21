@@ -6,7 +6,7 @@
 def add_revolute_constraint_rassembly(assembly: Assembly, constraint_id: str, connector_a: ConnectorRef, connector_b: ConnectorRef, drive_angle_degrees: Optional[float] = None, angle_limit: Optional[ScalarLimit] = None, name: Optional[str] = None) -> Assembly
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

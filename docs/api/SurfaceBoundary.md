@@ -6,7 +6,7 @@
 class SurfaceBoundary(edge: Edge, continuity: str = 'C0', support: Optional[Face] = None)
 ```
 
-*Source: operations.py*
+*Source: _operators_geometry.py*
 
 ## Import Surface
 

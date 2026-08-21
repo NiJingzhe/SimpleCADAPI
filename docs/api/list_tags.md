@@ -6,7 +6,7 @@
 def list_tags(shape: AnyShape, scope: str | TagScope = TagScope.EFFECTIVE) -> List[str]
 ```
 
-*Source: operations.py*
+*Source: _operators_selection.py*
 
 ## Import Surface
 

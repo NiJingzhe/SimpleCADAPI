@@ -6,7 +6,7 @@
 def unground_component_rassembly(assembly: Assembly, component_id: str) -> Assembly
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 
