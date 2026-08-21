@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 import tempfile
 import xml.etree.ElementTree as ET
@@ -938,10 +939,11 @@ class TestProductExporter(unittest.TestCase):
         )
         self.assertEqual(report.joint_count, 2)
         self.assertEqual(report.equality_count, 1)
-        self.assertIn(
-            "joint/tree_support_fixture/driver_axis_redundant",
-            mapping["redundant_movable_joints"],
+        self.assertEqual(
+            [item["joint_id"] for item in mapping["closures"]],
+            ["joint/tree_support_fixture/driver_axis_redundant"],
         )
+        self.assertEqual(report.closure_count, 1)
         self.assertEqual(
             equality["coefficients"],
             {
@@ -950,10 +952,128 @@ class TestProductExporter(unittest.TestCase):
             },
         )
 
+    def test_mjcf_exporter_emits_closure_equality_for_kinematic_loop(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            cache = scad.CachePolicy(root=root / "cache")
+
+            def make_bar(part_id: str, length: float) -> scad.Part:
+                body = scad.make_box_rsolid(width=length, height=2.0, depth=2.0)
+                body = scad.translate_shape(body, vector=(length / 2.0, 0.0, -1.0))
+                part = scad.make_part_rpart(part_id=part_id, body=body)
+                part = scad.add_connector_rpart(
+                    part,
+                    scad.make_placement_connector_rconnector(
+                        "pivot_a", scad.identity_placement_rplacement()
+                    ),
+                )
+                return scad.add_connector_rpart(
+                    part,
+                    scad.make_placement_connector_rconnector(
+                        "pivot_b",
+                        scad.make_placement_rplacement(origin=(length, 0.0, 0.0)),
+                    ),
+                )
+
+            @scad.part(id="fb_ground", cache=cache, project_root=Path(__file__).parent)
+            def build_ground() -> scad.Part:
+                return make_bar("fb_ground", 40.0)
+
+            @scad.part(id="fb_crank", cache=cache, project_root=Path(__file__).parent)
+            def build_crank() -> scad.Part:
+                return make_bar("fb_crank", 20.0)
+
+            @scad.part(id="fb_coupler", cache=cache, project_root=Path(__file__).parent)
+            def build_coupler() -> scad.Part:
+                return make_bar("fb_coupler", 50.0)
+
+            @scad.part(id="fb_rocker", cache=cache, project_root=Path(__file__).parent)
+            def build_rocker() -> scad.Part:
+                return make_bar("fb_rocker", 35.0)
+
+            ground, crank, coupler, rocker = (
+                build_ground(),
+                build_crank(),
+                build_coupler(),
+                build_rocker(),
+            )
+
+            @scad.assemble(
+                id="four_bar_loop",
+                definitions=(ground, crank, coupler, rocker),
+                cache=cache,
+                project_root=Path(__file__).parent,
+            )
+            def build_fixture() -> scad.Assembly:
+                assembly = scad.make_assembly_rassembly("four_bar_loop")
+                assembly = scad.add_component_rassembly(
+                    assembly, ground.part, "ground",
+                    placement=scad.identity_placement_rplacement(),
+                )
+                assembly = scad.add_component_rassembly(
+                    assembly, crank.part, "crank",
+                    placement=scad.identity_placement_rplacement(),
+                )
+                rocker_direction = (21.875 / 35.0, math.sqrt(746.484375) / 35.0, 0.0)
+                rocker_placement = scad.make_placement_rplacement(
+                    origin=(40.0, 0.0, 0.0),
+                    x_axis=rocker_direction,
+                    y_axis=(-rocker_direction[1], rocker_direction[0], 0.0),
+                )
+                assembly = scad.add_component_rassembly(
+                    assembly, rocker.part, "rocker", placement=rocker_placement
+                )
+                coupler_direction = (41.875 / 50.0, math.sqrt(746.484375) / 50.0, 0.0)
+                coupler_placement = scad.make_placement_rplacement(
+                    origin=(20.0, 0.0, 0.0),
+                    x_axis=coupler_direction,
+                    y_axis=(-coupler_direction[1], coupler_direction[0], 0.0),
+                )
+                assembly = scad.add_component_rassembly(
+                    assembly, coupler.part, "coupler", placement=coupler_placement
+                )
+                assembly = scad.ground_component_rassembly(assembly, "ground")
+                assembly = scad.add_revolute_constraint_rassembly(
+                    assembly, "crank_to_ground",
+                    scad.make_connector_ref_rconnectorref("ground", "pivot_a"),
+                    scad.make_connector_ref_rconnectorref("crank", "pivot_a"),
+                )
+                assembly = scad.add_revolute_constraint_rassembly(
+                    assembly, "rocker_to_ground",
+                    scad.make_connector_ref_rconnectorref("ground", "pivot_b"),
+                    scad.make_connector_ref_rconnectorref("rocker", "pivot_a"),
+                )
+                assembly = scad.add_revolute_constraint_rassembly(
+                    assembly, "coupler_to_crank",
+                    scad.make_connector_ref_rconnectorref("crank", "pivot_b"),
+                    scad.make_connector_ref_rconnectorref("coupler", "pivot_a"),
+                )
+                return scad.add_revolute_constraint_rassembly(
+                    assembly, "coupler_to_rocker",
+                    scad.make_connector_ref_rconnectorref("rocker", "pivot_b"),
+                    scad.make_connector_ref_rconnectorref("coupler", "pivot_b"),
+                )
+
+            package = scad.build_product_package(build_fixture())
+            report = scad.exporter.export_product_package_to_mjcf(
+                data=package,
+                output_path=root / "loop.xml",
+                default_density_kg_m3=1000.0,
+            )
+            xml_root = ET.parse(report.output_path).getroot()
+            mapping = json.loads(report.mapping_path.read_text(encoding="utf-8"))
+
+        connects = xml_root.findall("./equality/connect")
+        self.assertEqual(
+            [item["joint_id"] for item in mapping["closures"]],
+            ["joint/four_bar_loop/coupler_to_rocker"],
+        )
+
     def test_mesh_exporters_reject_invalid_tessellation_parameters(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             package = _build_cylinder_package(root)
+
             with self.assertRaisesRegex(ValueError, "linear_deflection"):
                 scad.exporter.export_product_package_to_stl(
                     package,

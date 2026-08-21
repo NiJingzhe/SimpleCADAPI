@@ -39,6 +39,7 @@ class ProductMJCFExportReport:
     body_count: int
     joint_count: int
     equality_count: int
+    closure_count: int
     grounded_group_count: int
     site_count: int
     default_density_count: int
@@ -54,7 +55,7 @@ class ProductMJCFExportReport:
             "body_count": self.body_count,
             "joint_count": self.joint_count,
             "equality_count": self.equality_count,
-            "grounded_group_count": self.grounded_group_count,
+            "closure_count": self.closure_count,
             "site_count": self.site_count,
             "default_density_count": self.default_density_count,
             "limitations": list(self.limitations),
@@ -1012,7 +1013,68 @@ def export_product_package_to_mjcf(
             },
         )
         candidate["record"].update({"name": equality_name, "tendon": tendon_name})
-    if not independent_equalities:
+    # Loop-closing movable joints cannot be tree hinges (their groups are
+    # already connected through the tree) and their closure condition is not
+    # a linear angle equation; emit MuJoCo point-on-point equality/connect
+    # constraints between closure sites on both endpoint groups.
+    closure_records: list[dict[str, Any]] = []
+    for edge in non_tree_movable_edges:
+        joint = edge["joint"]
+        joint_id = str(joint["joint_id"])
+        record = {
+            "joint_id": joint_id,
+            "joint_type": str(joint["joint_type"]),
+        }
+        site_specs = []
+        for side in ("a", "b"):
+            connector = edge[f"connector_{side}"]
+            group_id = group_for_node[str(edge[side])]
+            connector_world = world[str(connector["node_id"])].compose(
+                _placement(connector["local_frame"])
+            )
+            local = relative_placement(
+                group_body_frame[group_id], connector_world
+            )
+            site_name = names.claim(
+                "site",
+                f"closure_{side}_" + joint_id,
+                identity=f"closure:{joint_id}:{side}",
+                prefix="closure",
+            )
+            ET.SubElement(
+                body_nodes[group_id],
+                "site",
+                {
+                    "name": site_name,
+                    "size": "0.0012",
+                    "type": "sphere",
+                    **_placement_attributes(local, scale_length=True),
+                },
+            )
+            site_specs.append({"name": site_name, "group": group_id})
+        equality_name = names.claim(
+            "equality",
+            "closure_" + joint_id,
+            identity=joint_id,
+            prefix="closure",
+        )
+        ET.SubElement(
+            equality_xml,
+            "connect",
+            {
+                "name": equality_name,
+                "site1": site_specs[0]["name"],
+                "site2": site_specs[1]["name"],
+            },
+        )
+        record.update(
+            {
+                "name": equality_name,
+                "sites": site_specs,
+            }
+        )
+        closure_records.append(record)
+    if not independent_equalities and not closure_records:
         root_xml.remove(tendon_xml)
         root_xml.remove(equality_xml)
 
@@ -1055,9 +1117,8 @@ def export_product_package_to_mjcf(
             }
             for group_id, edge in sorted(parent_edge.items())
         ],
-        "redundant_movable_joints": [
-            str(edge["joint"]["joint_id"]) for edge in non_tree_movable_edges
-        ],
+        "redundant_movable_joints": [],
+        "closures": closure_records,
         "equalities": equality_records,
         "sites": site_records,
         "meshes": {
@@ -1074,6 +1135,7 @@ def export_product_package_to_mjcf(
         "MuJoCo mesh collision uses its supported mesh collision representation; no convex decomposition is attempted.",
         "Public connector declarations resolve endpoint ownership to leaf connectors; only explicit fixed constraints create rigid groups.",
         "Gear, belt, and rack-pinion relations constrain reference-pose increments through independent fixed tendons.",
+        "Loop-closing revolute/prismatic joints become equality/connect constraints between closure sites.",
     )
     return ProductMJCFExportReport(
         output_path=destination,
@@ -1084,6 +1146,7 @@ def export_product_package_to_mjcf(
         body_count=len(body_name_by_group),
         joint_count=len(tree_joint_name_by_group),
         equality_count=len(independent_equalities),
+        closure_count=len(closure_records),
         grounded_group_count=1,
         site_count=site_count,
         default_density_count=default_density_count,
