@@ -6,7 +6,7 @@
 def chamfer_rsolid(solid: Solid, edges: Union[Sequence[Edge], ShapeSelector], distance: ScalarLike, *, result_tag: Optional[str] = None, generated_faces_tag: Optional[str] = None) -> Solid
 ```
 
-*Source: operations.py*
+*Source: _operators_features.py*
 
 ## Import Surface
 

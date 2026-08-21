@@ -20,6 +20,22 @@ sys.modules[MODULE_SPEC.name] = skill_pack
 MODULE_SPEC.loader.exec_module(skill_pack)
 
 
+def _make_skill_layer(project_root: Path) -> None:
+    """Create a minimal docs/skill tree so packager validation passes."""
+    skill_dir = project_root / "docs/skill"
+    for sub, names in (
+        ("domains", skill_pack.SKILL_DOMAINS),
+        ("workflows", skill_pack.SKILL_WORKFLOWS),
+        ("discipline", skill_pack.SKILL_DISCIPLINES),
+    ):
+        (skill_dir / sub).mkdir(parents=True, exist_ok=True)
+        for name in names:
+            (skill_dir / sub / f"{name}.md").write_text(
+                f"# {name}\n",
+                encoding="utf-8",
+            )
+
+
 class TestSkillPackPathResolution(unittest.TestCase):
     def test_checked_in_skill_markdown_matches_generator(self):
         project_root = MODULE_PATH.parents[3]
@@ -109,7 +125,7 @@ class TestSkillPackPathResolution(unittest.TestCase):
                 "# Standard Library Docs\n",
                 encoding="utf-8",
             )
-
+            _make_skill_layer(site_packages)
             dist_info = site_packages / "simplecadapi-2.0.2.dist-info"
             (dist_info / "licenses").mkdir(parents=True, exist_ok=True)
             (dist_info / "METADATA").write_text(
@@ -154,12 +170,14 @@ class TestSkillPackPathResolution(unittest.TestCase):
                     result.skill_root / "references/inspect/brep-reverse-engineering.md"
                 ).exists()
             )
-            package_summary = (
-                result.skill_root / "references/SDK_PACKAGE_SUMMARY.md"
+            overview = (
+                result.skill_root / "references/SDK_OVERVIEW.md"
             ).read_text(encoding="utf-8")
-            self.assertIn("# SDK Package Summary", package_summary)
-            self.assertIn("Installed package readme body.", package_summary)
-            self.assertIn("references/docs/stdlib/README.md", package_summary)
+            self.assertIn("# SDK Overview", overview)
+            self.assertIn("references/docs/", overview)
+            self.assertTrue(
+                (result.skill_root / "references/domains/part-modeling.md").exists()
+            )
             self.assertEqual(
                 (result.skill_root / "references/LICENSE.txt").read_text(
                     encoding="utf-8"
@@ -168,7 +186,7 @@ class TestSkillPackPathResolution(unittest.TestCase):
             )
             self.assertFalse((result.skill_root / "scripts").exists())
 
-    def test_build_skill_markdown_mentions_graph_and_model_workflow(self):
+    def test_build_skill_markdown_routes_tasks_to_workflows(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             project_root = tmp_path / "project"
@@ -212,50 +230,128 @@ class TestSkillPackPathResolution(unittest.TestCase):
 
             content = packager._build_skill_markdown()
 
-            self.assertIn("GraphSession", content)
-            self.assertNotIn("ModelResult", content)
-            self.assertNotIn("@model", content)
-            self.assertIn("session.capture_result", content)
-            self.assertIn("export_model_json", content)
-            self.assertIn("replay_model_json", content)
-            self.assertIn("Use the graph/model JSON workflow", content)
-            self.assertIn("use keyword arguments", content)
+            # Routing table maps every workflow file.
+            for workflow in skill_pack.SKILL_WORKFLOWS:
+                self.assertIn(f"workflows/{workflow}.md", content)
+            # Router must not force-read full API indexes up front.
+            self.assertIn("Do not read the full API index", content)
+            self.assertIn("Task routing", content)
+            self.assertIn("Global rules", content)
+            # Global rules keep the load-bearing contracts.
             self.assertIn("capture(result, path)", content)
-            self.assertIn("two required arguments are positional", content)
-            self.assertIn("Standard Parts Library", content)
-            self.assertIn("references/docs/stdlib/README.md", content)
+            self.assertIn("positional", content)
+            self.assertIn("@scad.part", content)
+            self.assertIn("@scad.assemble", content)
             self.assertIn("scad.std.gear", content)
             self.assertIn("scad.std.bearing", content)
-            self.assertIn("Modeling Mental Model", content)
-            self.assertIn("current modeling workflows", content)
-            self.assertIn("SDK_OVERVIEW.md", content)
-            self.assertIn("SDK_SURFACES.md", content)
-            self.assertIn("MODELING_WORKFLOWS.md", content)
-            self.assertIn("references/inspect/brep-reverse-engineering.md", content)
-            self.assertIn(
-                "references/docs/guides/reconstruction-agent-test-prompt.md",
-                content,
-            )
-            self.assertIn(
-                "references/docs/guides/reconstruction-agent-strategy.md",
-                content,
-            )
-            self.assertIn("packaged contract copy", content)
-            self.assertIn("advisory tactics", content)
             self.assertIn("simplecadapi.inspect.brep", content)
-            self.assertIn("outside `GraphSession`", content)
-            self.assertNotIn("outside `GraphSession` and `@model`", content)
-            self.assertIn("acceptance/classification rules", content)
-            self.assertIn("model-specific inspection code", content)
-            self.assertIn("SDK_PACKAGE_SUMMARY.md", content)
-            self.assertIn("@part", content)
-            self.assertIn("@assemble", content)
-            self.assertIn("one physical single-solid product", content)
             self.assertIn("cache-build-workflow.md", content)
-            self.assertIn("Cache mutation requires explicit", content)
+            self.assertIn("GraphSession", content)
+            self.assertIn("export_model_json", content)
+            self.assertIn("replay_model_json", content)
+            # Verified behavior: union glue default and tag scope.
+            self.assertIn("glue=False", content)
+            self.assertIn("never propagates downward", content)
+            # Replaced legacy generated files are gone from the router.
+            self.assertNotIn("SDK_SURFACES.md", content)
+            self.assertNotIn("MODELING_WORKFLOWS.md", content)
+            self.assertNotIn("SDK_PACKAGE_SUMMARY.md", content)
+            self.assertNotIn("ModelResult", content)
+            self.assertNotIn("@model", content)
             self.assertNotIn("scripts/", content)
-            self.assertNotIn("v1", content.lower())
-            self.assertNotIn("v2", content.lower())
+
+    def test_build_copies_skill_layer_and_validates_all_pages(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            project_root = tmp_path / "project"
+            docs_api = project_root / "docs/api"
+            docs_core = project_root / "docs/core"
+            docs_stdlib = project_root / "docs/stdlib"
+            docs_api.mkdir(parents=True, exist_ok=True)
+            docs_core.mkdir(parents=True, exist_ok=True)
+            docs_stdlib.mkdir(parents=True, exist_ok=True)
+            (docs_api / "README.md").write_text("# API Docs\n", encoding="utf-8")
+            (docs_core / "README.md").write_text("# Core Docs\n", encoding="utf-8")
+            (docs_stdlib / "README.md").write_text(
+                "# Standard Library Docs\n",
+                encoding="utf-8",
+            )
+            skill_dir = project_root / "docs/skill"
+            for sub, names in (
+                ("domains", skill_pack.SKILL_DOMAINS),
+                ("workflows", skill_pack.SKILL_WORKFLOWS),
+                ("discipline", skill_pack.SKILL_DISCIPLINES),
+            ):
+                (skill_dir / sub).mkdir(parents=True, exist_ok=True)
+                for name in names:
+                    (skill_dir / sub / f"{name}.md").write_text(
+                        f"# {name}\n",
+                        encoding="utf-8",
+                    )
+            (project_root / "README.md").write_text("# Demo\n", encoding="utf-8")
+            (project_root / "LICENSE").write_text("MIT\n", encoding="utf-8")
+            (project_root / "pyproject.toml").write_text(
+                "[project]\nname = 'simplecadapi'\nversion = '2.0.9'\ndescription = 'Demo package'\n",
+                encoding="utf-8",
+            )
+            (project_root / "src/simplecadapi").mkdir(parents=True, exist_ok=True)
+
+            packager = skill_pack.SkillPackager(
+                project_root=project_root,
+                output_root=tmp_path / "skills",
+                skill_name="simplecadapi",
+                license_name="MIT",
+                quiet=True,
+            )
+
+            result = packager.build()
+
+            refs = result.skill_root / "references"
+            for name in skill_pack.SKILL_DOMAINS:
+                self.assertTrue((refs / "domains" / f"{name}.md").is_file())
+            for name in skill_pack.SKILL_WORKFLOWS:
+                self.assertTrue((refs / "workflows" / f"{name}.md").is_file())
+            for name in skill_pack.SKILL_DISCIPLINES:
+                self.assertTrue((refs / "discipline" / f"{name}.md").is_file())
+            # The skill layer is copied to references/ top level, not duplicated
+            # under references/docs/.
+            self.assertFalse((refs / "docs" / "skill").exists())
+            self.assertTrue((refs / "README.md").is_file())
+
+    def test_build_fails_when_skill_layer_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            project_root = tmp_path / "project"
+            docs_api = project_root / "docs/api"
+            docs_core = project_root / "docs/core"
+            docs_stdlib = project_root / "docs/stdlib"
+            docs_api.mkdir(parents=True, exist_ok=True)
+            docs_core.mkdir(parents=True, exist_ok=True)
+            docs_stdlib.mkdir(parents=True, exist_ok=True)
+            (docs_api / "README.md").write_text("# API Docs\n", encoding="utf-8")
+            (docs_core / "README.md").write_text("# Core Docs\n", encoding="utf-8")
+            (docs_stdlib / "README.md").write_text(
+                "# Standard Library Docs\n",
+                encoding="utf-8",
+            )
+            (project_root / "README.md").write_text("# Demo\n", encoding="utf-8")
+            (project_root / "LICENSE").write_text("MIT\n", encoding="utf-8")
+            (project_root / "pyproject.toml").write_text(
+                "[project]\nname = 'simplecadapi'\nversion = '2.0.9'\ndescription = 'Demo package'\n",
+                encoding="utf-8",
+            )
+            (project_root / "src/simplecadapi").mkdir(parents=True, exist_ok=True)
+
+            packager = skill_pack.SkillPackager(
+                project_root=project_root,
+                output_root=tmp_path / "skills",
+                skill_name="simplecadapi",
+                license_name="MIT",
+                quiet=True,
+            )
+
+            with self.assertRaises(FileNotFoundError):
+                packager.build()
 
 
 if __name__ == "__main__":

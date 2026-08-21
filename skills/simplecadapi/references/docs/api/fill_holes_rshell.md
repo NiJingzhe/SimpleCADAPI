@@ -6,7 +6,7 @@
 def fill_holes_rshell(shell: Shell, hole_indices: Optional[Sequence[int]] = None, *, tolerance: float = 1e-06, settings: Optional[SurfaceFillingSettings] = None, tag_prefix: Optional[str] = None) -> Shell
 ```
 
-*Source: operations.py*
+*Source: _operators_geometry.py*
 
 ## Import Surface
 

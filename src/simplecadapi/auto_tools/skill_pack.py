@@ -29,6 +29,35 @@ DEFAULT_SKILL_NAME = "simplecadapi"
 DEFAULT_LICENSE = "AGPL-3.0"
 DOCS_PATH = Path("docs")
 LICENSE_PATH = Path("LICENSE")
+SKILL_SOURCE_PATH = Path("docs/skill")
+
+SKILL_DOMAINS = (
+    "requirement-refinement",
+    "part-modeling",
+    "sketch-and-features",
+    "assembly-and-product",
+    "standard-parts",
+    "step-inspection",
+    "export-and-translation",
+)
+SKILL_WORKFLOWS = (
+    "single-part-modeling",
+    "sketch-feature-modeling",
+    "assembly-product-build",
+    "step-reconstruction",
+    "standard-part-assembly",
+    "export-and-translation",
+)
+SKILL_DISCIPLINES = (
+    "mechanical-modeling",
+    "requirement-and-cad-brief",
+    "datums-and-coordinate-systems",
+    "feature-ordering",
+    "assembly-positioning",
+    "geometric-validation",
+    "failure-and-repair",
+    "manufacturing-boundaries",
+)
 
 SKILL_NAME_PATTERN = re.compile(r"^(?!-)(?!.*--)[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -53,6 +82,17 @@ def _source_checkout_root(package_root: Path) -> Path | None:
     if not _is_source_checkout_root(project_root):
         return None
     return project_root
+
+
+def _skill_source_dir_for(project_root: Path) -> Path:
+    return project_root / SKILL_SOURCE_PATH
+
+
+def _has_skill_layer(project_root: Path) -> bool:
+    skill_dir = _skill_source_dir_for(project_root)
+    return skill_dir.is_dir() and all(
+        (skill_dir / sub).is_dir() for sub in ("domains", "workflows", "discipline")
+    )
 
 
 def _default_project_root(module_file: Path | str | None = None) -> Path:
@@ -239,6 +279,11 @@ def _ignore_common_noise(_: str, names: list[str]) -> list[str]:
         if name.endswith(".zh-CN.md"):
             ignored.append(name)
             continue
+        # docs/skill/ is copied separately into references/ top level by
+        # _copy_skill_layer; do not duplicate it under references/docs/.
+        if name == "skill":
+            ignored.append(name)
+            continue
         if name in {
             "architecture",
             "rearchitecture_2_0.md",
@@ -400,18 +445,7 @@ class SkillPackager:
             self._build_project_overview(),
             encoding="utf-8",
         )
-        (self.references_dir / "SDK_SURFACES.md").write_text(
-            self._build_runtime_install_reference(),
-            encoding="utf-8",
-        )
-        (self.references_dir / "MODELING_WORKFLOWS.md").write_text(
-            self._build_evolve_workflow_reference(),
-            encoding="utf-8",
-        )
-        (self.references_dir / "SDK_PACKAGE_SUMMARY.md").write_text(
-            self._build_sdk_package_summary(),
-            encoding="utf-8",
-        )
+        self._copy_skill_layer()
         inspection_reference = (
             self.source_docs / "guides" / "step-brep-reverse-engineering.md"
         )
@@ -428,27 +462,42 @@ class SkillPackager:
                 encoding="utf-8",
             )
 
+    def _copy_skill_layer(self) -> None:
+        skill_source = _skill_source_dir_for(self.project_root)
+        if not _has_skill_layer(self.project_root):
+            raise FileNotFoundError(
+                "Task-routed skill layer is missing under docs/skill/ "
+                "(domains/, workflows/, discipline/)"
+            )
+        self.log("Copying task-routed skill layer...")
+        shutil.copytree(
+            skill_source,
+            self.references_dir,
+            dirs_exist_ok=True,
+            ignore=_ignore_common_noise,
+        )
+        (self.references_dir / "README.md").write_text(
+            self._build_skill_layer_readme(),
+            encoding="utf-8",
+        )
+
     def _validate_generated_skill(self) -> None:
         self.log("Validating generated skill...")
         required = [
             self.skill_root / "SKILL.md",
             self.references_dir / "SDK_OVERVIEW.md",
-            self.references_dir / "SDK_SURFACES.md",
-            self.references_dir / "MODELING_WORKFLOWS.md",
-            self.references_dir / "SDK_PACKAGE_SUMMARY.md",
             self.references_dir / "inspect" / "brep-reverse-engineering.md",
             self.references_dir / "LICENSE.txt",
             self.docs_dir / "api" / "README.md",
             self.docs_dir / "core" / "README.md",
             self.docs_dir / "stdlib" / "README.md",
         ]
-        if self._has_reconstruction_guides():
-            required.extend(
-                (
-                    self.docs_dir / "guides" / "reconstruction-agent-test-prompt.md",
-                    self.docs_dir / "guides" / "reconstruction-agent-strategy.md",
-                )
-            )
+        for name in SKILL_DOMAINS:
+            required.append(self.references_dir / "domains" / f"{name}.md")
+        for name in SKILL_WORKFLOWS:
+            required.append(self.references_dir / "workflows" / f"{name}.md")
+        for name in SKILL_DISCIPLINES:
+            required.append(self.references_dir / "discipline" / f"{name}.md")
 
         for path in required:
             if not path.exists():
@@ -479,39 +528,19 @@ class SkillPackager:
 
     def _build_skill_markdown(self) -> str:
         package_spec = self._package_spec()
-        guide_paths = (
-            "              - `<skill_root>/references/docs/guides/"
-            "cache-build-workflow.md`"
-        )
-        guide_requirement = ""
-        guide_references = (
-            "            - `references/docs/guides/cache-build-workflow.md`"
-        )
+        guide_references = ""
         if self._has_reconstruction_guides():
-            guide_paths += (
-                "\n              - `<skill_root>/references/docs/guides/"
-                "reconstruction-agent-test-prompt.md`\n"
-                "              - `<skill_root>/references/docs/guides/"
-                "reconstruction-agent-strategy.md`"
-            )
-            guide_requirement = (
-                "            22. For controlled reconstruction tests, use "
-                "`references/docs/guides/reconstruction-agent-test-prompt.md` "
-                "as the packaged contract copy and `references/docs/guides/"
-                "reconstruction-agent-strategy.md` only for advisory tactics; "
-                "the source-checkout contract is authoritative when available."
-            )
-            guide_references += (
-                "\n            - `references/docs/guides/"
+            guide_references = (
+                "            - `references/docs/guides/"
                 "reconstruction-agent-test-prompt.md`\n"
                 "            - `references/docs/guides/"
-                "reconstruction-agent-strategy.md`"
+                "reconstruction-agent-strategy.md`\n"
             )
         body = textwrap.dedent(
             f"""\
             ---
             name: {self.skill_name}
-            description: Thin SimpleCAD SDK reference skill focused on the public API surface, core types, and current modeling workflows.
+            description: Build, assemble, inspect, reconstruct, and export parametric CAD models with the SimpleCADAPI Python SDK. Use for SimpleCAD geometry modeling, constrained sketches, parts and assemblies, standard gears and bearings, STEP/BREP inspection and reconstruction, durable product packages, model JSON replay, and CAD backend translation.
             license: {self.license_name}
             metadata:
               project: {self.metadata.name}
@@ -522,112 +551,90 @@ class SkillPackager:
 
             # SimpleCAD SDK Skill
 
-            ## Philosophy
-            - This is a thin SDK reference skill: docs only.
-            - SDK source code is not bundled in this skill.
+            Plan and route CAD tasks with the SimpleCADAPI SDK: classify the
+            request, load the workflow that owns it, follow its task-domain and
+            discipline references, and read exact API pages only for the APIs a
+            step names.
 
-            ## Working From Repo Root
-            - Tool calls run from the repo root.
-            - Use one explicit skill root: `./skills/{self.skill_name}/` or `./workspace/skills/{self.skill_name}/`.
-            - Main doc paths:
-              - `<skill_root>/SKILL.md`
-              - `<skill_root>/references/docs/api/README.md`
-              - `<skill_root>/references/docs/api/<api_name>.md`
-              - `<skill_root>/references/docs/stdlib/README.md`
-              - `<skill_root>/references/docs/stdlib/<stdlib_api_name>.md`
-              - `<skill_root>/references/docs/core/<type_name>.md`
-              - `<skill_root>/references/SDK_OVERVIEW.md`
-              - `<skill_root>/references/SDK_SURFACES.md`
-              - `<skill_root>/references/MODELING_WORKFLOWS.md`
-              - `<skill_root>/references/inspect/brep-reverse-engineering.md`
-{guide_paths}
+            ## Task routing
 
-            ## MUST Requirements
-            1. Read `SKILL.md`, `references/docs/api/README.md`, and `references/docs/stdlib/README.md` before choosing APIs.
-            2. Read the exact API Markdown page for every API you use.
-            3. Read the needed `core/` or exact `api/` docs when an API needs `Edge`, `Face`, `Wire`, `Solid`, `GraphSession`, `Sketch`, or expression types.
-            4. Prefer the standard parts library for standard parts before hand-modeling with core geometry APIs.
-            5. Follow the documented API signatures exactly.
-            6. For documented SimpleCAD public APIs and standard-library functions, use keyword arguments, except for the canonical durable export call `capture(result, path)`, whose two required arguments are positional.
-            7. Use `@part` for one physical single-solid product and `@assemble` for an assembly with explicit durable definitions. For replayable geometry, use an explicit `GraphSession`, call `session.capture_result(...)` for canonical outputs, then use `export_model_json(session=...)` and `replay_model_json(json_str=...)`. For durable product delivery, call `capture(result, "out/product.scadpkg")` to build and write the canonical package in one step.
-            8. Use geometry APIs for integrated parts: profiles, features, booleans, transforms, tagging, QL inspection, serialization, and exports.
-            9. Use tags consistently through `apply_tag(shape=..., tag=...)` and `list_tags(shape=...)`; do not call shape member tag mutators.
-            10. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
-            11. For inspection/debugging, query geometry with QL and print only the queried facts you need; do not print whole solids or full model objects.
-            12. Boolean operations return a single `Solid`.
-            13. Use `union_rsolid(...)` for boolean union.
-            14. For automated example/test harnesses, prefer the repo-local examples in `examples/` and avoid scratch scripts in `sandbox/`.
-            15. If union cannot produce exactly one merged solid, it fails explicitly; do not silently pick one piece.
-            16. If a single merged solid is required and union fails, slightly adjust part placement so intended bodies overlap/embed, then recompute.
-            17. If a task depends on model replay or interchange, prefer `export_model_json(session)` output over hand-written payloads.
-            18. For STEP/BREP inspection or target/candidate comparison, read `references/inspect/brep-reverse-engineering.md` completely.
-            19. Use `simplecadapi.inspect.brep` only outside `GraphSession`; inspection functions are diagnostic tools, not modeling operations.
-            20. Reverse engineering is case-by-case: use the built-in inspection primitives as tools, write model-specific inspection code only when needed, and take controlled-run acceptance/classification rules from the reconstruction test contract rather than restating them here.
-            21. Before configuring persistent cache, writing a durable product build, or running cache maintenance, read `references/docs/guides/cache-build-workflow.md` completely. Cache mutation requires explicit repair, apply, or clear confirmation.
-{guide_requirement}
-            23. Use `fit_face_analytic_rdescriptor(...)` to test whether a sampled face is supported by a plane, sphere, cylinder, or cone. Treat `accepted=True` and the reported residuals as geometric evidence, not as recovered feature history.
-            24. Use `track_section_contours_rdescriptor(...)` to preserve contour continuation, birth, death, split, and merge events across ordered sections. Do not force a topology-changing sequence into one global loft.
-            25. Use `render_step_comparison_rpath(...)` for Original-vs-Reconstructed visual evidence so both STEP models share views, camera bounds, and scale. Visual similarity does not replace strict BREP comparison.
-            26. After strict STEP/BREP comparison, use `BRepComparison.to_error_summary()` to inspect every failed check grouped by plausible common root cause. Related fixes may be applied together, followed by a fresh Direct/replay/export/compare cycle.
+            Read exactly one workflow first, per the user's goal:
 
-            ## Coding Standard (MUST)
-            This file/parameter standard applies to every modeling task. It is mandatory; deviation requires explicit user approval.
+            | User goal | Workflow |
+            | --- | --- |
+            | Model one physical part | `references/workflows/single-part-modeling.md` |
+            | Constraint-driven profile as design intent | `references/workflows/sketch-feature-modeling.md` |
+            | Multi-part product, connectors, constraints, package | `references/workflows/assembly-product-build.md` |
+            | Rebuild an editable model from a STEP file | `references/workflows/step-reconstruction.md` |
+            | Mechanism from stdlib gears/bearings | `references/workflows/standard-part-assembly.md` |
+            | Export/translate a validated package | `references/workflows/export-and-translation.md` |
 
-            1. One part per file. Each distinct physical part is authored in its own script/module file. Never bundle multiple parts into one file and never split one part across files.
-            2. One assembly file. The full assembly is composed in exactly one file, which imports the part modules and positions them. A second top-level assembly file is not allowed.
-            3. Parameters live where they are used. Every parameter is declared in the file that directly consumes it: part parameters in the part file, assembly parameters in the assembly file. No central shared-parameters/dimensions module consumed across files.
-            4. Exposed tunable parameters MUST be Var declarations. Any parameter intended to be exposed or tunable MUST be declared with a Var in the file that uses it: `from simplecadapi import var` / `Var(name, default, ...)` (optionally with `unit`, `tolerance`). Bare numeric literals and magic numbers are NOT tunable parameters: if a value must be adjustable, declare it with `var()`/`Var`; otherwise keep it a plain constant in the file that uses it.
+            Read-only questions about an existing STEP file do not need a
+            workflow: `references/domains/step-inspection.md` covers them
+            directly.
 
-            ## Standard Parts Library
-            - SimpleCAD includes a standard library for parameterized mechanical parts.
-            - When the user needs a standard part and does not require complex custom geometry changes, use a standard-library function first.
-            - Current package-level standard-library surfaces include `scad.std.gear` for involute gears, internal ring gears, racks, and cycloidal discs, plus `scad.std.bearing` for ball bearing assemblies.
-            - Read `references/docs/stdlib/README.md` to discover standard-library functions.
-            - Read `references/docs/stdlib/<function_name>.md` before calling a standard-library function.
-            - Standard-library functions return normal SimpleCAD shapes or product assemblies that can be transformed, tagged, assembled, exported, and used with graph/model JSON workflows.
+            ## Global rules (every task)
 
-            ## Boolean result discipline
-            - `union_rsolid(...)`, `cut_rsolid(...)`, and `intersect_rsolid(...)` accept mixed inputs: standalone `Solid`, lists of `Solid`, and nested sequences.
-            - They return a single `Solid`.
-            - `union_rsolid(...)` already applies the package's default glue mode and a conservative internal tolerance.
-            - If a union cannot produce exactly one merged solid, it fails explicitly instead of returning multiple pieces.
-            - If a single merged solid is required but union fails, slightly move the parts so they overlap instead of merely touching, then recompute the union.
+            1. Refine the requirement into a brief before modeling
+               (`references/domains/requirement-refinement.md`).
+            2. Use keyword arguments for every documented public API and
+               stdlib function, except the canonical durable export call
+               `capture(result, path)`, whose two required arguments are
+               positional.
+            3. One part per file; one assembly file per product; parameters
+               live in the file that consumes them; exposed tunable parameters
+               are `var()`/`Var` declarations (optionally with `unit`,
+               `tolerance`).
+            4. Booleans (`union_rsolid`, `cut_rsolid`, `intersect_rsolid`)
+               accept mixed inputs and return exactly one `Solid`; union
+               defaults to `glue=False` with a conservative scale-relative
+               tolerance and fails explicitly when it cannot produce one
+               merged solid.
+            5. Build and validate incrementally: each major step prints small
+               QL-derived facts; grounding uses QL wherever possible; never
+               print whole solids or full model objects.
+            6. Tags: attach with `apply_tag(shape=..., tag=...)` (LOCAL scope —
+               it never propagates downward); inspect with
+               `list_tags(shape=...)`; keep numeric facts in metadata, never in
+               tags.
+            7. `@scad.part` for one physical single-solid product;
+               `@scad.assemble` for assemblies with explicit definitions.
+               Neither nests inside an active `GraphSession`. Durable delivery
+               is `capture(result, "out/product.scadpkg")` in one call.
+            8. `simplecadapi.inspect.brep` is diagnostic-only and rejected
+               inside `GraphSession`; obtain/export geometry first, inspect
+               outside.
+            9. Standard parts first: before hand-modeling a gear, ring gear,
+               rack, cycloidal disc, or bearing, check `scad.std.gear` /
+               `scad.std.bearing`.
+            10. Read `references/docs/guides/cache-build-workflow.md` in full
+                before configuring persistent cache, durable builds, or cache
+                maintenance; cache mutation requires explicit confirmation.
 
-            ## Modeling Mental Model
-            - Start with intent: identify the part, its reference axes, critical profiles, and the features that produce the final solid.
-            - Build from lower-dimensional geometry to higher-dimensional geometry: `Vertex` / `Edge` / `Wire` / `Face` profiles first, then `Solid` features such as extrude, revolve, loft, and sweep.
-            - Keep modeling operations functional. Create new values from public functions such as `make_circle_rface(...)`, `extrude_rsolid(...)`, `cut_rsolid(...)`, and `fillet_rsolid(...)`.
-            - Use keyword arguments for SimpleCAD function calls, except the canonical `capture(result, path)` durable export call. For example, use `make_box_rsolid(width=10.0, height=20.0, depth=3.0)` instead of positional primitive arguments.
-            - Use an explicit `GraphSession` when a non-product geometry flow should be replayable, inspectable, or exported as model JSON. Reusable graph-producing builders accept a session or run inside the caller's session.
-            - Use `@part` when the result is one physical single-solid product and needs a durable definition or whole-part cache. Use `@assemble` for explicit part/nested-assembly definitions and incremental constraint solving; do not nest either product boundary in a `GraphSession`.
-            - Use `capture(result, "out/product.scadpkg")` for durable product delivery. It builds and writes the canonical self-contained `.scadpkg`, then returns a `CaptureResult` containing the runtime value, package, scene, and encoded bytes. The public product-package primitives are in-memory construction, encoding, validation, and reading only; use `export_part_definition(...)` or `export_assembly_definition(...)` only for low-level definition exchange or inspection.
-            - Treat model JSON as the interchange boundary for explicit `GraphSession` flows. Use `session.capture_result(...)`, `export_model_json(session)`, and `replay_model_json(json_str=...)`.
-            - Use QL for precise grounding. Query faces, edges, centers, normals, areas, lengths, curve types, and tags; print only the facts needed to validate the current step.
-            - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` when an indexed topology pick is intentional; these picks are preserved as geo select nodes in replayable graph workflows.
-            - Use tags for semantic intent and selection anchors, such as `role.mounting_surface`, `anchor.datum.primary`, `face.top`, or `group.fasteners`.
-            - Keep numeric and geometric facts in metadata or graph payloads, not in tags.
-            - When a QL-selected face or edge is used by a later feature, expect the graph/model workflow to preserve that selection as a stable geo select node.
-            - Use a validated `.scadpkg` product package for FreeCAD, Fusion 360, or SolidWorks translation. Model JSON remains the replay and inspection contract for explicit `GraphSession` flows.
+            ## Boundaries
 
-            ## Tagging Mental Model
-            - Public tag attachment is `apply_tag(shape=..., tag=...)`.
-            - Public tag inspection is `list_tags(shape=...)`, which returns a stable sorted list.
-            - Tags are normalized lowercase dot-separated semantic tokens, for example `role.mounting_surface`, `anchor.datum.primary`, `group.fasteners`, `face.top`, or `solid.boolean.cut`.
-            - Do not encode numeric dimensions or descriptive geometry payloads in tags; store them in metadata such as `shape.get_metadata("geo")` or `shape.set_metadata(...)`.
-            - `apply_tag(...)` does not expose propagation controls. The SDK propagates role/anchor/group-style semantic tags downward and keeps topology-specific tags such as `face.*`, `edge.*`, `wire.*`, `vertex.*`, and `solid.*` local.
-            - Primitives, face auto-tagging, features, booleans, transforms, and tracking may add normalized topology/operation tags automatically.
-            - Prefer QL tag predicates (`ql.tag("role.*")`, `ql.select(...).where(...)`) for inspection and grounding.
+            - `.scadpkg` is the canonical durable product; STL/OBJ/MJCF are
+              point-in-time exports, never editable sources.
+            - Model JSON is the replay/interchange contract for explicit
+              `GraphSession` flows; never hand-author payloads.
+            - No claims of strength, fatigue, thermal, vibration, tolerance
+              compliance, or regulatory fitness without the corresponding
+              analysis actually run.
 
-            ## SDK Focus
-            - This skill is intended to describe the public CAD Python SDK surface.
-            - Prefer the generated API, stdlib, and core docs over environment/bootstrap instructions.
-            - API docs include an `Import Surface` section that distinguishes top-level exports, submodule APIs, and translator backend APIs under `simplecadapi.translator.<backend>`.
-            - Stdlib docs include an `Import Surface` section that identifies the package-level `simplecadapi.std.gear` module export.
-            - Use `references/SDK_OVERVIEW.md` for the package-level map.
-            - Use `references/SDK_SURFACES.md` for the main public surfaces.
-            - Use `references/MODELING_WORKFLOWS.md` for explicit graph-session patterns.
-            - Use `references/inspect/brep-reverse-engineering.md` for case-specific STEP/BREP evidence gathering and acceptance.
-            - Use `references/docs/guides/cache-build-workflow.md` for durable product boundaries, cache policy, PRT reuse, incremental invalidation, and maintenance.
+            ## Reading order
+
+            ```text
+            SKILL.md (this router)
+            -> references/workflows/<scenario>.md
+            -> the domains/ and discipline/ files the workflow names
+            -> references/docs/api|stdlib|core/<exact page>.md for each API a step uses
+            ```
+
+            Do not read the full API index or stdlib index up front; the
+            workflow names what to load. Every API used still gets its exact
+            page read (`references/docs/api/<name>.md`,
+            `references/docs/stdlib/<name>.md`,
+            `references/docs/core/<type>.md`).
 
             ## Example SDK usage
 
@@ -644,21 +651,28 @@ class SkillPackager:
             print(len(rebuilt))
             ```
 
-            Use the graph/model JSON workflow when the task needs reproducibility, interchange, or replayable outputs.
-
             ## References
-            - `references/SDK_OVERVIEW.md`
-            - `references/SDK_SURFACES.md`
-            - `references/MODELING_WORKFLOWS.md`
+
+            - `references/README.md` — skill layer structure
+            - `references/workflows/` — six goal-oriented workflows
+            - `references/domains/` — seven capability domains
+            - `references/discipline/` — modeling knowledge and invariants
+            - `references/SDK_OVERVIEW.md` — package-level map
             - `references/inspect/brep-reverse-engineering.md`
-{guide_references}
-            - `references/SDK_PACKAGE_SUMMARY.md`
-            - `references/docs/api/`
-            - `references/docs/stdlib/`
-            - `references/docs/core/`
+{guide_references}            - `references/docs/guides/cache-build-workflow.md`
+            - `references/docs/api/`, `references/docs/stdlib/`, `references/docs/core/`
             """
         )
         return body.rstrip() + "\n"
+
+    def _build_skill_layer_readme(self) -> str:
+        source = _skill_source_dir_for(self.project_root) / "README.md"
+        if source.is_file():
+            return source.read_text(encoding="utf-8")
+        return (
+            "# Skill Documentation Structure\n\n"
+            "domains/ workflows/ discipline/ layer; see SKILL.md for routing.\n"
+        )
 
     def _has_reconstruction_guides(self) -> bool:
         guides = self.source_docs / "guides"
@@ -681,10 +695,10 @@ class SkillPackager:
             "",
             "## What this skill bundles",
             "",
-            "- Skill instructions (`SKILL.md`)",
-            "- Documentation references (`references/docs/`)",
-            "- Generated core API docs (`references/docs/api/`) and standard-library docs (`references/docs/stdlib/`)",
-            "- High-level SDK summaries (`references/*.md`)",
+            "- Task router (`SKILL.md`) with six workflows",
+            "- Capability domains (`references/domains/`)",
+            "- Modeling discipline (`references/discipline/`)",
+            "- Generated API/stdlib/core references (`references/docs/`)",
             "",
             "## What this skill does not bundle",
             "",
@@ -708,265 +722,6 @@ class SkillPackager:
             "- Re-import or replay with `import_model_json()` and `replay_model_json()`.",
         ]
         return "\n".join(lines).rstrip() + "\n"
-
-    def _build_runtime_install_reference(self) -> str:
-        body = textwrap.dedent(
-            f"""\
-            # SDK Surfaces
-
-            ## Public API groups
-
-            - Primitive and sketch construction functions
-            - Standard parts library modules for reusable mechanical parts
-            - Transform, feature, boolean, and export functions
-            - Functional tagging and selection helpers
-            - Graph/model serialization and replay entry points
-            - Expression and semantic reference data types
-            - Analytic face fitting, ordered section-contour tracking, and shared-scale
-              STEP comparison rendering under `simplecadapi.inspect.brep`
-
-            ## Standard Parts Surface
-
-            ```python
-            import simplecadapi as scad
-
-            gear = scad.std.gear.make_spur_gear_rsolid(
-                n_teeth=24,
-                module=1.5,
-                gear_height=8.0,
-            )
-            ring = scad.std.gear.make_spur_ring_gear_rsolid(
-                n_teeth=72,
-                module=1.5,
-                gear_height=8.0,
-                rim_thickness=4.0,
-                backlash=0.08 * 1.5,
-            )
-            rack = scad.std.gear.make_spur_rack_rsolid(module=1.5, n_teeth=18)
-            bearing = scad.std.bearing.make_ball_bearing_rassembly(
-                8.0,
-                22.0,
-                7.0,
-                3.5,
-            )
-            ```
-
-            Use standard-library functions first when a task asks for a standard part and does not require complex custom geometry changes. Read `references/docs/stdlib/README.md` for the standard-library index and `references/docs/stdlib/<function_name>.md` for exact signatures.
-
-            ## Tagging Surface
-
-            ```python
-            import simplecadapi as scad
-
-            body = scad.make_box_rsolid(width=10.0, height=20.0, depth=3.0)
-            scad.apply_tag(shape=body, tag="role.mounting_plate")
-            body.auto_tag_faces("box")
-
-            top_faces = [face for face in body.get_faces() if "face.top" in scad.list_tags(shape=face)]
-            print(len(top_faces))
-            ```
-
-            Use `apply_tag(shape=..., tag=...)` for user-authored semantic tags and `list_tags(shape=...)` for deterministic inspection. Keep numeric dimensions, measurements, and rich descriptive data in metadata rather than tags.
-
-            ## Recommended reading order
-
-            1. `references/docs/api/README.md`
-            2. `references/docs/stdlib/README.md`
-            3. `references/SDK_OVERVIEW.md`
-            4. `references/MODELING_WORKFLOWS.md`
-            5. Specific pages under `references/docs/api/` or `references/docs/stdlib/`
-            6. Supporting pages under `references/docs/core/`
-
-            ## Typical replayable surface
-
-            ```python
-            import simplecadapi as scad
-            from simplecadapi import GraphSession, export_model_json, replay_model_json
-
-            with GraphSession(graph_id="demo") as session:
-                result = ...
-                session.capture_result(value=result)
-                model_json = export_model_json(session=session)
-
-            rebuilt = replay_model_json(json_str=model_json)
-            print(len(rebuilt))
-            ```
-            """
-        )
-        return body.rstrip() + "\n"
-
-    def _build_evolve_workflow_reference(self) -> str:
-        body = textwrap.dedent(
-            f"""\
-            # Modeling Workflows
-
-            ## Modeling Mental Model
-
-            - Follow the Coding Standard in `SKILL.md`: one part per file, one assembly file, parameters colocated with the file that uses them, and every exposed tunable parameter declared with `var()`/`Var`.
-            - Model the part as a sequence of intentional operations, not as one opaque final shape.
-            - Use the standard parts library first when a requested standard component is available and does not need complex custom geometry changes.
-            - Start from profiles and reference geometry, then create solids with features such as extrude, revolve, loft, and sweep.
-            - Use booleans and detail features after the base form is clear: cut openings, union intended merged bodies, then apply fillets, chamfers, or shell operations.
-            - Use `@scad.part` for one physical single-solid product and `@scad.assemble` for explicit durable assembly definitions. Use an explicit `GraphSession` for replayable geometry flows.
-            - Use QL for grounding and selection. Query the facts you need, such as face normals, centers, areas, edge lengths, curve types, and tags.
-            - Use indexed child-geometry getters such as `get_edges(index)` and `get_faces(index)` when an indexed topology pick is intentional.
-            - Use semantic tags for design intent and anchors. Keep numeric measurements and geometry facts in metadata or model JSON payloads.
-            - Treat `export_model_json(session=...)` as the interchange boundary for replayable geometry. Capture final outputs with `session.capture_result(...)` and replay with `replay_model_json(json_str=...)`.
-            - Validate incrementally: after each major step, print small QL-derived facts such as selected face count, top face center, edge count, volume, or replay result count.
-            - Read `references/docs/guides/cache-build-workflow.md` before configuring persistent cache or using `@scad.part`/`@scad.assemble`.
-
-            ## 1) Capture a replayable modeling flow
-
-            ```python
-            import simplecadapi as scad
-            from simplecadapi import GraphSession, export_model_json, replay_model_json
-
-            with GraphSession(graph_id="bracket") as session:
-                body = scad.make_box_rsolid(width=20.0, height=10.0, depth=3.0)
-                session.capture_result(value=body)
-                payload = export_model_json(session=session)
-
-            rebuilt = replay_model_json(json_str=payload)
-            ```
-            ## 2) Build a durable cached part
-
-            ```python
-            import simplecadapi as scad
-
-            @scad.part(id="bracket", cache="auto")
-            def build_part() -> scad.Part:
-                body = scad.make_box_rsolid(width=20.0, height=10.0, depth=3.0)
-                return scad.make_part_rpart(part_id="bracket", body=body)
-
-            cold = build_part()
-            warm = build_part()
-            print(cold.cache_report.hit, warm.cache_report.hit)
-            ```
-
-            Use `@scad.assemble(definitions=(...))` in the single assembly file. Pass immutable `PartBuildResult` or `AssemblyBuildResult` definitions explicitly; inspect `solve_report.component_hits`, `component_misses`, dirty instances, and residual verification evidence.
-
-            ## 3) Import and use in Python
-
-            ```python
-            import simplecadapi as scad
-            ```
-
-            - Prefer `export_model_json(session=...)` output instead of hand-written payloads.
-            - Use `session.capture_result(...)` when the final output should not be inferred from all graph leaves, then use `replay_model_json(json_str=...)` when consuming standalone model JSON.
-            - Use `import_model_json()` when consuming previously exported payloads.
-
-            ## 5) Use standard parts when they fit
-
-            ```python
-            import simplecadapi as scad
-
-            gear = scad.std.gear.make_spur_gear_rsolid(
-                n_teeth=24,
-                module=1.5,
-                gear_height=8.0,
-            )
-            rack = scad.std.gear.make_spur_rack_rsolid(module=1.5, n_teeth=18)
-            bearing = scad.std.bearing.make_ball_bearing_rassembly(
-                bore_diameter=8.0,
-                outer_diameter=22.0,
-                bearing_width=7.0,
-                ball_diameter=3.5,
-            )
-            ```
-
-            - Read `references/docs/stdlib/README.md` before hand-modeling a standard mechanical part.
-            - Use `references/docs/stdlib/<function_name>.md` for exact standard-library signatures.
-            - Continue with core geometry APIs when the standard part requires substantial custom geometry beyond the provided parameters.
-
-            ## 6) QL-grounded feature workflow
-
-            ```python
-            import simplecadapi as scad
-            from simplecadapi import GraphSession, export_model_json, replay_model_json
-            from simplecadapi import ql
-
-            with GraphSession(graph_id="swept_profile") as session:
-                profile = scad.make_circle_rface(center=(0, 0, 0), radius=1.0)
-                body = scad.extrude_rsolid(
-                    profile=profile,
-                    direction=(0, 0, 1),
-                    distance=4.0,
-                    end_face_tag="role.sweep_profile",
-                    result_tag="part.body",
-                )
-                end_face = (
-                    ql.faces()
-                    .where(ql.output_role(role_name="extrusion.end"))
-                    .exactly(1)
-                    .resolve(body)[0]
-                )
-                print("end face center", end_face.get_center())
-                path = scad.make_segment_rwire(start=(0, 0, 4), end=(0, 0, 8))
-                swept = scad.sweep_rsolid(profile=end_face, path=path)
-                session.capture_result(value=swept)
-                payload = export_model_json(session=session)
-
-            rebuilt = replay_model_json(json_str=payload)
-            print("rebuilt", len(rebuilt))
-            ```
-
-            ## 7) Selection and tag discipline
-
-            - Prefer QL selectors for semantic/geometric feature input selection.
-            - Use `get_edges(index)`, `get_faces(index)`, `get_wires(index)`, or `get_vertices(index)` for intentional indexed picks in examples.
-            - Attach semantic tags with `apply_tag(shape=..., tag=...)` and inspect with `list_tags(shape=...)`.
-            - Use tags for topology identity, intent, roles, anchors, and groups.
-            - Store dimensions, positions, measured geometry, and descriptive payloads in metadata or model JSON, not in tags.
-            - Keep QL result prints concise: selected count, centers, normals, areas, lengths, or tags.
-
-            ## 8) Boolean and body discipline
-
-            - Use `union_rsolid(...)` when multiple solids should become one integrated body.
-            - Ensure bodies that should union into one solid have real geometric overlap or embedding.
-            - Use `cut_rsolid(...)` for subtractive features and `intersect_rsolid(...)` for common-volume workflows.
-            - Validate body count and volume after major boolean operations.
-            """
-        )
-        return body.rstrip() + "\n"
-
-    def _build_sdk_package_summary(self) -> str:
-        summary = self.metadata.description or self.package_name
-        readme_excerpt = (self.metadata.readme_text or "").strip()
-        excerpt_lines = [
-            line.strip() for line in readme_excerpt.splitlines() if line.strip()
-        ]
-        excerpt = "\n".join(excerpt_lines[:6])
-
-        body = textwrap.dedent(
-            f"""\
-            # SDK Package Summary
-
-            - Project: `{self.metadata.name}`
-            - Version: `{self.metadata.version}`
-            - Summary: {summary}
-
-            ## Scope
-
-            - OCP-native public CAD Python SDK for geometry and replayable modeling.
-            - Includes generated API, standard-library, and core type references under `references/docs/`.
-            - Includes a standard parts library for reusable mechanical parts such as bearings, gears, internal ring gears, racks, and cycloidal discs.
-            - Emphasizes public surfaces rather than repository operations.
-
-            ## Main reference entry points
-
-            - `references/docs/api/README.md`
-            - `references/docs/stdlib/README.md`
-            - `references/docs/core/README.md`
-            - `references/SDK_OVERVIEW.md`
-            - `references/SDK_SURFACES.md`
-            - `references/MODELING_WORKFLOWS.md`
-            """
-        )
-
-        if excerpt:
-            body += "\n## Package excerpt\n\n" + excerpt + "\n"
-
-        return body.rstrip() + "\n"
 
     def _package_spec(self) -> str:
         if self.package_version:

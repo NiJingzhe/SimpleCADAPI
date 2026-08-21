@@ -6,7 +6,7 @@
 def add_gear_constraint_rassembly(assembly: Assembly, constraint_id: str, connector_a: ConnectorRef, connector_b: ConnectorRef, pitch_radius_a: float, pitch_radius_b: float, phase_offset: Optional[float] = None, name: Optional[str] = None) -> Assembly
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

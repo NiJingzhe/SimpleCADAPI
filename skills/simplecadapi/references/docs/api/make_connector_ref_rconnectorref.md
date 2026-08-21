@@ -6,7 +6,7 @@
 def make_connector_ref_rconnectorref(component_id: str, connector_id: str) -> ConnectorRef
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

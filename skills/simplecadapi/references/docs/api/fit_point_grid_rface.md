@@ -6,7 +6,7 @@
 def fit_point_grid_rface(points: Sequence[Sequence[Sequence[float]]], *, tolerance: float = 0.001, degree_min: int = 3, degree_max: int = 8, smoothing: Optional[Tuple[float, float, float]] = None, tag_prefix: Optional[str] = None) -> Face
 ```
 
-*Source: operations.py*
+*Source: _operators_geometry.py*
 
 ## Import Surface
 

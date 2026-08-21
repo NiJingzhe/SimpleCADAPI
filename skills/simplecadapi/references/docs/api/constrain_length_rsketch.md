@@ -6,7 +6,7 @@
 def constrain_length_rsketch(sketch: Sketch, line: Union[SketchRef, str], value: ScalarLike, *, constraint_id: Optional[str] = None, driving: bool = True) -> Sketch
 ```
 
-*Source: operations.py*
+*Source: _operators_sketch.py*
 
 ## Import Surface
 
