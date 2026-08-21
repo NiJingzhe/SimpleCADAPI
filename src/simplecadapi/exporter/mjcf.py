@@ -1,11 +1,11 @@
 """MuJoCo MJCF export for validated SimpleCAD product packages."""
 
 from __future__ import annotations
-
 from collections import defaultdict, deque
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -24,7 +24,9 @@ from ..translator.package_units import (
     ProductPackageInput,
     read_product_package_translation_units,
 )
-from ._surface_mesh import _tessellate_solid
+from ._surface_mesh import tessellate_solid
+
+_DEFAULT_MJCF_ANGULAR_DEFLECTION_DEGREES = math.degrees(0.35)
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,11 +227,17 @@ def _placement_attributes(value: Placement, *, scale_length: bool) -> dict[str, 
     }
 
 
-def _write_obj(path: Path, solid: Any, *, linear_deflection: float) -> tuple[int, int]:
-    vertices, triangles = _tessellate_solid(
+def _write_obj(
+    path: Path,
+    solid: Any,
+    *,
+    linear_deflection: float,
+    angular_deflection_degrees: float,
+) -> tuple[int, int]:
+    vertices, triangles = tessellate_solid(
         solid.wrapped,
         linear_deflection=linear_deflection,
-        angular_deflection_radians=0.35,
+        angular_deflection_degrees=angular_deflection_degrees,
         relative=False,
     )
     with path.open("w", encoding="ascii", newline="\n") as stream:
@@ -338,6 +346,7 @@ def export_product_package_to_mjcf(
     mesh_directory: str | Path | None = None,
     mapping_path: str | Path | None = None,
     linear_deflection: float = 0.15,
+    angular_deflection_degrees: float = _DEFAULT_MJCF_ANGULAR_DEFLECTION_DEGREES,
     default_density_kg_m3: float | None = None,
 ) -> ProductMJCFExportReport:
     """Compile a validated `.scadpkg` assembly into an MJCF model.
@@ -349,8 +358,12 @@ def export_product_package_to_mjcf(
     ``interface.*`` namespace become MJCF sites.
     """
 
-    if linear_deflection <= 0.0:
-        raise ValueError("linear_deflection must be positive")
+    if not math.isfinite(float(linear_deflection)) or float(linear_deflection) <= 0.0:
+        raise ValueError("linear_deflection must be a positive finite value")
+    if not math.isfinite(float(angular_deflection_degrees)) or not (
+        0.0 < float(angular_deflection_degrees) <= 180.0
+    ):
+        raise ValueError("angular_deflection_degrees must be in (0, 180]")
     destination = Path(output_path).expanduser().resolve()
     if destination.suffix.lower() != ".xml":
         raise ValueError("output_path must end in .xml")
@@ -663,7 +676,12 @@ def export_product_package_to_mjcf(
             prefix="mesh",
         )
         mesh_path = mesh_root / f"{mesh_name}.obj"
-        _write_obj(mesh_path, part.body, linear_deflection=linear_deflection)
+        _write_obj(
+            mesh_path,
+            part.body,
+            linear_deflection=float(linear_deflection),
+            angular_deflection_degrees=float(angular_deflection_degrees),
+        )
         mesh_by_definition[definition_id] = mesh_name
 
     entity_documents = _entity_documents(scene_package)
