@@ -320,8 +320,8 @@ def _twisted_sweep_loft_shape(profile_obj, *, axis, origin, distance, twist_angl
     operation = "make_twisted_sweep_rsolid"
     face = _face_shape_from_wire_shape(profile_obj, operation)
     wires = list(getattr(face, "Wires", []) or [])
-    if len(wires) != 1:
-        raise RuntimeError(f"{operation} emulation requires a face with one outer wire")
+    if not wires:
+        raise RuntimeError(f"{operation} emulation requires a face with wires")
 
     axis_vec = _normalized_vec(axis)
     origin_vec = _vec(origin)
@@ -332,28 +332,50 @@ def _twisted_sweep_loft_shape(profile_obj, *, axis, origin, distance, twist_angl
     if not math.isfinite(twist_value):
         raise RuntimeError(f"{operation} twist angle must be finite")
 
-    section_count = max(3, int(math.ceil(abs(twist_value) / 30.0)) + 1)
-    sections = []
-    for index in range(section_count):
-        fraction = float(index) / float(section_count - 1)
-        section = wires[0].copy()
-        angle = twist_value * fraction
-        if abs(angle) > 1.0e-12:
-            section.rotate(origin_vec, axis_vec, angle)
-        offset = distance_value * fraction
-        if abs(offset) > 1.0e-12:
-            section.translate(
-                App.Vector(
-                    axis_vec.x * offset, axis_vec.y * offset, axis_vec.z * offset
+    def _loft_wire(wire):
+        section_count = max(3, int(math.ceil(abs(twist_value) / 30.0)) + 1)
+        sections = []
+        for index in range(section_count):
+            fraction = float(index) / float(section_count - 1)
+            section = wire.copy()
+            angle = twist_value * fraction
+            if abs(angle) > 1.0e-12:
+                section.rotate(origin_vec, axis_vec, angle)
+            offset = distance_value * fraction
+            if abs(offset) > 1.0e-12:
+                section.translate(
+                    App.Vector(
+                        axis_vec.x * offset,
+                        axis_vec.y * offset,
+                        axis_vec.z * offset,
+                    )
                 )
-            )
-        sections.append(section)
+            sections.append(section)
+        return Part.makeLoft(sections, True, False, False, 5)
 
-    result = Part.makeLoft(sections, True, False, False, 5)
-    if result is None or result.isNull() or not result.isValid():
-        raise RuntimeError(f"{operation} loft emulation produced an invalid shape")
-    if len(list(getattr(result, "Solids", []) or [])) != 1:
-        raise RuntimeError(f"{operation} loft emulation did not produce one solid")
+    def _require_solid(shape, label):
+        if shape is None or shape.isNull() or not shape.isValid():
+            raise RuntimeError(
+                f"{operation} loft emulation produced an invalid {label}"
+            )
+        if len(list(getattr(shape, "Solids", []) or [])) != 1:
+            raise RuntimeError(
+                f"{operation} loft emulation did not produce one {label} solid"
+            )
+        return shape
+
+    result = _require_solid(_loft_wire(wires[0]), "outer wire")
+    if len(wires) > 1:
+        # Multi-loop face: loft each inner wire and cut it from the outer
+        # loft, matching the kernel's sewn-shell semantics for annular and
+        # multi-hole profiles.
+        for inner_wire in wires[1:]:
+            plug = _require_solid(_loft_wire(inner_wire), "inner wire")
+            result = result.cut(plug)
+            if result is None or result.isNull() or not result.isValid():
+                raise RuntimeError(
+                    f"{operation} loft emulation failed to subtract an inner wire"
+                )
     return result
 
 
