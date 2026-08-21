@@ -763,10 +763,7 @@ class FreeCADTranslator(BaseTranslator):
     def capabilities(self) -> BackendCapabilities:
         return CAPABILITIES
 
-    def _translate_product_package_to_script(self, data: Any) -> str:
-        from ..package_units import read_product_package_translation_units
-
-        _package, units = read_product_package_translation_units(data)
+    def _translate_product_package_to_script(self, units: Any) -> str:
         if not units:
             raise ValueError("Product package contains no definition units")
         sections: List[str] = []
@@ -811,7 +808,7 @@ class FreeCADTranslator(BaseTranslator):
             target_id="freecad_script",
             media_type="text/x-python",
             suggested_suffix=".py",
-            content=self._translate_product_package_to_script(package),
+            content=self._translate_product_package_to_script(units),
             metadata={
                 "document_name": self.document_name,
                 "root_definition_id": package.root_definition.definition_id,
