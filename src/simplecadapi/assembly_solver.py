@@ -218,10 +218,14 @@ def solve_assembly_constraints(assembly: Assembly, strict: bool = True) -> Assem
                     candidate,
                     constraint.constraint_id,
                 )
-                if not residual.within_tolerance and strict:
-                    raise ValueError(
-                        f"constraint '{constraint.constraint_id}' residual exceeds tolerance"
-                    )
+                if not residual.within_tolerance:
+                    adjusted = _try_close_forwarded_constraint(candidate, constraint)
+                    if adjusted is not None:
+                        assembly = adjusted
+                    elif strict:
+                        raise ValueError(
+                            f"constraint '{constraint.constraint_id}' residual exceeds tolerance"
+                        )
             else:
                 remaining.append(constraint)
         pending = remaining
@@ -390,6 +394,156 @@ def _connector_world_frame(
     return component.placement.compose(
         _connector_local_frame_for_ref(assembly, connector_ref)
     )
+
+
+@dataclass(frozen=True)
+class _ForwardedSolveTarget:
+    component_path: Tuple[str, ...]
+    parent_world: Placement
+    connector_tail: Placement
+
+
+def _public_connector_or_none(assembly: Assembly, connector_id: str):
+    try:
+        return assembly.get_public_connector(connector_id)
+    except KeyError:
+        return None
+
+
+def _forwarded_solve_target(
+    assembly: Assembly, connector_ref: ConnectorRef
+) -> Optional[_ForwardedSolveTarget]:
+    component = assembly.get_component(connector_ref.component_id)
+    if not isinstance(component.item, Assembly):
+        return None
+    public = _public_connector_or_none(component.item, connector_ref.connector_id)
+    if public is None:
+        return None
+    return _descend_forwarded_solve_target(
+        owner=component.item,
+        public=public,
+        owner_world=component.placement,
+        component_path=(component.component_id,),
+    )
+
+
+def _descend_forwarded_solve_target(
+    *,
+    owner: Assembly,
+    public,
+    owner_world: Placement,
+    component_path: Tuple[str, ...],
+) -> Optional[_ForwardedSolveTarget]:
+    source_component = owner.get_component(public.component_id)
+    source_item = source_component.item
+    source_path = (*component_path, public.component_id)
+    if isinstance(source_item, Assembly):
+        nested_public = _public_connector_or_none(source_item, public.connector_id)
+        if nested_public is not None:
+            nested = _descend_forwarded_solve_target(
+                owner=source_item,
+                public=nested_public,
+                owner_world=owner_world.compose(source_component.placement),
+                component_path=source_path,
+            )
+            if nested is None:
+                return None
+            return nested
+    tail = resolve_item_connector_placement(source_item, public.connector_id)
+    return _ForwardedSolveTarget(
+        component_path=source_path,
+        parent_world=owner_world,
+        connector_tail=tail,
+    )
+
+
+def _assemblies_for_component_path(
+    assembly: Assembly, component_path: Tuple[str, ...]
+) -> Tuple[Assembly, ...]:
+    component = assembly.get_component(component_path[0])
+    if not isinstance(component.item, Assembly):
+        return ()
+    owner = component.item
+    owners = [owner]
+    for component_id in component_path[1:-1]:
+        component = owner.get_component(component_id)
+        if not isinstance(component.item, Assembly):
+            return ()
+        owner = component.item
+        owners.append(owner)
+    return tuple(owners)
+
+
+def _preserves_satisfied_constraints(before: Assembly, after: Assembly) -> bool:
+    for constraint in before.constraints:
+        previous = measure_constraint_residual(before, constraint.constraint_id)
+        if (
+            previous.within_tolerance
+            and not measure_constraint_residual(
+                after, constraint.constraint_id
+            ).within_tolerance
+        ):
+            return False
+    return True
+
+
+def _try_close_forwarded_constraint(
+    assembly: Assembly, constraint: Constraint
+) -> Optional[Assembly]:
+    """Close a residual by moving the nested source behind a public connector.
+
+    A public connector on a nested assembly definition (for example a bearing's
+    ``inner_axis``) resolves through that assembly's own component placement.
+    When an external constraint pins such a forwarded frame while a sibling
+    constraint already holds the other public frame, the nested instance cannot
+    move rigidly; instead move the nested source component itself.
+    """
+
+    motion = _constraint_motion_from_current(assembly, constraint)
+    for moving_side in ("a", "b"):
+        moving_ref = (
+            constraint.connector_a if moving_side == "a" else constraint.connector_b
+        )
+        target = _forwarded_solve_target(assembly, moving_ref)
+        if target is None:
+            continue
+        owners = _assemblies_for_component_path(assembly, target.component_path)
+        if not owners:
+            continue
+        parent = owners[-1]
+        if target.component_path[-1] in parent.grounded_component_ids:
+            continue
+        if moving_side == "b":
+            fixed_frame = _connector_world_frame(assembly, constraint.connector_a)
+            target_frame = fixed_frame.compose(motion)
+        else:
+            fixed_frame = _connector_world_frame(assembly, constraint.connector_b)
+            target_frame = fixed_frame.compose(inverse_placement(motion))
+        placement = (
+            inverse_placement(target.parent_world)
+            .compose(target_frame)
+            .compose(inverse_placement(target.connector_tail))
+        )
+        candidate = _with_component_path_placement(
+            assembly,
+            target.component_path,
+            placement,
+        )
+        if not measure_constraint_residual(
+            candidate, constraint.constraint_id
+        ).within_tolerance:
+            continue
+        if not _preserves_satisfied_constraints(assembly, candidate):
+            continue
+        updated_owners = _assemblies_for_component_path(
+            candidate, target.component_path
+        )
+        if not all(
+            inspect_assembly_constraints(owner).solved for owner in updated_owners
+        ):
+            continue
+        return candidate
+    return None
 def _constraint_current_scalar(assembly: Assembly, constraint: Constraint) -> float:
     frame_a = _connector_world_frame(assembly, constraint.connector_a)
     frame_b = _connector_world_frame(assembly, constraint.connector_b)
