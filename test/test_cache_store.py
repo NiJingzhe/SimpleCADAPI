@@ -1,3 +1,5 @@
+import os
+
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -90,9 +92,8 @@ def test_stale_lock_is_recovered(tmp_path):
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_bytes(b"stale")
     old = time.time() - 60.0
-    import os
-
     os.utime(lock, (old, old))
+
 
     store.put("part", key, b"recovered")
 
@@ -109,6 +110,78 @@ def test_live_lock_times_out_without_overwriting_owner(tmp_path):
             with store.key_lock("part", key):
                 pass
 
+
+
+def test_old_owner_release_does_not_delete_replacement_lock(tmp_path):
+    store = _store(
+        tmp_path,
+        lock_timeout_seconds=1.0,
+        stale_lock_seconds=0.01,
+    )
+    key = sha256_bytes(b"owner-token")
+    path = store.lock_path("part", key)
+    first_lock = store.key_lock("part", key)
+    first_lock.__enter__()
+
+    # Model stale recovery after the original owner became unreachable. A
+    # second owner acquires the same pathname while the first context still
+    # has its original token and is about to unwind.
+    from simplecadapi.artifacts.canonical import canonical_bytes
+
+    path.write_bytes(
+        canonical_bytes(
+            {"pid": 999_999_999, "token": "dead-owner", "created_ns": "0"}
+        )
+    )
+    old = time.time() - 60.0
+    os.utime(path, (old, old))
+
+    replacement_entered = threading.Event()
+    release_replacement = threading.Event()
+
+    def hold_replacement():
+        with store.key_lock("part", key):
+            replacement_entered.set()
+            assert release_replacement.wait(timeout=2.0)
+
+    thread = threading.Thread(target=hold_replacement)
+    thread.start()
+    assert replacement_entered.wait(timeout=2.0)
+    replacement_owner = store._read_lock_owner(path)
+    assert replacement_owner is not None
+
+    first_lock.__exit__(None, None, None)
+    assert path.exists()
+    assert store._read_lock_owner(path) == replacement_owner
+
+    release_replacement.set()
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    assert not path.exists()
+
+
+def test_get_or_compute_falls_back_after_lock_timeout(tmp_path):
+    store = _store(
+        tmp_path,
+        lock_timeout_seconds=0.05,
+        stale_lock_seconds=30.0,
+    )
+    key = sha256_bytes(b"timeout-fallback")
+    calls = 0
+
+    def compute():
+        nonlocal calls
+        calls += 1
+        return b"independent-payload"
+
+    with store.key_lock("part", key):
+        entry, hit = store.get_or_compute("part", key, compute)
+        assert store.lock_path("part", key).exists()
+
+    assert not hit
+    assert calls == 1
+    assert entry.payload == b"independent-payload"
+    assert store.get("part", key).payload == b"independent-payload"
 
 def test_cache_modes_gate_reads_and_writes(tmp_path):
     read_write = _store(tmp_path)
