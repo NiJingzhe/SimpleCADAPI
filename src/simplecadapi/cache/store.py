@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import errno
 import os
-import time
-import shutil
-import uuid
 import re
+import shutil
+import time
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -266,24 +266,92 @@ class ContentAddressedStore:
             payload = bytes(compute())
             record = CacheRecord(namespace, key, sha256_bytes(payload), len(payload), media_type, metadata or {})
             return CacheEntry(record, payload), False
-        with self.key_lock(namespace, key):
-            if self.policy.can_read:
-                hit = self.get(namespace, key)
-                if hit is not None:
-                    return hit, True
+        try:
+            with self.key_lock(namespace, key):
+                if self.policy.can_read:
+                    hit = self.get(namespace, key)
+                    if hit is not None:
+                        return hit, True
+                payload = bytes(compute())
+                record = self._put_locked(
+                    namespace,
+                    key,
+                    payload,
+                    media_type=media_type,
+                    metadata=metadata,
+                )
+                return CacheEntry(record, payload), False
+        except CacheLockTimeout:
+            # A slow peer must not turn a cache optimization into a build
+            # failure. Compute independently and publish through the same
+            # atomic object/record writes; concurrent same-key publishers may
+            # duplicate work, but readers never observe partial data.
             payload = bytes(compute())
-            record = self._put_locked(namespace, key, payload, media_type=media_type, metadata=metadata)
+            record = self._put_locked(
+                namespace,
+                key,
+                payload,
+                media_type=media_type,
+                metadata=metadata,
+            )
             return CacheEntry(record, payload), False
+
+
+    @staticmethod
+    def _read_lock_owner(path: Path) -> tuple[int, str] | None:
+        try:
+            value = parse_canonical_json(path.read_bytes())
+        except (OSError, ValueError):
+            return None
+        if not isinstance(value, Mapping):
+            return None
+        pid = value.get("pid")
+        token = value.get("token")
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+            return None
+        if not isinstance(token, str) or not token:
+            return None
+        return pid, token
+
+    @staticmethod
+    def _pid_is_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            # Unknown process state is not evidence that it is safe to break
+            # the lock; leave recovery to the timeout/manual repair path.
+            return True
+        return True
+
+    @classmethod
+    def _can_break_stale_lock(cls, path: Path) -> bool:
+        owner = cls._read_lock_owner(path)
+        return owner is None or not cls._pid_is_alive(owner[0])
 
     @contextmanager
     def key_lock(self, namespace: str, key: str) -> Iterator[None]:
         path = self.lock_path(namespace, key)
         path.parent.mkdir(parents=True, exist_ok=True)
         deadline = time.monotonic() + self.policy.lock_timeout_seconds
-        payload = canonical_bytes({"pid": os.getpid(), "created_ns": str(time.time_ns())})
+        token = uuid.uuid4().hex
+        payload = canonical_bytes(
+            {
+                "pid": os.getpid(),
+                "token": token,
+                "created_ns": str(time.time_ns()),
+            }
+        )
         while True:
             try:
-                descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+                descriptor = os.open(
+                    path,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o644,
+                )
                 try:
                     os.write(descriptor, payload)
                     os.fsync(descriptor)
@@ -296,8 +364,13 @@ class ContentAddressedStore:
                     age = time.time() - path.stat().st_mtime
                 except FileNotFoundError:
                     continue
-                if age > self.policy.stale_lock_seconds:
-                    stale = path.with_name(path.name + f".{uuid.uuid4().hex}.stale")
+                if (
+                    age > self.policy.stale_lock_seconds
+                    and self._can_break_stale_lock(path)
+                ):
+                    stale = path.with_name(
+                        path.name + f".{uuid.uuid4().hex}.stale"
+                    )
                     try:
                         os.replace(path, stale)
                         stale.unlink(missing_ok=True)
@@ -305,16 +378,21 @@ class ContentAddressedStore:
                         pass
                     continue
                 if time.monotonic() >= deadline:
-                    raise CacheLockTimeout(f"cache key remained locked: {namespace}/{key}")
+                    raise CacheLockTimeout(
+                        f"cache key remained locked: {namespace}/{key}"
+                    )
                 time.sleep(0.01)
         try:
             yield
         finally:
-            try:
-                path.unlink()
-                self._fsync_directory(path.parent)
-            except FileNotFoundError:
-                pass
+            # A stale-lock recovery may have replaced this path with a new
+            # owner's lock. Never unlink a lock whose token is not ours.
+            if self._read_lock_owner(path) == (os.getpid(), token):
+                try:
+                    path.unlink()
+                    self._fsync_directory(path.parent)
+                except FileNotFoundError:
+                    pass
 
     def _record_files(self, namespace: str | None = None) -> list[Path]:
         root = self.records_dir if namespace is None else self.records_dir / self._namespace(namespace)
