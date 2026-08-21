@@ -158,17 +158,58 @@ def _definition_bytes(definition: Definition) -> bytes:
     return encode_part_definition(definition) if isinstance(definition, PartDefinition) else encode_assembly_definition(definition)
 
 
+@dataclass(frozen=True, slots=True)
+class _BlobRole:
+    runtime_attr: str
+    manifest_path: tuple[str, ...]
+    path_prefix: str
+    required: bool = True
+
+
+# One declarative list drives both runtime-definition and manifest extraction.
+# The manifest path is relative to a PartDefinition/AssemblyDefinition JSON
+# object, while path_prefix identifies the definition-local blob namespace.
+_ASSEMBLY_BLOB_ROLES = (
+    _BlobRole("feature_graph_ref", ("feature_graph_ref",), "features/"),
+)
+_PART_BLOB_ROLES = (
+    _BlobRole("feature_graph_ref", ("definition", "feature_graph_ref"), "features/"),
+    _BlobRole("solid_cache_ref", ("solid_cache", "body_ref"), "body/"),
+    _BlobRole("topology_snapshot_ref", ("topology_snapshot_ref",), "topology/"),
+    _BlobRole("material_ref", ("material_ref",), "material/", required=False),
+)
+
+
+def _blob_roles(kind: str) -> tuple[_BlobRole, ...]:
+    return _PART_BLOB_ROLES if kind == "single_solid" else _ASSEMBLY_BLOB_ROLES
+
+
+def _manifest_ref(manifest: Mapping[str, Any], path: tuple[str, ...]) -> Mapping[str, Any] | None:
+    value: Any = manifest
+    for key in path:
+        if not isinstance(value, Mapping):
+            return None
+        value = value.get(key)
+    return value if isinstance(value, Mapping) else None
+
+
 def _definition_refs(definition: Definition) -> list[Mapping[str, Any]]:
-    if isinstance(definition, PartDefinition):
-        refs: list[Mapping[str, Any]] = [
-            definition.feature_graph_ref.to_dict(),
-            definition.solid_cache_ref.to_dict(),
-            definition.topology_snapshot_ref.to_dict(),
-        ]
-        if definition.material_ref is not None:
-            refs.append(definition.material_ref.to_dict())
-        return refs
-    return [definition.feature_graph_ref.to_dict()]
+    refs: list[Mapping[str, Any]] = []
+    for role in _blob_roles(definition.definition_kind):
+        ref = getattr(definition, role.runtime_attr, None)
+        if ref is None:
+            if role.required:
+                raise ProductPackageError(
+                    f"definition {definition.definition_id!r} is missing {role.runtime_attr}"
+                )
+            continue
+        path = str(ref.path)
+        if not path.startswith(role.path_prefix):
+            raise ProductPackageError(
+                f"definition blob path {path!r} outside its semantic domain {role.path_prefix!r}"
+            )
+        refs.append(ref.to_dict())
+    return refs
 
 
 def _definition_closure(root: Definition) -> dict[str, Definition]:
@@ -551,19 +592,23 @@ def _decode_definitions(manifest: Mapping[str, Any], objects: Mapping[str, bytes
         except ArtifactValidationError as exc:
             raise ProductPackageError(f"root assembly graph is invalid: {exc}") from exc
     return root
-
-
 def _definition_refs_from_manifest(kind: str, manifest: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    if kind == "single_solid":
-        refs = [
-            manifest["definition"]["feature_graph_ref"],
-            manifest["solid_cache"]["body_ref"],
-            manifest["topology_snapshot_ref"],
-        ]
-        if manifest["material_ref"] is not None:
-            refs.append(manifest["material_ref"])
-        return refs
-    return [manifest["feature_graph_ref"]]
+    refs: list[Mapping[str, Any]] = []
+    for role in _blob_roles(kind):
+        ref = _manifest_ref(manifest, role.manifest_path)
+        if ref is None:
+            if role.required:
+                raise ProductPackageError(
+                    f"definition manifest is missing {'.'.join(role.manifest_path)}"
+                )
+            continue
+        path = str(ref["path"])
+        if not path.startswith(role.path_prefix):
+            raise ProductPackageError(
+                f"definition blob path {path!r} outside its semantic domain {role.path_prefix!r}"
+            )
+        refs.append(ref)
+    return refs
 
 
 def _decode_assembly_from_archive(data: bytes) -> AssemblyDefinition:
