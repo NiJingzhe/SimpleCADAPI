@@ -1092,6 +1092,19 @@ class TestProductExporter(unittest.TestCase):
                     root / "invalid-relative.obj",
                     relative=1,
                 )
+            with self.assertRaisesRegex(ValueError, "linear_deflection"):
+                scad.exporter.export_product_package_to_mjcf(
+                    package,
+                    root / "invalid.xml",
+                    linear_deflection=0.0,
+                )
+            with self.assertRaisesRegex(ValueError, "angular_deflection_degrees"):
+                scad.exporter.export_product_package_to_mjcf(
+                    package,
+                    root / "invalid-angular.xml",
+                    angular_deflection_degrees=181.0,
+                )
+            self.assertTrue(callable(scad.exporter.tessellate_solid))
 
 
 if __name__ == "__main__":

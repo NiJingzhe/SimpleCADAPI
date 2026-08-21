@@ -1,5 +1,6 @@
 """Product-package exporters for neutral CAD, mesh, and simulation formats."""
 
+from ._surface_mesh import tessellate_solid
 from .mjcf import ProductMJCFExportReport, export_product_package_to_mjcf
 from .obj import ProductOBJExportReport, export_product_package_to_obj
 from .step import ProductSTEPExportReport, export_product_package_to_step
@@ -14,4 +15,5 @@ __all__ = [
     "export_product_package_to_obj",
     "export_product_package_to_step",
     "export_product_package_to_stl",
+    "tessellate_solid",
 ]

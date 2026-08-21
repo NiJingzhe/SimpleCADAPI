@@ -86,7 +86,7 @@ def _is_collapsed_triangle(
     return area_squared <= relative_floor
 
 
-def _tessellate_solid(
+def _tessellate_solid_impl(
     solid: Any,
     *,
     linear_deflection: float,
@@ -151,15 +151,14 @@ def _tessellate_solid(
     )
 
 
-def tessellate_product_surface(
-    data: ProductPackageInput,
+def tessellate_solid(
+    solid: Any,
     *,
     linear_deflection: float,
     angular_deflection_degrees: float,
     relative: bool,
-) -> TessellatedSurfaceMesh:
-    """Tessellate every evaluated product solid directly with OpenCASCADE."""
-
+) -> tuple[np.ndarray, np.ndarray]:
+    """Tessellate one evaluated OpenCASCADE solid with validated parameters."""
     linear = float(linear_deflection)
     if not math.isfinite(linear) or linear <= 0.0:
         raise ValueError("linear_deflection must be a positive finite value")
@@ -172,6 +171,25 @@ def tessellate_product_surface(
         raise ValueError("angular_deflection_degrees must be in (0, 180]")
     if not isinstance(relative, bool):
         raise TypeError("relative must be a bool")
+    return _tessellate_solid_impl(
+        solid,
+        linear_deflection=linear,
+        angular_deflection_radians=math.radians(angular_degrees),
+        relative=relative,
+    )
+
+
+def tessellate_product_surface(
+    data: ProductPackageInput,
+    *,
+    linear_deflection: float,
+    angular_deflection_degrees: float,
+    relative: bool,
+) -> TessellatedSurfaceMesh:
+    """Tessellate every evaluated product solid directly with OpenCASCADE."""
+
+    linear = float(linear_deflection)
+    angular_degrees = float(angular_deflection_degrees)
 
     package, units = read_product_package_translation_units(data)
     root = materialize_definition(package.root_definition)
@@ -179,12 +197,11 @@ def tessellate_product_surface(
     vertex_blocks: list[np.ndarray] = []
     triangle_blocks: list[np.ndarray] = []
     vertex_offset = 0
-    angular_radians = math.radians(angular_degrees)
     for solid in solids:
-        vertices, triangles = _tessellate_solid(
+        vertices, triangles = tessellate_solid(
             solid,
             linear_deflection=linear,
-            angular_deflection_radians=angular_radians,
+            angular_deflection_degrees=angular_degrees,
             relative=relative,
         )
         vertex_blocks.append(vertices)
@@ -203,4 +220,8 @@ def tessellate_product_surface(
     )
 
 
-__all__ = ["TessellatedSurfaceMesh", "tessellate_product_surface"]
+__all__ = [
+    "TessellatedSurfaceMesh",
+    "tessellate_product_surface",
+    "tessellate_solid",
+]
