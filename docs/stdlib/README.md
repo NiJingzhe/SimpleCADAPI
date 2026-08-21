@@ -15,6 +15,7 @@ This index includes generated docs for standard part factory functions. Use thes
 
 ## Bearing Assemblies
 
+- [build_ball_bearing](build_ball_bearing.md) *(from std/bearing.py)* `stdlib`
 - [make_ball_bearing_rassembly](make_ball_bearing_rassembly.md) *(from std/bearing.py)* `stdlib`
 
 ## External Gears
