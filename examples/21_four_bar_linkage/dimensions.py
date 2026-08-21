@@ -18,13 +18,22 @@ from __future__ import annotations
 
 import math
 
+# Bar center distances (pivot-to-pivot).
 GROUND_LENGTH = 40.0
 CRANK_LENGTH = 20.0
 COUPLER_LENGTH = 50.0
 ROCKER_LENGTH = 35.0
-BAR_WIDTH = 6.0
+
+# Forged-link cross-section proportions.
+EYE_OUTER_RADIUS = 5.0
+PIVOT_BORE_RADIUS = 2.05
 BAR_THICKNESS = 4.0
-PIVOT_RADIUS = 1.6
+
+# Pivot bolt (hex-head pin) proportions.
+PIVOT_BOLT_SHAFT_RADIUS = 2.0
+PIVOT_BOLT_HEAD_RADIUS = 3.4
+PIVOT_BOLT_HEAD_THICKNESS = 2.4
+PIVOT_BOLT_SHANK_LENGTH = 11.0
 
 # Ground pivots: A at origin, D at (GROUND_LENGTH, 0).
 CRANK_PIVOT = (0.0, 0.0)
