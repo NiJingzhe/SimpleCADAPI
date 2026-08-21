@@ -2225,7 +2225,23 @@ def make_box_rsolid(
     left_face_tag: Optional[str] = None,
     right_face_tag: Optional[str] = None,
 ) -> Solid:
-    """Create a box with native kernel-backed Face topology tags."""
+    """Create a box with native kernel-backed Face topology tags.
+
+    The box extends ``depth`` along the current coordinate-system z_axis
+    starting at the bottom face; ``width`` spans the x_axis and ``height``
+    spans the y_axis.
+
+    Args:
+        width: Box size along the current coordinate-system x_axis.
+        height: Box size along the current coordinate-system y_axis.
+        depth: Box size along the current coordinate-system z_axis.
+        bottom_face_center: Geometric center of the box's bottom face in the
+            current coordinate system. The box is centered on this point
+            along x and y (it spans width/2 and height/2 to each side) and
+            extends the full ``depth`` upward along the z_axis from this
+            point's height. It is not a corner; to build a box
+            occupying x in [0, w], pass ``bottom_face_center=(w/2, h/2, z0)``.
+    """
     try:
         assignments = _normalize_operation_role_tags(
             "make_box_rsolid",
@@ -2351,7 +2367,19 @@ def make_cylinder_rsolid(
     end_edge_tag: Optional[str] = None,
     seam_edge_tag: Optional[str] = None,
 ) -> Solid:
-    """Create a cylinder with native kernel-backed Face and Edge topology tags."""
+    """Create a cylinder with native kernel-backed Face and Edge topology tags.
+
+    The cylinder extends ``height`` along ``axis`` from the bottom face.
+
+    Args:
+        radius: Cylinder radius.
+        height: Cylinder length along ``axis``.
+        bottom_face_center: Geometric center of the cylinder's bottom
+            (start) face in the current coordinate system; the solid extends
+            the full ``height`` along ``axis`` from this point.
+        axis: Direction of the cylinder axis in the current coordinate
+            system.
+    """
     try:
         assignments = _normalize_operation_role_tags(
             "make_cylinder_rsolid",
@@ -2475,7 +2503,22 @@ def make_cone_rsolid(
     end_edge_tag: Optional[str] = None,
     seam_edge_tag: Optional[str] = None,
 ) -> Solid:
-    """Create a cone or frustum with native kernel-backed topology tags."""
+    """Create a cone or frustum with native kernel-backed topology tags.
+
+    The solid extends ``height`` along ``axis`` from the bottom face,
+    tapering from ``bottom_radius`` to ``top_radius`` (a cone when
+    ``top_radius`` is 0).
+
+    Args:
+        bottom_radius: Radius of the bottom (start) face.
+        height: Frustum length along ``axis``.
+        top_radius: Radius of the top face; 0 produces a cone.
+        bottom_face_center: Geometric center of the bottom (start) face in
+            the current coordinate system; the solid extends the full
+            ``height`` along ``axis`` from this point.
+        axis: Direction of the frustum axis in the current coordinate
+            system.
+    """
     try:
         assignments = _normalize_operation_role_tags(
             "make_cone_rsolid",
