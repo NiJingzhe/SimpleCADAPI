@@ -110,6 +110,7 @@ def compile_product_occurrence_graph(root: Definition) -> ProductOccurrenceGraph
     nodes: list[dict[str, Any]] = []
     occurrences: dict[str, list[str]] = {}
     children: dict[tuple[str, str], str] = {}
+    definition_id_by_node: dict[str, str] = {}
 
     def visit(
         definition: Definition,
@@ -121,6 +122,7 @@ def compile_product_occurrence_graph(root: Definition) -> ProductOccurrenceGraph
         display_name: str | None,
     ) -> str:
         node_id = _node_id(path)
+        definition_id_by_node[node_id] = definition.definition_id
         occurrences.setdefault(definition.definition_id, []).append(node_id)
         is_part = isinstance(definition, PartDefinition)
         nodes.append(
@@ -251,13 +253,7 @@ def compile_product_occurrence_graph(root: Definition) -> ProductOccurrenceGraph
                             f"{component_id!r}/{connector_id!r}"
                         )
                     return {
-                        "definition_id": str(
-                            next(
-                                item["definition_id"]
-                                for item in nodes
-                                if item["node_id"] == child_node
-                            )
-                        ),
+                        "definition_id": definition_id_by_node[child_node],
                         "component_id": component_id,
                         "instance_id": child_node,
                         "connector_id": connector_id,
@@ -379,18 +375,21 @@ def _validate_manifest(manifest: Mapping[str, Any]) -> None:
         if parent is not None and str(parent) not in node_by_id:
             raise ProductOccurrenceError(f"node {node_id!r} parent does not resolve")
 
-    for node_id in node_by_id:
-        seen: set[str] = set()
-        current = node_id
-        while True:
-            if current in seen:
-                raise ProductOccurrenceError("occurrence node hierarchy contains a cycle")
-            seen.add(current)
+    node_state: dict[str, int] = {}
+    for start_node_id in node_by_id:
+        if node_state.get(start_node_id, 0) == 2:
+            continue
+        current = start_node_id
+        path: list[str] = []
+        while current is not None and node_state.get(current, 0) == 0:
+            node_state[current] = 1
+            path.append(current)
             parent = node_by_id[current]["parent_node_id"]
-            if parent is None:
-                break
-            current = str(parent)
-
+            current = None if parent is None else str(parent)
+        if current is not None and node_state.get(current) == 1:
+            raise ProductOccurrenceError("occurrence node hierarchy contains a cycle")
+        for node_id in path:
+            node_state[node_id] = 2
     connector_records = list(manifest["connectors"])
     connector_by_id = {
         str(item["connector_snapshot_id"]): item for item in connector_records
@@ -407,18 +406,21 @@ def _validate_manifest(manifest: Mapping[str, Any]) -> None:
         source_id = connector["source_connector_snapshot_id"]
         if source_id is not None and str(source_id) not in connector_by_id:
             raise ProductOccurrenceError("connector source does not resolve")
-    for connector_id in connector_by_id:
-        seen: set[str] = set()
-        current = connector_id
-        while True:
-            if current in seen:
-                raise ProductOccurrenceError("connector forwarding graph contains a cycle")
-            seen.add(current)
+    connector_state: dict[str, int] = {}
+    for start_connector_id in connector_by_id:
+        if connector_state.get(start_connector_id, 0) == 2:
+            continue
+        current = start_connector_id
+        path: list[str] = []
+        while current is not None and connector_state.get(current, 0) == 0:
+            connector_state[current] = 1
+            path.append(current)
             source = connector_by_id[current]["source_connector_snapshot_id"]
-            if source is None:
-                break
-            current = str(source)
-
+            current = None if source is None else str(source)
+        if current is not None and connector_state.get(current) == 1:
+            raise ProductOccurrenceError("connector forwarding graph contains a cycle")
+        for connector_id in path:
+            connector_state[connector_id] = 2
     joints = list(manifest["joints"])
     joint_ids = [str(item["joint_id"]) for item in joints]
     if len(joint_ids) != len(set(joint_ids)):

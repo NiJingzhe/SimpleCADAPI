@@ -7,6 +7,8 @@ import pytest
 
 import simplecadapi as scad
 from simplecadapi.product_packages import ProductPackage, ProductPackageError
+from simplecadapi.product_occurrence import ProductOccurrenceError, ProductOccurrenceGraph
+from simplecadapi.artifacts.canonical import canonical_bytes, content_hash, sha256_bytes
 import simplecadapi.artifacts.assembly_io as assembly_io
 import simplecadapi.artifacts.part_io as part_io
 import simplecadapi.product_packages as product_packages
@@ -335,6 +337,131 @@ def test_build_package_validates_definition_and_occurrence_closure(
     } == {"linked", "child", "root"}
 
 
+
+def _minimal_occurrence_manifest(
+    nodes: list[dict[str, object]],
+    connectors: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    manifest: dict[str, object] = {
+        "schema_version": "1.0",
+        "artifact_kind": "product_occurrence_graph",
+        "root_definition_id": "root",
+        "root_node_id": "node-0",
+        "definitions": [
+            {
+                "definition_id": "root",
+                "definition_kind": "single_solid",
+                "revision": "r1",
+                "content_hash": "sha256:" + "0" * 64,
+            }
+        ],
+        "nodes": nodes,
+        "connectors": connectors or [],
+        "joints": [],
+        "ground_edges": [],
+    }
+    manifest["content_hash"] = content_hash(manifest, omit=())
+    return manifest
+
+
+def _minimal_occurrence_node(
+    node_id: str,
+    parent_node_id: str | None,
+) -> dict[str, object]:
+    return {
+        "node_id": node_id,
+        "parent_node_id": parent_node_id,
+        "definition_id": "root",
+        "definition_kind": "single_solid",
+        "properties": {
+            "content_hash": "sha256:" + "0" * 64,
+            "revision": "r1",
+        },
+    }
+
+
+def test_occurrence_validation_handles_deep_hierarchy_iteratively() -> None:
+    nodes = [
+        _minimal_occurrence_node(
+            f"node-{index}", None if index == 0 else f"node-{index - 1}"
+        )
+        for index in range(1024)
+    ]
+
+    graph = ProductOccurrenceGraph(_minimal_occurrence_manifest(nodes))
+
+    assert len(graph.nodes) == 1024
+
+
+def test_occurrence_validation_rejects_node_hierarchy_cycle() -> None:
+    nodes = [
+        _minimal_occurrence_node("node-0", None),
+        _minimal_occurrence_node("node-1", "node-2"),
+        _minimal_occurrence_node("node-2", "node-1"),
+    ]
+
+    with pytest.raises(
+        ProductOccurrenceError, match="occurrence node hierarchy contains a cycle"
+    ):
+        ProductOccurrenceGraph(_minimal_occurrence_manifest(nodes))
+
+
+def test_occurrence_validation_rejects_connector_forwarding_cycle() -> None:
+    nodes = [_minimal_occurrence_node("node-0", None)]
+    connectors: list[dict[str, object]] = [
+        {
+            "connector_snapshot_id": "connector-a",
+            "node_id": "node-0",
+            "definition_id": "root",
+            "definition_kind": "single_solid",
+            "source_connector_snapshot_id": "connector-b",
+        },
+        {
+            "connector_snapshot_id": "connector-b",
+            "node_id": "node-0",
+            "definition_id": "root",
+            "definition_kind": "single_solid",
+            "source_connector_snapshot_id": "connector-a",
+        },
+    ]
+
+    with pytest.raises(
+        ProductOccurrenceError, match="connector forwarding graph contains a cycle"
+    ):
+        ProductOccurrenceGraph(_minimal_occurrence_manifest(nodes, connectors))
+
+
+def test_product_package_rejects_resigned_occurrence_transform(
+    tmp_path: Path,
+) -> None:
+    package = scad.build_product_package(_build_named_part(tmp_path))
+    occurrence_path = package.occurrence_graph_path
+    occurrence = parse_canonical_json(package.objects[occurrence_path])
+    occurrence["nodes"][0]["transform"]["origin"][0] = 1
+    occurrence["content_hash"] = content_hash(
+        {key: value for key, value in occurrence.items() if key != "content_hash"},
+        omit=(),
+    )
+    occurrence_payload = canonical_bytes(occurrence)
+    objects = dict(package.objects)
+    objects[occurrence_path] = occurrence_payload
+    manifest = dict(package.manifest)
+    manifest["occurrence_graph"] = {
+        **manifest["occurrence_graph"],
+        "sha256": sha256_bytes(occurrence_payload),
+        "byte_length": len(occurrence_payload),
+    }
+    manifest["content_hash"] = content_hash(
+        {key: value for key, value in manifest.items() if key != "content_hash"},
+        omit=(),
+    )
+    payload = canonical_zip_bytes(
+        {"package.json": canonical_bytes(manifest), **objects},
+        manifest_name="package.json",
+    )
+
+    with pytest.raises(ProductPackageError, match="occurrence graph differs"):
+        scad.read_product_package(payload)
 
 def test_package_read_materialize_reuses_validated_part_brep(
     tmp_path: Path,
