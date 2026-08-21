@@ -26,12 +26,23 @@ class CaptureResult:
     value: Part | Assembly
     definition: PartDefinition | AssemblyDefinition
     package: ProductPackage
-    scene: ProductScenePackage
+    scene: ProductScenePackage | None
     package_bytes: bytes
 
 
-def capture(result: Any, path: str | Path, /) -> CaptureResult:
-    """Capture a durable product and write its canonical `.scadpkg`."""
+def capture(
+    result: Any,
+    path: str | Path,
+    /,
+    *,
+    include_scene: bool = True,
+) -> CaptureResult:
+    """Capture a durable product and write its canonical `.scadpkg`.
+
+    ``include_scene=False`` skips the optional Scene projection (tessellated
+    geometry/entity assets). STEP, MJCF, and FreeCAD exports read meshes and
+    feature graphs from the definition closure, so they do not need it.
+    """
 
     definition = (
         result
@@ -57,12 +68,16 @@ def capture(result: Any, path: str | Path, /) -> CaptureResult:
         raise ValueError("captured runtime definition kind is invalid")
     if runtime_kind != definition.definition_kind:
         raise ValueError("captured runtime kind does not match its durable definition")
-    package = build_product_package(definition)
+    package = build_product_package(definition, include_scene=include_scene)
     package_bytes = encode_product_package(package)
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(package_bytes)
-    scene = read_scene_package(package.scene_bytes)
+    scene = (
+        read_scene_package(package.scene_bytes)
+        if package.scene_path is not None
+        else None
+    )
     return CaptureResult(
         value=runtime,
         definition=definition,
