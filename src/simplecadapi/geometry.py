@@ -4317,12 +4317,12 @@ def twisted_sweep_rsolid(
             operation="twisted_sweep_rsolid",
             what_happened="Failed to sweep the profile with a linear axial rotation.",
             possible_causes=[
-                "The profile is invalid or contains inner wires.",
+                "The profile is invalid or not planar.",
                 "The distance, twist angle, axis, or guide radius is invalid.",
                 "The requested twist causes self-intersection or kernel failure.",
             ],
             how_to_fix=[
-                "Pass a valid planar Face without inner wires.",
+                "Pass a valid planar Face; inner wires are supported.",
                 "Use a positive distance and guide radius with a non-zero axis.",
                 "Reduce the twist angle or simplify the profile.",
             ],
