@@ -6,7 +6,7 @@
 def make_wire_from_edges_rwire(edges: List[Edge], *, tag_prefix: Optional[str] = None) -> Wire
 ```
 
-*Source: operations.py*
+*Source: _operators_geometry.py*
 
 ## Import Surface
 

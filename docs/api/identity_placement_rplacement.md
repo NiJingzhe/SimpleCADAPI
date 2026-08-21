@@ -6,7 +6,7 @@
 def identity_placement_rplacement() -> Placement
 ```
 
-*Source: operations.py*
+*Source: _operators_product.py*
 
 ## Import Surface
 

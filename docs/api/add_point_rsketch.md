@@ -6,7 +6,7 @@
 def add_point_rsketch(sketch: Sketch, point_id: str, x: ScalarLike, y: ScalarLike) -> Sketch
 ```
 
-*Source: operations.py*
+*Source: _operators_sketch.py*
 
 ## Import Surface
 

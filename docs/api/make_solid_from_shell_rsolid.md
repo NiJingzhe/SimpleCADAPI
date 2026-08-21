@@ -6,7 +6,7 @@
 def make_solid_from_shell_rsolid(shell: Shell, *, tag_prefix: Optional[str] = None) -> Solid
 ```
 
-*Source: operations.py*
+*Source: _operators_geometry.py*
 
 ## Import Surface
 
