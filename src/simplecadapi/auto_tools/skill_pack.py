@@ -26,7 +26,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 DEFAULT_PACKAGE_NAME = "simplecadapi"
 DEFAULT_SKILL_NAME = "simplecadapi"
-DEFAULT_LICENSE = "AGPL-3.0"
+DEFAULT_LICENSE = "MIT"
 DOCS_PATH = Path("docs")
 LICENSE_PATH = Path("LICENSE")
 SKILL_SOURCE_PATH = Path("docs/skill")
