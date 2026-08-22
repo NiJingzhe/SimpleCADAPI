@@ -5,24 +5,10 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROMPT = ROOT / "docs/guides/reconstruction-agent-test-prompt.md"
-PROMPT_MIRROR = (
-    ROOT
-    / "skills/simplecadapi/references/docs/guides/reconstruction-agent-test-prompt.md"
-)
-STRATEGY = ROOT / "docs/guides/reconstruction-agent-strategy.md"
-STRATEGY_MIRROR = (
-    ROOT / "skills/simplecadapi/references/docs/guides/reconstruction-agent-strategy.md"
-)
-GUIDE_INDEX = ROOT / "docs/guides/README.md"
-GUIDE_INDEX_MIRROR = ROOT / "skills/simplecadapi/references/docs/guides/README.md"
-API_MIRRORS = (
-    "EvaluationConfig.md",
-    "SectionEvaluationConfig.md",
-    "classify_benchmark_result.md",
-    "run_comparison_bundle.md",
-    "validate_step_roundtrip_rdescriptor.md",
-)
+GUIDES = ROOT / "docs/skill/references/docs/guides"
+PROMPT = GUIDES / "reconstruction-agent-test-prompt.md"
+STRATEGY = GUIDES / "reconstruction-agent-strategy.md"
+GUIDE_INDEX = GUIDES / "README.md"
 
 
 def _configuration_keys(text: str) -> set[str]:
@@ -205,15 +191,3 @@ def test_prompt_separates_persistence_metrics_from_target_similarity() -> None:
         assert metric in text
 
 
-def test_prompt_and_strategy_skill_mirrors_are_exact() -> None:
-    assert PROMPT.read_bytes() == PROMPT_MIRROR.read_bytes()
-    assert STRATEGY.is_file()
-    assert STRATEGY.read_bytes() == STRATEGY_MIRROR.read_bytes()
-    assert GUIDE_INDEX.read_bytes() == GUIDE_INDEX_MIRROR.read_bytes()
-
-
-def test_affected_api_skill_mirrors_are_exact() -> None:
-    for filename in API_MIRRORS:
-        source = ROOT / "docs/api" / filename
-        mirror = ROOT / "skills/simplecadapi/references/docs/api" / filename
-        assert source.read_bytes() == mirror.read_bytes()
