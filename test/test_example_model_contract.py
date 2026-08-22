@@ -1,6 +1,5 @@
 """Structural checks for the example model/session contract."""
 
-import runpy
 import importlib.util
 import sys
 from pathlib import Path
@@ -67,23 +66,6 @@ class TestExampleModelContract(unittest.TestCase):
             EXAMPLES / "out" / "hydraulic_rod_assembly",
         )
 
-    def test_every_formal_example_has_one_scadpkg_contract(self):
-        runner = runpy.run_path(str(ROOT / "tools" / "run_examples.py"))
-        cases = runner["CASES"]
-        actual = {case.path: case.package_path for case in cases}
-
-        self.assertEqual(actual, FORMAL_EXAMPLE_PACKAGES)
-        self.assertEqual(len(set(actual.values())), len(actual))
-        self.assertTrue(all(path.endswith(".scadpkg") for path in actual.values()))
-        self.assertTrue(all(case.step_path.endswith(".step") for case in cases))
-        self.assertTrue(all(case.fcstd_path.endswith(".FCStd") for case in cases))
-        self.assertTrue(
-            all(
-                Path(case.step_path).stem == Path(case.package_path).stem
-                and Path(case.fcstd_path).stem == Path(case.package_path).stem
-                for case in cases
-            )
-        )
 
     def test_examples_do_not_use_removed_decorator_api(self):
         for path in _source_files():

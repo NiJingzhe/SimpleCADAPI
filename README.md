@@ -17,8 +17,7 @@ See the [full English update notes](docs/updates/2.0.4b3.md) for contracts,
 cache modes, diagnostics, limitations, and verification coverage.
 
 All formal single-script examples emit a synchronized `.scadpkg`, AP242
-`.step`, and editable `.FCStd` from the same product package. Run
-`uv run python tools/run_examples.py` to rebuild and validate that set. The
+`.step`, and editable `.FCStd` from the same product package. The
 split AP242/Gmsh example under `examples/12_ap242_gmsh_volume_mesh/` exposes
 each build and export stage as a separate directly runnable script.
 
@@ -393,32 +392,35 @@ uv run python examples/20_integrated_bldc_joint_actuator/main.py
 
 ## Releasing the Agent Skill
 
-The repository includes a thin Agent Skill under `skills/simplecadapi/`. It
-contains generated API and modeling references, but does not bundle the SDK
-source code.
+The skill source tree lives under `docs/skill/` and stays harness-neutral.
+`tools/skillbuild.py` compiles it per harness target (targets and output
+directories are configured in `skillproj.toml`; the outputs under
+`skills/simplecadapi-*/` are regenerable build artifacts and are not
+committed). Harness-specific text, when it is ever needed, is marked with
+`<!-- skill:if ... -->` conditional blocks that compile per target.
 
-From a clean checkout, update the project version and documentation, then build
-and validate the release artifacts:
+From a clean checkout, update the project version and documentation, then
+build and validate the release artifacts:
 
 ```bash
 uv sync --group dev
-uv run skill-pack --refresh-docs --archive
-uv run python -m pytest test/test_skill_pack.py
+uv run python tools/auto_docs_gen.py --quiet
+uv run python tools/skillbuild.py --target omp
+uv run pytest test/test_skill_build.py
+tar -C skills -czf skills/simplecadapi.tar.gz simplecadapi-omp
 ```
 
-The command refreshes the generated docs, rewrites `skills/simplecadapi/`, and
-creates `skills/simplecadapi.tar.gz`. Review the generated `SKILL.md` and
-references before release:
+The commands regenerate the API references inside the skill tree, recompile
+the omp target, and create `skills/simplecadapi.tar.gz`. Review the source
+tree and the compiled output before release:
 
 ```bash
-git diff -- skills/simplecadapi docs
-tar -tzf skills/simplecadapi.tar.gz
+git diff -- docs/skill
+tar -tzf skills/simplecadapi.tar.gz | head
 ```
 
-Commit the generated `skills/simplecadapi/` directory and refreshed `docs/`
-with the release. The archive is intentionally ignored by Git; attach
-`skills/simplecadapi.tar.gz` to the corresponding GitHub release or distribute
-it through the target Agent Skills registry.
+Commit only the `docs/skill/` source tree; the release workflow builds the
+harness outputs and uploads the archive to the GitHub release.
 
 ## Development
 

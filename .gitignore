@@ -20,6 +20,9 @@ design-doc/
 # Generated skills archives
 skills/*.tar.gz
 
+# Compiled per-harness skill outputs (built by tools/skillbuild.py)
+skills/simplecadapi-*/
+
 .DS_Store
 
 # CAD/export artifacts
