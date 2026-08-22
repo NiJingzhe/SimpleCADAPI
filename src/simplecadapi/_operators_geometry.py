@@ -2320,8 +2320,8 @@ def make_cylinder_rsolid(
                 "type": "cylinder",
                 "radius": radius_value,
                 "height": height_value,
-                "bottom_face_center": bottom_face_center,
-                "axis": axis,
+                "bottom_face_center": center_value,
+                "axis": axis_value,
             },
         )
 
@@ -2461,8 +2461,8 @@ def make_cone_rsolid(
                 "bottom_radius": bottom_radius_value,
                 "top_radius": top_radius_value,
                 "height": height_value,
-                "bottom_face_center": bottom_face_center,
-                "axis": axis,
+                "bottom_face_center": center_value,
+                "axis": axis_value,
             },
         )
 
@@ -2546,7 +2546,7 @@ def make_sphere_rsolid(
             {
                 "type": "sphere",
                 "radius": radius_value,
-                "center": center,
+                "center": center_value,
             },
         )
 
