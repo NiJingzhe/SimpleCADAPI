@@ -20,6 +20,59 @@ def test_topology_snapshot_is_deterministic_across_independent_builds():
     assert encode_topology_snapshot(_tagged_box()) == encode_topology_snapshot(_tagged_box())
 
 
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda offset: scad.make_cylinder_rsolid(
+            radius=2.0,
+            height=4.0,
+            bottom_face_center=(offset, 0.0, 0.0),
+            axis=(0.0, offset, 0.0),
+        ),
+        lambda offset: scad.make_cone_rsolid(
+            bottom_radius=3.0,
+            top_radius=1.0,
+            height=4.0,
+            bottom_face_center=(offset, 0.0, 0.0),
+            axis=(0.0, offset, 0.0),
+        ),
+        lambda offset: scad.make_sphere_rsolid(
+            radius=2.0,
+            center=(offset, 0.0, 0.0),
+        ),
+    ],
+)
+def test_topology_snapshot_evaluates_expression_driven_primitive_positions(factory):
+    offset = scad.var(name="primitive_offset", default=1.0)
+    solid = factory(offset)
+
+    snapshot = capture_topology_snapshot(solid)
+    geo_values = [
+        entity["metadata"]["geo"]
+        for entity in snapshot["entities"]
+        if "geo" in entity["metadata"]
+    ]
+
+    assert encode_topology_snapshot(solid)
+    assert geo_values
+    assert all(
+        not isinstance(value, (scad.Var, scad.Expr))
+        for geo in geo_values
+        for value in _flatten_metadata_values(geo)
+    )
+
+
+def _flatten_metadata_values(value):
+    if isinstance(value, dict):
+        for child in value.values():
+            yield from _flatten_metadata_values(child)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            yield from _flatten_metadata_values(child)
+    else:
+        yield value
+
+
 def test_topology_snapshot_restores_exact_semantic_state_after_brep_roundtrip():
     source = _tagged_box()
     snapshot = encode_topology_snapshot(source)

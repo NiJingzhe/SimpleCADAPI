@@ -33,8 +33,20 @@ _METADATA_EXCLUDED = {
 
 
 def _semantic_metadata(metadata: Mapping[str, Any], path: str) -> dict[str, Any]:
+    """Project runtime metadata into canonical JSON-safe values."""
+    from ..expr import Expr, Var
+
+    def project(value: Any) -> Any:
+        if isinstance(value, (Var, Expr)):
+            return float(value.evaluate())
+        if isinstance(value, dict):
+            return {str(key): project(child) for key, child in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [project(child) for child in value]
+        return deepcopy(value)
+
     projected = {
-        str(key): deepcopy(value)
+        str(key): project(value)
         for key, value in metadata.items()
         if isinstance(key, str)
         and key not in _METADATA_EXCLUDED
