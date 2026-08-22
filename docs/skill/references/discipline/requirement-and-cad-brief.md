@@ -54,10 +54,21 @@ name) is noise.
 
 ## The one-question rule
 
-Ask one focused question only when missing information affects fit, safety,
-compliance, or makes the model impossible. Otherwise proceed with explicit
-assumptions. A barrage of questions is a failure to apply defaults; a missing
-question on a fit-critical dimension is a failure to ask.
+What must be asked or recorded is decided by the blocking-item table in
+`domains/requirement-refinement.md` (Ask-or-Record); batch the blocking
+set into one question set. A barrage of questions is a failure to apply
+defaults; a missing question on a fit-critical dimension is a failure
+to ask.
+
+Discretion failed here: an image-only brief with countersunk mounting
+holes was modeled for hours without asking, and was rejected twice on
+hole orientation alone.
+
+Record load-bearing assumptions as brief fields, not prose: name the
+assumption, the features it determines, and the default taken. When
+review invalidates an assumption, revisit every feature derived from it
+in place — a rebuild that re-encodes the same unchecked assumption
+reproduces the same rejection.
 
 ## Brief quality gate
 

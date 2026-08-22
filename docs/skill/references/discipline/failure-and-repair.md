@@ -147,3 +147,14 @@ per-solid gates plus the spec-driven measurements.
 If a check cannot be repaired in the current environment: what failed, what
 was tried, which artifact is still usable, which validation claims cannot be
 made, and the next source-level correction to attempt.
+
+## Enumeration is not repair
+
+A loop over candidate sets x parameter values (radii, zoom levels,
+`.exactly(n)` guesses tried in sequence) is a symptom that a value is
+being guessed that should be derived. Stop enumerating and derive it:
+radii from wall thickness or feature size, framing from the bounding
+box, cardinality from feature intent. If a value truly cannot be
+derived, the check's definition is wrong — narrow it or ask. Swallowing
+exceptions inside an enumeration loop (`except: pass`) converts a
+search into silent damage.

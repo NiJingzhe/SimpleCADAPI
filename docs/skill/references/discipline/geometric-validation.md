@@ -51,12 +51,79 @@ review.
 - A QL-selected face or edge reused by a later feature is preserved as a
   stable geo-select node in replayable graphs.
 
+## Selection evidence gate (before fillet/chamfer)
+
+A detail operation succeeding proves the kernel built a solid — not
+that the right edges were selected. Filleting 26 unrelated edges
+returns a valid solid. Before every `fillet_rsolid`/`chamfer_rsolid`:
+
+1. Print the selection card: count, and for each edge its length and
+   center (faces: center and area). Read it — a seam edge or a neighbor
+   feature inside the window shows up here as an unexpected hit.
+2. Assert the cardinality you designed for (`.exactly(n)`), where n
+   comes from feature intent, never from adjusting n until the call
+   succeeds.
+3. When the selection carries tags, render it once with
+   `render_screenshot_rpath(..., highlight_tags=[...])` and state the
+   view used. Seeing the selected edges is the check.
+
+Anti-patterns, each a documented silent-wrong-part delivery:
+- Index picks (`get_edges()[i]`) for edges you did not create and name
+  in this step — booleans and fillets renumber topology.
+- Enumerating candidate edge sets x radii with `except: pass`; a hit
+  confirms the selection is uncontrolled, it does not solve it.
+- Counting generated `face.*` tag faces as proof the blend landed on
+  the intended edges — tag-face count proves the operation ran, not
+  where.
+
+Choose evidence for what it can refute, not for how easily it passes.
+An operation returning a solid refutes nothing about which edges were
+picked; tag-face counts prove that an operation ran, not where it
+landed. The discriminating check shows the selected geometry (a
+highlight render) or measures the claimed property directly (the swept
+envelope along the insertion path).
+
+## Edge-selection defaults
+
+In order of preference:
+
+1. Blend between two named bodies -> intersection semantics:
+   `ql.shared_boundary(body_a, body_b, to_kind="edge")` — the real
+   shared boundary, not a geometric window approximating it.
+2. Role surface -> tag predicate on the `role.*` tag attached when the
+   feature was created.
+3. Geometric window (last resort) -> bounded predicate on
+   normal/center/length, printing every hit's center and length before
+   use (this is the selection card).
+
+Index getters are for intentional picks you can name in this step —
+never for discovering which edges to blend.
+
 ## Replay as a gate
 
 When a flow claims replayability, prove it: `export_model_json(session=...)`
 → `replay_model_json(json_str=...)` in a fresh process, and check the
 replayed output count/values. A replay that was never run is a claim, not a
 check.
+
+## Define what the check proves before writing it
+
+1. Posture or path? A fit/assembly claim for a fastened feature is
+   proven by sweeping the fastener envelope along the insertion path
+   (slide-in, rotate-in), not by intersecting the final posture.
+   Final-posture clearance passing is not evidence of assemblability.
+2. Verification geometry vs design geometry: if the check body also
+   cuts, or a cut was removed to make the check pass, state which role
+   it plays. A verification envelope that cannot coexist with the
+   design validates neither. When the envelope must also machine the
+   clearance, it is a design feature — treat it as one.
+3. A failed check closes by changing the design, or by changing the
+   check's definition with the user — never by weakening the check or
+   deleting the interfering material out of the verification body.
+4. Convert review feedback into a predicate before implementing it:
+   "it occludes the hole in the render" -> does measured material
+   intersect the hole cylinder? Run the cheap experiment that
+   distinguishes occlusion from intrusion before modeling either.
 
 ## Spec-driven measurement
 

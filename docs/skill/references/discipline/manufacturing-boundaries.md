@@ -51,6 +51,21 @@ These require their own analysis with real inputs. If the user needs them,
 say so and route to the appropriate analysis — do not soften the language
 into implying them ("should be strong enough" is still a claim).
 
+## When an analysis is run, it ends in a verdict
+
+The boundary above forbids claiming strength without analysis; the
+reverse also holds — analysis that was actually run must end in a
+judgment, not a table:
+
+- Peak stress vs material allowable (yield/ultimate as appropriate)
+  -> state the safety factor, or state that no allowable is available
+  and what would establish one.
+- Peak displacement vs the functional limit -> pass/fail against the
+  requirement the user named, not a bare number.
+- Mesh sensitivity stated once; a geometry change that moves a loaded
+  region re-runs the comparison before the change is called an
+  improvement.
+
 ## Format responsibilities
 
 Each export target carries only its own contract

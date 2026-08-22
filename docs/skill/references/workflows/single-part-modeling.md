@@ -39,8 +39,9 @@ repair_routes:
 ## Steps
 
 1. **Refine the requirement** (`domains/requirement-refinement.md`): units,
-   dimensions, features, coordinate convention, validation targets. Record
-   assumptions.
+   dimensions, features, coordinate convention, each blocking unknown
+   resolved ask-or-record, and validation targets that name the checks
+   that will run. Record assumptions.
 2. **Choose the construction strategy**
    (`discipline/mechanical-modeling.md`): profile-driven (sketch + extrude /
    revolve / sweep / loft) vs block-and-feature (base solid + subtractive
@@ -58,6 +59,9 @@ repair_routes:
    edge counts, volume, bounds. Tag role surfaces
    (`role.mounting_surface`, `anchor.datum.primary`); keep numbers in
    metadata.
+   Select detail edges per the edge-selection defaults in
+   `discipline/geometric-validation.md` (shared_boundary first);
+   run the selection evidence gate before every fillet/chamfer.
 6. **Optional product boundary**: if the part is a durable deliverable, wrap
    with `@scad.part` and `capture(result, "out/<part>.scadpkg")`.
    (`domains/assembly-and-product.md`.)
@@ -76,13 +80,19 @@ from `references/docs/api/<name>.md`.
 
 ## Validation gates
 
-- One positive-volume, closed, valid solid after the final operation (per-solid
-  checks, never aggregate-only).
+- One positive-volume, closed, valid solid after the final operation
+  (per-solid checks, never aggregate-only).
+- Visual acceptance minimum — each item produced before declaring done:
+  1. whole-part views from at least two named directions (state the
+     view; `auto` alone is not a direction);
+  2. a close-up of every region a review comment touched, framed by a
+     bbox-derived zoom estimate — re-rendering with hand-tweaked zoom
+     until it looks right is enumeration, not framing;
+  3. side-by-side with the reference image when one exists, and request
+     an orthographic view or a key dimension when a single perspective
+     reference is all there is;
+  4. the selection-highlight render from the selection evidence gate.
 - Every dimension in the brief verified by a targeted measurement.
-- Visual plausibility: proportions, wall thickness vs overall size, feature
-  positions vs edges.
-
-## Failure routes
 
 - Boolean fails or yields multiple bodies → `part-modeling` boolean
   discipline: overlap, overshoot tools, isolate the failing pair.

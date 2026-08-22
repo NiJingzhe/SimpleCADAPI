@@ -28,6 +28,9 @@ combination — into an actionable modeling brief before any geometry is written
 - Positioning control: faces, axes, origins, connectors, constraints,
   interfaces.
 - Output files requested: package, STEP, STL, OBJ, MJCF, FCStd, scripts.
+- Mounting and service conditions when the part fastens to anything or
+  carries load: fastener type/size, head side and insertion direction,
+  mounting face, and the load direction with a magnitude class.
 - Validation targets: bounding box, solid count, labels/tags, dimensions,
   mesh relations, replay count.
 
@@ -58,6 +61,9 @@ CAD brief:
   question when fit matters.
 - Distinguish reproduction ("model this part") from inspiration ("something
   like this"): reproduction raises fidelity expectations.
+- A single perspective reference is a floor, not a spec: when fidelity
+  matters, request an orthographic view or one key dimension rather than
+  inferring hidden geometry.
 
 ## Technical drawings
 
@@ -72,19 +78,32 @@ A drawing is a dimensioned contract:
 - Cross-check features across views; prefer the dimensioned view and flag
   disagreements.
 
-## Clarification policy
+## Clarification policy (Ask-or-Record)
 
-Ask one focused question only when missing information affects fit, safety,
-compliance, or makes the model impossible. Otherwise proceed with explicit,
-reported assumptions.
+When any blocking item below is missing, it is either asked (batched
+into one question set before any geometry) or recorded in the brief as
+a reported assumption. Proceeding with neither — a silent default — is
+the failure mode, not the asking.
 
-Ask when: no dimensions and no scale reference for a physical object; a mating
-interface is described but unspecified; the part is safety-, load-, or
-pressure-critical; output depends on a missing source file.
+Blocking items:
 
-Do not ask when: a default clearance or cosmetic radius suffices;
-origin/orientation can be chosen and reported; the user asked for a first-pass
-conceptual model.
+| Missing item | Blocks when |
+| --- | --- |
+| One overall dimension / scale anchor | reference is images only and any physical fit matters |
+| Fastener axis and head side | holes, counterbores, or countersinks are present |
+| Mounting face / mating interface | the part attaches to anything |
+| Load direction and magnitude class | the part carries load (structural role) |
+
+Batch all blocking questions into one ask; four one-question round
+trips are worse than one four-question ask. Ask when: no dimensions and
+no scale reference for a physical object; a mating interface is
+described but unspecified; the part is load-critical; output depends on
+a missing source file. Do not ask when a default clearance or cosmetic
+radius suffices, or the user asked for a first-pass concept.
+
+The brief is complete only when its validation targets name the checks that will run: every blocking answer and every user-stated requirement maps to a targeted measurement or a rendered view, written down before the first modeling call. Modeling never precedes the acceptance set; volume and face counts alone have never distinguished a correct part from a rejected one.
+
+Own the methods, ask about the requirements: how a claim will be verified (an insertion-envelope sweep, a highlight render, a comparison view) is yours to propose in the plan — do not wait for the user to invent the test. What counts as success (fit, load direction, finish) is the user's call and belongs in the Ask-or-Record set.
 
 ## Success criteria
 
