@@ -80,8 +80,10 @@ jobs:
         run: uv run twine check dist/*
       - name: Build and verify Agent Skill archive
         run: |
-          uv run skill-pack --refresh-docs --archive
-          uv run pytest test/test_skill_pack.py -q
+          uv run python tools/auto_docs_gen.py --quiet
+          uv run python tools/skillbuild.py --target omp
+          uv run pytest test/test_skill_build.py -q
+          tar -C skills -czf skills/simplecadapi.tar.gz simplecadapi-omp
 
 
       - name: Create GitHub release

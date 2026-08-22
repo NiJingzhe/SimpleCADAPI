@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 MODULE_PATH = (
-    Path(__file__).resolve().parents[1] / "src/simplecadapi/auto_tools/auto_docs_gen.py"
+    Path(__file__).resolve().parents[1] / "tools/auto_docs_gen.py"
 )
 MODULE_SPEC = importlib.util.spec_from_file_location(
     "simplecadapi_auto_docs_gen",
@@ -21,7 +21,7 @@ MODULE_SPEC.loader.exec_module(auto_docs_gen)
 
 
 class TestAutoDocsGenPathResolution(unittest.TestCase):
-    def test_resolve_source_files_from_source_checkout(self):
+    def test_resolve_source_files_from_repo_checkout(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             project_root = Path(tmp_dir)
             (project_root / "pyproject.toml").write_text(
@@ -29,7 +29,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            module_file = project_root / "src/simplecadapi/auto_tools/auto_docs_gen.py"
+            module_file = project_root / "tools/auto_docs_gen.py"
             module_file.parent.mkdir(parents=True, exist_ok=True)
             module_file.write_text("", encoding="utf-8")
 
@@ -44,23 +44,13 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
 
             self.assertEqual(resolved, expected)
 
-    def test_resolve_source_files_from_site_packages_install(self):
+    def test_resolve_source_files_outside_repo_fails_loud(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            venv_root = Path(tmp_dir) / ".venv/lib/python3.12/site-packages"
-            module_file = venv_root / "simplecadapi/auto_tools/auto_docs_gen.py"
-            module_file.parent.mkdir(parents=True, exist_ok=True)
+            module_file = Path(tmp_dir) / "auto_docs_gen.py"
             module_file.write_text("", encoding="utf-8")
 
-            resolved = auto_docs_gen._resolve_source_files(
-                None, module_file=module_file
-            )
-            package_root = venv_root / "simplecadapi"
-            expected = [
-                (package_root / name).resolve()
-                for name in auto_docs_gen.DEFAULT_SOURCE_FILENAMES
-            ]
-
-            self.assertEqual(resolved, expected)
+            with self.assertRaises(FileNotFoundError):
+                auto_docs_gen._resolve_source_files(None, module_file=module_file)
 
     def test_resolve_output_dirs_from_source_checkout_uses_repo_docs(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -70,32 +60,17 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            module_file = project_root / "src/simplecadapi/auto_tools/auto_docs_gen.py"
+            module_file = project_root / "tools/auto_docs_gen.py"
             module_file.parent.mkdir(parents=True, exist_ok=True)
             module_file.write_text("", encoding="utf-8")
 
             resolved = auto_docs_gen._resolve_output_dirs(None, module_file=module_file)
 
-            self.assertEqual(resolved, [(project_root / "docs/api").resolve()])
-
-    def test_resolve_output_dirs_from_site_packages_install_uses_cwd(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            workspace_root = tmp_path / "workspace"
-            workspace_root.mkdir()
-
-            venv_root = tmp_path / ".venv/lib/python3.12/site-packages"
-            module_file = venv_root / "simplecadapi/auto_tools/auto_docs_gen.py"
-            module_file.parent.mkdir(parents=True, exist_ok=True)
-            module_file.write_text("", encoding="utf-8")
-
-            resolved = auto_docs_gen._resolve_output_dirs(
-                None,
-                module_file=module_file,
-                cwd=workspace_root,
+            self.assertEqual(
+                resolved,
+                [(project_root / "docs/skill/references/docs/api").resolve()],
             )
 
-            self.assertEqual(resolved, [(workspace_root / "docs/api").resolve()])
 
     def test_default_source_files_include_v2_public_modules(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -219,7 +194,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             def _module_name_for(self, file_path):
                 return "inverse_engineer/brep/evaluation.py"
 
-        project_root = MODULE_PATH.parents[3]
+        project_root = MODULE_PATH.parents[1]
         source_file = (
             project_root / "src/simplecadapi/inverse_engineer/brep/evaluation.py"
         )
@@ -296,7 +271,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             def _module_name_for(self, file_path):
                 return "inspect/brep/persistence.py"
 
-        project_root = MODULE_PATH.parents[3]
+        project_root = MODULE_PATH.parents[1]
         source_file = project_root / "src/simplecadapi/inspect/brep/persistence.py"
         with tempfile.TemporaryDirectory() as tmp_dir:
             output_dir = Path(tmp_dir) / "docs/api"
@@ -338,7 +313,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            module_file = project_root / "src/simplecadapi/auto_tools/auto_docs_gen.py"
+            module_file = project_root / "tools/auto_docs_gen.py"
             module_file.parent.mkdir(parents=True, exist_ok=True)
             module_file.write_text("", encoding="utf-8")
 
@@ -347,7 +322,10 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 module_file=module_file,
             )
 
-            self.assertEqual(resolved, [(project_root / "docs/stdlib").resolve()])
+            self.assertEqual(
+                resolved,
+                [(project_root / "docs/skill/references/docs/stdlib").resolve()],
+            )
 
 
 class TestAutoDocsGenExtraction(unittest.TestCase):

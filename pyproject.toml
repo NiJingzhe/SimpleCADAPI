@@ -119,8 +119,4 @@ exclude = [
 testpaths = ["test", "tests"]
 
 [project.scripts]
-evolve = "simplecadapi.auto_tools.evolution:main"
-make-export = "simplecadapi.auto_tools.make_export:main"
-auto-docs-gen = "simplecadapi.auto_tools.auto_docs_gen:main"
-skill-pack = "simplecadapi.auto_tools.skill_pack:main"
 simplecad-cache = "simplecadapi.cache.cli:main"

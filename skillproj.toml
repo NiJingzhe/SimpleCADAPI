@@ -1,0 +1,11 @@
+[skill]
+name = "simplecadapi"
+source = "docs/skill"
+
+[build]
+targets = ["omp", "opencode"]
+
+[build.output]
+omp = "skills/simplecadapi-omp"
+opencode = "skills/simplecadapi-opencode"
+
