@@ -62,6 +62,22 @@ be a one-line public call.
 - Numbers that are the result of computation (centers, radii from fits,
   cumulative offsets) are computed, never freehanded.
 
+## Fastener envelopes precede geometry
+
+When the part has fastened or mating features, derive the controlling
+minimums before modeling and carry them as named parameters in the
+brief — they are inputs, not patches after an interference check
+fails:
+
+- Countersink/counterbore: head diameter + shaft + wall/clearance ->
+  minimum land diameter, minimum boss thickness, minimum edge distance.
+- Insertion path: envelope swept along the assembly motion -> minimum
+  lateral offset between the path and any neighboring material
+  (e.g. rod-root offset >= head radius + rod radius + wall).
+- The envelope that guarantees assemblability usually must also machine
+  the clearance: design it as a cutting feature, and keep the check on
+  its result rather than on the posture alone.
+
 ## Sanity-check proportions before generating
 
 Compare the expected bounding box against the real-world object, wall

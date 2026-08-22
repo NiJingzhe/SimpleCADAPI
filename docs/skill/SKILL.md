@@ -11,10 +11,41 @@ metadata:
 
 # SimpleCAD SDK Skill
 
-Plan and route CAD tasks with the SimpleCADAPI SDK: classify the
-request, load the workflow that owns it, follow its task-domain and
-discipline references, and read exact API pages only for the APIs a
-step names.
+This file is the router: it owns load order, route selection, and
+execution discipline only. Each selected workflow owns its procedure.
+Classify the request, load exactly one workflow, follow its domain and
+discipline references, and read exact API pages for the APIs its steps
+use.
+
+## Mandatory load order
+
+Paths are relative to this file's directory.
+
+1. Read this file.
+2. Select exactly one workflow from Task routing. If two rows
+   plausibly match, ask one discriminator question that names the
+   candidate outcomes; never pick silently between routes with
+   different deliverables.
+3. Read the selected workflow in full. From selection on, it owns the
+   procedure; do not load another workflow's procedure.
+4. Load each required domain/discipline file the workflow names
+   before the step that uses it; optional ones only when their
+   trigger fires.
+5. Before the first call of any API, read its exact page
+   (`references/docs/api/<name>.md`, `references/docs/stdlib/<name>.md`,
+   `references/docs/core/<type>.md`). A method absent from its page
+   does not exist, however plausible it looks.
+
+**Hard rule — no index preload**: never read the full API or stdlib
+index up front; the workflow names every page its steps need.
+
+**Hard rule — authority precedence**: routing questions are decided
+here; after selection the workflow owns execution; the global rules
+and execution discipline below always apply.
+
+**Hard rule — read-only exception**: questions about an existing STEP
+file that change nothing enter no workflow;
+`references/domains/step-inspection.md` covers them directly.
 
 ## Task routing
 
@@ -29,9 +60,20 @@ Read exactly one workflow first, per the user's goal:
 | Mechanism from stdlib gears/bearings | `references/workflows/standard-part-assembly.md` |
 | Export/translate a validated package | `references/workflows/export-and-translation.md` |
 
-Read-only questions about an existing STEP file do not need a
-workflow: `references/domains/step-inspection.md` covers them
-directly.
+Do not present route-choice menus when a row already matches: profile,
+strategy, and tool choices inside a route belong to that workflow's
+own gates, not to an up-front question. A missing prerequisite — state
+it and stop that route; never invent an alternative route.
+
+## Routing discipline
+
+| Rule | Behavior |
+| --- | --- |
+| One lifecycle per request | Every task enters exactly one workflow; domains, disciplines, and guides refine it and are never competing routes |
+| Deterministic selection | When the matrix matches, proceed without asking a route question |
+| Ambiguous request | Ask one discriminator question naming the candidate deliverables (editable model vs inspection evidence vs export package), then route |
+| Missing prerequisite | Name what is missing and stop that route |
+| Explicit user override | Honor it only when the target route's scope actually covers the request |
 
 ## Global rules (every task)
 
@@ -81,20 +123,26 @@ directly.
   compliance, or regulatory fitness without the corresponding
   analysis actually run.
 
-## Reading order
+## Execution discipline (every task)
 
-```text
-SKILL.md (this router)
--> references/workflows/<scenario>.md
--> the domains/ and discipline/ files the workflow names
--> references/docs/api|stdlib|core/<exact page>.md for each API a step uses
-```
-
-Do not read the full API index or stdlib index up front; the
-workflow names what to load. Every API used still gets its exact
-page read (`references/docs/api/<name>.md`,
-`references/docs/stdlib/<name>.md`,
-`references/docs/core/<type>.md`).
+1. Gates bind artifacts: a validation gate passes only when its named
+   artifact exists — printed QL facts, targeted measurements, named
+   rendered views, completed brief fields. A stated feeling of success
+   is not a gate result.
+2. Blocking waits: an Ask-or-Record blocking item resolves before any
+   geometry — asked once (batched into one question set) or recorded
+   as an explicit assumption. Proceeding with neither is the failure,
+   not the asking.
+3. Serial phases: do not preload later-phase pages or build
+   later-phase artifacts early. After an interruption, re-ground from
+   the owning artifact (source file, brief), not from conversation
+   memory.
+4. Repair the owning source: the named parameter, the brief field, or
+   the upstream selection — never the downstream symptom.
+   Candidate x parameter enumeration loops are diagnosis debt, not
+   repair (`references/discipline/failure-and-repair.md`).
+5. A failed check closes by changing the design or by redefining the
+   check with the user — never by weakening or deleting the check.
 
 ## Example SDK usage
 

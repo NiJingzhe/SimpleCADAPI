@@ -13,7 +13,7 @@ docs/skill/
 ## Layering
 
 ```text
-SKILL.md (generated router)
+SKILL.md (router: load order, routing, execution discipline)
 → workflows/<scenario>.md        what to run, in what order
 → domains/<capability>.md        capability boundaries and API groups
 → discipline/<topic>.md          why: modeling reasoning and invariants
@@ -73,3 +73,10 @@ Modeling reasoning and invariants, independent of any single API:
 - Discipline files state reasoning and invariants; they avoid CLI- or
   tool-specific detail that belongs in domains/workflows.
 - Every `references/...` path written here must exist in the packaged skill.
+- Reading an API page is an action with an output: before the first
+  call of any API, note its signature, return type, and documented
+  failure modes — one line each in the working notes. A method name
+  absent from the page does not exist, however plausible it looks.
+  Non-SDK dependencies (Gmsh, CalculiX, VTK, FreeCAD scripting) are not
+  covered by SDK pages: check their own documentation before the first
+  call.
