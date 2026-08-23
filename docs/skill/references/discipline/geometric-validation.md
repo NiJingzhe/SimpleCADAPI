@@ -99,6 +99,10 @@ In order of preference:
 Index getters are for intentional picks you can name in this step —
 never for discovering which edges to blend.
 
+Predicate vocabulary, lineage routes, copy-paste recipes, and
+shared-boundary failure signatures (tangency, overhang):
+`docs/guides/ql-selection-playbook.md`.
+
 ## Replay as a gate
 
 When a flow claims replayability, prove it: `export_model_json(session=...)`
