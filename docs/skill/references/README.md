@@ -53,6 +53,12 @@ workflow pulls them in as conditions require.
 Each workflow states: goal/scope, task decomposition (required/optional
 domains, artifacts, validation gates, repair routes), ordered steps with the
 domain/discipline/API references to load, failure routes, and deliverables.
+`single-part-modeling` is additionally **role-structured**: five roles
+(requirement confirmer → master planner → verifier planner ⇄ detail modeling
+planner & builder → exporter), with Roles 3 and 4 looping per stage before
+the next stage is allowed. Each role owns a disk artifact and an exit gate;
+omp host bindings (`todo` tool, persistent python REPL, mandatory subagent
+image review) are declared inside the workflow file.
 
 ## Discipline
 

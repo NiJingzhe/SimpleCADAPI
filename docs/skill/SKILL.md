@@ -36,16 +36,14 @@ Paths are relative to this file's directory.
    `references/docs/core/<type>.md`). A method absent from its page
    does not exist, however plausible it looks.
 
-**Hard rule — no index preload**: never read the full API or stdlib
-index up front; the workflow names every page its steps need.
-
-**Hard rule — authority precedence**: routing questions are decided
-here; after selection the workflow owns execution; the global rules
-and execution discipline below always apply.
-
-**Hard rule — read-only exception**: questions about an existing STEP
-file that change nothing enter no workflow;
-`references/domains/step-inspection.md` covers them directly.
+- You MUST NOT read the full API or stdlib index up front; the workflow
+  names every page its steps need.
+- Routing questions are decided here; after selection the workflow owns
+  execution. You MUST always follow the global rules and execution
+  discipline below.
+- Questions about an existing STEP file that change nothing enter no
+  workflow; you MUST use `references/domains/step-inspection.md` for them
+  directly.
 
 ## Task routing
 

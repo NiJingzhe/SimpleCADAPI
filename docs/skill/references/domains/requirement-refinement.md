@@ -64,6 +64,11 @@ CAD brief:
 - A single perspective reference is a floor, not a spec: when fidelity
   matters, request an orthographic view or one key dimension rather than
   inferring hidden geometry.
+- If an input image contains a reference structure, you MUST describe the
+  interpreted shape (overall form, visible features and locations,
+  orientation, anything hidden or uncertain) and confirm with the user
+  before any geometry. You MUST NOT satisfy this with a recorded assumption;
+  only dimension-level defaults may be assumed once a scale anchor exists.
 
 ## Technical drawings
 
@@ -93,6 +98,7 @@ Blocking items:
 | Fastener axis and head side | holes, counterbores, or countersinks are present |
 | Mounting face / mating interface | the part attaches to anything |
 | Load direction and magnitude class | the part carries load (structural role) |
+| Interpreted shape of a reference image | always — you MUST describe and confirm before geometry; never a recorded assumption |
 
 Batch all blocking questions into one ask; four one-question round
 trips are worse than one four-question ask. Ask when: no dimensions and
