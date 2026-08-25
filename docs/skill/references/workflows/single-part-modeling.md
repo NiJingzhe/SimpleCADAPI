@@ -82,6 +82,87 @@ Procedure:
    recommended assumptions as ask options (default first) so the user can
    accept or override in one round.
 
+<!-- skill:if omp -->
+
+### Host binding: designing the Role 1 `ask` payload (omp)
+
+OMP already provides and executes the `ask` tool. This block defines only how
+to design its input for the Requirement Confirmer. After writing the
+region-by-region interpretation and the Ask-or-Record ledger, make one batched
+call for all unresolved items that can block `REQUIREMENTS.md`.
+
+Design each question so its answer can be copied into one ledger row:
+
+- Ask about one decision, not one vague topic. Name the affected region,
+  feature, axis, or interface and state the evidence or ambiguity.
+- Ask shape-level interpretation explicitly. Do not hide a disputed region in
+  a general "does this look right?" question.
+- Separate independent decisions such as overall orientation, hole axis,
+  thread representation, and mounting intent. Use `multi: true` only when the
+  user may independently select several items from the same set.
+- Make options mutually exclusive and operational: each option must say what
+  will be recorded and what modeling consequence follows. Do not offer
+  imaginary precision that the source does not support.
+- Put the conservative, clearly labeled assumption first and set
+  `recommended: 0`; this is a recommendation, never consent. Include a
+  concrete correction path in the options so the user can reject or amend the
+  interpretation.
+- Ask only blocking decisions in this round. Record inferable dimensions and
+  low-risk defaults as assumptions with their basis; do not burden the user
+  with API or verification choices owned by later roles.
+
+Example payload shape (the actual labels and questions must be derived from the
+current part, not copied literally):
+
+```ts
+ask({
+  questions: [
+    {
+      id: "region_c_flange_location",
+      question: "The drawing leaves the C-view flange location ambiguous. Which region is the C flange?",
+      options: [
+        { label: "The -Y horizontal-port end", description: "Record C as the long rounded flange on the -Y end; model its axis along Y." },
+        { label: "The top vertical-bore end", description: "Record C as the flange around the top vertical bore; revise the region map before modeling." }
+      ],
+      recommended: 0
+    },
+    {
+      id: "thread_representation",
+      question: "The drawing calls out M36-6H, but does not establish whether thread faces are needed for this deliverable. How should it be represented?",
+      options: [
+        { label: "Nominal bore", description: "Record the callout and model the nominal bore; do not create helical faces." },
+        { label: "Explicit thread geometry", description: "Record modeled thread geometry as required and plan a thread-specific verification." }
+      ],
+      recommended: 0
+    },
+    {
+      id: "mounting_intent",
+      question: "What mounting intent should the base holes represent?",
+      options: [
+        { label: "Through-bolted to a flat base", description: "Record insertion along Z and verify the fastener envelope and underside clearance." },
+        { label: "Tapped or blind mounting", description: "Record the hole termination and thread requirement; do not assume through holes." }
+      ],
+      recommended: 0
+    }
+  ]
+})
+```
+
+Use stable machine-readable `id` values that match ledger rows. After the call,
+copy the returned selected options, custom answers, notes, and any timeout
+status into `REQUIREMENTS.md`; preserve the user's wording for corrections.
+The gate closes only when every blocking row has an explicit answer or an
+explicitly recorded assumption permitted by the requirement discipline. A
+recommendation or timeout is not user consent. On cancellation, incomplete
+answers, or unavailable interactive UI, keep the gate blocked and stop; never
+continue by silently selecting the recommended option.
+
+When a question has no valid answer among the proposed options, its wording
+must make clear what correction or missing requirement the user should supply.
+Do not ask the user to choose an implementation detail owned by a later role;
+ask only for the requirement that changes the model or its acceptance criteria.
+
+<!-- skill:endif -->
 3. Fastened or load-bearing parts: the requirements contain the envelope
    arithmetic, not just values — head diameter + shaft + wall/clearance →
    minimum land diameter, boss thickness, edge distance, and lateral
@@ -131,6 +212,20 @@ From `REQUIREMENTS.md` only — no API detail, no step-level modeling.
 
 Present the plan in ≤10 lines. No approval gate; enter the Role 3/4 loop.
 
+<!-- skill:if omp -->
+
+### Host binding: TODO tool (omp)
+
+Tool name: `todo`. Operations: `init(list=[{phase, items[]}])`,
+`start(task)`, `done(task|phase)`, `drop(task|phase)`, `block(task, reason)`,
+`unblock(task)`, `append(phase, items[])`, `rm`, `view`. Contract: batch
+`todo` calls together with real work in the same turn; task strings are stable
+identifiers — quote them exactly when completing. Keep the current stage's
+`model` item pending until its `plan verifier` artifact exists. A failed
+`run verifier` reopens the owning verifier or model through a `repair:` item;
+never advance the stage while either owner is open.
+
+<!-- skill:endif -->
 
 ## Role 3 — Verifier Planner
 
@@ -172,6 +267,92 @@ close-ups, comparison regions, and the structured verdict required from an
 isolated reviewer. It does not treat a render it produced as its own visual
 acceptance.
 
+<!-- skill:if omp -->
+
+### Host binding: persistent REPL and TODO state machine for Verifier Planner (omp)
+
+Use the persistent `eval` tool (language `py`) for hypothesis snippets and
+known-bad probes. Keep setup, hypothesis, and final check cells incremental;
+do not hide an unproven check in a temporary one-shot script. Use `todo` to
+make the current stage's verification contract a real gate, not a note.
+
+Role 2 creates the stable stage tasks in the `Build & Verify` phase. For each
+stage, the initial task order is:
+
+```text
+S1 plan verifier
+S1 model
+S1 run verifier
+S2 plan verifier
+S2 model
+S2 run verifier
+...
+```
+
+Use the exact task strings consistently. When Role 3 enters a stage, start its
+`plan verifier` task:
+
+```text
+todo(op="start", task="S1 plan verifier")
+```
+
+If a stage was added after the original initialization, append all three tasks
+as one ordered batch before starting the first one:
+
+```text
+todo(op="append", phase="Build & Verify", items=[
+  "S3 plan verifier",
+  "S3 model",
+  "S3 run verifier",
+])
+todo(op="start", task="S3 plan verifier")
+```
+
+Do not append a later stage's tasks while the current stage is still open. A
+repair item for the current stage is the exception: append it next to the
+owning task and keep the stage open.
+
+After the verifier contract, executable check, hypothesis evidence, and
+known-bad proof are recorded in `BUILD_PLAN.md`, close the planning gate and
+open the modeling gate in the same work turn:
+
+```text
+todo(op="done", task="S1 plan verifier")
+todo(op="start", task="S1 model")
+```
+
+Role 4 owns the model task. It must not start before the `plan verifier` task
+is done. After Role 4's source run completes, Role 4 closes `S1 model` and
+starts `S1 run verifier`; Role 3 then executes the exact prepared function or
+script named in that task.
+
+On a passing verification, record the output/evidence and close the gate:
+
+```text
+todo(op="done", task="S1 run verifier")
+```
+
+Only then may Role 3 start `S2 plan verifier`. On a failed check, do not call
+`done`, `drop`, or rewrite the acceptance criterion merely to clear the list.
+Identify the owner and append a stable repair task in the same phase, for
+example:
+
+```text
+todo(op="append", phase="Build & Verify", items=[
+  "repair: S1 verifier collision check",
+])
+todo(op="start", task="repair: S1 verifier collision check")
+```
+
+If the check is wrong, repair and re-prove the verifier contract; if the model
+is wrong, keep the verifier task intact and append a model repair item. After
+repair, return to the current stage's `run verifier`; never advance to `S2`.
+Use `todo(op="view")` after a repair or interruption to re-ground task text
+and status. Batch TODO calls with the real REPL, file, or verification work in
+the same turn; keep task strings stable and mark each item done immediately at
+its actual gate.
+
+<!-- skill:endif -->
 
 ## Role 4 — Detail Modeling Planner & Builder
 
@@ -252,6 +433,16 @@ For the current stage:
    and repeat Role 3/4 for the same stage. Start the next stage only after the
    current stage's `model` and `run verifier` items are both complete.
 
+<!-- skill:if omp -->
+
+### Host binding: persistent REPL for Detail Modeling Planner & Builder (omp)
+
+Use `eval` (language `py`) for incremental construction hypotheses; names
+survive across calls. Keep the real source run in bash. Never use a modeling
+success message as the verification result: invoke the prepared verifier
+function or script and record its output in the stage evidence.
+
+<!-- skill:endif -->
 
 ## Verifier contract patterns
 
@@ -272,6 +463,27 @@ every pattern. A contract may combine:
 Every selected pattern needs a deterministic pass/fail condition and a
 known-bad hypothesis proof before the current stage is modeled.
 
+<!-- skill:if omp -->
+
+### Host binding: mandatory isolated image review (omp)
+
+When Role 3 selects visual verification, any image-based acceptance judgment
+must be executed by a clean-context reviewer. The context that produced a
+render cannot certify it. Role 3 defines the visual contract before Role 4
+builds: reference/render paths, named views, regions, required verdict fields,
+and the reviewer input description.
+
+- Default: spawn one isolated `task` reviewer with file paths and the written
+  shape description from `REQUIREMENTS.md`; demand structured per-region
+  `match` / `mismatch` / `unreviewable` verdicts with reasons.
+- If a standing reviewer peer exists, use `hub` to send the same contract and
+  record its reply verbatim.
+- A mismatch cannot be overridden by the main context. Repair the owning
+  model, render again, and repeat the isolated review.
+- If neither reviewer mechanism exists, the visual gate remains open and the
+  stage cannot pass.
+
+<!-- skill:endif -->
 
 ## Role 5 — Exporter
 
