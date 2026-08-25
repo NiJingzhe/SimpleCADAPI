@@ -57,8 +57,8 @@ domain/discipline/API references to load, failure routes, and deliverables.
 (requirement confirmer → master planner → verifier planner ⇄ detail modeling
 planner & builder → exporter), with Roles 3 and 4 looping per stage before
 the next stage is allowed. Each role owns a disk artifact and an exit gate;
-omp host bindings (`todo` tool, persistent python REPL, mandatory subagent
-image review) are declared inside the workflow file.
+host-specific tool bindings are supplied by the selected harness rather than
+embedded in this live skill tree.
 
 ## Discipline
 
