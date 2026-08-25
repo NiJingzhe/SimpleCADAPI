@@ -319,12 +319,15 @@ class TestCli:
 
 
 def test_live_project_config_builds():
-    """The checked-in skillproj.toml must describe a buildable tree."""
+    """The live tree may contain blocks; each target build must resolve them."""
     repo_root = MODULE_PATH.parents[1]
     project = skillbuild.load_project(repo_root)
-    assert project.name == "simplecadapi"
     files = skillbuild.collect_source_files(
         project.source, frozenset(project.targets), project.root
     )
     assert any(entry.relative == Path("SKILL.md") for entry in files)
-    assert all(not e.blocks for e in files), "live tree must stay harness-neutral"
+    assert any(entry.blocks for entry in files), "live tree should exercise conditional compilation"
+
+    for target in project.targets:
+        output = skillbuild.build_target(project, files, target)
+        assert output.is_dir()
