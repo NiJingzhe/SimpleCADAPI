@@ -41,6 +41,11 @@ evaluation = brep.evaluate_reconstruction_rdescriptor(
     current="candidate.step",
     replay_succeeded=True,
 )
+manufacturing_hints = brep.inspect_manufacturing_hints_rdescriptor("part.step")
+brep.render_manufacturing_hints_rpath(
+    "part.step",
+    "manufacturing-hints.png",
+)
 ```
 
 `inspect_step_rsummary` returns entity counts, bounding box, material
@@ -108,12 +113,32 @@ case-by-case inspection code for the model:
 | Side-by-side multi-part observation | `render_step_components_colored_rpath` (direct `{component name: color name}` mapping, highlights multiple solids at once, with legend) |
 | Where the difference is | `compare_material_rdescriptor`, `inspect_difference_regions_rdescriptor` |
 | Local geometric error | `compare_boundary_distance_rdescriptor`, `compare_entities_rdescriptor` |
+| Highlight geometric fillet, chamfer, and sheet-metal candidates | `inspect_manufacturing_hints_rdescriptor`, `render_manufacturing_hints_rpath` |
 | Final exact-BREP gate | `compare_shapes_rbrepcomparison`, `compare_steps_rbrepcomparison` |
 
 Start from cheap, bounded facts; add boundary sampling, boolean difference,
 sections, rendering, or strict topology comparison only when the current
 question requires them. The generic schema registry and fixed dispatch have
 been removed: pick and call these composable APIs directly per task.
+
+`inspect_manufacturing_hints_rdescriptor` recognizes conservative candidates
+from final BREP geometry. Fillet hints require analytic constant-radius faces
+with tangent support boundaries; chamfer hints require planar or conical bevels
+between distinct supports. Sheet-metal hints require a dominant constant-
+thickness set of opposed planar or coaxial cylindrical face pairs, a thin-body
+ratio, and a matching thickness-times-midsurface volume model. Coaxial cylinder
+pairs whose radius difference equals the nominal wall thickness are returned as
+separate bend hints when they also connect at least two paired planar skins.
+Every hint includes stable `entity_ids`, measurements, evidence, and
+non-probabilistic confidence. `render_manufacturing_hints_rpath` performs a
+fresh analysis of the current model and renders the candidates by category.
+
+These are geometry hints, not recovered feature history or manufacturing intent.
+A machined thin shell may look like sheet metal; a bevel may be a draft face or
+countersink rather than an authored chamfer. STEP healing, face splitting,
+B-spline conversion, variable-radius blends, hems, beads, and lofted bends can
+also produce false negatives. Do not infer bend allowance, K-factor, tooling,
+springback, forming sequence, or unfoldability from this report.
 
 `inspect_step_rbrepinspection()` keeps the full knot, multiplicity, control
 point, and rational weight data of B-spline curves/surfaces in its report.
