@@ -31,6 +31,10 @@ from .inspect import (
 )
 from .io import load_step_rshape
 from .fitting import fit_face_analytic_rdescriptor
+from .manufacturing import (
+    inspect_manufacturing_hints_rdescriptor,
+    render_manufacturing_hints_rpath,
+)
 from .section_tracking import track_section_contours_rdescriptor
 from .model import (
     BRepEntityError,
@@ -110,6 +114,7 @@ __all__ = [
     "index_shape_rbrepmodel",
     "inspect_difference_regions_rdescriptor",
     "inspect_face_boundaries_rdescriptor",
+    "inspect_manufacturing_hints_rdescriptor",
     "inspect_nearby_entities_rdescriptor",
     "inspect_point_rdescriptor",
     "inspect_section_rdescriptor",
@@ -126,6 +131,7 @@ __all__ = [
     "track_section_contours_rdescriptor",
     "render_entity_kind_maps_rpath",
     "render_entity_map_rpath",
+    "render_manufacturing_hints_rpath",
     "render_region_rpath",
     "render_shape_views_rpath",
     "render_step_components_colored_rpath",

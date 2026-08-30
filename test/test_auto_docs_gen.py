@@ -103,6 +103,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 resolved_names,
             )
             self.assertIn("inspect/brep/inspect.py", resolved_names)
+            self.assertIn("inspect/brep/manufacturing.py", resolved_names)
             self.assertIn("inspect/brep/queries.py", resolved_names)
             self.assertIn("exporter/mjcf.py", resolved_names)
 
@@ -289,6 +290,36 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             self.assertIn("candidate-before/after volume and surface-area", persistence)
             self.assertIn("STEP serialization integrity checks", persistence)
             self.assertIn("not candidate-to-target", persistence)
+
+    def test_manufacturing_module_generates_public_api_pages(self):
+        project_root = Path(__file__).resolve().parents[1]
+        source_file = (
+            project_root / "src/simplecadapi/inspect/brep/manufacturing.py"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir) / "docs/api"
+            generator = auto_docs_gen.APIDocumentGenerator(
+                source_files=[source_file],
+                output_dirs=[output_dir],
+                quiet=True,
+            )
+
+            generator.extract_apis()
+            generator.generate_markdown_docs()
+
+            readme = (output_dir / "README.md").read_text(encoding="utf-8")
+            self.assertTrue(
+                (output_dir / "inspect_manufacturing_hints_rdescriptor.md").exists()
+            )
+            self.assertTrue(
+                (output_dir / "render_manufacturing_hints_rpath.md").exists()
+            )
+            self.assertIn("inspect_manufacturing_hints_rdescriptor", readme)
+            self.assertIn("render_manufacturing_hints_rpath", readme)
+            renderer_page = (
+                output_dir / "render_manufacturing_hints_rpath.md"
+            ).read_text(encoding="utf-8")
+            self.assertNotIn("report:", renderer_page)
 
     def test_default_stdlib_source_files_include_standard_modules(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
