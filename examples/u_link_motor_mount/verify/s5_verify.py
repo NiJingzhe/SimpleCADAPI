@@ -19,7 +19,7 @@ import shell as SH  # noqa: E402
 import u_link  # noqa: E402
 from simplecadapi import ql  # noqa: E402
 from simplecadapi.inspect import brep  # noqa: E402
-from simplecadapi.product_packages import read_product_package  # noqa: E402
+from simplecadapi.product.packages import read_product_package  # noqa: E402
 
 OUT = HERE / "out"
 failures = []
