@@ -62,6 +62,15 @@ Read the exact page under `references/docs/api/` for every API used:
   (`Resolved` items: requested → resolved, `adjust`, `draw`, rules),
   `plan.accepted`, `plan.report()` (auditable text report), `plan.tx(view,
   point)` (view-local model → sheet coordinates).
+- Layout evaluation and actions (agent-in-the-loop): `plan.evaluate()` —
+  structured per-element conflict report (`violations`: exact obstacles with
+  distances; `corridors`: free translation ranges), digested quantities
+  instead of raw geometry; `plan.apply(actions)` — replay an action-log JSON
+  (`rad`/`dia`/`lin`/`lead` placement adjustments, `accept` to bless a
+  warning with a reason) with per-action validation and reject-with-rollback
+  residuals. The engine owns deterministic truth; the agent owns discrete
+  choices. The action file is the decision log — plans rebuild statelessly
+  from declarations plus replayed actions.
 - Output: `SheetPlan.render(dxf_path, png_path)` / `render_plan` — GB layers
   (粗实线 / 虚线 / 中心线 / 细实线 / dimension / text), solid arrows,
   CJK-capable text style; writes the DXF and a PNG rendered from it for
