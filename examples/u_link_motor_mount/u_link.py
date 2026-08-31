@@ -340,33 +340,49 @@ def _gusset_tools(p: dict) -> list:
     return gussets
 
 
-def _gusset_hyp_edges(body, p: dict) -> list:
-    """筋斜边（长 sqrt(rib_len²+boss_h²)，每筋两侧共 16 条）。"""
+def _gusset_hyp_selector(p: dict):
+    """筋斜边 QL 选择器（长 sqrt(rib_len²+boss_h²)，每筋两侧共 16 条）。
+
+    谓词进图（可序列化、翻译器可语义重放），替代 Python 侧 get_edges()
+    过滤——后者只把拓扑引用写进图，跨内核（FreeCAD OCC）拓扑漂移时
+    geo 匹配失败（S4 全局倒角 FCStd 翻译事故根因）。exactly(16) 承担
+    原 assert 的基数契约。
+    """
     by = back_y(p)
     br = p["boss_d"] / 2.0
+    bx, w = p["boss_x"], br + p["rib_len"] + 0.4
     hyp = (p["rib_len"] ** 2 + p["boss_h"] ** 2) ** 0.5
-    edges = []
-    for e in body.get_edges():
-        if abs(e.get_length() - hyp) > 0.15:
-            continue
-        c = e.get_center()
-        if any(abs(c.x - sx * p["boss_x"]) <= br + p["rib_len"] + 0.4 for sx in (-1, 1)) \
-                and by - p["boss_h"] - 0.3 <= c.y <= by + 0.3:
-            edges.append(e)
-    return edges
+    return ql.edges().where(ql.and_(
+        ql.prop("geom.length", ">=", hyp - 0.15),
+        ql.prop("geom.length", "<=", hyp + 0.15),
+        ql.prop("geom.center.y", ">=", by - p["boss_h"] - 0.3),
+        ql.prop("geom.center.y", "<=", by + 0.3),
+        ql.or_(
+            ql.and_(ql.prop("geom.center.x", ">=", -bx - w),
+                    ql.prop("geom.center.x", "<=", -bx + w)),
+            ql.and_(ql.prop("geom.center.x", ">=", bx - w),
+                    ql.prop("geom.center.x", "<=", bx + w)),
+        ),
+    )).exactly(16)
 
 
-def _fillet_included_edges(body, p: dict) -> list:
-    """全局倒角边选择（s10 dbg26/27 分组取证 + s11 阈值精调）：
+def _fillet_included_selector(p: dict):
+    """全局倒角边 QL 选择器（s10 dbg26/27 分组取证 + s11 阈值精调）：
 
-    只含 y > (back_y+d_motor/2)/2 的边（安装槽 rim/臂顶/高位外缝——可靠集；
-    恰包含 d_motor/2 处的安装面 rim）。排除：剖分面(7.5)与地板顶(2.5)弦 rim
-    （内核静默负体积！）、boss/筋邻域、低 y 杂边。工程上剖分接口锐边是正确
-    配合设计。单次遍历（对象恒等不可靠）。"""
+    只含 y > (back_y+d_motor/2)/2 的圆（安装槽 rim/臂顶/拐角圈——可靠集；
+    恰包含 d_motor/2 处的安装面 rim）。限定 CIRCLE：y+长度窗内的 LINE 全是
+    周期面接缝伪影（内槽壁 r=12 ±z 母线 ×2、外柱面 r=15 −z 母线 ×2），
+    接缝位置是内核实现自由度（OCP 放母线上、FreeCAD OCC 放别处——FCStd
+    翻译 selector 孤儿事故），且其 fillet 贡献实测为 0（含/不含体积差
+    0.000000）。排除：剖分面(7.5)与地板顶(2.5)弦 rim（内核静默负体积！）、
+    boss/筋邻域、低 y 杂边。工程上剖分接口锐边是正确配合设计。"""
     y_min = (back_y(p) + p["d_motor"] / 2.0) / 2.0
     min_len = 2.0 * p["fillet_r"] + 0.3
-    return [e for e in body.get_edges()
-            if e.get_center().y > y_min and e.get_length() >= min_len]
+    return ql.edges().where(ql.and_(
+        ql.prop("geom.type", "==", "CIRCLE"),
+        ql.prop("geom.center.y", ">", y_min),
+        ql.prop("geom.length", ">=", min_len),
+    ))
 
 
 def _build_chain_ops(stage: str):
@@ -415,11 +431,10 @@ def _build_chain_ops(stage: str):
     body = scad.cut_rsolid(body, pocket_tools)
     body = scad.cut_rsolid(body, _boss_hole_tools(p))
     body = scad.union_rsolid(body, *_gusset_tools(p))
-    hyp_edges = _gusset_hyp_edges(body, p)
-    assert len(hyp_edges) == 16, f"筋斜边识别异常 n={len(hyp_edges)} (want 16)"
-    body = scad.chamfer_rsolid(solid=body, edges=hyp_edges, distance=p["gusset_chamfer"])
+    body = scad.chamfer_rsolid(
+        solid=body, edges=_gusset_hyp_selector(p), distance=p["gusset_chamfer"])
     body = scad.fillet_rsolid(
-        solid=body, edges=_fillet_included_edges(body, p),
+        solid=body, edges=_fillet_included_selector(p),
         radius=p["fillet_r"], generated_faces_tag="fillet.global_patch")
     # S13 电机槽走线窗——最后一步（用户定向：切口在最后做；rounded-rect 源型
     # 自带角圆角，在成品拓扑上直接切出，无需再 fillet）
