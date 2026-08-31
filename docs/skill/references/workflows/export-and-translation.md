@@ -36,7 +36,9 @@ repair_routes:
 
 1. **Confirm the package is current**: if any source changed since the last
    `capture`, re-run the owning workflow's capture step. Exports are
-   point-in-time deliverables.
+   point-in-time deliverables. If this workflow edits any part source while
+   making it current, the edit follows
+   `discipline/feature-tree-convention.md` block structure.
 2. **Select targets by consumer contract**
    (`domains/export-and-translation.md` table): editable FreeCAD document →
    `.FCStd`; neutral exchange → AP242 `.step`; DCC/surface inspection →
@@ -81,3 +83,8 @@ requested, the translator page(s) for every backend requested, and
 
 Exported file paths, report facts per format, chosen parameters, unavailable
 backends, and checks not run.
+
+**Required reading before authoring or editing any part source in this
+workflow:** `discipline/feature-tree-convention.md` — the block-structured
+sketch → basic body op → bool → modifier convention, its mandatory boundary
+comments, and the sketch/geometry/primitive tier rules.

@@ -84,7 +84,13 @@ it and stop that route; never invent an alternative route.
 3. One part per file; one assembly file per product; parameters
    live in the file that consumes them; exposed tunable parameters
    are `var()`/`Var` declarations (optionally with `unit`,
-   `tolerance`).
+   `tolerance`). Part sources follow the Feature Tree Convention
+   (`references/discipline/feature-tree-convention.md`): block
+   structure `sketch → basic body op → bool → modifier`, one
+   feature per block with a mandatory boundary comment
+   `# ---- feature: <slug> (<role>) ----`; 2D profiles and planar
+   paths go through the sketch API, primitives only when the shape
+   is completely contained in the basic form.
 4. Booleans (`union_rsolid`, `cut_rsolid`, `intersect_rsolid`)
    accept mixed inputs and return exactly one `Solid`; union
    defaults to `glue=False` with a conservative scale-relative

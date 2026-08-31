@@ -47,7 +47,8 @@ repair_routes:
 2. **Decompose the product** (`discipline/mechanical-modeling.md`): one part
    per file, one assembly file; group functional units as nested subassemblies
    that are placed, reasoned about, or repeated as units.
-3. **Author each part** via `single-part-modeling.md`; attach interface
+3. **Author each part** via `single-part-modeling.md` (which mandates
+   `discipline/feature-tree-convention.md` block structure); attach interface
    connectors on leaf parts (`add_connector_rpart`,
    `make_placement_connector_rconnector`, ...) at mating datums
    (`discipline/assembly-positioning.md`).
@@ -107,3 +108,8 @@ caching is configured.
 
 Part and assembly file paths, package path, solve evidence printed, residuals,
 positioning checks actually run, assumptions.
+
+**Required reading before authoring or editing any part source in this
+workflow:** `discipline/feature-tree-convention.md` — the block-structured
+sketch → basic body op → bool → modifier convention, its mandatory boundary
+comments, and the sketch/geometry/primitive tier rules.

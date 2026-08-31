@@ -20,6 +20,7 @@ required_domains:
   - requirement-refinement
   - sketch-and-features
   - part-modeling
+  - feature-tree-convention (discipline)
 optional_domains:
   - assembly-and-product
   - export-and-translation
@@ -58,7 +59,10 @@ repair_routes:
    records `solve_snapshot` / `promotion_map` evidence in the graph.
 6. **Build features** (`domains/part-modeling.md`): extrude, revolve, sweep,
    or loft the promoted profile; then booleans and detail features per
-   `discipline/feature-ordering.md`.
+   `discipline/feature-ordering.md`, structured as Feature Tree Convention
+   blocks with boundary comments (`discipline/feature-tree-convention.md`).
+   This workflow is the primary sketch-tier authoring route: closed planar
+   profiles and planar sweep paths are sketch API only.
 7. **Ground and validate** (`discipline/geometric-validation.md`): QL facts
    after promotion and after each feature; verify brief dimensions.
 8. **Package and export** as in `single-part-modeling.md` when needed.

@@ -64,7 +64,9 @@ repair_routes:
    evidence, proposed operation, direction/axis, confidence, and the check
    that could falsify it. A loop on a final planar face may be a later hole or
    pocket, not part of the base profile.
-4. **Build the candidate** via `single-part-modeling.md` or
+4. **Build the candidate** via `single-part-modeling.md` (block structure per
+   `discipline/feature-tree-convention.md`; transcribed geometry uses the
+   geometry tier and annotates `profile=geometry` honestly) or
    `sketch-feature-modeling.md` (Sketch when constraints represent the
    evidence; direct Wires for non-planar or exact transcription). Overshoot
    through-cut tools; validate one representative feature before patterning.
@@ -109,3 +111,8 @@ repair_routes:
 
 Candidate source path, replay evidence, comparison evidence with verdict and
 its acceptance tier, provenance rows, and explicitly unrecovered regions.
+
+**Required reading before authoring or editing any part source in this
+workflow:** `discipline/feature-tree-convention.md` — the block-structured
+sketch → basic body op → bool → modifier convention, its mandatory boundary
+comments, and the sketch/geometry/primitive tier rules.
