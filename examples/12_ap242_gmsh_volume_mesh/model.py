@@ -34,7 +34,7 @@ def _tag_closest_face(
     """Tag one final face while preserving the active graph source binding."""
 
     candidates: list[tuple[float, scad.Face]] = []
-    for face in body.get_faces():
+    for face in scad.ql.faces().resolve(body):
         actual_center = face.get_center()
         if normal is not None:
             actual_normal = face.get_normal_at()
@@ -173,7 +173,7 @@ def main() -> None:
     result = build_bracket()
     scad.capture(result, PACKAGE_PATH)
     print("product_package", PACKAGE_PATH)
-    print("faces", len(result.part.body.get_faces()))
+    print("faces", len(scad.ql.faces().resolve(result.part.body)))
     print("volume", f"{result.part.body.get_volume():.3f}")
 
 

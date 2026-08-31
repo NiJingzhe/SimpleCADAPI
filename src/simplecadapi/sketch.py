@@ -675,7 +675,7 @@ class Sketch(TaggedMixin, TopoMixein):
                 list(
                     zip(
                         profile_payload["entity_ids"],
-                        [edge.wrapped for edge in wire.get_edges()],
+                        [edge.wrapped for edge in wire._iter_edges()],
                     )
                 ),
             )
@@ -764,7 +764,7 @@ class Sketch(TaggedMixin, TopoMixein):
             edges.append(edge)
             entity_edges.append((str(eid), edge.wrapped))
         wire = make_wire_from_edges_rwire(edges)
-        wire_edges = list(wire.get_edges())
+        wire_edges = list(wire._iter_edges())
         if len(wire_edges) != len(entity_edges):
             raise ValueError(
                 "Sketch profile wire edge count changed during kernel construction"

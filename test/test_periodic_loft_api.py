@@ -29,7 +29,7 @@ def test_periodic_interpolated_wire_is_closed_and_passes_through_points():
     wire = scad.make_periodic_spline_rwire(points=points + [points[0]])
 
     assert wire.is_closed()
-    assert len(wire.get_edges()) == 1
+    assert len(wire._iter_edges()) == 1
     edge = wire.get_edges(0)
     for point in points:
         distance = BRepExtrema_DistShapeShape(

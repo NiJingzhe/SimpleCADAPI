@@ -33,7 +33,7 @@ class TestTrackedTranslate(unittest.TestCase):
     def test_translate_all_faces_modified(self):
         result = tracked_translate(self.box, (5, 0, 0))
         modified = [r for r in result.delta.modified if r.kind == TopoKind.FACE]
-        original_faces = len(self.box.get_faces())
+        original_faces = len(self.box._iter_faces())
         self.assertEqual(len(modified), original_faces)
 
     def test_translate_no_generated(self):
@@ -64,7 +64,7 @@ class TestTrackedRotate(unittest.TestCase):
     def test_rotate_all_faces_modified(self):
         result = tracked_rotate(self.box, 45.0, (0, 0, 1))
         modified = [r for r in result.delta.modified if r.kind == TopoKind.FACE]
-        original_faces = len(self.box.get_faces())
+        original_faces = len(self.box._iter_faces())
         self.assertEqual(len(modified), original_faces)
 
     def test_rotate_no_generated(self):

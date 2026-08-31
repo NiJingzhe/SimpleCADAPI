@@ -484,4 +484,4 @@ def build_flat_bottom() -> scad.Solid:
 if __name__ == "__main__":
     result = build_u_link_part()
     body = result.value.body
-    print(f"part volume={body.get_volume():.3f} faces={len(body.get_faces())}")
+    print(f"part volume={body.get_volume():.3f} faces={len(scad.ql.faces().resolve(body))}")

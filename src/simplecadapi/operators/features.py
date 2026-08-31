@@ -349,7 +349,7 @@ def fillet_rsolid(
             selection_params["selected_edge_node_ids"] = selected_edge_node_ids
         else:
             selection_params["selected_edge_indices"] = _serialize_selection_indices(
-                selected_edges, solid.get_edges()
+                selected_edges, solid._iter_edges()
             )
 
         target_kinds = _validate_operation_output_roles(tracked.delta, assignments)
@@ -431,7 +431,7 @@ def chamfer_rsolid(
             selection_params["selected_edge_node_ids"] = selected_edge_node_ids
         else:
             selection_params["selected_edge_indices"] = _serialize_selection_indices(
-                selected_edges, solid.get_edges()
+                selected_edges, solid._iter_edges()
             )
 
         target_kinds = _validate_operation_output_roles(tracked.delta, assignments)
@@ -523,7 +523,7 @@ def shell_rsolid(
             selection_params["selected_face_node_ids"] = selected_face_node_ids
         else:
             selection_params["selected_face_indices"] = _serialize_selection_indices(
-                selected_faces, solid.get_faces()
+                selected_faces, solid._iter_faces()
             )
 
         target_kinds = _validate_operation_output_roles(tracked.delta, assignments)

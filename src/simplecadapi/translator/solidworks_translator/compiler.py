@@ -568,7 +568,7 @@ def _canonical_detail_edge_catalog(
     sources: Dict[str, Dict[str, Any]] = {}
     for source_id, source_shape in source_shapes.items():
         try:
-            source_edges = list(source_shape.get_edges())
+            source_edges = list(source_shape._iter_edges())
         except Exception:
             continue
         edges = []
@@ -594,7 +594,7 @@ def _canonical_detail_edge_catalog(
         if source_shape is None or source_entry is None:
             continue
         try:
-            source_edges = list(source_shape.get_edges())
+            source_edges = list(source_shape._iter_edges())
             selected_indices = []
             for selector_node_id in (
                 detail_node.params.get("selected_edge_node_ids") or []

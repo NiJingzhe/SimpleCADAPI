@@ -1764,7 +1764,7 @@ def tracked_loft(profiles: List[Wire | Vertex], ruled: bool = False) -> TrackedR
         }
         cap_faces = [
             face
-            for face in result_solid.get_faces()
+            for face in result_solid._iter_faces()
             if _topo_id(face.wrapped) not in side_face_ids
         ]
         wire_endpoint_roles = [
@@ -1817,7 +1817,7 @@ def tracked_sweep(profile: Face, path: Wire, is_frenet: bool = False) -> Tracked
     graph_id = _make_id("g")
     node_id = _make_id("n")
 
-    if profile.get_inner_wires():
+    if profile._iter_inner_wires():
         raise ValueError(
             "Sweep profiles with inner wires are unsupported because PipeShell only receives the outer profile wire"
         )
@@ -2008,7 +2008,7 @@ def tracked_twisted_sweep(
             raise ValueError(f"Twisted sweep failed: {sweep_op.GetStatus().name}")
         return sweep_op
 
-    profile_wires = [profile.get_outer_wire(), *profile.get_inner_wires()]
+    profile_wires = [profile.get_outer_wire(), *profile._iter_inner_wires()]
     sweep_ops = [_pipe_shell(wire) for wire in profile_wires]
     approximation_error = max(float(op.ErrorOnSurface()) for op in sweep_ops)
 

@@ -97,7 +97,7 @@ class TestQLSugar(unittest.TestCase):
         tagged = apply_tracking_tags_to_delta(
             result.solid, result.delta, result.delta_entries, op="cut"
         )
-        modified = Q.select(tagged.get_faces()).where(Q.op("cut", "modified")).all()
+        modified = Q.select(tagged._iter_faces()).where(Q.op("cut", "modified")).all()
         self.assertGreater(len(modified), 0)
 
     def test_select_faces_by_origin(self):
@@ -107,7 +107,7 @@ class TestQLSugar(unittest.TestCase):
         tagged = apply_tracking_tags_to_delta(
             result.solid, result.delta, result.delta_entries, op="cut"
         )
-        tool_faces = Q.select(tagged.get_faces()).where(Q.origin("tool")).all()
+        tool_faces = Q.select(tagged._iter_faces()).where(Q.origin("tool")).all()
         self.assertGreater(len(tool_faces), 0)
 
 

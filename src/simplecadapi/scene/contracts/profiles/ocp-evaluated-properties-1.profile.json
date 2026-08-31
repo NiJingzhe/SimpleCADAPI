@@ -138,7 +138,7 @@
       "selector_solid_fields": ["volume", "center"],
       "bbox_api": "BRepBndLib.AddOptimal_s(shape, box, False, False) after Bnd_Box.SetGap(0.0)",
       "edge_payload_calls": ["Edge.get_length()", "Edge.get_center()", "Edge.get_start_vertex().get_coordinates()", "Edge.get_end_vertex().get_coordinates()"],
-      "face_payload_calls": ["Face.get_area()", "Face.get_center()", "Face.get_normal_at(0.5, 0.5)", "Face.get_edges()", "Face.get_inner_wires()"],
+      "face_payload_calls": ["Face.get_area()", "Face.get_center()", "Face.get_normal_at(0.5, 0.5)", "Face._iter_edges()", "Face._iter_inner_wires()"],
       "face_normal_calls": ["BRepAdaptor_Surface(face, True)", "BRepAdaptor_Surface.FirstUParameter()", "BRepAdaptor_Surface.LastUParameter()", "BRepAdaptor_Surface.FirstVParameter()", "BRepAdaptor_Surface.LastVParameter()", "BRepLProp_SLProps(adaptor, midpoint_u, midpoint_v, 1, 1e-7)", "BRepLProp_SLProps.IsNormalDefined()", "BRepLProp_SLProps.Normal()"],
       "face_normal_orientation": "reverse_when_face.Orientation() == TopAbs_REVERSED",
       "vertex_payload_call": "Vertex.get_coordinates()",

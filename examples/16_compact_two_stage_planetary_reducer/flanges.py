@@ -73,7 +73,7 @@ def make_input_flange_rpart(*, material: scad.Material) -> scad.Part:
     )
     print(
         f"input_flange: outer_diameter={INPUT_FLANGE_OUTER_DIAMETER:.1f} "
-        f"top_z={INPUT_FLANGE_TOP_Z:.3f} faces={len(flange.get_faces())}"
+        f"top_z={INPUT_FLANGE_TOP_Z:.3f} faces={len(scad.ql.faces().resolve(flange))}"
     )
     return make_axis_part_rpart(
         part_id="input_flange",
@@ -106,7 +106,7 @@ def make_output_flange_rpart(*, material: scad.Material) -> scad.Part:
     print(
         f"output_flange: outer_diameter={OUTPUT_FLANGE_OUTER_DIAMETER:.1f} "
         f"holes={OUTPUT_FLANGE_HOLE_COUNT} top_z={OUTPUT_FLANGE_TOP_Z:.3f} "
-        f"faces={len(flange.get_faces())}"
+        f"faces={len(scad.ql.faces().resolve(flange))}"
     )
     return make_axis_part_rpart(
         part_id="output_flange",
@@ -303,7 +303,7 @@ def _make_output_flange_solid_rsolid(*, tag_prefix: str) -> scad.Solid:
     print(
         f"output_flange_core: od={OUTPUT_FLANGE_OUTER_DIAMETER:.1f} "
         f"register_pads={OUTPUT_FLANGE_REGISTER_PAD_COUNT} link_holes={len(output_hole_angles)} "
-        f"cap_holes={OUTPUT_FLANGE_CENTER_FASTENER_COUNT} faces={len(flange.get_faces())} "
+        f"cap_holes={OUTPUT_FLANGE_CENTER_FASTENER_COUNT} faces={len(scad.ql.faces().resolve(flange))} "
         f"volume={flange.get_volume():.3f}"
     )
     return flange
@@ -389,7 +389,7 @@ tag_prefix: str,) -> scad.Solid:
     flange = scad.cut_rsolid(flange, cutters, skip_non_intersecting=False)
     print(
         f"flange_core: od={flange_outer_diameter:.1f} id={flange_inner_diameter:.1f} "
-        f"holes={hole_count} hole_d={hole_diameter:.1f} faces={len(flange.get_faces())} "
+        f"holes={hole_count} hole_d={hole_diameter:.1f} faces={len(scad.ql.faces().resolve(flange))} "
         f"volume={flange.get_volume():.3f}"
     )
     return flange

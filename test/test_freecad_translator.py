@@ -40,7 +40,7 @@ def _build_freecad_nested_package(tmp_path: Path):
     @scad.part(id="linked", cache=cache)
     def build_part() -> scad.Part:
         body = scad.make_box_rsolid(width=1.0, height=2.0, depth=3.0)
-        named_face = scad.apply_tag(body.get_faces()[0], "interface.mount_face")
+        named_face = scad.apply_tag(body.get_faces(0), "interface.mount_face")
         part = scad.make_part_rpart("linked", body, name="Part linked")
         connector = scad.make_face_connector_rconnector("mount", named_face)
         return scad.add_connector_rpart(part, connector)
@@ -1336,7 +1336,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
                 gear_height=8.0,
             )
             top_face = max(
-                ql.select(gear.get_faces()).all(), key=lambda face: face.get_center().z
+                ql.select(gear._iter_faces()).all(), key=lambda face: face.get_center().z
             )
             connector = scad.make_face_connector_rconnector("axis", top_face)
             part = scad.add_connector_rpart(
@@ -3241,7 +3241,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(inspected["type_id"], "Part::Cut")
         self.assertTrue(inspected["valid"])
         self.assertEqual(inspected["solid_count"], 1)
-        self.assertEqual(inspected["face_count"], len(result_solid.get_faces()))
+        self.assertEqual(inspected["face_count"], len(result_solid._iter_faces()))
         self.assertAlmostEqual(inspected["volume"], result_solid.get_volume(), places=7)
         self.assertEqual(inspected["base_type"], "Part::Box")
         self.assertEqual(inspected["tool_type"], "Part::Extrusion")
@@ -3310,7 +3310,7 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         self.assertEqual(inspected["type_id"], "Part::Cut")
         self.assertTrue(inspected["valid"])
         self.assertEqual(inspected["solid_count"], 1)
-        self.assertEqual(inspected["face_count"], len(result_solid.get_faces()))
+        self.assertEqual(inspected["face_count"], len(result_solid._iter_faces()))
         self.assertAlmostEqual(
             inspected["volume"], result_solid.get_volume(), delta=1.0e-3
         )

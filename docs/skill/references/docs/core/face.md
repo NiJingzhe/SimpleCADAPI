@@ -103,7 +103,7 @@ Get the normal vector of the face at the specified parameter position.
 
 **Example:**
 ```python
-from simplecadapi import make_rectangle_rface
+from simplecadapi import make_rectangle_rface, ql
 
 rectangle = make_rectangle_rface(width=5, height=3)
 normal = rectangle.get_normal_at()
@@ -126,7 +126,7 @@ from simplecadapi import make_rectangle_rface
 
 rectangle = make_rectangle_rface(width=5, height=3)
 outer_wire = rectangle.get_outer_wire()
-edges = outer_wire.get_edges()
+edges = ql.edges().resolve(outer_wire)
 print(f"The outer boundary consists of {len(edges)} edges")
 ```
 
@@ -171,7 +171,7 @@ for face in faces:
     area = face.get_area()
     normal = face.get_normal_at()
     outer_wire = face.get_outer_wire()
-    edges = outer_wire.get_edges()
+    edges = ql.edges().resolve(outer_wire)
     tags = list_tags(face)
     
     print(f"Face type: {tags}")
@@ -208,7 +208,7 @@ def analyze_face_geometry():
     for i, rect in enumerate(rectangles):
         area = rect.get_area()
         outer_wire = rect.get_outer_wire()
-        edges = outer_wire.get_edges()
+        edges = ql.edges().resolve(outer_wire)
         
         # Compute perimeter
         perimeter = sum(edge.get_length() for edge in edges)
@@ -234,7 +234,7 @@ def analyze_face_geometry():
     for i, circle in enumerate(circles):
         area = circle.get_area()
         outer_wire = circle.get_outer_wire()
-        edges = outer_wire.get_edges()
+        edges = ql.edges().resolve(outer_wire)
         
         # Compute circumference
         perimeter = sum(edge.get_length() for edge in edges)
@@ -361,7 +361,7 @@ def transform_faces():
         area = face.get_area()
         normal = face.get_normal_at()
         outer_wire = face.get_outer_wire()
-        edges = outer_wire.get_edges()
+        edges = ql.edges().resolve(outer_wire)
         
         # Compute bounding box
         all_coords = []

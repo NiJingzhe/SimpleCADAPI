@@ -69,7 +69,7 @@ class TestSketchApi(unittest.TestCase):
         self.assertEqual(face.get_metadata("source_sketch")["name"], "rect")
 
         edge_tags = set()
-        for edge in face.get_edges():
+        for edge in face._iter_edges():
             edge_tags.update(scad.list_tags(edge))
         self.assertIn("sketch.rect", scad.list_tags(face))
         self.assertIn("sketch_entity.bottom", edge_tags)
@@ -148,7 +148,7 @@ class TestSketchApi(unittest.TestCase):
         self.assertEqual(
             {
                 tag
-                for face in body.get_faces()
+                for face in body._iter_faces()
                 for tag in scad.list_tags(face, scope="local")
                 if tag.startswith("body.face.side.")
             },
@@ -178,7 +178,7 @@ class TestSketchApi(unittest.TestCase):
         self.assertEqual(
             {
                 tag
-                for face in rebuilt.get_faces()
+                for face in rebuilt._iter_faces()
                 for tag in scad.list_tags(face, scope="local")
                 if tag.startswith("body.face.side.")
             },
@@ -353,7 +353,7 @@ class TestSketchApi(unittest.TestCase):
         self.assertAlmostEqual(normal.x, 1.0, places=6)
         self.assertAlmostEqual(normal.y, 0.0, places=6)
         self.assertAlmostEqual(normal.z, 0.0, places=6)
-        for vertex in face.get_edges()[0].get_vertices():
+        for vertex in face.get_edges(0)._iter_vertices():
             self.assertAlmostEqual(vertex.get_coordinates()[0], 10.0, places=6)
         self.assertEqual(
             sketch.entities["lower"].data["control_points"][0],
@@ -397,11 +397,11 @@ class TestSketchApi(unittest.TestCase):
             inner_profiles=("left_hole", "right_hole"),
         )
 
-        self.assertEqual(len(face.get_inner_wires()), 2)
+        self.assertEqual(len(face._iter_inner_wires()), 2)
         self.assertAlmostEqual(face.get_area(), 23.0 * 3.141592653589793, places=5)
         edge_tags = {
             tag
-            for edge in face.get_edges()
+            for edge in face._iter_edges()
             for tag in scad.list_tags(edge, scope="local")
         }
         self.assertIn("sketch.plate.entity.outer", edge_tags)
@@ -798,9 +798,9 @@ class TestSketchChainPromotion(unittest.TestCase):
         wire = scad.make_wire_from_sketch_rwire(sketch, require_fully_constrained=True)
 
         self.assertFalse(wire.is_closed())
-        self.assertEqual(len(wire.get_edges()), 2)
+        self.assertEqual(len(wire._iter_edges()), 2)
         self.assertAlmostEqual(
-            sum(edge.get_length() for edge in wire.get_edges()), 18.0, places=6
+            sum(edge.get_length() for edge in wire._iter_edges()), 18.0, places=6
         )
 
     def test_extrude_rejects_open_chain_wire(self):
@@ -829,14 +829,14 @@ class TestSketchChainPromotion(unittest.TestCase):
 
         path = scad.make_wire_from_sketch_rwire(sketch, require_fully_constrained=True)
         self.assertFalse(path.is_closed())
-        self.assertEqual(len(path.get_edges()), 5)
+        self.assertEqual(len(path._iter_edges()), 5)
         expected = (
             2.0 * (height - radius)
             + (length - 2.0 * radius)
             + 2.0 * (math.pi * radius / 2.0)
         )
         self.assertAlmostEqual(
-            sum(edge.get_length() for edge in path.get_edges()), expected, places=4
+            sum(edge.get_length() for edge in path._iter_edges()), expected, places=4
         )
 
         profile = scad.make_circle_rface(
@@ -879,7 +879,7 @@ class TestSketchChainPromotion(unittest.TestCase):
 
         chain_wire = scad.make_wire_from_sketch_rwire(sketch, profile="tail")
         self.assertFalse(chain_wire.is_closed())
-        self.assertEqual(len(chain_wire.get_edges()), 1)
+        self.assertEqual(len(chain_wire._iter_edges()), 1)
 
         loop_face = scad.make_face_from_sketch_rface(sketch)
         self.assertAlmostEqual(loop_face.get_area(), 12.0, places=6)

@@ -131,7 +131,7 @@ def test_model_schema_2_topology_witnesses_and_roles_survive_clean_replay():
     assert len(replayed) == 1
     solid = replayed[0]
     assert {
-        role: sum(scad.ql.output_role(role)(face) for face in solid.get_faces())
+        role: sum(scad.ql.output_role(role)(face) for face in solid._iter_faces())
         for role in ("extrusion.start", "extrusion.end", "extrusion.side")
     } == {
         "extrusion.start": 1,
@@ -178,8 +178,8 @@ def test_reversed_kernel_traversal_preserves_normalized_evaluated_properties():
     reversed_root = Compound(
         make_compound_always([second.wrapped, first.wrapped])
     )
-    forward_solids = forward_root.get_solids()
-    reversed_solids = reversed_root.get_solids()
+    forward_solids = forward_root._iter_solids()
+    reversed_solids = reversed_root._iter_solids()
 
     assert len(forward_solids) == len(reversed_solids) == 2
     assert forward_solids[0].wrapped.IsSame(first.wrapped)
@@ -189,7 +189,7 @@ def test_reversed_kernel_traversal_preserves_normalized_evaluated_properties():
 
     def evaluated_property_records(root: Compound) -> list[bytes]:
         records = []
-        for solid in root.get_solids():
+        for solid in root._iter_solids():
             selector = _make_geo_selector(solid)
             records.append(
                 canonical_json_bytes(
@@ -217,7 +217,7 @@ def test_symmetric_entities_are_selector_ambiguous_even_if_legacy_resolver_picks
     first = scad.make_box_rsolid(width=2, height=2, depth=2)
     second = scad.make_box_rsolid(width=2, height=2, depth=2)
     compound = Compound(make_compound_always([first.wrapped, second.wrapped]))
-    selector = _make_geo_selector(compound.get_edges()[0])
+    selector = _make_geo_selector(compound.get_edges(0))
     candidates = _candidate_shapes_for_geo_selection(compound, "edge")
     passing = [
         candidate
@@ -328,11 +328,11 @@ def test_shared_shape_compound_violates_disjoint_solid_ownership_target():
 
     solid = scad.make_box_rsolid(width=2, height=2, depth=2)
     compound = Compound(make_compound_always([solid.wrapped, solid.wrapped]))
-    solids = compound.get_solids()
+    solids = compound._iter_solids()
     assert len(solids) == 2
     assert solids[0].wrapped.IsSame(solids[1].wrapped)
-    assert len(compound.get_faces()) == 12
-    assert len({face.topo_id for face in compound.get_faces()}) == 6
+    assert len(compound._iter_faces()) == 12
+    assert len({face.topo_id for face in compound._iter_faces()}) == 6
 
 
 def test_symmetric_graph_canonicalization_has_a_hard_failure_budget():

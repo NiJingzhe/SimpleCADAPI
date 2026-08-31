@@ -56,22 +56,22 @@ polyline = make_polyline_rwire(points=[(0, 0, 0), (1, 1, 0), (2, 0, 0)])
 
 ## Common Methods
 
-### `get_edges()`
+### `get_edges(index)` — enumeration is QL-only
 
-Get all edges that make up the wire.
+There is no no-argument list form: bare topology enumeration is forbidden
+(calling `get_edges()` raises with guidance). Enumerate or measure a wire's
+edges through QL; use the indexed form only for an intentional pick, which
+is recorded as a graph selection node.
 
 **Returns:**
-- `List[Edge]`: List of edge objects
-
-**Raises:**
-- `ValueError`: When edge list retrieval fails
+- `Edge`: The selected edge object
 
 **Example:**
 ```python
-from simplecadapi import make_rectangle_rwire
+from simplecadapi import make_rectangle_rwire, ql
 
 rectangle = make_rectangle_rwire(width=4, height=3)
-edges = rectangle.get_edges()
+edges = ql.edges().resolve(rectangle)
 
 print(f"The rectangle consists of {len(edges)} edges")
 for i, edge in enumerate(edges):
@@ -144,7 +144,7 @@ apply_tag(spline, "smooth")
 # Analyze wire properties
 wires = [rectangle, circle, polyline, spline]
 for wire in wires:
-    edges = wire.get_edges()
+    edges = ql.edges().resolve(wire)
     closed = wire.is_closed()
     tags = list_tags(wire)
     
@@ -181,7 +181,7 @@ def create_complex_profile():
     apply_tag(profile, "symmetric")
     
     # Add geometric info
-    edges = profile.get_edges()
+    edges = ql.edges().resolve(profile)
     total_length = sum(edge.get_length() for edge in edges)
     
     profile.set_metadata("total_length", total_length)
@@ -212,7 +212,7 @@ def analyze_wire_properties():
     
     for i, wire in enumerate(wires):
         # Basic properties
-        edges = wire.get_edges()
+        edges = ql.edges().resolve(wire)
         is_closed = wire.is_closed()
         
         # Compute total length
@@ -282,7 +282,7 @@ def transform_wires():
     
     # Analyze transform results
     for wire in all_wires:
-        edges = wire.get_edges()
+        edges = ql.edges().resolve(wire)
         total_length = sum(edge.get_length() for edge in edges)
         
         # Compute bounding box (simplified)

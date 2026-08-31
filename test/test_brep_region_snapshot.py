@@ -162,19 +162,19 @@ def test_face_region_loads_as_one_replayable_shell(tmp_path: Path) -> None:
         os.chdir(previous_cwd)
 
     assert isinstance(loaded, scad.Shell)
-    assert len(loaded.get_faces()) == 1
+    assert len(loaded._iter_faces()) == 1
     assert not loaded.is_closed()
     assert "kettle.copied.shell" in scad.list_tags(loaded, scope="local")
     assert "provenance.exact_transcription" in scad.list_tags(loaded)
     assert all(
         face.get_metadata("provenance")["construction"] == "exact_transcription"
-        for face in loaded.get_faces()
+        for face in loaded._iter_faces()
     )
-    assert loaded.get_faces()[0].get_metadata("provenance")["source_face_id"] == (
+    assert loaded.get_faces(0).get_metadata("provenance")["source_face_id"] == (
         f"face:{top_face_id}"
     )
     explanation = scad.explain_tag(
-        loaded.get_faces()[0],
+        loaded.get_faces(0),
         "provenance.exact_transcription",
         scope="local",
     )
@@ -199,7 +199,7 @@ def test_face_region_loads_as_one_replayable_shell(tmp_path: Path) -> None:
     finally:
         os.chdir(previous_cwd)
     assert isinstance(replayed[0], scad.Shell)
-    assert len(replayed[0].get_faces()) == 1
+    assert len(replayed[0]._iter_faces()) == 1
 
 
 def test_face_region_rejects_duplicate_face_ids(tmp_path: Path) -> None:
@@ -459,11 +459,11 @@ def test_copied_face_provenance_survives_downstream_boolean(
 
     descendants = [
         face
-        for face in cut.get_faces()
+        for face in cut._iter_faces()
         if "provenance.exact_transcription" in scad.list_tags(face, scope="lineage")
     ]
     assert descendants
-    assert len(descendants) < len(cut.get_faces())
+    assert len(descendants) < len(cut._iter_faces())
 
 
 def test_copied_face_provenance_survives_sewing(tmp_path: Path) -> None:
@@ -485,10 +485,10 @@ def test_copied_face_provenance_survives_sewing(tmp_path: Path) -> None:
     digest = hashlib.sha256(snapshot.read_bytes()).hexdigest()
     copied = scad.load_brep_region_rshell(path=snapshot, sha256=digest)
 
-    sewn = scad.sew_faces_rshell(faces=copied.get_faces(), tolerance=1.0e-7)
+    sewn = scad.sew_faces_rshell(faces=copied._iter_faces(), tolerance=1.0e-7)
 
-    assert "provenance.exact_transcription" in scad.list_tags(sewn.get_faces()[0])
-    assert sewn.get_faces()[0].get_metadata("provenance")["source_face_id"] == (
+    assert "provenance.exact_transcription" in scad.list_tags(sewn.get_faces(0))
+    assert sewn.get_faces(0).get_metadata("provenance")["source_face_id"] == (
         f"face:{top}"
     )
 
@@ -512,13 +512,13 @@ def test_shell_faces_sew_and_solid_conversion_replay(tmp_path: Path) -> None:
             copied = scad.load_brep_region_rshell(
                 path=Path(snapshot.name), sha256=digest
             )
-            sewn = scad.sew_faces_rshell(copied.get_faces(), tolerance=1.0e-7)
+            sewn = scad.sew_faces_rshell(copied._iter_faces(), tolerance=1.0e-7)
             solid = scad.make_solid_from_shell_rsolid(sewn, tag_prefix="hybrid")
             authored_bindings = {
                 face.get_metadata("provenance")["source_face_id"]: scad.explain_tag(
                     face, "provenance.exact_transcription", scope="local"
                 )[0]["binding_id"]
-                for face in solid.get_faces()
+                for face in solid._iter_faces()
             }
             session.capture_result(value=solid)
         payload = scad.export_model_json(session)
@@ -531,21 +531,21 @@ def test_shell_faces_sew_and_solid_conversion_replay(tmp_path: Path) -> None:
     assert "hybrid.solid" in scad.list_tags(replayed)
     assert all(
         face.get_metadata("provenance")["construction"] == "exact_transcription"
-        for face in replayed.get_faces()
+        for face in replayed._iter_faces()
     )
     assert len(
         {
             scad.explain_tag(face, "provenance.exact_transcription", scope="local")[0][
                 "binding_id"
             ]
-            for face in replayed.get_faces()
+            for face in replayed._iter_faces()
         }
-    ) == len(replayed.get_faces())
+    ) == len(replayed._iter_faces())
     assert {
         face.get_metadata("provenance")["source_face_id"]: scad.explain_tag(
             face, "provenance.exact_transcription", scope="local"
         )[0]["binding_id"]
-        for face in replayed.get_faces()
+        for face in replayed._iter_faces()
     } == authored_bindings
 
     payload_data = json.loads(payload)
@@ -554,7 +554,7 @@ def test_shell_faces_sew_and_solid_conversion_replay(tmp_path: Path) -> None:
         for node in payload_data["graph"]["nodes"]
         if node["op"] == "make_select_rface"
     ]
-    assert len(face_selectors) == len(source.get_faces())
+    assert len(face_selectors) == len(source._iter_faces())
     assert {
         selector["brep_region_ref"]["source_face_id"] for selector in face_selectors
     } == set(authored_bindings)
@@ -583,7 +583,7 @@ def test_semantically_tagged_face_replays_as_sewing_input(tmp_path: Path) -> Non
             feature_face = scad.apply_tag(
                 feature_face, "provenance.feature_constructed"
             )
-            sewn = scad.sew_faces_rshell([*copied.get_faces(), feature_face])
+            sewn = scad.sew_faces_rshell([*copied._iter_faces(), feature_face])
             solid = scad.make_solid_from_shell_rsolid(sewn)
             session.capture_result(value=solid)
         replayed = scad.replay_model_json(scad.export_model_json(session))[0]
@@ -594,7 +594,7 @@ def test_semantically_tagged_face_replays_as_sewing_input(tmp_path: Path) -> Non
     assert (
         sum(
             "provenance.feature_constructed" in scad.list_tags(face)
-            for face in replayed.get_faces()
+            for face in replayed._iter_faces()
         )
         == 1
     )
@@ -647,10 +647,10 @@ def test_kettle_bspline_regions_roundtrip_as_two_exact_shells(tmp_path: Path) ->
         digest = hashlib.sha256(snapshot.read_bytes()).hexdigest()
         loaded_shells.append(scad.load_brep_region_rshell(path=snapshot, sha256=digest))
 
-    assert sorted(len(shell.get_faces()) for shell in loaded_shells) == [53, 70]
-    assert sum(len(shell.get_faces()) for shell in loaded_shells) == 123
+    assert sorted(len(shell._iter_faces()) for shell in loaded_shells) == [53, 70]
+    assert sum(len(shell._iter_faces()) for shell in loaded_shells) == 123
     assert all(
         face.get_metadata("provenance")["construction"] == "exact_transcription"
         for shell in loaded_shells
-        for face in shell.get_faces()
+        for face in shell._iter_faces()
     )

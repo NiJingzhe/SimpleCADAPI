@@ -112,9 +112,10 @@ Gotchas this recipe absorbs:
 - `incident_to` on a cylindrical wall returns seam edges too (the
   vertical seam of the cylinder surface sits mid-wall); filter rims by
   an axial coordinate window.
-- Tagging a bare sub-shape taken from `get_faces()` fails graph
+- Tagging a bare sub-shape resolved from QL fails graph
   ownership ("assignment scope is not produced by the active
   GraphSession"). Tag through the scope with `apply_tag_rselection`.
+  (The bare getter list form no longer exists — enumeration is QL-only.)
 - Objects live in one `GraphSession`; passing a solid into operations
   under another session fails loudly. Keep the whole build in one.
 

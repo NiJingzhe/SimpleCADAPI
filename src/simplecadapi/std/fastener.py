@@ -389,7 +389,7 @@ def _default_head_dimensions(diameter: float, head_style: str) -> Tuple[float, f
 
 def _underhead_edge(solid: Solid, shank_radius: float) -> Edge:
     circumference = 2.0 * math.pi * shank_radius
-    edges = cast(List[Edge], solid.get_edges())
+    edges = cast(List[Edge], solid._iter_edges())
     candidates = [
         edge
         for edge in edges

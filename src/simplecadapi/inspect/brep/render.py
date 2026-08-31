@@ -722,7 +722,7 @@ def _render_sdk_screenshot_rpath(
                 (bounds[2] + bounds[3]) * 0.5,
                 (bounds[4] + bounds[5]) * 0.5,
             )
-        for face in solid.get_faces():
+        for face in solid._iter_faces():
             face_tag = next((tag for tag in tags if face._has_tag(tag)), None)
             selected_tag = face_tag or solid_tag
             grouped_faces.setdefault(selected_tag, []).append(face.wrapped)

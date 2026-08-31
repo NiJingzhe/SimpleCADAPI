@@ -39,8 +39,8 @@ tag_prefix: str,) -> scad.Assembly:
         f"od={spec.outer_diameter:.2f} bore={spec.bore_diameter:.2f} width={spec.width:.2f}"
     )
     print(
-        f"bearing_{bearing_id}_rings: outer_faces={len(outer_ring.get_faces())} "
-        f"inner_faces={len(inner_ring.get_faces())}"
+        f"bearing_{bearing_id}_rings: outer_faces={len(scad.ql.faces().resolve(outer_ring))} "
+        f"inner_faces={len(scad.ql.faces().resolve(inner_ring))}"
     )
     return bearing
 

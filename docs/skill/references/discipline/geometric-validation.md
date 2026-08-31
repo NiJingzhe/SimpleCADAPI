@@ -41,8 +41,10 @@ review.
 
 - Select by tags, axes, normals, positions, or QL predicates — not arbitrary
   topology indexes, which booleans and fillets renumber.
-- Indexed getters (`get_faces(index)`, `get_edges(index)`, ...) are for
-  intentional picks; they are preserved as graph geo-select nodes.
+- Plural getters (`get_faces(index)`, `get_edges(index)`, ...) accept ONLY an
+  index; enumeration, counting, and measurement go through QL selectors
+  (`ql.faces().resolve(shape)`, `len(ql.edges().resolve(shape))`). Indexed
+  picks are preserved as graph geo-select nodes.
 - `apply_tag(shape=..., tag=...)` attaches a tag to exactly the given shape
   with LOCAL scope — it never propagates downward; `list_tags(shape=...)`
   reads effective tags. Downward/topology-scoped propagation is only exposed
@@ -68,8 +70,11 @@ returns a valid solid. Before every `fillet_rsolid`/`chamfer_rsolid`:
    view used. Seeing the selected edges is the check.
 
 Anti-patterns, each a documented silent-wrong-part delivery:
-- Index picks (`get_edges()[i]`) for edges you did not create and name
-  in this step — booleans and fillets renumber topology.
+- Bare enumeration of topology with Python loops or post-filtered lists —
+  the no-argument getter list form is removed; every read goes through QL,
+  and picks use `get_edges(index)` only for edges you can name and intend.
+  Booleans and fillets renumber topology; a predicate survives, an index
+  guess does not.
 - Enumerating candidate edge sets x radii with `except: pass`; a hit
   confirms the selection is uncontrolled, it does not solve it.
 - Counting generated `face.*` tag faces as proof the blend landed on

@@ -311,12 +311,12 @@ class TestRearchitecture20CoreOps(unittest.TestCase):
             if item.op == "make_twisted_sweep_rsolid"
         )
         self.assertIsNotNone(node.topo_delta)
-        self.assertEqual(len(solid.get_faces()), 6)
+        self.assertEqual(len(solid._iter_faces()), 6)
 
         replayed = scad.replay_model_json(
             scad.export_model_json(session), strict=True
         )[0]
-        self.assertEqual(len(replayed.get_faces()), 6)
+        self.assertEqual(len(replayed._iter_faces()), 6)
         self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=8)
 
     def test_twisted_sweep_supports_expression_parameters_and_arbitrary_axis(self):
@@ -342,7 +342,7 @@ class TestRearchitecture20CoreOps(unittest.TestCase):
             if item.op == "make_twisted_sweep_rsolid"
         )
         self.assertEqual(set(node.param_exprs), {"distance", "twist_angle"})
-        self.assertEqual(len(solid.get_faces()), 6)
+        self.assertEqual(len(solid._iter_faces()), 6)
 
         replayed = scad.replay_model_json(
             scad.export_model_json(session), strict=True
@@ -364,7 +364,7 @@ class TestRearchitecture20CoreOps(unittest.TestCase):
 
         expected = math.pi * (2.0**2 - 1.0**2) * 2.0
         self.assertAlmostEqual(swept.get_volume() / expected, 1.0, places=6)
-        self.assertEqual(len(swept.get_faces()), 4)
+        self.assertEqual(len(swept._iter_faces()), 4)
 
     def test_twisted_sweep_rejects_invalid_axis(self):
         outer = scad.make_circle_rface(center=(0.0, 0.0, 0.0), radius=2.0)

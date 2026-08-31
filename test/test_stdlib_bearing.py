@@ -128,23 +128,23 @@ class TestBallBearingAssembly(unittest.TestCase):
         self.assertTrue(
             any(
                 BRepAdaptor_Surface(face.wrapped).GetType() == GeomAbs_Torus
-                for face in outer_part.body.get_faces()
+                for face in outer_part.body._iter_faces()
             )
         )
         self.assertTrue(
             any(
                 BRepAdaptor_Surface(face.wrapped).GetType() == GeomAbs_Torus
-                for face in inner_part.body.get_faces()
+                for face in inner_part.body._iter_faces()
             )
         )
         self.assertTrue(
             all(
                 BRepAdaptor_Surface(face.wrapped).GetType() == GeomAbs_Sphere
-                for face in ball_part.body.get_faces()
+                for face in ball_part.body._iter_faces()
             )
         )
 
-        self.assertEqual(len(preview.get_solids()), 9)
+        self.assertEqual(len(preview._iter_solids()), 9)
         self.assertGreater(preview.get_volume(), 0.0)
         self.assertTrue(
             scad.measure_constraint_residual_rconstraintresidual(
@@ -200,7 +200,7 @@ class TestBallBearingAssembly(unittest.TestCase):
         )
         shaft_part = scad.make_part_rpart("shaft", shaft)
         top_face = max(
-            shaft.get_faces(),
+            shaft._iter_faces(),
             key=lambda face: (
                 face.get_center().z if face.get_normal_at().z > 0.7 else -999.0
             ),
@@ -252,7 +252,7 @@ class TestBallBearingAssembly(unittest.TestCase):
         )
         shaft_part = scad.make_part_rpart("parent_bind_shaft", shaft)
         top_face = max(
-            shaft.get_faces(),
+            shaft._iter_faces(),
             key=lambda face: (
                 face.get_center().z if face.get_normal_at().z > 0.7 else -999.0
             ),

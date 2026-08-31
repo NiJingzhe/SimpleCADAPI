@@ -93,21 +93,30 @@ it and stop that route; never invent an alternative route.
 5. Build and validate incrementally: each major step prints small
    QL-derived facts; grounding uses QL wherever possible; never
    print whole solids or full model objects.
-6. Tags: attach with `apply_tag(shape=..., tag=...)` (LOCAL scope —
+6. Topology enumeration is QL-only and strictly enforced: plural
+   getters (`get_edges`, `get_faces`, `get_wires`, `get_vertices`,
+   `get_solids`, `get_inner_wires`) accept ONLY an index — the
+   no-argument list form raises. Enumerate, count, and measure via
+   `ql.<kind>().resolve(shape)`; filter with QL predicates plus
+   `take`/`exactly` cardinality; never build selections by looping
+   over an enumerated list and indexing it. Indexed picks
+   (`get_edges(index)`) are reserved for intentional, named choices
+   and are recorded as graph selection nodes.
+7. Tags: attach with `apply_tag(shape=..., tag=...)` (LOCAL scope —
    it never propagates downward); inspect with
    `list_tags(shape=...)`; keep numeric facts in metadata, never in
    tags.
-7. `@scad.part` for one physical single-solid product;
+8. `@scad.part` for one physical single-solid product;
    `@scad.assemble` for assemblies with explicit definitions.
    Neither nests inside an active `GraphSession`. Durable delivery
    is `capture(result, "out/product.scadpkg")` in one call.
-8. `simplecadapi.inspect.brep` is diagnostic-only and rejected
+9. `simplecadapi.inspect.brep` is diagnostic-only and rejected
    inside `GraphSession`; obtain/export geometry first, inspect
    outside.
-9. Standard parts first: before hand-modeling a gear, ring gear,
-   rack, cycloidal disc, or bearing, check `scad.std.gear` /
-   `scad.std.bearing`.
-10. Read `references/docs/guides/cache-build-workflow.md` in full
+10. Standard parts first: before hand-modeling a gear, ring gear,
+    rack, cycloidal disc, or bearing, check `scad.std.gear` /
+    `scad.std.bearing`.
+11. Read `references/docs/guides/cache-build-workflow.md` in full
     before configuring persistent cache, durable builds, or cache
     maintenance; cache mutation requires explicit confirmation.
 
