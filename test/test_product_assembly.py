@@ -118,7 +118,7 @@ def test_assembly_components_reuse_part_and_project_to_compound():
 
     compound = scad.make_compound_from_assembly_rcompound(assembly)
     assert isinstance(compound, scad.Compound)
-    assert len(compound.get_solids()) == 2
+    assert len(compound._iter_solids()) == 2
     assert math.isclose(
         compound.get_volume(), 2.0 * bolt_body.get_volume(), rel_tol=1e-7
     )
@@ -153,7 +153,7 @@ def test_nested_assembly_projection_composes_component_placements():
         round(face.get_center().x, 1) for face in ql.faces().resolve(compound)
     )
 
-    assert len(compound.get_solids()) == 1
+    assert len(compound._iter_solids()) == 1
     assert face_centers_x[0] >= 11.5
     assert face_centers_x[-1] <= 12.5
 

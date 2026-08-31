@@ -303,7 +303,7 @@ class TestBooleanOperations(unittest.TestCase):
         with redirect_stdout(stdout_buffer):
             result = scad.union_rsolid(box_left, box_right)
         self.assertAlmostEqual(result.get_volume(), 2.0, places=6)
-        self.assertEqual(len(result.get_faces()), 6)
+        self.assertEqual(len(result._iter_faces()), 6)
         self.assertEqual(stdout_buffer.getvalue(), "")
 
     def test_union_bridges_small_explicit_gap_only_with_tolerance(self):
@@ -406,7 +406,7 @@ class TestAdvancedFeatures(unittest.TestCase):
     def test_fillet(self):
         """Test fillet."""
         # 获取所有边
-        edges = self.box.get_edges()
+        edges = self.box._iter_edges()
         # 选择前4条边进行圆角
         selected_edges = edges[:4]
 
@@ -421,7 +421,7 @@ class TestAdvancedFeatures(unittest.TestCase):
     def test_chamfer(self):
         """Test chamfer."""
         # 获取所有边
-        edges = self.box.get_edges()
+        edges = self.box._iter_edges()
         # 选择前4条边进行倒角
         selected_edges = edges[:4]
 
@@ -436,7 +436,7 @@ class TestAdvancedFeatures(unittest.TestCase):
     def test_shell(self):
         """Test shell."""
         # 获取顶面
-        faces = self.box.get_faces()
+        faces = self.box._iter_faces()
         top_faces = [face for face in faces if "face.top" in scad.list_tags(face)]
 
         try:
@@ -519,7 +519,7 @@ class TestTagging(unittest.TestCase):
     def test_auto_tag_faces_box(self):
         """Test auto tag faces box."""
         self.box.auto_tag_faces("box")
-        faces = self.box.get_faces()
+        faces = self.box._iter_faces()
 
         # 检查是否有标记的面
         tagged_faces = [face for face in faces if len(scad.list_tags(face)) > 0]
@@ -529,7 +529,7 @@ class TestTagging(unittest.TestCase):
         """Test auto tag faces cylinder."""
         cylinder = scad.create_cylinder(1.0, 2.0)
         cylinder.auto_tag_faces("cylinder")
-        faces = cylinder.get_faces()
+        faces = cylinder._iter_faces()
 
         # 检查是否有标记的面
         tagged_faces = [face for face in faces if len(scad.list_tags(face)) > 0]
@@ -539,7 +539,7 @@ class TestTagging(unittest.TestCase):
         """Test auto tag faces sphere."""
         sphere = scad.create_sphere(1.0)
         sphere.auto_tag_faces("sphere")
-        faces = sphere.get_faces()
+        faces = sphere._iter_faces()
 
         # 球体应该只有一个面，且被标记为surface
         self.assertEqual(len(faces), 1)

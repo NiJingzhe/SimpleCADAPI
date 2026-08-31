@@ -91,22 +91,22 @@ expected_volume = (4/3) * math.pi * 1.5**3
 print(f"Sphere volume: {sphere_volume:.3f}, expected: {expected_volume:.3f}")
 ```
 
-### `get_faces()`
+### `get_faces(index)` — enumeration is QL-only
 
-Get all faces that make up the solid.
+There is no no-argument list form: bare topology enumeration is forbidden
+(calling `get_faces()` raises with guidance). Enumerate, count, or filter
+faces through QL selectors; use this method only for an intentional indexed
+pick, which is recorded as a graph selection node.
 
 **Returns:**
-- `List[Face]`: List of face objects
-
-**Raises:**
-- `ValueError`: When face list retrieval fails
+- `Face`: The selected face object
 
 **Example:**
 ```python
-from simplecadapi import make_box_rsolid
+from simplecadapi import make_box_rsolid, ql
 
 box = make_box_rsolid(width=4, height=3, depth=2)
-faces = box.get_faces()
+faces = ql.faces().resolve(box)
 
 print(f"The box has {len(faces)} faces")
 for i, face in enumerate(faces):
@@ -114,61 +114,20 @@ for i, face in enumerate(faces):
     print(f"Face {i}: area {area:.3f}")
 ```
 
-### `get_faces(index)`
+### `get_edges(index)` — enumeration is QL-only
 
-Get one face by explicit index. In an active `GraphSession`, this intentional
-indexed pick is preserved as a graph geo select node.
+There is no no-argument list form. Enumerate or measure edges through QL:
 
-**Returns:**
-- `Face`: The selected face object
-
-**Example:**
 ```python
-from simplecadapi import make_box_rsolid
+from simplecadapi import make_box_rsolid, ql
 
 box = make_box_rsolid(width=4, height=3, depth=2)
-first_face = box.get_faces(0)
-print(first_face.get_area())
-```
-
-### `get_edges()`
-
-Get all edges that make up the solid.
-
-**Returns:**
-- `List[Edge]`: List of edge objects
-
-**Raises:**
-- `ValueError`: When edge list retrieval fails
-
-**Example:**
-```python
-from simplecadapi import make_box_rsolid
-
-box = make_box_rsolid(width=4, height=3, depth=2)
-edges = box.get_edges()
+edges = ql.edges().resolve(box)
 
 print(f"The box has {len(edges)} edges")
 for i, edge in enumerate(edges):
     length = edge.get_length()
     print(f"Edge {i}: length {length:.3f}")
-```
-
-### `get_edges(index)`
-
-Get one edge by explicit index. In an active `GraphSession`, this intentional
-indexed pick is preserved as a graph geo select node.
-
-**Returns:**
-- `Edge`: The selected edge object
-
-**Example:**
-```python
-from simplecadapi import make_box_rsolid
-
-box = make_box_rsolid(width=4, height=3, depth=2)
-first_edge = box.get_edges(0)
-print(first_edge.get_length())
 ```
 
 ### `auto_tag_faces(geometry_type)`
@@ -186,7 +145,7 @@ from simplecadapi import make_box_rsolid, make_cylinder_rsolid
 box = make_box_rsolid(width=4, height=3, depth=2)
 box.auto_tag_faces("box")
 
-faces = box.get_faces()
+faces = ql.faces().resolve(box)
 for face in faces:
     print(f"Face tags: {list_tags(face)}")
 
@@ -194,7 +153,7 @@ for face in faces:
 cylinder = make_cylinder_rsolid(center=(0, 0, 0), radius=2, height=4)
 cylinder.auto_tag_faces("cylinder")
 
-faces = cylinder.get_faces()
+faces = ql.faces().resolve(cylinder)
 for face in faces:
     print(f"Face tags: {list_tags(face)}")
 ```
@@ -234,8 +193,8 @@ def create_basic_solids():
         
         # Get geometric properties
         volume = solid.get_volume()
-        faces = solid.get_faces()
-        edges = solid.get_edges()
+        faces = ql.faces().resolve(solid)
+        edges = ql.edges().resolve(solid)
         
         # Compute surface area
         total_surface_area = sum(face.get_area() for face in faces)
@@ -318,7 +277,7 @@ def boolean_operations_example():
     
     for name, solid in operations:
         volume = solid.get_volume()
-        faces = solid.get_faces()
+        faces = ql.faces().resolve(solid)
         surface_area = sum(face.get_area() for face in faces)
         
         solid.set_metadata("operation_type", name)
@@ -355,8 +314,8 @@ def feature_operations_example():
     
     # Analyze the original geometry
     original_volume = base_box.get_volume()
-    original_faces = base_box.get_faces()
-    original_edges = base_box.get_edges()
+    original_faces = ql.faces().resolve(base_box)
+    original_edges = ql.edges().resolve(base_box)
     
     print(f"Original geometry:")
     print(f"  Volume: {original_volume:.3f}")
@@ -371,8 +330,8 @@ def feature_operations_example():
         apply_tag(filleted_box, "rounded_edges")
         
         filleted_volume = filleted_box.get_volume()
-        filleted_faces = filleted_box.get_faces()
-        filleted_edges = filleted_box.get_edges()
+        filleted_faces = ql.faces().resolve(filleted_box)
+        filleted_edges = ql.edges().resolve(filleted_box)
         
         filleted_box.set_metadata("original_volume", original_volume)
         filleted_box.set_metadata("volume_change", filleted_volume - original_volume)
@@ -396,8 +355,8 @@ def feature_operations_example():
         apply_tag(chamfered_box, "beveled_edges")
         
         chamfered_volume = chamfered_box.get_volume()
-        chamfered_faces = chamfered_box.get_faces()
-        chamfered_edges = chamfered_box.get_edges()
+        chamfered_faces = ql.faces().resolve(chamfered_box)
+        chamfered_edges = ql.edges().resolve(chamfered_box)
         
         chamfered_box.set_metadata("original_volume", original_volume)
         chamfered_box.set_metadata("volume_change", chamfered_volume - original_volume)
@@ -424,7 +383,7 @@ def feature_operations_example():
     print("Feature operation comparison:")
     for name, solid in results:
         volume = solid.get_volume()
-        faces = solid.get_faces()
+        faces = ql.faces().resolve(solid)
         tags = list_tags(solid)
         print(f"  {name}: volume={volume:.3f}, face count={len(faces)}, tags={tags}")
 
@@ -487,8 +446,8 @@ def create_complex_geometry():
     
     # Analyze the complex solid
     volume = complex_solid.get_volume()
-    faces = complex_solid.get_faces()
-    edges = complex_solid.get_edges()
+    faces = ql.faces().resolve(complex_solid)
+    edges = ql.edges().resolve(complex_solid)
     
     # Compute geometric complexity
     face_count = len(faces)
@@ -559,8 +518,8 @@ def analyze_solid_quality():
         
         # Basic geometric properties
         volume = solid.get_volume()
-        faces = solid.get_faces()
-        edges = solid.get_edges()
+        faces = ql.faces().resolve(solid)
+        edges = ql.edges().resolve(solid)
         
         # Compute quality metrics
         surface_area = sum(face.get_area() for face in faces)

@@ -210,13 +210,13 @@ class TestSurfaceApi(unittest.TestCase):
     def test_solid_from_closed_shell_replays(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(1.0, 2.0, 3.0)
-            shell = scad.sew_faces_rshell(box.get_faces())
+            shell = scad.sew_faces_rshell(box._iter_faces())
             shell = scad.apply_tag_rselection(
                 shell,
                 scad.ql.faces(),
                 "role.preserved_face",
             )
-            source_face_tags = {face.topo_id for face in shell.get_faces()}
+            source_face_tags = {face.topo_id for face in shell._iter_faces()}
             solid = scad.make_solid_from_shell_rsolid(shell, tag_prefix="body")
 
         replayed = scad.replay_model_json(scad.export_model_json(session))[0]
@@ -229,13 +229,13 @@ class TestSurfaceApi(unittest.TestCase):
             all(
                 face.topo_id in source_face_tags
                 and "role.preserved_face" in scad.list_tags(face)
-                for face in solid.get_faces()
+                for face in solid._iter_faces()
             )
         )
         self.assertTrue(
             all(
                 "role.preserved_face" in scad.list_tags(face)
-                for face in replayed.get_faces()
+                for face in replayed._iter_faces()
             )
         )
 
@@ -275,7 +275,7 @@ class TestSurfaceApi(unittest.TestCase):
     def test_shell_scoped_face_tag_replays(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(1.0, 2.0, 3.0)
-            shell = scad.sew_faces_rshell(box.get_faces())
+            shell = scad.sew_faces_rshell(box._iter_faces())
             tagged_face = scad.apply_tag(
                 shell.get_faces(0),
                 "role.shell_face",
@@ -350,7 +350,7 @@ class TestSurfaceApi(unittest.TestCase):
         self.assertEqual(len(replayed), 2)
         self.assertAlmostEqual(replayed[0].get_area(), gordon.get_area(), places=7)
         self.assertAlmostEqual(replayed[1].get_area(), patch.get_area(), places=7)
-        self.assertEqual(len(replayed[1].get_edges()), 4)
+        self.assertEqual(len(replayed[1]._iter_edges()), 4)
         self.assertIn("patch.face", scad.list_tags(replayed[1]))
 
     def test_trim_surface_with_hole_and_replay(self):
@@ -371,7 +371,7 @@ class TestSurfaceApi(unittest.TestCase):
         self.assertIsInstance(trimmed, scad.Face)
         self.assertAlmostEqual(trimmed.get_area(), 15.0, places=6)
         self.assertAlmostEqual(replayed.get_area(), trimmed.get_area(), places=7)
-        self.assertEqual(len(trimmed.get_wires()), 2)
+        self.assertEqual(len(trimmed._iter_wires()), 2)
         self.assertIn("trimmed.face", scad.list_tags(replayed))
 
     def test_trim_preserves_existing_carrier_holes(self):
@@ -390,7 +390,7 @@ class TestSurfaceApi(unittest.TestCase):
         )
 
         self.assertAlmostEqual(trimmed.get_area(), 5.0, places=6)
-        self.assertEqual(len(trimmed.get_inner_wires()), 1)
+        self.assertEqual(len(trimmed._iter_inner_wires()), 1)
 
     def test_trim_intersects_partially_overlapping_planar_loop(self):
         backing = scad.make_bezier_surface_rface(
@@ -450,7 +450,7 @@ class TestSurfaceApi(unittest.TestCase):
         trimmed = scad.trim_surface_rface(carrier, outer, tolerance=tolerance)
 
         self.assertIsInstance(trimmed, scad.Face)
-        self.assertEqual(len(trimmed.get_wires()), 1)
+        self.assertEqual(len(trimmed._iter_wires()), 1)
 
     def test_trim_rejects_closed_oscillating_curve_between_coarse_samples(self):
         carrier = scad.make_bezier_surface_rface(
@@ -520,7 +520,7 @@ class TestSurfaceApi(unittest.TestCase):
         ]
         self.assertIsInstance(replayed, scad.Shell)
         self.assertFalse(replayed.is_closed())
-        self.assertEqual(len(replayed.get_wires()), 2)
+        self.assertEqual(len(replayed._iter_wires()), 2)
         self.assertEqual(
             len(scad.ql.wires().where(scad.ql.tag("anchor.inlet")).resolve(replayed)),
             1,
@@ -538,7 +538,7 @@ class TestSurfaceApi(unittest.TestCase):
 
         point = scad.make_point_rvertex(0, 0, 4)
         pointed = scad.loft_rshell([upper, point], start_wire_tag="anchor.base")
-        self.assertEqual(len(pointed.get_wires()), 1)
+        self.assertEqual(len(pointed._iter_wires()), 1)
         self.assertEqual(
             len(scad.ql.wires().where(scad.ql.tag("anchor.base")).resolve(pointed)),
             1,
@@ -556,8 +556,8 @@ class TestSurfaceApi(unittest.TestCase):
         replayed = scad.replay_model_json(scad.export_model_json(session))
         self.assertEqual(len(boundaries), 1)
         self.assertEqual(len(replayed), 1)
-        original_length = sum(edge.get_length() for edge in boundaries[0].get_edges())
-        replayed_length = sum(edge.get_length() for edge in replayed[0].get_edges())
+        original_length = sum(edge.get_length() for edge in boundaries[0]._iter_edges())
+        replayed_length = sum(edge.get_length() for edge in replayed[0]._iter_edges())
         self.assertAlmostEqual(replayed_length, original_length, places=8)
 
     def test_sew_shell_faces_replays_selected_face_inputs(self):
@@ -565,7 +565,7 @@ class TestSurfaceApi(unittest.TestCase):
             lower = scad.make_circle_rwire((0, 0, 0), 1.0)
             upper = scad.make_circle_rwire((0, 0, 2), 1.0)
             lofted = scad.loft_rshell([lower, upper])
-            resewn = scad.sew_faces_rshell(lofted.get_faces())
+            resewn = scad.sew_faces_rshell(lofted._iter_faces())
             session.capture_result(value=resewn)
 
         payload = scad.export_model_json(session)
@@ -579,13 +579,13 @@ class TestSurfaceApi(unittest.TestCase):
         replayed = scad.replay_model_json(payload, strict=True)
         self.assertEqual(len(replayed), 1)
         self.assertIsInstance(replayed[0], scad.Shell)
-        self.assertEqual(len(replayed[0].get_faces()), len(resewn.get_faces()))
+        self.assertEqual(len(replayed[0]._iter_faces()), len(resewn._iter_faces()))
         self.assertAlmostEqual(replayed[0].get_area(), resewn.get_area(), places=8)
 
     def test_solidification_does_not_overwrite_existing_shell_face_refs(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(1.0, 2.0, 3.0)
-            shell = scad.sew_faces_rshell(box.get_faces())
+            shell = scad.sew_faces_rshell(box._iter_faces())
             retained_face = shell.get_faces(0)
             retained_ref = retained_face._get_runtime("topo.ref")
             scad.make_solid_from_shell_rsolid(shell)
@@ -599,7 +599,7 @@ class TestSurfaceApi(unittest.TestCase):
 
     def test_solidification_isolates_cache_and_preserves_subshape_state(self):
         box = scad.make_box_rsolid(1.0, 2.0, 3.0)
-        shell = scad.sew_faces_rshell(box.get_faces())
+        shell = scad.sew_faces_rshell(box._iter_faces())
         source_face = shell.get_faces(0)
         scad.apply_tag(source_face, "role.shell_face_state")
         source_face.set_metadata("audit", {"value": 1})
@@ -608,7 +608,7 @@ class TestSurfaceApi(unittest.TestCase):
         solid = scad.make_solid_from_shell_rsolid(shell)
         matches = [
             face
-            for face in solid.get_faces()
+            for face in solid._iter_faces()
             if face.wrapped.IsSame(source_face.wrapped)
         ]
 
@@ -621,7 +621,7 @@ class TestSurfaceApi(unittest.TestCase):
     def test_solid_subshape_uses_fresh_graph_references(self):
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(1.0, 2.0, 3.0)
-            shell = scad.sew_faces_rshell(box.get_faces())
+            shell = scad.sew_faces_rshell(box._iter_faces())
             solid = scad.make_solid_from_shell_rsolid(shell)
             moved = scad.translate_shape(solid.get_faces(0), (1.0, 0.0, 0.0))
             session.capture_result(value=moved)

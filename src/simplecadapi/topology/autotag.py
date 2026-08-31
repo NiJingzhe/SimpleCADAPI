@@ -468,7 +468,7 @@ def apply_tracking_tags(
         _topo_id(face.wrapped): face
         for source in all_sources
         for face in (
-            source.get_faces()
+            source._iter_faces()
             if hasattr(source, "get_faces")
             else ([source] if source.__class__.__name__ == "Face" else [])
         )
@@ -477,7 +477,7 @@ def apply_tracking_tags(
         _topo_id(edge.wrapped): edge
         for source in all_sources
         for edge in (
-            source.get_edges()
+            source._iter_edges()
             if hasattr(source, "get_edges")
             else ([source] if source.__class__.__name__ == "Edge" else [])
         )
@@ -498,7 +498,7 @@ def apply_tracking_tags(
                     str(witness["input_topo_id"]), set()
                 ).add(str(target_id))
 
-    for face in solid.get_faces():
+    for face in solid._iter_faces():
         topo_id = _topo_id(face.wrapped)
         entry = _matching_entry(entries, topo_id, TopoKind.FACE)
         if entry is None:
@@ -545,7 +545,7 @@ def apply_tracking_tags(
     section_ids = {
         ref.topo_id for ref in delta.section_edges if ref.kind == TopoKind.EDGE
     }
-    for edge in solid.get_edges():
+    for edge in solid._iter_edges():
         topo_id = _topo_id(edge.wrapped)
         entry = _matching_entry(entries, topo_id, TopoKind.EDGE)
         if entry is None:

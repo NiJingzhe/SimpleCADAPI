@@ -103,10 +103,10 @@ class TestSpurGear(unittest.TestCase):
         )
         expected_tip = module * n_teeth / 2.0 + module
         max_r = 0.0
-        for face in solid.get_faces():
-            for wire in face.get_wires():
-                for edge in wire.get_edges():
-                    for vertex in edge.get_vertices():
+        for face in solid._iter_faces():
+            for wire in face._iter_wires():
+                for edge in wire._iter_edges():
+                    for vertex in edge._iter_vertices():
                         x, y, _ = vertex.get_coordinates()
                         max_r = max(max_r, math.sqrt(x * x + y * y))
         self.assertLess(max_r, expected_tip * 1.05)
@@ -412,12 +412,12 @@ class TestHelicalGear(unittest.TestCase):
         self.assertFalse(
             any(node["op"] == "make_loft_rsolid" for node in payload["graph"]["nodes"])
         )
-        self.assertEqual(len(solid.get_faces()), 74)
+        self.assertEqual(len(solid._iter_faces()), 74)
 
         replayed = scad.replay_model_json(
             json_str=json.dumps(payload), strict=True
         )[0]
-        self.assertEqual(len(replayed.get_faces()), 74)
+        self.assertEqual(len(replayed._iter_faces()), 74)
         self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=6)
 
 
@@ -467,12 +467,12 @@ class TestHerringboneGear(unittest.TestCase):
                 if node["op"] == "make_twisted_sweep_rsolid"
             )
         )
-        self.assertEqual(len(solid.get_faces()), 146)
+        self.assertEqual(len(solid._iter_faces()), 146)
 
         replayed = scad.replay_model_json(
             json_str=json.dumps(payload), strict=True
         )[0]
-        self.assertEqual(len(replayed.get_faces()), 146)
+        self.assertEqual(len(replayed._iter_faces()), 146)
         self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=6)
 
     def test_stdlib_graph_tracking_scope_does_not_leak(self):
@@ -545,12 +545,12 @@ class TestSpurRingGear(unittest.TestCase):
             pressure_angle=pressure_angle,
             rim_thickness=4.0,
         )
-        inner_wire = face.get_inner_wires()[0]
+        inner_wire = face.get_inner_wires(0)
 
         vertex_radii = [
             math.hypot(x, y)
-            for edge in inner_wire.get_edges()
-            for vertex in edge.get_vertices()
+            for edge in inner_wire._iter_edges()
+            for vertex in edge._iter_vertices()
             for x, y, _z in [vertex.get_coordinates()]
         ]
         pitch_radius = module * n_teeth / 2.0
@@ -943,7 +943,7 @@ class Test2DFaceBoolean(unittest.TestCase):
             math.pi * (100 - 16),
             places=1,
         )
-        self.assertEqual(len(ring.get_inner_wires()), 1)
+        self.assertEqual(len(ring._iter_inner_wires()), 1)
 
     def test_make_face_from_wires_rface_creates_hole(self):
         outer = scad.make_circle_rwire(center=(0, 0, 0), radius=10.0)
@@ -954,7 +954,7 @@ class Test2DFaceBoolean(unittest.TestCase):
             math.pi * (100 - 16),
             places=1,
         )
-        self.assertEqual(len(ring.get_inner_wires()), 1)
+        self.assertEqual(len(ring._iter_inner_wires()), 1)
 
     def test_make_2d_union_rface(self):
         a = scad.make_circle_rface(center=(0, 0, 0), radius=5.0)

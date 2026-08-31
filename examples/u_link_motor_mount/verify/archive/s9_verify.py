@@ -1,4 +1,6 @@
-"""S9 verifier: cover geometry + fit + assembly vs S9 contract.
+"""
+[ARCHIVED 2026-08-31, feat/ftc] Historical evidence of an abandoned/superseded stage — NOT a runnable verifier contract. See archive/README.md.
+S9 verifier: cover geometry + fit + assembly vs S9 contract.
 
 Criteria:
   C1 cover: single solid, bbox x[±(pocket_x2-clr)] y[back_y, back_y+cover_t] z[±(pocket_z-clr)]

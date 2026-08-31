@@ -123,7 +123,7 @@ def select_faces_by_tag(
     try:
         normalized = normalize_tag(tag, strict=True)
         resolved_scope = normalize_tag_scope(scope)
-        faces = solid.get_faces()
+        faces = solid._iter_faces()
         return [face for face in faces if face._has_tag(normalized, resolved_scope)]
     except Exception as e:
         _wrap_public_api_error(
@@ -150,9 +150,9 @@ def select_edges_by_tag(
         normalized = normalize_tag(tag, strict=True)
         resolved_scope = normalize_tag_scope(scope)
         if isinstance(shape, Face):
-            edges = shape.get_edges()
+            edges = shape._iter_edges()
         elif isinstance(shape, Solid):
-            edges = shape.get_edges()
+            edges = shape._iter_edges()
         else:
             raise ValueError("只能从面或实体中选择边")
 

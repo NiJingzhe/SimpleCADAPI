@@ -68,7 +68,11 @@ SimpleWorkplane  ← local modeling context
 - **OCP-native runtime**: geometry construction, topology traversal, properties, booleans, transforms, and export use OCP/OpenCascade helpers.
 - **Replayable graph workflows**: an explicit `GraphSession` records operations, `session.capture_result()` selects canonical output nodes, and `export_model_json()` plus `replay_model_json()` provide interchange and replay.
 - **Tags and metadata**: tags are useful for lightweight semantics; structured numeric facts should be stored in metadata such as `metadata["geo"]`.
-- **Indexed topology access**: use plural methods such as `get_edges()` and `get_faces()` for enumeration, and pass an index to the same getter, such as `get_edges(index)` or `get_faces(index)`, for intentional indexed picks that should become graph selection nodes.
+- **QL-only topology enumeration**: plural getters such as `get_edges(index)` and
+  `get_faces(index)` accept ONLY an index — the no-argument list form is forbidden
+  and raises. Enumerate, count, or measure topology through QL selectors
+  (`ql.edges().resolve(shape)`); an intentional single pick uses the indexed form,
+  which is recorded as a graph selection node.
 
 ## Basic Usage
 
@@ -82,10 +86,7 @@ scad.apply_tag(shape=box, tag="role.bracket")
 box.set_metadata("material", "6061-T6")
 box.auto_tag_faces("box")
 
-top_faces = [
-    face for face in box.get_faces()
-    if "face.top" in scad.list_tags(shape=face)
-]
+top_faces = scad.ql.faces().where(scad.ql.tag("face.top")).resolve(box)
 print(len(top_faces))
 ```
 

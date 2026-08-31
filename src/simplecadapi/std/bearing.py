@@ -91,7 +91,7 @@ def _validate_ball_count(
 
 def _candidate_chamfer_edges(solid: Solid, bearing_width: float) -> List[object]:
     circular_min_length = max(1e-6, bearing_width * 1.1)
-    return [edge for edge in solid.get_edges() if edge.get_length() > circular_min_length]
+    return [edge for edge in solid._iter_edges() if edge.get_length() > circular_min_length]
 
 
 def _apply_edge_chamfer(solid: Solid, edge_chamfer: float, bearing_width: float) -> Solid:
@@ -201,7 +201,7 @@ def _make_race_ring_solid(
 
 def _axis_face(solid: Solid, target_z: float) -> Face:
     candidates = []
-    for face in solid.get_faces():
+    for face in solid._iter_faces():
         normal = face.get_normal_at()
         if normal.z < 0.7:
             continue

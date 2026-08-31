@@ -49,8 +49,8 @@ def make_main_bearing_rassembly(*, bearing_id: str, spec: BearingSpec, material:
     print(
         f"bearing_{bearing_id}: stdlib=fused rollers={meta['ball_count']} "
         f"bore={spec.bore_diameter:.1f} od={spec.outer_diameter:.1f} "
-        f"width={spec.width:.1f} outer_faces={len(outer.get_faces())} "
-        f"inner_faces={len(inner.get_faces())} material={material.material_id}"
+        f"width={spec.width:.1f} outer_faces={len(scad.ql.faces().resolve(outer))} "
+        f"inner_faces={len(scad.ql.faces().resolve(inner))} material={material.material_id}"
     )
     return bearing
 

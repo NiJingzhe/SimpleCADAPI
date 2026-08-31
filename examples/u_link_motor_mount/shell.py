@@ -85,7 +85,7 @@ def build_shell_body() -> scad.Solid:
         ql.prop("geom.area", ">=", 500.0),
     )).resolve(shell)
     assert len(bottom_face) == 1, f"平底面识别异常 n={len(bottom_face)}"
-    rim_edges = list(bottom_face[0].get_outer_wire().get_edges())
+    rim_edges = ql.edges().resolve(bottom_face[0].get_outer_wire())
     assert len(rim_edges) >= 4, f"平底外缘边识别异常 n={len(rim_edges)}"
     shell = scad.fillet_rsolid(solid=shell, edges=rim_edges, radius=p["safe_fillet_r"])
 
@@ -152,4 +152,4 @@ def build_shell_part() -> scad.Part:
 if __name__ == "__main__":
     result = build_shell_part()
     body = result.value.body
-    print(f"shell volume={body.get_volume():.3f} faces={len(body.get_faces())}")
+    print(f"shell volume={body.get_volume():.3f} faces={len(ql.faces().resolve(body))}")

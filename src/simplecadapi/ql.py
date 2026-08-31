@@ -1107,7 +1107,7 @@ def _boundary_items(scope: Any, target_kind: str) -> List[Any]:
 
     if target_kind == "face":
         if hasattr(scope, "get_faces"):
-            return list(scope.get_faces())
+            return list(scope._iter_faces())
         return []
 
     if target_kind == "wire":
@@ -1116,11 +1116,11 @@ def _boundary_items(scope: Any, target_kind: str) -> List[Any]:
             if hasattr(scope, "get_outer_wire"):
                 wires.append(scope.get_outer_wire())
             if hasattr(scope, "get_inner_wires"):
-                wires.extend(scope.get_inner_wires())
+                wires.extend(scope._iter_inner_wires())
             return wires
         if hasattr(scope, "get_faces"):
             wires = []
-            for face in scope.get_faces():
+            for face in scope._iter_faces():
                 wires.extend(_boundary_items(face, "wire"))
             return _dedupe_items(wires)
         if hasattr(scope, "get_children"):
@@ -1136,13 +1136,13 @@ def _boundary_items(scope: Any, target_kind: str) -> List[Any]:
             edges = []
             for wire in _boundary_items(scope, "wire"):
                 if hasattr(wire, "get_edges"):
-                    edges.extend(wire.get_edges())
+                    edges.extend(wire._iter_edges())
             return _dedupe_items(edges)
         if hasattr(scope, "get_edges"):
-            return _dedupe_items(scope.get_edges())
+            return _dedupe_items(scope._iter_edges())
         if hasattr(scope, "get_faces"):
             edges = []
-            for face in scope.get_faces():
+            for face in scope._iter_faces():
                 edges.extend(_boundary_items(face, "edge"))
             return _dedupe_items(edges)
         return []
@@ -1163,7 +1163,7 @@ def _boundary_items(scope: Any, target_kind: str) -> List[Any]:
 
     if target_kind == "solid":
         if cls_name == "Compound" and hasattr(scope, "get_solids"):
-            return list(scope.get_solids())
+            return list(scope._iter_solids())
         return [scope] if cls_name == "Solid" else []
 
     if target_kind == "shell":
@@ -1198,10 +1198,10 @@ def _resolve_scope_items(scope: Any, target_kind: str) -> List[Any]:
         return [scope]
     if target_kind == "edge":
         if hasattr(scope, "get_edges"):
-            return list(scope.get_edges())
+            return list(scope._iter_edges())
     if target_kind == "face":
         if hasattr(scope, "get_faces"):
-            return list(scope.get_faces())
+            return list(scope._iter_faces())
     if target_kind == "shell":
         if hasattr(scope, "get_children"):
             shells = [
@@ -1216,7 +1216,7 @@ def _resolve_scope_items(scope: Any, target_kind: str) -> List[Any]:
 
     if target_kind == "solid":
         if hasattr(scope, "get_solids"):
-            return list(scope.get_solids())
+            return list(scope._iter_solids())
         if scope.__class__.__name__ == "Solid":
             return [scope]
     if target_kind == "wire":

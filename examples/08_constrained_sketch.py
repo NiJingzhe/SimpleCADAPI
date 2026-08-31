@@ -609,7 +609,7 @@ def _build_model_body():
 def _profile_entity_tags(profile: scad.Face) -> list[str]:
     return sorted(
         tag
-        for edge in scad.ql.select(items=profile.get_edges())
+        for edge in scad.ql.edges().resolve(profile)
         .where(scad.ql.tag(pattern="sketch_entity.*"))
         .all()
         for tag in scad.list_tags(shape=edge)

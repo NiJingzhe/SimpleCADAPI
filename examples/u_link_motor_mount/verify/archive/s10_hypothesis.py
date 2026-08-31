@@ -1,4 +1,6 @@
-"""S10 hypothesis: contour-offset cavity via eroded sweep + split + bosses.
+"""
+[ARCHIVED 2026-08-31, feat/ftc] Historical evidence of an abandoned/superseded stage — NOT a runnable verifier contract. See archive/README.md.
+S10 hypothesis: contour-offset cavity via eroded sweep + split + bosses.
 
 Key constructions to prove before modeling:
   H1 eroded sweep (disk r-wall_t along same U path) volume == Pappus with

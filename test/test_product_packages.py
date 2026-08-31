@@ -27,7 +27,7 @@ def _build_named_part(tmp_path: Path, part_id: str = "box") -> scad.PartBuildRes
     @scad.part(id=part_id, cache=_policy(tmp_path / "cache"))
     def build() -> scad.Part:
         body = scad.make_box_rsolid(width=1.0, height=2.0, depth=3.0)
-        named_face = body.get_faces()[0]
+        named_face = body.get_faces(0)
         named_face = scad.apply_tag(named_face, "interface.mount_face")
         part = scad.make_part_rpart(
             part_id=part_id,
@@ -148,7 +148,7 @@ def test_cache_off_part_package_is_byte_deterministic(tmp_path: Path) -> None:
     def build() -> scad.Part:
         body = scad.make_box_rsolid(width=1.0, height=2.0, depth=3.0)
         tagged_face = scad.apply_tag(
-            shape=body.get_faces()[0],
+            shape=body.get_faces(0),
             tag="interface.mount_face",
         )
         part = scad.make_part_rpart(part_id="deterministic_part", body=body)

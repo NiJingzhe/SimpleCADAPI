@@ -380,8 +380,8 @@ def _compile_assembly(root_id: str, assembly: Assembly, transform: Placement, so
 
 
 def _make_renderable(definition_id: str, solid: Solid, options: SceneCompileOptions, appearances: dict[str, dict[str, Any]], *, appearance_id: str | None = None) -> _Renderable:
-    face_ids = [f"entity/face/{index}" for index in range(len(solid.get_faces()))]
-    edge_ids = [f"entity/edge/{index}" for index in range(len(solid.get_edges()))]
+    face_ids = [f"entity/face/{index}" for index in range(len(solid._iter_faces()))]
+    edge_ids = [f"entity/edge/{index}" for index in range(len(solid._iter_edges()))]
     render_mesh = build_render_mesh(solid, face_entity_ids=face_ids, linear_tolerance=options.linear_tolerance, angular_tolerance=options.angular_tolerance)
     edge_mesh = build_edge_mesh(
         solid,
@@ -393,12 +393,12 @@ def _make_renderable(definition_id: str, solid: Solid, options: SceneCompileOpti
 
 
 def _entity_asset(*, definition_id: str, definition_kind: str, geometry_asset_id: str, edge_asset_id: str, solid: Solid, render_mesh: RenderMesh, edge_mesh: RenderEdgeMesh, source: SceneSource, definition_source: Mapping[str, Any], ocp_version: str) -> dict[str, Any]:
-    faces = solid.get_faces()
-    edges = solid.get_edges()
+    faces = solid._iter_faces()
+    edges = solid._iter_edges()
     vertices = []
     seen_vertices: dict[str, Vertex] = {}
     for edge in edges:
-        for vertex in edge.get_vertices():
+        for vertex in edge._iter_vertices():
             seen_vertices.setdefault(vertex.topo_id, vertex)
     face_id = {face.topo_id: f"entity/face/{index}" for index, face in enumerate(faces)}
     edge_id = {edge.topo_id: f"entity/edge/{index}" for index, edge in enumerate(edges)}
@@ -414,13 +414,13 @@ def _entity_asset(*, definition_id: str, definition_kind: str, geometry_asset_id
         center = _vec(face.get_center())
         geometry = _surface_geometry(face)
         connector_frame = _frame(center, normal)
-        entities.append({"entity_id": entity_id, "kind": "face", "parent_entity_ids": ["entity/solid/0"], "child_entity_ids": sorted({edge_id[edge.topo_id] for edge in face.get_edges()}, key=lambda item: item.encode("utf-8")), "source": entity_source, "geometry": geometry, "properties": {"quality": "kernel_evaluated", "bounds": _bounds(_shape_bounds(face)), "area": face.get_area(), "centroid": list(center), "orientation": _orientation(face.wrapped.Orientation())}, "sdk_connector_frame": _frame(center, normal), "render_status": "rendered", "connector_binding_status": "owner_not_part" if definition_kind != "part" else "source_not_model", "semantic_binding_ids": [], "evaluated_tags": sorted(face._list_tags(), key=lambda item: item.encode("utf-8")), "sdk_metadata": _metadata(face)})
+        entities.append({"entity_id": entity_id, "kind": "face", "parent_entity_ids": ["entity/solid/0"], "child_entity_ids": sorted({edge_id[edge.topo_id] for edge in face._iter_edges()}, key=lambda item: item.encode("utf-8")), "source": entity_source, "geometry": geometry, "properties": {"quality": "kernel_evaluated", "bounds": _bounds(_shape_bounds(face)), "area": face.get_area(), "centroid": list(center), "orientation": _orientation(face.wrapped.Orientation())}, "sdk_connector_frame": _frame(center, normal), "render_status": "rendered", "connector_binding_status": "owner_not_part" if definition_kind != "part" else "source_not_model", "semantic_binding_ids": [], "evaluated_tags": sorted(face._list_tags(), key=lambda item: item.encode("utf-8")), "sdk_metadata": _metadata(face)})
         entities[-1]["sdk_connector_frame"] = connector_frame
         entities[-1]["connector_binding_status"] = _binding_status(source, definition_kind, connector_frame)
     for edge in edges:
         entity_id = edge_id[edge.topo_id]
         child_vertices = sorted(
-            {vertex_id[vertex.topo_id] for vertex in edge.get_vertices() if vertex.topo_id in vertex_id},
+            {vertex_id[vertex.topo_id] for vertex in edge._iter_vertices() if vertex.topo_id in vertex_id},
             key=lambda item: item.encode("utf-8"),
         )
         start, end = _edge_endpoints(edge)
@@ -431,7 +431,7 @@ def _entity_asset(*, definition_id: str, definition_kind: str, geometry_asset_id
     for vertex in vertex_items:
         point = _vec(vertex.get_coordinates())
         vertex_frame = {**_IDENTITY, "origin": list(point)}
-        entities.append({"entity_id": vertex_id[vertex.topo_id], "kind": "vertex", "parent_entity_ids": sorted({edge_id[edge.topo_id] for edge in edges if any(child.topo_id == vertex.topo_id for child in edge.get_vertices())}, key=lambda item: item.encode("utf-8")), "child_entity_ids": [], "source": entity_source, "geometry": {"type": "point", "position": list(point)}, "properties": {"quality": "kernel_evaluated", "bounds": {"min": list(point), "max": list(point)}, "position": list(point)}, "sdk_connector_frame": vertex_frame, "render_status": "rendered", "connector_binding_status": _binding_status(source, definition_kind, vertex_frame), "semantic_binding_ids": [], "evaluated_tags": sorted(vertex._list_tags(), key=lambda item: item.encode("utf-8")), "sdk_metadata": _metadata(vertex)})
+        entities.append({"entity_id": vertex_id[vertex.topo_id], "kind": "vertex", "parent_entity_ids": sorted({edge_id[edge.topo_id] for edge in edges if any(child.topo_id == vertex.topo_id for child in edge._iter_vertices())}, key=lambda item: item.encode("utf-8")), "child_entity_ids": [], "source": entity_source, "geometry": {"type": "point", "position": list(point)}, "properties": {"quality": "kernel_evaluated", "bounds": {"min": list(point), "max": list(point)}, "position": list(point)}, "sdk_connector_frame": vertex_frame, "render_status": "rendered", "connector_binding_status": _binding_status(source, definition_kind, vertex_frame), "semantic_binding_ids": [], "evaluated_tags": sorted(vertex._list_tags(), key=lambda item: item.encode("utf-8")), "sdk_metadata": _metadata(vertex)})
     for entity in entities:
         entity["parent_entity_ids"] = sorted(entity["parent_entity_ids"], key=lambda item: item.encode("utf-8"))
         entity["child_entity_ids"] = sorted(entity["child_entity_ids"], key=lambda item: item.encode("utf-8"))
@@ -892,13 +892,13 @@ def _resolve_connector_target(solid: Solid, connector: Connector) -> Face | Edge
 def _entity_id_for_shape(solid: Solid, shape: Face | Edge | Vertex) -> str:
     kind = type(shape).__name__.lower()
     if kind == "face":
-        values = solid.get_faces()
+        values = solid._iter_faces()
     elif kind == "edge":
-        values = solid.get_edges()
+        values = solid._iter_edges()
     else:
         seen: dict[str, Vertex] = {}
-        for edge in solid.get_edges():
-            for vertex in edge.get_vertices():
+        for edge in solid._iter_edges():
+            for vertex in edge._iter_vertices():
                 seen.setdefault(vertex.topo_id, vertex)
         values = list(seen.values())
     try:
@@ -932,7 +932,7 @@ def _normalized_assembly(assembly: Assembly, root_id: str) -> dict[str, Any]:
 
 
 def _compound_solid(compound: Compound) -> Solid:
-    solids = compound.get_solids()
+    solids = compound._iter_solids()
     if len(solids) != 1:
         raise ValueError("a standalone Compound must contain exactly one solid in the first compiler slice")
     return solids[0]

@@ -147,7 +147,7 @@ angle_offset: float = 0.0,) -> list[scad.Solid]:
 def ground_solid(*, label: str, solid: scad.Solid) -> None:
     """Print a concise QL-backed solid summary."""
 
-    faces = ql.select(items=solid.get_faces()).all()
+    faces = ql.faces().resolve(solid)
     local_roles = [
         tag
         for tag in scad.list_tags(shape=solid, scope="local")
@@ -162,8 +162,8 @@ def ground_solid(*, label: str, solid: scad.Solid) -> None:
 def ground_compound(*, label: str, compound: scad.Compound) -> None:
     """Print a concise QL-backed assembly projection summary."""
 
-    solids = ql.select(items=compound.get_solids()).all()
-    faces = sum(len(ql.select(items=solid.get_faces()).all()) for solid in solids)
+    solids = ql.solids().resolve(compound)
+    faces = sum(len(ql.faces().resolve(solid)) for solid in solids)
     volume = sum(solid.get_volume() for solid in solids)
     print(f"{label}: solids={len(solids)} faces={faces} volume={volume:.3f}")
 

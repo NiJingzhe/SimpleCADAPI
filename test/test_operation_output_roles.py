@@ -9,7 +9,7 @@ from simplecadapi import ql as Q
 
 
 def _role_count(shape, role):
-    candidates = shape.get_edges() if role == "shell.wall" else shape.get_faces()
+    candidates = shape._iter_edges() if role == "shell.wall" else shape._iter_faces()
     return sum(Q.output_role(role)(item) for item in candidates)
 
 
@@ -69,7 +69,7 @@ class TestOperationOutputRoles(unittest.TestCase):
         self.assertEqual(
             {
                 tag
-                for face in revolved.get_faces()
+                for face in revolved._iter_faces()
                 for tag in scad.list_tags(face, scope="local")
                 if tag.startswith("revolved.face.side.")
             },
@@ -89,7 +89,7 @@ class TestOperationOutputRoles(unittest.TestCase):
         self.assertEqual(
             {
                 tag
-                for face in swept.get_faces()
+                for face in swept._iter_faces()
                 for tag in scad.list_tags(face, scope="local")
                 if tag.startswith("swept.face.side.")
             },
@@ -117,7 +117,7 @@ class TestOperationOutputRoles(unittest.TestCase):
 
         side_tags = {
             tag
-            for face in lofted.get_faces()
+            for face in lofted._iter_faces()
             for tag in scad.list_tags(face, scope="local")
             if tag == "lofted.face.side" or tag.startswith("lofted.face.side.")
         }
@@ -127,7 +127,7 @@ class TestOperationOutputRoles(unittest.TestCase):
         cylinder = scad.make_cylinder_rsolid(2.0, 5.0, tag_prefix="shaft")
         for role in ("cylinder.start", "cylinder.end", "cylinder.side"):
             self.assertEqual(
-                sum(Q.output_role(role)(face) for face in cylinder.get_faces()), 1
+                sum(Q.output_role(role)(face) for face in cylinder._iter_faces()), 1
             )
         for role in (
             "cylinder.start_boundary",
@@ -135,7 +135,7 @@ class TestOperationOutputRoles(unittest.TestCase):
             "cylinder.seam",
         ):
             self.assertEqual(
-                sum(Q.output_role(role)(edge) for edge in cylinder.get_edges()), 1
+                sum(Q.output_role(role)(edge) for edge in cylinder._iter_edges()), 1
             )
         self.assertEqual(
             len(Q.faces().where(Q.tag("shaft.face.start")).resolve(cylinder)), 1
@@ -155,7 +155,7 @@ class TestOperationOutputRoles(unittest.TestCase):
             "box.right",
         ):
             self.assertEqual(
-                sum(Q.output_role(role)(face) for face in box.get_faces()), 1
+                sum(Q.output_role(role)(face) for face in box._iter_faces()), 1
             )
 
         top = Q.faces().where(Q.tag("housing.face.top"))
@@ -208,7 +208,7 @@ class TestOperationOutputRoles(unittest.TestCase):
             self.assertEqual(
                 sum(
                     Q.output_role("box.right")(face)
-                    for face in shape.get_faces()
+                    for face in shape._iter_faces()
                 ),
                 1,
             )
@@ -254,7 +254,7 @@ class TestOperationOutputRoles(unittest.TestCase):
                 "cone.seam",
             ):
                 self.assertEqual(
-                    sum(Q.output_role(role)(edge) for edge in shape.get_edges()), 1
+                    sum(Q.output_role(role)(edge) for edge in shape._iter_edges()), 1
                 )
 
         self.assertEqual(
@@ -307,7 +307,7 @@ class TestOperationOutputRoles(unittest.TestCase):
             self.assertEqual(
                 sum(
                     Q.output_role("cone.end_boundary")(edge)
-                    for edge in shape.get_edges()
+                    for edge in shape._iter_edges()
                 ),
                 1,
             )
@@ -361,7 +361,7 @@ class TestOperationOutputRoles(unittest.TestCase):
             self.assertEqual(
                 sum(
                     Q.output_role("cylinder.seam")(edge)
-                    for edge in shape.get_edges()
+                    for edge in shape._iter_edges()
                 ),
                 1,
             )

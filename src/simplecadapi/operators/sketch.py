@@ -996,7 +996,7 @@ def _apply_sketch_promotion_metadata(
     if isinstance(shape, Wire):
         wires = [shape]
     elif isinstance(shape, Face):
-        wires = cast(List[Wire], shape.get_wires())
+        wires = cast(List[Wire], shape._iter_wires())
 
     for wire in wires:
         matches = [
@@ -1025,7 +1025,7 @@ def _apply_sketch_promotion_metadata(
             "sketch.entity_edges", []
         )
     ]
-    for edge in cast(List[Edge], shape.get_edges()):
+    for edge in cast(List[Edge], shape._iter_edges()):
         matches = [source for source in source_edges if source[4].IsSame(edge.wrapped)]
         if len(matches) != 1:
             raise ValueError(
@@ -1145,7 +1145,7 @@ def _apply_sketch_promotion_identity_tags(
     )
 
     if isinstance(shape, Face):
-        for wire in cast(List[Wire], shape.get_wires()):
+        for wire in cast(List[Wire], shape._iter_wires()):
             matches = [
                 source
                 for source in source_wires
@@ -1178,7 +1178,7 @@ def _apply_sketch_promotion_identity_tags(
             "sketch.entity_edges", []
         )
     ]
-    for edge in cast(List[Edge], shape.get_edges()):
+    for edge in cast(List[Edge], shape._iter_edges()):
         matches = [source for source in source_edges if source[2].IsSame(edge.wrapped)]
         if len(matches) != 1:
             raise ValueError(
@@ -1224,13 +1224,20 @@ def _promote_sketch_profile(
         tolerance=tolerance,
         max_iterations=max_iterations,
     )
-    profile_payload = sketch._profile_payload(profile, solve_result=solve_result)
+    # A face needs a closed outer loop (and closed inner loops); a wire accepts
+    # closed loops and open chains alike — consumers like extrude enforce their
+    # own closedness requirements on the promoted wire.
+    require_closed = target_kind == "face"
+    profile_payload = sketch._profile_payload(
+        profile, solve_result=solve_result, require_closed=require_closed
+    )
     inner_profile_payloads: List[Tuple[int | str, Dict[str, Any]]] = []
     seen_profile_ids = {str(profile_payload.get("id"))}
     for inner_profile in inner_profiles:
         inner_payload = sketch._profile_payload(
             inner_profile,
             solve_result=solve_result,
+            require_closed=require_closed,
         )
         inner_profile_id = str(inner_payload.get("id"))
         if inner_profile_id in seen_profile_ids:
@@ -1452,7 +1459,7 @@ def make_wire_from_sketch_rwire(
     tolerance: float = 1e-7,
     max_iterations: int = 80,
 ) -> Wire:
-    """Promote a sketch profile to a concrete wire, solving internally."""
+    """Promote a sketch profile (closed loop or open chain) to a concrete wire, solving internally."""
     try:
         if not isinstance(sketch, Sketch):
             raise ValueError("Input must be a Sketch")
@@ -1512,12 +1519,17 @@ def make_wire_from_sketch_rwire(
             operation="make_wire_from_sketch_rwire",
             what_happened="Failed to create a wire from the sketch.",
             possible_causes=[
-                "The sketch has no closed non-construction profile.",
+                "The sketch has no promotable component: every non-construction "
+                "edge set must be a closed loop, an open chain, or a circle.",
+                "An edge set branches at a point carrying more than two edges.",
                 "The sketch constraints are conflicting or invalid.",
                 "The requested profile index or id does not exist.",
             ],
             how_to_fix=[
-                "Build sketch profiles only through sketch APIs and close all profile loops.",
+                "Build sketch paths only through sketch APIs; connect entities by "
+                "sharing point ids and avoid branch points with three or more edges.",
+                "Closedness is not required here — extrude and face consumers "
+                "enforce it on the resulting wire.",
                 "Call inspect_sketch_rsketchresult(..., strict=False) to inspect diagnostics.",
             ],
             error=e,
@@ -1596,13 +1608,15 @@ def make_face_from_sketch_rface(
             operation="make_face_from_sketch_rface",
             what_happened="Failed to create a face from the sketch.",
             possible_causes=[
-                "The sketch has no closed non-construction profile.",
+                "The sketch has no closed profile; faces require closed loops "
+                "(open chains are wire-only — promote them with "
+                "make_wire_from_sketch_rwire instead).",
                 "The sketch constraints are conflicting or invalid.",
                 "The requested profile index or id does not exist.",
                 "An inner profile is outside, intersects, or duplicates the outer profile.",
             ],
             how_to_fix=[
-                "Build a closed profile with add_line_rsketch(...) or add_circle_rsketch(...).",
+                "Build closed profiles with add_line_rsketch(...) or add_circle_rsketch(...).",
                 "Add constraints until the profile can solve cleanly.",
                 "Pass hole loops explicitly with inner_profiles=[...].",
             ],

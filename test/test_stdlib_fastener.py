@@ -163,7 +163,7 @@ class TestBoltSolid(unittest.TestCase):
         self.assertAlmostEqual(replayed[0].get_volume(), bolt.get_volume(), places=5)
         print(
             "modeled_bolt: "
-            f"volume={bolt.get_volume():.3f} faces={len(bolt.get_faces())}"
+            f"volume={bolt.get_volume():.3f} faces={len(bolt._iter_faces())}"
         )
 
     def test_external_thread_stabilization_records_only_selected_phase(self):
@@ -295,7 +295,7 @@ class TestNutSolid(unittest.TestCase):
         self.assertAlmostEqual(replayed[0].get_volume(), modeled.get_volume(), places=5)
         print(
             "modeled_nut: "
-            f"volume={modeled.get_volume():.3f} faces={len(modeled.get_faces())}"
+            f"volume={modeled.get_volume():.3f} faces={len(modeled._iter_faces())}"
         )
 
     def test_internal_thread_stabilization_records_only_selected_phase(self):

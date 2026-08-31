@@ -911,12 +911,12 @@ def _make_selector_hint(shape: AnyShape) -> Dict[str, object]:
         if normal_tuple is not None:
             hint["normal"] = normal_tuple
     elif isinstance(shape, Wire):
-        hint["edge_count"] = len(shape.get_edges())
+        hint["edge_count"] = len(shape._iter_edges())
         hint["closed"] = bool(shape.is_closed())
     elif isinstance(shape, Vertex):
         hint["coordinates"] = tuple(float(v) for v in shape.get_coordinates())
     elif isinstance(shape, Shell):
-        hint["face_count"] = len(shape.get_faces())
+        hint["face_count"] = len(shape._iter_faces())
         bb = bounding_box(shape.wrapped)
         hint["bbox"] = {
             "min": (float(bb.xmin), float(bb.ymin), float(bb.zmin)),
@@ -931,7 +931,7 @@ def _make_selector_hint(shape: AnyShape) -> Dict[str, object]:
         }
     elif isinstance(shape, Compound):
         hint["volume"] = float(shape.get_volume())
-        hint["solid_count"] = len(shape.get_solids())
+        hint["solid_count"] = len(shape._iter_solids())
         bb = bounding_box(shape.wrapped)
         hint["bbox"] = {
             "min": (float(bb.xmin), float(bb.ymin), float(bb.zmin)),
@@ -1058,15 +1058,15 @@ def _selection_op_for_shape(shape: AnyShape) -> Optional[str]:
 def _candidate_shapes_for_selection(source: AnyShape, kind: str) -> List[AnyShape]:
     if kind == "edge":
         if hasattr(source, "get_edges"):
-            return list(source.get_edges())
+            return list(source._iter_edges())
         return [source] if isinstance(source, Edge) else []
     if kind == "face":
         if isinstance(source, (Shell, Solid, Compound)):
-            return list(source.get_faces())
+            return list(source._iter_faces())
         return [source] if isinstance(source, Face) else []
     if kind == "wire":
         if isinstance(source, Face):
-            return [source.get_outer_wire(), *source.get_inner_wires()]
+            return [source.get_outer_wire(), *source._iter_inner_wires()]
         if hasattr(source, "get_children"):
             return [
                 cast(AnyShape, child)
@@ -1094,7 +1094,7 @@ def _candidate_shapes_for_selection(source: AnyShape, kind: str) -> List[AnyShap
         return [source] if isinstance(source, Shell) else []
     if kind == "solid":
         if isinstance(source, Compound):
-            return cast(List[AnyShape], source.get_solids())
+            return cast(List[AnyShape], source._iter_solids())
         return [source] if isinstance(source, Solid) else []
     if kind == "compound":
         return [source] if isinstance(source, Compound) else []
@@ -1160,7 +1160,7 @@ def _make_geo_selector(
         except Exception:
             pass
     elif isinstance(shape, Wire):
-        selector["edge_count"] = len(shape.get_edges())
+        selector["edge_count"] = len(shape._iter_edges())
         selector["closed"] = bool(shape.is_closed())
     elif isinstance(shape, Face):
         selector["area"] = float(shape.get_area())
@@ -1168,10 +1168,10 @@ def _make_geo_selector(
         normal = shape.get_normal_at()
         selector["center"] = [float(center.x), float(center.y), float(center.z)]
         selector["normal"] = [float(normal.x), float(normal.y), float(normal.z)]
-        selector["edge_count"] = len(shape.get_edges())
-        selector["inner_wire_count"] = len(shape.get_inner_wires())
+        selector["edge_count"] = len(shape._iter_edges())
+        selector["inner_wire_count"] = len(shape._iter_inner_wires())
     elif isinstance(shape, Shell):
-        selector["face_count"] = len(shape.get_faces())
+        selector["face_count"] = len(shape._iter_faces())
     elif isinstance(shape, Solid):
         selector["volume"] = float(shape.get_volume())
         center = shape.get_center() if hasattr(shape, "get_center") else None
@@ -1179,7 +1179,7 @@ def _make_geo_selector(
             selector["center"] = [float(center.x), float(center.y), float(center.z)]
     elif isinstance(shape, Compound):
         selector["volume"] = float(shape.get_volume())
-        selector["solid_count"] = len(shape.get_solids())
+        selector["solid_count"] = len(shape._iter_solids())
     return selector
 
 def _record_geo_selection_nodes(
@@ -1580,10 +1580,10 @@ def _copy_exact_topology_identity_tags(
     source_members = [
         member
         for source in sources
-        for member in (source.get_edges() if hasattr(source, "get_edges") else [source])
+        for member in (source._iter_edges() if hasattr(source, "get_edges") else [source])
         if isinstance(member, Edge)
     ]
-    target_members = target.get_edges() if hasattr(target, "get_edges") else [target]
+    target_members = target._iter_edges() if hasattr(target, "get_edges") else [target]
     result = target
     for target_member in target_members:
         if not isinstance(target_member, Edge):
@@ -1679,7 +1679,7 @@ def _apply_profile_tag_prefix(
         if prefix is not None
         else shape
     )
-    edges = list(shape.get_edges())
+    edges = list(shape._iter_edges())
     local_names = (
         [str(value) for value in edge_tags]
         if edge_tags is not None
@@ -1980,13 +1980,13 @@ def _apply_feature_tag_prefix(
         _topo_id(edge.wrapped): edge
         for source in source_shapes
         for edge in (
-            source.get_edges()
+            source._iter_edges()
             if hasattr(source, "get_edges")
             else ([source] if isinstance(source, Edge) else [])
         )
     }
     result_faces = {
-        _topo_id(face.wrapped): face for face in cast(Solid, result).get_faces()
+        _topo_id(face.wrapped): face for face in cast(Solid, result)._iter_faces()
     }
     if side_role is not None:
         # A side Face may have multiple source profile Edges (for example, a

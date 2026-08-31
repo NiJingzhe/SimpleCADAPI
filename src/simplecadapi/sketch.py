@@ -675,17 +675,17 @@ class Sketch(TaggedMixin, TopoMixein):
                 list(
                     zip(
                         profile_payload["entity_ids"],
-                        [edge.wrapped for edge in wire.get_edges()],
+                        [edge.wrapped for edge in wire._iter_edges()],
                     )
                 ),
             )
             return wire
-        if profile_payload["kind"] == "edge_loop":
-            return self._wire_from_edge_loop(profile_payload)
+        if profile_payload["kind"] in ("edge_loop", "edge_chain"):
+            return self._wire_from_edge_entities(profile_payload)
         raise ValueError(f"Unsupported sketch profile kind '{profile_payload['kind']}'")
 
-    def _wire_from_edge_loop(self, profile_payload: Mapping[str, Any]) -> Wire:
-        """Build a wire from a mixed-edge profile (line + arc + bspline)."""
+    def _wire_from_edge_entities(self, profile_payload: Mapping[str, Any]) -> Wire:
+        """Build a wire from an ordered loop or open chain of solved entities."""
         from OCP.TopoDS import TopoDS
 
         from .operators.geometry import (
@@ -758,13 +758,13 @@ class Sketch(TaggedMixin, TopoMixein):
                     periodic=bool(entity.data.get("periodic", False)),
                 )
             else:
-                raise ValueError(f"Unsupported edge kind '{entity.kind}' in edge_loop profile")
+                raise ValueError(f"Unsupported edge kind '{entity.kind}' in edge path profile")
             if reverse_edge:
                 edge = Edge(TopoDS.Edge_s(edge.wrapped.Reversed()))
             edges.append(edge)
             entity_edges.append((str(eid), edge.wrapped))
         wire = make_wire_from_edges_rwire(edges)
-        wire_edges = list(wire.get_edges())
+        wire_edges = list(wire._iter_edges())
         if len(wire_edges) != len(entity_edges):
             raise ValueError(
                 "Sketch profile wire edge count changed during kernel construction"
@@ -903,11 +903,29 @@ class Sketch(TaggedMixin, TopoMixein):
         profile: int | str = 0,
         *,
         solve_result: Optional[SketchSolveResult] = None,
+        require_closed: bool = False,
     ) -> Dict[str, Any]:
         result = solve_result or self.solved_result()
         profiles = self._profiles_from_solution(result)
+        if require_closed:
+            closed_profiles = [item for item in profiles if item.get("closed", True)]
+            if not closed_profiles:
+                raise ValueError(
+                    "Sketch contains no closed profile; face promotion requires a "
+                    "closed loop. Components: "
+                    + "; ".join(self._describe_edge_components())
+                )
+            profiles = closed_profiles
         if not profiles:
-            raise ValueError("Sketch does not contain a closed non-construction profile")
+            descriptions = self._describe_edge_components()
+            detail = (
+                "Components: " + "; ".join(descriptions)
+                if descriptions
+                else "The sketch has no non-construction edge entities."
+            )
+            raise ValueError(
+                "Sketch contains no promotable closed loop or open chain. " + detail
+            )
         if isinstance(profile, str):
             for item in profiles:
                 if item.get("id") == profile:
@@ -932,13 +950,14 @@ class Sketch(TaggedMixin, TopoMixein):
                     {
                         "id": entity_id,
                         "kind": "circle",
+                        "closed": True,
                         "entity_ids": [entity_id],
                         "center": self._point3(center),
                         "radius": float(result.solved_scalars[scalar_key]),
                         "normal": self._plane_normal_tuple(),
                     }
                 )
-        profiles.extend(self._edge_loop_profiles(result))
+        profiles.extend(self._edge_path_profiles(result))
         return profiles
 
     # --- Edge kinds that participate in closed-loop profiles ---
@@ -949,7 +968,7 @@ class Sketch(TaggedMixin, TopoMixein):
         """Extract (start_point_id, end_point_id) from any edge entity."""
         return str(entity.data["start"]), str(entity.data["end"])
 
-    def _edge_loop_profiles(self, result: SketchSolveResult) -> List[Dict[str, Any]]:
+    def _edge_path_profiles(self, result: SketchSolveResult) -> List[Dict[str, Any]]:
         edge_ids = [
             entity_id
             for entity_id in self.entity_order
@@ -962,21 +981,23 @@ class Sketch(TaggedMixin, TopoMixein):
             first_edge = min(unused, key=self.entity_order.index)
             component = self._edge_component(first_edge, unused)
             unused.difference_update(component)
-            ordered = self._ordered_edge_loop(component)
+            ordered = self._ordered_edge_path(component)
             if ordered is None:
                 continue
-            point_ids, oriented_edges = ordered
-            profiles.append(
-                {
-                    "id": component[0],
-                    "kind": "edge_loop",
-                    "entity_ids": [edge_id for edge_id, _reversed in oriented_edges],
-                    "reversed": [reversed_edge for _edge_id, reversed_edge in oriented_edges],
-                    "point_ids": list(point_ids),
-                    "points": [self._point3(result.solved_points[pid]) for pid in point_ids],
-                    "solve_result": result,
-                }
-            )
+            point_ids, oriented_edges, closed = ordered
+            payload: Dict[str, Any] = {
+                "id": component[0],
+                "kind": "edge_loop" if closed else "edge_chain",
+                "closed": closed,
+                "entity_ids": [edge_id for edge_id, _reversed in oriented_edges],
+                "reversed": [reversed_edge for _edge_id, reversed_edge in oriented_edges],
+                "point_ids": list(point_ids),
+                "points": [self._point3(result.solved_points[pid]) for pid in point_ids],
+                "solve_result": result,
+            }
+            if not closed:
+                payload["endpoints"] = [point_ids[0], point_ids[-1]]
+            profiles.append(payload)
         return profiles
 
     def _edge_component(self, first_edge: str, candidates: set[str]) -> List[str]:
@@ -999,44 +1020,111 @@ class Sketch(TaggedMixin, TopoMixein):
                         queue.append(other_id)
         return sorted(seen_edges, key=self.entity_order.index)
 
-    def _ordered_edge_loop(
+    def _ordered_edge_path(
         self,
         edge_ids: Sequence[str],
-    ) -> Optional[Tuple[List[str], List[Tuple[str, bool]]]]:
+    ) -> Optional[Tuple[List[str], List[Tuple[str, bool]], bool]]:
+        """Order a connected edge component into one walkable path.
+
+        A connected component whose vertices all have degree <= 2 is either a
+        simple cycle (no degree-1 vertices) or a simple open chain (exactly
+        two). Anything else — branching, or the impossible odd-endpoint
+        patterns — has no ordered edge sequence and returns None. The return
+        value is ``(point_ids, oriented_edges, closed)``; closedness is a
+        property of the outcome, enforced by consumers that need it.
+        """
         adjacency: Dict[str, List[str]] = {}
         for edge_id in edge_ids:
             entity = self.entities[edge_id]
             start, end = self._edge_endpoints(entity)
             adjacency.setdefault(start, []).append(edge_id)
             adjacency.setdefault(end, []).append(edge_id)
-        if not adjacency or any(len(edges) != 2 for edges in adjacency.values()):
+        if not adjacency or any(len(edges) > 2 for edges in adjacency.values()):
+            return None
+        endpoints = [pid for pid, edges in adjacency.items() if len(edges) == 1]
+        if len(endpoints) == 2:
+            closed = False
+            start_point = endpoints[0]
+            start_edge = adjacency[start_point][0]
+        elif not endpoints:
+            closed = True
+            start_edge = edge_ids[0]
+            start_point = self._edge_endpoints(self.entities[start_edge])[0]
+        else:
             return None
 
-        start_edge = edge_ids[0]
-        entity = self.entities[start_edge]
-        start_point, current_point = self._edge_endpoints(entity)
+        first_start, first_end = self._edge_endpoints(self.entities[start_edge])
+        if first_start == start_point:
+            current_point = first_end
+            reversed_edge = False
+        else:
+            current_point = first_start
+            reversed_edge = True
         used_edges = {start_edge}
         ordered_points = [start_point, current_point]
-        oriented_edges = [(start_edge, False)]
+        oriented_edges = [(start_edge, reversed_edge)]
 
-        while current_point != start_point:
+        while True:
+            if closed and current_point == start_point:
+                break
             options = [eid for eid in adjacency[current_point] if eid not in used_edges]
             if not options:
-                return None
+                if closed or len(used_edges) != len(edge_ids):
+                    return None
+                break
             next_edge = options[0]
             used_edges.add(next_edge)
-            next_entity = self.entities[next_edge]
-            next_start, next_end = self._edge_endpoints(next_entity)
+            next_start, next_end = self._edge_endpoints(self.entities[next_edge])
             reversed_edge = next_start != current_point
             oriented_edges.append((next_edge, reversed_edge))
             current_point = next_start if reversed_edge else next_end
-            if current_point != start_point:
+            if not (closed and current_point == start_point):
                 ordered_points.append(current_point)
-            if len(used_edges) > len(edge_ids):
-                return None
         if len(used_edges) != len(edge_ids):
             return None
-        return ordered_points, oriented_edges
+        if closed and current_point != start_point:
+            return None
+        return ordered_points, oriented_edges, closed
+
+    def _describe_edge_components(self) -> List[str]:
+        """Classify every non-construction edge component for diagnostics."""
+        edge_ids = [
+            entity_id
+            for entity_id in self.entity_order
+            if self.entities[entity_id].kind in self._EDGE_KINDS
+            and not self.entities[entity_id].construction
+        ]
+        unused = set(edge_ids)
+        descriptions: List[str] = []
+        while unused:
+            first_edge = min(unused, key=self.entity_order.index)
+            component = self._edge_component(first_edge, unused)
+            unused.difference_update(component)
+            descriptions.append(self._describe_edge_component(component))
+        return descriptions
+
+    def _describe_edge_component(self, edge_ids: Sequence[str]) -> str:
+        adjacency: Dict[str, List[str]] = {}
+        for edge_id in edge_ids:
+            entity = self.entities[edge_id]
+            start, end = self._edge_endpoints(entity)
+            adjacency.setdefault(start, []).append(edge_id)
+            adjacency.setdefault(end, []).append(edge_id)
+        listed = "/".join(edge_ids)
+        branch_points = [
+            pid for pid, edges in adjacency.items() if len(edges) > 2
+        ]
+        if branch_points:
+            return (
+                f"branched edge set ({listed}) with branch point "
+                f"'{branch_points[0]}' carrying {len(adjacency[branch_points[0]])} edges"
+            )
+        endpoints = [pid for pid, edges in adjacency.items() if len(edges) == 1]
+        if len(endpoints) == 2:
+            return f"open chain ({listed}) from '{endpoints[0]}' to '{endpoints[1]}'"
+        if not endpoints:
+            return f"closed loop ({listed})"
+        return f"irregular edge set ({listed})"
 
 
 

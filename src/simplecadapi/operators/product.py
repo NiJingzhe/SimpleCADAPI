@@ -411,7 +411,7 @@ def make_face_connector_rconnector(
             ],
             how_to_fix=[
                 "Use a stable connector_id such as 'mount_face'.",
-                "Select a face via ql.faces().resolve(solid) or solid.get_faces()[i].",
+                "Select a face via ql.faces().where(...).resolve(solid), or an indexed pick solid.get_faces(index).",
             ],
             error=e,
         )
@@ -448,7 +448,7 @@ def make_edge_connector_rconnector(
             ],
             how_to_fix=[
                 "Use a stable connector_id such as 'hinge_axis'.",
-                "Select an edge via ql.edges().resolve(solid) or solid.get_edges()[i].",
+                "Select an edge via ql.edges().where(...).resolve(solid), or an indexed pick solid.get_edges(index).",
             ],
             error=e,
         )
@@ -485,7 +485,7 @@ def make_vertex_connector_rconnector(
             ],
             how_to_fix=[
                 "Use a stable connector_id such as 'pivot_point'.",
-                "Select a vertex via ql.vertices().resolve(solid) or solid.get_vertices()[i].",
+                "Select a vertex via ql.vertices().where(...).resolve(solid), or an indexed pick solid.get_vertices(index).",
             ],
             error=e,
         )

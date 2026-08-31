@@ -47,8 +47,8 @@ def _validate_dimensions(*, span: float, sag: float, left_diameter: float, right
 
 
 def _print_stage(label: str, solid: scad.Solid) -> None:
-    faces = cast(list[scad.Face], solid.get_faces())
-    edges = cast(list[scad.Edge], solid.get_edges())
+    faces = ql.faces().resolve(solid)
+    edges = ql.edges().resolve(solid)
     print(f"{label}: faces={len(faces)} edges={len(edges)} volume={solid.get_volume():.3f}")
 
 

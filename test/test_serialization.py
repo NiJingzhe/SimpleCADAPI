@@ -493,7 +493,7 @@ class TestReplay(unittest.TestCase):
         tag = "role.explicit_target"
         with scad.GraphSession() as session:
             box = scad.make_box_rsolid(2.0, 3.0, 4.0)
-            top_face = max(box.get_faces(), key=lambda face: face.get_center().z)
+            top_face = max(box._iter_faces(), key=lambda face: face.get_center().z)
             expected_ref = top_face.get_metadata("topo_ref")
             scad.apply_tag_rselection(box, [top_face], tag)
 
@@ -1261,7 +1261,7 @@ class TestReplay(unittest.TestCase):
 
         results = replay_graph(import_graph_json(json.dumps(payload)), strict=True)
         self.assertEqual(len(results), 1)
-        self.assertEqual(len(results[0].get_faces()), 6)
+        self.assertEqual(len(results[0]._iter_faces()), 6)
         self.assertAlmostEqual(results[0].get_volume(), swept.get_volume(), places=8)
 
     def test_replay_sweep_records_ql_selected_extrude_end_face_profile(self):

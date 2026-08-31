@@ -1,4 +1,6 @@
-"""S9 hypothesis (final, chain-integrated): verify build_stage('s4').
+"""
+[ARCHIVED 2026-08-31, feat/ftc] Historical evidence of an abandoned/superseded stage — NOT a runnable verifier contract. See archive/README.md.
+S9 hypothesis (final, chain-integrated): verify build_stage('s4').
 
   H1 4 boss cylinder walls at (±boss_x, ±boss_z), area >= 60% full
   H2 4 boss hole walls r=1.35 depth=boss_hole_depth
