@@ -7,7 +7,7 @@ from pathlib import Path
 import unittest
 
 import simplecadapi as scad
-from simplecadapi.serializer import CANONICAL_OP_SET
+from simplecadapi.recording.serializer import CANONICAL_OP_SET
 from simplecadapi.topology import OperationGraph
 from simplecadapi.translator.freecad_translator.translator import _FreeCADCompiler
 from simplecadapi.translator.base import BaseTranslator

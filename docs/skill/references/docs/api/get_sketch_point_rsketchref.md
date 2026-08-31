@@ -6,7 +6,7 @@
 def get_sketch_point_rsketchref(sketch: Sketch, point_path: str) -> SketchRef
 ```
 
-*Source: _operators_sketch.py*
+*Source: operators/sketch.py*
 
 ## Import Surface
 

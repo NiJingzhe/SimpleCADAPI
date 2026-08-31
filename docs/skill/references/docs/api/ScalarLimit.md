@@ -6,7 +6,7 @@
 class ScalarLimit(lower_value: float, upper_value: float)
 ```
 
-*Source: constraint.py*
+*Source: product/constraint.py*
 
 ## Import Surface
 

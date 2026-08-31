@@ -15,7 +15,7 @@ from typing import Any, Mapping, Sequence
 from jsonschema import Draft202012Validator
 
 from ..scene.archive import canonical_zip_bytes, preflight_zip_bytes
-from ..source_mapping import canonical_source_payload
+from ..recording.source_mapping import canonical_source_payload
 from ..topology import OperationGraph, semantic_delta_to_dict, topo_delta_to_dict
 from .canonical import (
     DEFAULT_ARTIFACT_LIMITS,
@@ -452,10 +452,10 @@ class FeatureGraphArtifact:
     def restore_session(self):
         """Restore a detached GraphSession from the durable payload."""
 
-        from ..expr import ExpressionGraph
-        from ..frame import FrameGraph
-        from ..graph import GraphSession
-        from ..tolerance import ToleranceGraph
+        from ..params.expr import ExpressionGraph
+        from ..params.frame import FrameGraph
+        from ..recording.graph import GraphSession
+        from ..params.tolerance import ToleranceGraph
 
         expression_graph = ExpressionGraph.from_dict(dict(self.expression_graph))
         tolerance_graph = ToleranceGraph.from_dict(
@@ -477,7 +477,7 @@ class FeatureGraphArtifact:
         strict: bool = True,
         external_definitions: Mapping[str, Any] | None = None,
     ) -> list[Any]:
-        from ..serializer import replay_feature_graph
+        from ..recording.serializer import replay_feature_graph
 
         return replay_feature_graph(
             self,

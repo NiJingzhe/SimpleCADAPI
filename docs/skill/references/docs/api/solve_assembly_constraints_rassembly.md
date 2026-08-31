@@ -6,7 +6,7 @@
 def solve_assembly_constraints_rassembly(assembly: Assembly, strict: bool = True) -> Assembly
 ```
 
-*Source: _operators_product.py*
+*Source: operators/product.py*
 
 ## Import Surface
 

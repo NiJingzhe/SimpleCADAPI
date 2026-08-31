@@ -6,7 +6,7 @@
 def make_face_from_sketch_rface(sketch: Sketch, profile: int | str = 0, *, inner_profiles: Sequence[int | str] = (), require_fully_constrained: bool = False, strict: bool = True, tolerance: float = 1e-07, max_iterations: int = 80) -> Face
 ```
 
-*Source: _operators_sketch.py*
+*Source: operators/sketch.py*
 
 ## Import Surface
 

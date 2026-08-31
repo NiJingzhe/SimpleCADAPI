@@ -9,8 +9,8 @@ import pytest
 
 import simplecadapi as scad
 from simplecadapi.inspect import brep
-from simplecadapi._canonical_json import canonical_json_bytes, parse_canonical_json
-from simplecadapi._brep_region import HEADER
+from simplecadapi._internal.canonical_json import canonical_json_bytes, parse_canonical_json
+from simplecadapi._internal.brep_region import HEADER
 from simplecadapi.kernel.ocp_export import export_step_shapes
 
 
@@ -405,7 +405,7 @@ def test_snapshot_loader_rejects_wrong_root_kind(tmp_path: Path) -> None:
 def test_snapshot_policy_is_checked_before_native_decode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import simplecadapi._brep_region as container
+    import simplecadapi._internal.brep_region as container
 
     target = tmp_path / "target.step"
     _write_box_step(target)

@@ -6,7 +6,7 @@
 def loft_rsolid(profiles: Sequence[Union[Wire, Vertex]], ruled: bool = False, *, tracking_policy: TrackingPolicy | str = TrackingPolicy.FULL, tag_prefix: Optional[str] = None, result_tag: Optional[str] = None, start_face_tag: Optional[str] = None, end_face_tag: Optional[str] = None, side_faces_tag: Optional[str] = None) -> Solid
 ```
 
-*Source: _operators_features.py*
+*Source: operators/features.py*
 
 ## Import Surface
 

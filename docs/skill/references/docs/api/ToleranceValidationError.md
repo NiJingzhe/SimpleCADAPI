@@ -6,7 +6,7 @@
 class ToleranceValidationError(report: 'ToleranceReport')
 ```
 
-*Source: tolerance.py*
+*Source: params/tolerance.py*
 
 ## Import Surface
 

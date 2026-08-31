@@ -6,7 +6,7 @@
 def add_circle_rsketch(sketch: Sketch, entity_id: str, center: Union[SketchRef, str], radius: ScalarLike, *, construction: bool = False) -> Sketch
 ```
 
-*Source: _operators_sketch.py*
+*Source: operators/sketch.py*
 
 ## Import Surface
 

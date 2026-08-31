@@ -54,16 +54,16 @@ from ..artifacts.validation import validate_artifact_blobs
 from ..cache.policy import CacheMode, CachePolicy, resolve_cache_policy
 from ..cache.store import ContentAddressedStore
 from ..core import Solid
-from ..graph import (
+from ..recording.graph import (
     GraphSession,
     attach_graph_node,
     attach_semantic_graph_node,
     get_active_session,
 )
-from ..operations import make_part_rpart
-from ..connector import Connector, resolve_connector_placement
-from ..material import Material
-from ..part import Part
+from ..operators import make_part_rpart
+from ..product.connector import Connector, resolve_connector_placement
+from ..product.material import Material
+from ..product.part import Part
 from ..scene.archive import canonical_zip_bytes, preflight_zip_bytes
 from .dependencies import FileInput, snapshot_file_inputs
 from .keys import (

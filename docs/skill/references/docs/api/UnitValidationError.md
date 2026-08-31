@@ -6,7 +6,7 @@
 class UnitValidationError
 ```
 
-*Source: units.py*
+*Source: params/units.py*
 
 ## Import Surface
 

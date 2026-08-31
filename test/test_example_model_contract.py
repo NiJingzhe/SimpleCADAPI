@@ -27,9 +27,6 @@ FORMAL_EXAMPLE_PACKAGES = {
     "examples/08_constrained_sketch.py": (
         "examples/out/constrained_sketch/constrained_sketch.scadpkg"
     ),
-    "examples/09_naca0016_blade_freecad.py": (
-        "examples/out/naca0016_blade/naca0016_blade.scadpkg"
-    ),
     "examples/10_part_assembly.py": (
         "examples/out/hydraulic_rod_assembly/hydraulic_rod_assembly.scadpkg"
     ),

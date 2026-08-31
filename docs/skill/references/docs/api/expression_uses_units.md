@@ -6,7 +6,7 @@
 def expression_uses_units(value: 'ScalarLike') -> bool
 ```
 
-*Source: units.py*
+*Source: params/units.py*
 
 ## Import Surface
 

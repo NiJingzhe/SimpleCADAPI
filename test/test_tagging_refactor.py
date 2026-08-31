@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 import simplecadapi as scad
-from simplecadapi import operations, tagging
+from simplecadapi import operators as operations, tagging
 
 
 class TestTaggingRefactor(unittest.TestCase):

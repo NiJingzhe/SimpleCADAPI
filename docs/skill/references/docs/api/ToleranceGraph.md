@@ -6,7 +6,7 @@
 class ToleranceGraph(expression_graph: ExpressionGraph)
 ```
 
-*Source: tolerance.py*
+*Source: params/tolerance.py*
 
 ## Import Surface
 

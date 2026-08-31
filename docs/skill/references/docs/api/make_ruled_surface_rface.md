@@ -6,7 +6,7 @@
 def make_ruled_surface_rface(edge_a: Edge, edge_b: Edge, *, tag_prefix: Optional[str] = None) -> Face
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

@@ -6,7 +6,7 @@
 def capture(result: Any, path: str | Path, /, *, include_scene: bool = True) -> CaptureResult
 ```
 
-*Source: capture.py*
+*Source: product/capture.py*
 
 ## Import Surface
 

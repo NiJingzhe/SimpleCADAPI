@@ -6,7 +6,7 @@
 def canonical_unit_for_dimension(dimension: Dimension) -> Unit
 ```
 
-*Source: units.py*
+*Source: params/units.py*
 
 ## Import Surface
 

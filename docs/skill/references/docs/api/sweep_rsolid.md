@@ -6,7 +6,7 @@
 def sweep_rsolid(profile: Face, path: Wire, is_frenet: bool = False, *, tag_prefix: Optional[str] = None, result_tag: Optional[str] = None, start_face_tag: Optional[str] = None, end_face_tag: Optional[str] = None, side_faces_tag: Optional[str] = None) -> Solid
 ```
 
-*Source: _operators_features.py*
+*Source: operators/features.py*
 
 ## Import Surface
 

@@ -6,7 +6,7 @@
 def inspect_assembly_constraints_rconstraintreport(assembly: Assembly) -> ConstraintReport
 ```
 
-*Source: _operators_product.py*
+*Source: operators/product.py*
 
 ## Import Surface
 

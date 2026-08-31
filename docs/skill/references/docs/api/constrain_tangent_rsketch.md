@@ -6,7 +6,7 @@
 def constrain_tangent_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Union[SketchRef, str], *, at_a: Optional[str] = None, at_b: Optional[str] = None, mode: str = 'external', constraint_id: Optional[str] = None) -> Sketch
 ```
 
-*Source: _operators_sketch.py*
+*Source: operators/sketch.py*
 
 ## Import Surface
 

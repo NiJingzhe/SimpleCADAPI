@@ -6,7 +6,7 @@
 class ConnectorAnchor(anchor_kind: str, geometry_ref: Optional[GeometryRef] = None, placement: Optional[Placement] = None)
 ```
 
-*Source: connector.py*
+*Source: product/connector.py*
 
 ## Import Surface
 

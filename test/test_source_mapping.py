@@ -3,8 +3,8 @@
 import json
 
 import simplecadapi as scad
-from simplecadapi.serializer import export_graph_json
-from simplecadapi.source_mapping import canonical_source_payload
+from simplecadapi.recording.serializer import export_graph_json
+from simplecadapi.recording.source_mapping import canonical_source_payload
 from simplecadapi.topology import OperationGraph
 
 

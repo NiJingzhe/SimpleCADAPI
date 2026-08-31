@@ -6,27 +6,27 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
-from ..assembly import (
+from ..product.assembly import (
     Assembly,
     Component,
     PublicConnectorRef,
     _restore_component_occurrence_placements,
 )
-from ..assembly_solver import (
+from ..product.solver import (
     constraint_reports_match,
     inspect_assembly_constraints,
     solve_assembly_constraints,
 )
-from ..connector import (
+from ..product.connector import (
     Connector,
     ConnectorAnchor,
     ConnectorRef,
     GeometryRef,
 )
-from ..constraint import Constraint, ScalarLimit
-from ..material import Material
-from ..part import Part
-from ..placement import Placement
+from ..product.constraint import Constraint, ScalarLimit
+from ..product.material import Material
+from ..product.part import Part
+from ..product.placement import Placement
 from ..scene.archive import canonical_zip_bytes, preflight_zip_bytes
 from .assembly_definition import (
     AssemblyDefinition,

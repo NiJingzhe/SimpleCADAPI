@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Dict
 
-from ...serializer import CANONICAL_OP_SET
+from ...recording.serializer import CANONICAL_OP_SET
 from ..types import (
     BackendCapabilities,
     OperationCapability,

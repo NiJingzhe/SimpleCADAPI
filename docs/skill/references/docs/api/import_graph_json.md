@@ -6,7 +6,7 @@
 def import_graph_json(json_str: str) -> OperationGraph
 ```
 
-*Source: serializer.py*
+*Source: recording/serializer.py*
 
 ## Import Surface
 

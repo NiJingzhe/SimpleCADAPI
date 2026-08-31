@@ -6,7 +6,7 @@
 class Unit(symbol: str, dimension: Dimension, scale_to_canonical: float)
 ```
 
-*Source: units.py*
+*Source: params/units.py*
 
 ## Import Surface
 

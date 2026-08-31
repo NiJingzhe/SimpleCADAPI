@@ -7,7 +7,7 @@ from types import MappingProxyType
 from typing import Mapping
 from ..artifacts.canonical import canonical_bytes, sha256_bytes
 
-from ..assembly import Assembly
+from ..product.assembly import Assembly
 
 
 Endpoint = tuple[str, str]

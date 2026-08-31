@@ -6,7 +6,7 @@
 def apply_tag(shape: AnyShape, tag: str) -> AnyShape
 ```
 
-*Source: _operators_selection.py*
+*Source: operators/selection.py*
 
 ## Import Surface
 

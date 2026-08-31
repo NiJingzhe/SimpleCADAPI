@@ -6,7 +6,7 @@
 def rotate_shape(shape: AnyShape, angle: ScalarLike, axis: Tuple[float, float, float] = (0, 0, 1), origin: Tuple[float, float, float] = (0, 0, 0)) -> AnyShape
 ```
 
-*Source: _operators_transform.py*
+*Source: operators/transform.py*
 
 ## Import Surface
 

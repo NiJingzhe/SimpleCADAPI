@@ -6,7 +6,7 @@
 def make_point_rvertex(x: ScalarLike, y: ScalarLike, z: ScalarLike) -> Vertex
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

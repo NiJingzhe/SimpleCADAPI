@@ -6,7 +6,7 @@
 def get_active_session() -> Optional[GraphSession]
 ```
 
-*Source: graph.py*
+*Source: recording/graph.py*
 
 ## Import Surface
 

@@ -6,7 +6,7 @@
 def select_faces_by_tag(solid: Solid, tag: str, scope: str | TagScope = TagScope.EFFECTIVE) -> List[Face]
 ```
 
-*Source: _operators_selection.py*
+*Source: operators/selection.py*
 
 ## Import Surface
 

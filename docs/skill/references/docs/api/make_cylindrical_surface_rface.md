@@ -6,7 +6,7 @@
 def make_cylindrical_surface_rface(radius: ScalarLike, u_range: Tuple[ScalarLike, ScalarLike], v_range: Tuple[ScalarLike, ScalarLike], origin: Tuple[float, float, float] = (0, 0, 0), axis: Tuple[float, float, float] = (0, 0, 1), x_direction: Optional[Tuple[float, float, float]] = None, *, tolerance: ScalarLike = 1e-07, tag_prefix: Optional[str] = None) -> Face
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

@@ -4,14 +4,14 @@ import unittest
 from pathlib import Path
 
 import simplecadapi as scad
-import simplecadapi.product_packages as pp
+import simplecadapi.product.packages as pp
 from simplecadapi.artifacts.canonical import (
     canonical_bytes,
     content_hash,
     parse_canonical_json,
     sha256_bytes,
 )
-from simplecadapi.product_packages import ProductPackageError
+from simplecadapi.product.packages import ProductPackageError
 from simplecadapi.scene.archive import canonical_zip_bytes
 
 

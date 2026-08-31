@@ -6,7 +6,7 @@
 def add_line_rsketch(sketch: Sketch, entity_id: str, start: Union[SketchRef, str], end: Union[SketchRef, str], *, construction: bool = False) -> Sketch
 ```
 
-*Source: _operators_sketch.py*
+*Source: operators/sketch.py*
 
 ## Import Surface
 

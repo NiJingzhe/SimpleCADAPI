@@ -6,7 +6,7 @@
 def add_connector_rpart(part: Part, connector: Connector) -> Part
 ```
 
-*Source: _operators_product.py*
+*Source: operators/product.py*
 
 ## Import Surface
 

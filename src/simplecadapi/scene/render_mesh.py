@@ -13,7 +13,7 @@ from OCP.TopAbs import TopAbs_FORWARD, TopAbs_REVERSED
 from OCP.TopLoc import TopLoc_Location
 from OCP.TopoDS import TopoDS
 
-from .._mesh import DEFAULT_ANGULAR_TOLERANCE, TriMesh, cached_mesh, mesh_error
+from .._internal.mesh import DEFAULT_ANGULAR_TOLERANCE, TriMesh, cached_mesh, mesh_error
 from ..core import Solid
 from ..kernel.ocp_properties import bounding_box
 from ..scene.glb import profile_cross, profile_f32, profile_f32_bits, profile_normalize

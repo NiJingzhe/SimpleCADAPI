@@ -14,10 +14,10 @@ from typing import Any, Iterable, Sequence, Tuple
 
 import numpy as np
 
-from .. import _mesh
-from ..assembly import Assembly
-from ..part import Part
-from ..placement import Placement, compose_placements, identity_placement
+from .._internal import mesh as _mesh
+from ..product.assembly import Assembly
+from ..product.part import Part
+from ..product.placement import Placement, compose_placements, identity_placement
 
 
 ComponentPath = Tuple[str, ...]

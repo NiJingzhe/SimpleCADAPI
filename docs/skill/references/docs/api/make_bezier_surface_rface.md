@@ -6,7 +6,7 @@
 def make_bezier_surface_rface(control_points: Sequence[Sequence[Sequence[float]]], weights: Optional[Sequence[Sequence[float]]] = None, *, tag_prefix: Optional[str] = None) -> Face
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

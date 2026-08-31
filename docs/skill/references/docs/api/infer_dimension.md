@@ -6,7 +6,7 @@
 def infer_dimension(value: 'ScalarLike') -> Dimension | None
 ```
 
-*Source: units.py*
+*Source: params/units.py*
 
 ## Import Surface
 

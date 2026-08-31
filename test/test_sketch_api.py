@@ -512,7 +512,7 @@ class TestSketchApi(unittest.TestCase):
         self.assertIsInstance(replayed[0], scad.Face)
 
     def test_strict_snapshot_comparison_rejects_changed_solved_entity(self):
-        from simplecadapi.operations import _assert_sketch_solve_snapshot_dict_matches
+        from simplecadapi.operators import _assert_sketch_solve_snapshot_dict_matches
 
         recorded = {
             "status": "solved",

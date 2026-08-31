@@ -6,7 +6,7 @@
 def make_face_from_wires_rface(outer_wire: Wire, inner_wires: Sequence[Wire], normal: Tuple[float, float, float] = (0, 0, 1)) -> Face
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

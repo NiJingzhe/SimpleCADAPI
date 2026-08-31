@@ -10,7 +10,7 @@ from __future__ import annotations
 import unittest
 
 import simplecadapi as scad
-from simplecadapi.graph import GraphSession
+from simplecadapi.recording.graph import GraphSession
 
 
 REQUIRED_GEOMETRY_TYPES = (

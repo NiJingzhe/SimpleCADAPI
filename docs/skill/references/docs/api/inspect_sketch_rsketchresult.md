@@ -6,7 +6,7 @@
 def inspect_sketch_rsketchresult(sketch: Sketch, *, require_fully_constrained: bool = False, strict: bool = True, tolerance: float = 1e-07, max_iterations: int = 80) -> SketchSolveResult
 ```
 
-*Source: _operators_sketch.py*
+*Source: operators/sketch.py*
 
 ## Import Surface
 

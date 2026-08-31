@@ -37,12 +37,12 @@ from ..artifacts.references import (
 )
 from ..artifacts.validation import validate_artifact_blobs
 from ..cache.policy import CachePolicy, resolve_cache_policy
-from ..graph import GraphSession, get_active_session, record_operation_if_active
-from ..assembly import Assembly, _component_occurrence_placements
-from ..assembly_solver import inspect_assembly_constraints
-from ..connector import ConnectorRef, resolve_connector_ref_placement
-from ..part import Part
-from ..placement import Placement
+from ..recording.graph import GraphSession, get_active_session, record_operation_if_active
+from ..product.assembly import Assembly, _component_occurrence_placements
+from ..product.solver import inspect_assembly_constraints
+from ..product.connector import ConnectorRef, resolve_connector_ref_placement
+from ..product.part import Part
+from ..product.placement import Placement
 from .assembly_state import (
     AssemblyInterfaceSnapshot,
     load_latest_assembly_state,

@@ -7,9 +7,9 @@ import json
 import pprint
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from ...expr import ExpressionGraph
+from ...params.expr import ExpressionGraph
 from ...topology import OperationNode
-from ...units import expression_uses_units, infer_dimension, unit_from_payload
+from ...params.units import expression_uses_units, infer_dimension, unit_from_payload
 
 
 def _json_ascii(value: Any) -> str:

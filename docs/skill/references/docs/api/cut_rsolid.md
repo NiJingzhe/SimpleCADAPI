@@ -6,7 +6,7 @@
 def cut_rsolid(*solids: Union[Solid, Sequence[Solid]], skip_non_intersecting: bool = True, tracking_policy: TrackingPolicy | str = TrackingPolicy.FULL) -> Solid
 ```
 
-*Source: _operators_boolean.py*
+*Source: operators/boolean.py*
 
 ## Import Surface
 

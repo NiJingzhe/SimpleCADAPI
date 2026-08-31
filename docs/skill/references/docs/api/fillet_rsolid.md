@@ -6,7 +6,7 @@
 def fillet_rsolid(solid: Solid, edges: Union[Sequence[Edge], ShapeSelector], radius: ScalarLike, *, result_tag: Optional[str] = None, generated_faces_tag: Optional[str] = None) -> Solid
 ```
 
-*Source: _operators_features.py*
+*Source: operators/features.py*
 
 ## Import Surface
 

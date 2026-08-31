@@ -16,19 +16,19 @@ from ..artifacts.canonical import (
 from ..artifacts.part_definition import PartDefinition
 from ..cache.policy import CacheMode, CachePolicy
 from ..cache.store import ContentAddressedStore
-from ..assembly import (
+from ..product.assembly import (
     Assembly,
     _component_occurrence_placements,
     _restore_component_occurrence_placements,
     _with_component_path_placement,
 )
-from ..assembly_solver import (
+from ..product.solver import (
     constraint_reports_match,
     inspect_assembly_constraints,
     solve_assembly_constraints,
 )
-from ..constraint import ConstraintReport
-from ..placement import Placement
+from ..product.constraint import ConstraintReport
+from ..product.placement import Placement
 from .assembly_state import AssemblyInterfaceSnapshot, effective_interface_hashes
 from .dependency_graph import (
     AssemblyDependencyGraph,

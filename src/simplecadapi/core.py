@@ -20,7 +20,7 @@ from OCP.TopAbs import (
 )
 from OCP.TopoDS import TopoDS, TopoDS_Shape
 
-from ._vendor_warning_filters import suppress_vendor_deprecation_warnings
+from ._internal.vendor_warning_filters import suppress_vendor_deprecation_warnings
 from .errors import raise_harness_error
 from .kernel.ocp_cast import (
     as_compound,
@@ -52,7 +52,7 @@ from .kernel.ocp_topology import (
     vertices_of,
 )
 from .kernel.ocp_surfaces import free_boundaries
-from .tagging import (
+from .topology.tagging import (
     LineagePolicy,
     TagAttachment,
     TagBinding,
@@ -951,7 +951,7 @@ def _record_indexed_topology_selection(source: Any, selected_shapes: Iterable[An
     if not shapes:
         return
     try:
-        from ._operation_support import _ensure_geo_selection_node_ids
+        from .operators._support import _ensure_geo_selection_node_ids
 
         _ensure_geo_selection_node_ids(cast(AnyShape, source), cast(List[AnyShape], shapes))
     except Exception:
@@ -1377,7 +1377,7 @@ class Solid(TaggedMixin, TopoMixein):
             for face in faces_of(self.wrapped):
                 self.add_child(Face(face, cache=self._topology_cache))
             try:
-                from ._mesh import attach_default_mesh
+                from ._internal.mesh import attach_default_mesh
 
                 attach_default_mesh(self)
             except Exception as mesh_error:

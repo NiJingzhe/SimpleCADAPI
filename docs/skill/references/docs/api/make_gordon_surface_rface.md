@@ -6,7 +6,7 @@
 def make_gordon_surface_rface(profiles: Sequence[Edge], guides: Sequence[Edge], *, tolerance: float = 0.001, tag_prefix: Optional[str] = None) -> Face
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

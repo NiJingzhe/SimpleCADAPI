@@ -6,7 +6,7 @@
 def make_spline_redge(*, control_points: Sequence[Sequence[ScalarLike]], degree: int = 3, knots: Optional[Sequence[ScalarLike]] = None, multiplicities: Optional[Sequence[int]] = None, weights: Optional[Sequence[ScalarLike]] = None, periodic: bool = False) -> Edge
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

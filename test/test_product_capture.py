@@ -7,7 +7,7 @@ import pytest
 
 import simplecadapi as scad
 from simplecadapi.artifacts.canonical import canonical_bytes, content_hash, sha256_bytes
-from simplecadapi.product_packages import ProductPackage, ProductPackageError
+from simplecadapi.product.packages import ProductPackage, ProductPackageError
 from simplecadapi.scene import (
     ProductScenePackage,
     canonical_json_bytes,

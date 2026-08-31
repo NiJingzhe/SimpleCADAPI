@@ -19,7 +19,7 @@ from ..artifacts.canonical import (
     sha256_bytes,
 )
 from ..artifacts.references import FileInputSnapshot
-from ..expr import Const, Expr, Var
+from ..params.expr import Const, Expr, Var
 from .dependencies import read_stable_file
 
 PART_CACHE_PROFILE = "simplecad-part-cache-4"

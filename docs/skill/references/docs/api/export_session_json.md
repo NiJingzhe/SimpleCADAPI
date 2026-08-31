@@ -6,7 +6,7 @@
 def export_session_json(session: 'GraphSession', indent: int = 2) -> str
 ```
 
-*Source: serializer.py*
+*Source: recording/serializer.py*
 
 ## Import Surface
 

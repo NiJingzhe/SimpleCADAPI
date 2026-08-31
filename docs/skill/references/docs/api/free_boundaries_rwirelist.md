@@ -6,7 +6,7 @@
 def free_boundaries_rwirelist(shell: Shell, *, tolerance: float = 1e-06) -> List[Wire]
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

@@ -6,7 +6,7 @@
 def make_interpolated_spline_redge(*, points: Sequence[Sequence[ScalarLike]], periodic: bool = False, tolerance: ScalarLike = 1e-06) -> Edge
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

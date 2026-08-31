@@ -7,6 +7,7 @@ import json
 import math
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -15,6 +16,8 @@ from threading import RLock
 from typing import Any, Literal, Mapping, Sequence
 
 import numpy as np
+
+from ...errors import raise_harness_error
 from OCP.BRep import BRep_Builder, BRep_Tool
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.BRepBuilderAPI import BRepBuilderAPI_Copy
@@ -117,6 +120,23 @@ def _validate_render_output_path(output_path: str | Path) -> Path:
     return output
 
 
+# VTK offscreen rendering on macOS intermittently crashes natively
+# (SIGTRAP/SIGSEGV/SIGBUS) under heavy system load; extra attempts with real
+# backoff absorb those crash bursts.
+_WORKER_ATTEMPTS = 6
+_WORKER_RETRY_BACKOFF_SECONDS = (0.5, 1.0, 2.0, 4.0, 8.0)
+
+
+def _describe_worker_exit(returncode: int) -> str:
+    if returncode < 0:
+        try:
+            name = signal.Signals(-returncode).name
+        except ValueError:
+            name = f"signal {-returncode}"
+        return f"terminated by {name}"
+    return f"exited with code {returncode}"
+
+
 def _run_render_worker(
     *,
     mode: str,
@@ -155,7 +175,8 @@ def _run_render_worker(
             encoding="utf-8",
         )
         completed = None
-        for attempt in range(3):
+        failures: list[str] = []
+        for attempt in range(_WORKER_ATTEMPTS):
             worker_output.unlink(missing_ok=True)
             completion_marker.unlink(missing_ok=True)
             completed = subprocess.run(
@@ -177,20 +198,41 @@ def _run_render_worker(
                 and worker_output.stat().st_size > 0
             ):
                 break
-            if attempt < 2:
-                time.sleep(0.15 * (attempt + 1))
-        if (
-            completed is None
-            or completed.returncode != 0
-            or not completion_marker.is_file()
-            or not worker_output.is_file()
-            or worker_output.stat().st_size == 0
-        ):
-            assert completed is not None
             detail = completed.stderr.strip() or completed.stdout.strip()
-            raise RuntimeError(
-                f"VTK render worker failed with exit code {completed.returncode}"
-                + (f": {detail}" if detail else "")
+            failures.append(
+                f"attempt {attempt + 1}: worker {_describe_worker_exit(completed.returncode)}"
+                + (f"; {detail}" if detail else "")
+            )
+            if attempt < _WORKER_ATTEMPTS - 1:
+                time.sleep(
+                    _WORKER_RETRY_BACKOFF_SECONDS[
+                        min(attempt, len(_WORKER_RETRY_BACKOFF_SECONDS) - 1)
+                    ]
+                )
+        else:
+            # All attempts failed. The dominant failure mode on macOS is a
+            # transient native VTK/Cocoa crash under system load; tell the
+            # caller (LLM agents included) to retry rather than abandon the
+            # render interface.
+            raise_harness_error(
+                operation="simplecadapi.inspect.brep.render",
+                what_happened=(
+                    f"The offscreen render worker produced no image after {_WORKER_ATTEMPTS} attempts. "
+                    "This is a known transient instability of VTK offscreen rendering on macOS: "
+                    "the native OpenGL/Metal layer can crash under heavy system load. "
+                    "The rendering interface itself is NOT broken."
+                ),
+                possible_causes=(
+                    "Heavy CPU/GPU load while rendering (most common; native crashes arrive in bursts under load).",
+                    "A one-shot render worker hit the rare VTK native crash (a fresh worker usually succeeds).",
+                    "A persistent VTK installation problem (only likely if failures continue on an idle machine).",
+                ),
+                how_to_fix=(
+                    "Retry the same render call unchanged; transient worker crashes are recoverable and a later attempt typically succeeds.",
+                    "Wait a few seconds before retrying, or finish CPU-heavy work first so the machine is quieter.",
+                    "Keep using the render interface; an occasional native crash does not mean the render API is unusable.",
+                ),
+                technical_details=" | ".join(failures),
             )
         output.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(worker_output, output)
@@ -960,7 +1002,11 @@ def _write_window(window, output: Path) -> None:
     writer = writers[suffix]()
     writer.SetFileName(str(output))
     writer.SetInputConnection(capture.GetOutputPort())
+    # vtkImageWriter.Write() return semantics differ across VTK builds;
+    # validate the artifact instead of the return value.
     writer.Write()
+    if not output.is_file() or output.stat().st_size == 0:
+        raise RuntimeError(f"Could not write render output {output}")
 
 
 def _render_polydata_views_in_process(

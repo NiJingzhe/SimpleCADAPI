@@ -6,9 +6,9 @@ import math
 from typing import Collection, List, Optional, Sequence, Tuple, cast
 
 from ..core import Edge, Solid
-from ..expr import ScalarLike
-from ..graph import suspend_graph_recording
-from ..operations import (
+from ..params.expr import ScalarLike
+from ..recording.graph import suspend_graph_recording
+from ..operators import (
     apply_tag,
     cut_rsolid,
     extrude_rsolid,
@@ -25,7 +25,7 @@ from ..operations import (
     sweep_rsolid,
     union_rsolid,
 )
-from ..tracking import graph_tracking_scope
+from ..topology.tracking import graph_tracking_scope
 
 __all__ = ["make_bolt_rsolid", "make_nut_rsolid"]
 

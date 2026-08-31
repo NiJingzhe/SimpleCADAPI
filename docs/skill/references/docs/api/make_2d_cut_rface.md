@@ -6,7 +6,7 @@
 def make_2d_cut_rface(body: Face, tool: Face) -> Face
 ```
 
-*Source: _operators_boolean.py*
+*Source: operators/boolean.py*
 
 ## Import Surface
 

@@ -34,10 +34,10 @@ from OCP.XCAFDoc import XCAFDoc_ColorSurf, XCAFDoc_DocumentTool
 from OCP.gp import gp_Trsf
 
 from ..artifacts import materialize_definition
-from ..assembly import Assembly
-from ..material import Material
-from ..part import Part
-from ..placement import Placement
+from ..product.assembly import Assembly
+from ..product.material import Material
+from ..product.part import Part
+from ..product.placement import Placement
 from ..translator.package_units import (
     ProductPackageInput,
     read_product_package_translation_units,

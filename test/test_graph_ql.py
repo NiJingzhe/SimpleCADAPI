@@ -5,9 +5,9 @@ import unittest
 import simplecadapi as scad
 from simplecadapi import ql as Q
 from simplecadapi.topology import OperationGraph, OperationNode
-from simplecadapi.graph import GraphSession, record_operation, get_active_session
-from simplecadapi.tracking import tracked_cut, tracked_union
-from simplecadapi.autotag import apply_tracking_tags_to_delta
+from simplecadapi.recording.graph import GraphSession, record_operation, get_active_session
+from simplecadapi.topology.tracking import tracked_cut, tracked_union
+from simplecadapi.topology.autotag import apply_tracking_tags_to_delta
 
 
 class TestQLSugar(unittest.TestCase):

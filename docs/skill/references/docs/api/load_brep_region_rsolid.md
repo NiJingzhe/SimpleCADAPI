@@ -6,7 +6,7 @@
 def load_brep_region_rsolid(path: str | Path, sha256: str, *, tag_prefix: Optional[str] = None) -> Solid
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

@@ -6,7 +6,7 @@
 def linear_pattern_rsolidlist(shape: AnyShape, direction: Tuple[float, float, float], count: int, spacing: float) -> List[Solid]
 ```
 
-*Source: _operators_transform.py*
+*Source: operators/transform.py*
 
 ## Import Surface
 

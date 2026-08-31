@@ -6,7 +6,7 @@
 def add_rack_pinion_constraint_rassembly(assembly: Assembly, constraint_id: str, rack_connector: ConnectorRef, pinion_connector: ConnectorRef, pitch_radius: float, phase_offset: Optional[float] = None, name: Optional[str] = None) -> Assembly
 ```
 
-*Source: _operators_product.py*
+*Source: operators/product.py*
 
 ## Import Surface
 

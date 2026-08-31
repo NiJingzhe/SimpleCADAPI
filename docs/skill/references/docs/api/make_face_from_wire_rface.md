@@ -6,7 +6,7 @@
 def make_face_from_wire_rface(wire: Wire, normal: Tuple[float, float, float] = (0, 0, 1), *, tag_prefix: Optional[str] = None) -> Face
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

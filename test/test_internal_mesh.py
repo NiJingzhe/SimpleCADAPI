@@ -1,5 +1,5 @@
 import simplecadapi as scad
-import simplecadapi._mesh as _mesh
+import simplecadapi._internal.mesh as _mesh
 
 
 def _write_cached_mesh_as_obj(solid, path):

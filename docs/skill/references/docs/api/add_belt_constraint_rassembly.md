@@ -6,7 +6,7 @@
 def add_belt_constraint_rassembly(assembly: Assembly, constraint_id: str, connector_a: ConnectorRef, connector_b: ConnectorRef, pulley_radius_a: float, pulley_radius_b: float, phase_offset: Optional[float] = None, name: Optional[str] = None) -> Assembly
 ```
 
-*Source: _operators_product.py*
+*Source: operators/product.py*
 
 ## Import Surface
 

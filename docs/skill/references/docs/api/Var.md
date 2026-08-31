@@ -6,7 +6,7 @@
 class Var(name: str, default: float, comment: str | None = None, expr_id: str = field(default_factory=lambda : _make_expr_id('var')), tolerance: DimensionTolerance | None = None, unit: Unit | None = None, tolerance_unit: Unit | None = None)
 ```
 
-*Source: expr.py*
+*Source: params/expr.py*
 
 ## Import Surface
 

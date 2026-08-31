@@ -6,7 +6,7 @@
 class ToleranceReport(checks: Tuple[ToleranceCheck, ...] = ())
 ```
 
-*Source: tolerance.py*
+*Source: params/tolerance.py*
 
 ## Import Surface
 

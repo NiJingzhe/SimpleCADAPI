@@ -6,7 +6,7 @@
 def make_segment_rwire(start: Tuple[float, float, float], end: Tuple[float, float, float]) -> Wire
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

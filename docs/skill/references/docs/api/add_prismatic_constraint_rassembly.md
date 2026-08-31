@@ -6,7 +6,7 @@
 def add_prismatic_constraint_rassembly(assembly: Assembly, constraint_id: str, connector_a: ConnectorRef, connector_b: ConnectorRef, drive_distance: Optional[float] = None, distance_limit: Optional[ScalarLimit] = None, name: Optional[str] = None) -> Assembly
 ```
 
-*Source: _operators_product.py*
+*Source: operators/product.py*
 
 ## Import Surface
 

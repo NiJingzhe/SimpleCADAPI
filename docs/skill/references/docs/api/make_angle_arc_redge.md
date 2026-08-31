@@ -6,7 +6,7 @@
 def make_angle_arc_redge(center: Tuple[float, float, float], radius: ScalarLike, start_angle: ScalarLike, end_angle: ScalarLike, normal: Tuple[float, float, float] = (0, 0, 1)) -> Edge
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

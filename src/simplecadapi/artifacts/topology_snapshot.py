@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Mapping
 
 from ..core import Solid
-from ..tagging import TagBinding, TagLineageWitness, normalize_tag
+from ..topology.tagging import TagBinding, TagLineageWitness, normalize_tag
 from ..topology import TopoKind, TopoRef, topo_ref_to_dict
 from .geometry_interface import (
     geometry_interface_fingerprint,
@@ -34,7 +34,7 @@ _METADATA_EXCLUDED = {
 
 def _semantic_metadata(metadata: Mapping[str, Any], path: str) -> dict[str, Any]:
     """Project runtime metadata into canonical JSON-safe values."""
-    from ..expr import Expr, Var
+    from ..params.expr import Expr, Var
 
     def project(value: Any) -> Any:
         if isinstance(value, (Var, Expr)):
@@ -149,7 +149,7 @@ def resolve_geometry_entity_ref(
 ) -> dict[str, str]:
     """Resolve one GeometryRef against a final part body without ambiguity."""
 
-    from ..serializer import (
+    from ..recording.serializer import (
         _candidate_shapes_for_geo_selection,
         _geo_selector_score,
     )

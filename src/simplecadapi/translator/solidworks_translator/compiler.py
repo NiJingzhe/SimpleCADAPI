@@ -27,8 +27,8 @@ from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
 from OCP.TopAbs import TopAbs_SOLID
 from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
 
-from ...operations import _make_geo_selector
-from ...serializer import _execute_graph, _resolve_shape_from_geo_selector
+from ...operators import _make_geo_selector
+from ...recording.serializer import _execute_graph, _resolve_shape_from_geo_selector
 from ...topology import OperationGraph
 
 

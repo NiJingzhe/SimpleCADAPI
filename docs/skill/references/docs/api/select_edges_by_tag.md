@@ -6,7 +6,7 @@
 def select_edges_by_tag(shape: Union[Face, Solid], tag: str, scope: str | TagScope = TagScope.EFFECTIVE) -> List[Edge]
 ```
 
-*Source: _operators_selection.py*
+*Source: operators/selection.py*
 
 ## Import Surface
 

@@ -6,7 +6,7 @@
 class CaptureResult(value: Part | Assembly, definition: PartDefinition | AssemblyDefinition, package: ProductPackage, scene: ProductScenePackage | None, package_bytes: bytes)
 ```
 
-*Source: capture.py*
+*Source: product/capture.py*
 
 ## Import Surface
 

@@ -5,7 +5,7 @@ import numpy as np
 
 import simplecadapi as scad
 from simplecadapi.topology import TopoKind, TopoEvent, TopoRef, TopoDelta
-from simplecadapi.tracking import (
+from simplecadapi.topology.tracking import (
     tracked_translate,
     tracked_rotate,
     tracked_extrude,

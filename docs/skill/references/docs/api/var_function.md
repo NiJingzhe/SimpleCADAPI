@@ -6,7 +6,7 @@
 def var(name: str, default: int | float, comment: str | None = None, tolerance: ToleranceLike | None = None, *, unit: UnitLike | None = None, tolerance_unit: UnitLike | None = None) -> Var
 ```
 
-*Source: expr.py*
+*Source: params/expr.py*
 
 ## Import Surface
 

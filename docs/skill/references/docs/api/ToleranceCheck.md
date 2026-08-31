@@ -6,7 +6,7 @@
 class ToleranceCheck(requirement: ToleranceRequirement, analysis: ToleranceAnalysis, passed: bool, lower_margin: float, upper_margin: float)
 ```
 
-*Source: tolerance.py*
+*Source: params/tolerance.py*
 
 ## Import Surface
 

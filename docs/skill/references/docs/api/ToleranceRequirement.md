@@ -6,7 +6,7 @@
 class ToleranceRequirement(requirement_id: str, target_expr_id: str, tolerance: DimensionTolerance, method: ToleranceMethod = 'worst_case', name: str = '', tolerance_unit: Unit | None = None, target_dimension: Dimension | None = None)
 ```
 
-*Source: tolerance.py*
+*Source: params/tolerance.py*
 
 ## Import Surface
 

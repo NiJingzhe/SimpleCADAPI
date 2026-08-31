@@ -6,7 +6,7 @@
 class ProductPackageError
 ```
 
-*Source: product_packages.py*
+*Source: product/packages.py*
 
 ## Import Surface
 

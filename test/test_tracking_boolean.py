@@ -11,7 +11,7 @@ from simplecadapi.topology import (
     OperationNode,
     OperationGraph,
 )
-from simplecadapi.tracking import (
+from simplecadapi.topology.tracking import (
     tracked_cut,
     tracked_union,
     tracked_intersect,

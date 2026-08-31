@@ -12,10 +12,10 @@ import math
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from ..assembly import Assembly
-from ..material import Material
-from ..part import Part
-from ..operations import (
+from ..product.assembly import Assembly
+from ..product.material import Material
+from ..product.part import Part
+from ..operators import (
     add_component_rassembly,
     add_connector_rpart,
     add_revolute_constraint_rassembly,
@@ -39,7 +39,7 @@ from ..operations import (
     union_rsolid,
 )
 from ..core import Face, Solid
-from ..tracking import graph_tracking_scope
+from ..topology.tracking import graph_tracking_scope
 
 __all__ = ["build_ball_bearing", "make_ball_bearing_rassembly"]
 

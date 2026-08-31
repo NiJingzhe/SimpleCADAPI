@@ -148,7 +148,7 @@ from functools import wraps as _wraps
 from inspect import isfunction as _isfunction
 import sys as _sys
 
-from ...graph import get_active_session as _get_active_session
+from ...recording.graph import get_active_session as _get_active_session
 
 
 def _outside_model_graph(function):

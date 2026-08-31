@@ -6,7 +6,7 @@
 def mirror_shape(shape: AnyShape, plane_origin: Tuple[float, float, float], plane_normal: Tuple[float, float, float]) -> AnyShape
 ```
 
-*Source: _operators_transform.py*
+*Source: operators/transform.py*
 
 ## Import Surface
 

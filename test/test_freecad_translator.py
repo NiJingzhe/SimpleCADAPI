@@ -19,11 +19,11 @@ import xml.etree.ElementTree as ET
 import simplecadapi as scad
 from simplecadapi import ql
 from simplecadapi.errors import raise_harness_error
-from simplecadapi.graph import GraphSession
+from simplecadapi.recording.graph import GraphSession
 from simplecadapi.kernel.ocp_properties import bounding_box
 from simplecadapi.topology import OperationGraph
 from simplecadapi.translator import freecad_translator
-from simplecadapi.serializer import import_model_json
+from simplecadapi.recording.serializer import import_model_json
 from simplecadapi.translator.freecad_translator.exporter import (
     discover_freecad_executable,
     export_freecad_script_to_fcstd,
@@ -4362,106 +4362,6 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
             "no stable equivalent native FreeCAD Sketcher BSpline parameter host",
             payload_obj["spline_expr"]["reason"],
         )
-
-    def test_naca0016_blade_example_translates_bspline_sections_to_fcstd(self):
-        freecad_cmd = self._discover_freecadcmd()
-        if not freecad_cmd:
-            self.skipTest("freecadcmd not available")
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir)
-            subprocess.run(
-                [
-                    "uv",
-                    "run",
-                    "python",
-                    "examples/09_naca0016_blade_freecad.py",
-                    "--output-dir",
-                    str(output_dir),
-                    "--freecad-cmd",
-                    freecad_cmd,
-                ],
-                check=True,
-                text=True,
-                capture_output=True,
-            )
-            model_path = output_dir / "naca0016_blade.model.json"
-            fcstd_path = output_dir / "naca0016_blade.fcstd"
-            probe_path = output_dir / "probe_blade.py"
-            out_path = output_dir / "probe_blade.json"
-            payload = json.loads(model_path.read_text(encoding="utf-8"))
-            probe_path.write_text(
-                f"FCSTD_PATH = {json.dumps(str(fcstd_path))}\n"
-                f"OUT_PATH = {json.dumps(str(out_path))}\n"
-                """
-import json
-import FreeCAD as App
-
-doc = App.openDocument(FCSTD_PATH)
-sections = [
-    obj for obj in doc.Objects
-    if getattr(obj, 'SimpleCADOp', '') == 'make_wire_from_edges_rwire'
-]
-bspline_counts = []
-placements = []
-for section in sections:
-    bspline_counts.append(
-        sum(1 for edge in section.Shape.Edges if type(edge.Curve).__name__ == 'BSplineCurve')
-    )
-    placements.append({
-        'z': float(section.Placement.Base.z),
-        'angle': float(section.Placement.Rotation.Angle),
-        'axis': [float(section.Placement.Rotation.Axis.x), float(section.Placement.Rotation.Axis.y), float(section.Placement.Rotation.Axis.z)],
-    })
-lofts = [obj for obj in doc.Objects if getattr(obj, 'SimpleCADOp', '') == 'make_loft_rsolid']
-transform_links = [
-    obj for obj in doc.Objects
-    if getattr(obj, 'TypeId', '') == 'App::Link'
-    and getattr(obj, 'SimpleCADOp', '') in {'make_translate_rshape', 'make_rotate_rshape'}
-]
-with open(OUT_PATH, 'w', encoding='utf-8') as fh:
-    json.dump({
-        'section_count': len(sections),
-        'bspline_counts': bspline_counts,
-        'total_bspline_geometry': sum(bspline_counts),
-        'placements': placements,
-        'transform_link_count': len(transform_links),
-        'loft_count': len(lofts),
-        'loft_solid_count': 0 if not lofts else len(lofts[-1].Shape.Solids),
-        'loft_volume': 0.0 if not lofts else float(lofts[-1].Shape.Volume),
-    }, fh)
-""",
-                encoding="utf-8",
-            )
-            subprocess.run(
-                [freecad_cmd, str(probe_path)],
-                check=True,
-                text=True,
-                capture_output=True,
-            )
-            result = json.loads(out_path.read_text(encoding="utf-8"))
-
-        bspline_nodes = [
-            node
-            for node in payload["graph"]["nodes"]
-            if node.get("op") == "make_spline_redge"
-        ]
-        self.assertEqual(len(bspline_nodes), 6)
-        self.assertEqual(result["section_count"], 6)
-        self.assertEqual(result["total_bspline_geometry"], 6)
-        self.assertTrue(all(count == 1 for count in result["bspline_counts"]))
-        self.assertEqual(result["transform_link_count"], 0)
-        self.assertEqual(
-            [round(item["z"], 3) for item in result["placements"]],
-            [0.0, 0.8, 1.6, 2.4, 3.2, 4.0],
-        )
-        self.assertEqual(
-            [round(item["angle"], 6) for item in result["placements"]],
-            [0.0, 0.125664, 0.251327, 0.376991, 0.502655, 0.628319],
-        )
-        self.assertEqual(result["loft_count"], 1)
-        self.assertEqual(result["loft_solid_count"], 1)
-        self.assertGreater(result["loft_volume"], 0.0)
 
     def test_translate_model_json_adds_coincident_constraints_for_polyline_wire(self):
         graph = OperationGraph(graph_id="graph_polyline_constraints")

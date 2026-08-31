@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, cast
 
-from .tagging import (
+from .topology.tagging import (
     SemanticCapabilityError,
     TagScope,
     UnsupportedQueryCapabilityError,

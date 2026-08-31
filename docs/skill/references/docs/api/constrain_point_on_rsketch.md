@@ -6,7 +6,7 @@
 def constrain_point_on_rsketch(sketch: Sketch, point: Union[SketchRef, str], entity: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch
 ```
 
-*Source: _operators_sketch.py*
+*Source: operators/sketch.py*
 
 ## Import Surface
 

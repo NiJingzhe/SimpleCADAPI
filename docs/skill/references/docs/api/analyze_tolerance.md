@@ -6,7 +6,7 @@
 def analyze_tolerance(value: ScalarLike, *, method: ToleranceMethod = 'worst_case') -> ToleranceAnalysis
 ```
 
-*Source: tolerance.py*
+*Source: params/tolerance.py*
 
 ## Import Surface
 

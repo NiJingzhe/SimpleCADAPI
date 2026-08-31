@@ -72,12 +72,7 @@ from .core import (
     get_current_cs,
 )
 from .errors import SimpleCADError
-from .evolve import (
-    make_n_hole_flange_rsolid,  # 其他
-    make_naca_propeller_blade_rsolid,
-    make_threaded_rod_rsolid,
-)
-from .expr import (
+from .params.expr import (
     Const,
     DimensionTolerance,
     Expr,
@@ -94,13 +89,13 @@ from .expr import (
     tan,
     var,
 )
-from .graph import (
+from .recording.graph import (
     GraphSession,
     get_active_session,
     suspend_graph_recording,
 )
 from .math import BSplineFitResult, fit_cubic_bspline_control_points
-from .operations import (  # 基础几何创建; 变换操作; 3D操作; 标签和选择; 布尔运算; 导出; 高级特征操作; 其他
+from .operators import (  # 基础几何创建; 变换操作; 3D操作; 标签和选择; 布尔运算; 导出; 高级特征操作; 其他
     add_arc_rsketch,
     add_belt_constraint_rassembly,
     add_bspline_rsketch,
@@ -220,14 +215,14 @@ from .operations import (  # 基础几何创建; 变换操作; 3D操作; 标签�
     unground_component_rassembly,
     union_rsolid,
 )
-from .assembly import Assembly, Component, PublicConnectorRef
-from .connector import Connector, ConnectorAnchor, ConnectorRef, GeometryRef
-from .constraint import Constraint, ConstraintReport, ConstraintResidual, ScalarLimit
-from .material import Material
-from .part import Part
-from .placement import Placement
-from .capture import CaptureResult, capture
-from .product_packages import (
+from .product.assembly import Assembly, Component, PublicConnectorRef
+from .product.connector import Connector, ConnectorAnchor, ConnectorRef, GeometryRef
+from .product.constraint import Constraint, ConstraintReport, ConstraintResidual, ScalarLimit
+from .product.material import Material
+from .product.part import Part
+from .product.placement import Placement
+from .product.capture import CaptureResult, capture
+from .product.packages import (
     PRODUCT_PACKAGE_SCHEMA_VERSION,
     ProductPackage,
     ProductPackageError,
@@ -237,7 +232,7 @@ from .product_packages import (
     read_product_package,
     validate_product_package,
 )
-from .serializer import (
+from .recording.serializer import (
     export_graph_json,
     export_model_json,
     export_session_json,
@@ -279,7 +274,8 @@ from .surface import (
     sew_faces_rshell,
     trim_surface_rface,
 )
-from .tagging import (
+from .topology import tagging  # noqa: F401  (visible namespace: simplecadapi.tagging)
+from .topology.tagging import (
     LineageDerivation,
     LineagePolicy,
     TagAttachment,
@@ -298,7 +294,7 @@ from .tagging import (
     TagTargetKind,
     TopologyPropagation,
 )
-from .tolerance import (
+from .params.tolerance import (
     ToleranceAnalysis,
     ToleranceAnalysisError,
     ToleranceCheck,
@@ -312,8 +308,8 @@ from .tolerance import (
     check_tolerance,
 )
 from .topology import SemanticDelta, SemanticRef
-from .tracking import TrackingPolicy
-from .units import (
+from .topology.tracking import TrackingPolicy
+from .params.units import (
     ANGLE,
     AREA,
     CM,
@@ -351,7 +347,7 @@ from .units import (
 
 # Avoid advertising internal implementation submodules from the top-level package
 # namespace. They remain importable as `simplecadapi.<module>` when needed.
-for _name in ("tracking", "autotag", "topology", "graph", "serializer"):
+for _name in ("topology", "recording", "params", "product", "_internal"):
     globals().pop(_name, None)
 
 __author__ = "SimpleCAD API Team"
@@ -565,9 +561,6 @@ __all__ = [
     "linear_pattern_rsolidlist",
     "inspect",
     "math",
-    "make_n_hole_flange_rsolid",
-    "make_naca_propeller_blade_rsolid",
-    "make_threaded_rod_rsolid",
     "radial_pattern_rsolidlist",
     "ql",
     "std",

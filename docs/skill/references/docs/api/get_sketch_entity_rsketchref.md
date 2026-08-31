@@ -6,7 +6,7 @@
 def get_sketch_entity_rsketchref(sketch: Sketch, entity_id: str) -> SketchRef
 ```
 
-*Source: _operators_sketch.py*
+*Source: operators/sketch.py*
 
 ## Import Surface
 

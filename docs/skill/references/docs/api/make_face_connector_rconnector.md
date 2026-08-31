@@ -6,7 +6,7 @@
 def make_face_connector_rconnector(connector_id: str, face: Face, name: Optional[str] = None, flip: bool = False) -> Connector
 ```
 
-*Source: _operators_product.py*
+*Source: operators/product.py*
 
 ## Import Surface
 

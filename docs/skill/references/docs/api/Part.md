@@ -6,7 +6,7 @@
 class Part(part_id: str, body: Solid, name: Optional[str] = None, material: Optional[Material] = None, connectors: Tuple[Connector, ...] = ())
 ```
 
-*Source: part.py*
+*Source: product/part.py*
 
 ## Import Surface
 

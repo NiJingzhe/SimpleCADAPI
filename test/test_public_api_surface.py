@@ -68,7 +68,7 @@ print(json.dumps({
 
     def test_canonical_tagging_exports(self):
         import simplecadapi as scad
-        from simplecadapi import operations, tagging
+        from simplecadapi import operators as operations, tagging
 
         expected = {
             "apply_tag_rselection": operations.apply_tag_rselection,
@@ -99,14 +99,14 @@ print(json.dumps({
 
     def test_tracking_policy_is_public(self):
         import simplecadapi as scad
-        from simplecadapi.tracking import TrackingPolicy
+        from simplecadapi.topology.tracking import TrackingPolicy
 
         self.assertIn("TrackingPolicy", scad.__all__)
         self.assertIs(scad.TrackingPolicy, TrackingPolicy)
 
     def test_unified_product_package_exports(self):
         import simplecadapi as scad
-        from simplecadapi import product_packages
+        from simplecadapi.product import packages as product_packages
 
         expected = {
             "PRODUCT_PACKAGE_SCHEMA_VERSION": product_packages.PRODUCT_PACKAGE_SCHEMA_VERSION,

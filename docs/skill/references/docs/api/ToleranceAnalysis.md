@@ -6,7 +6,7 @@
 class ToleranceAnalysis(target_expr_id: str, method: ToleranceMethod, nominal: float, lower_bound: float, upper_bound: float, lower_deviation: float, upper_deviation: float, dimension: Dimension | None = None, unit: Unit | None = None, contributions: Tuple[ToleranceContribution, ...] = ())
 ```
 
-*Source: tolerance.py*
+*Source: params/tolerance.py*
 
 ## Import Surface
 

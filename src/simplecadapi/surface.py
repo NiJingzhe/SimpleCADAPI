@@ -4,7 +4,7 @@ The constructors are implemented in the focused operator module so they
 participate in the same graph, coordinate-system, tagging, and error contracts.
 """
 
-from ._operators_geometry import (
+from .operators.geometry import (
     SurfaceBoundary,
     SurfaceFillingSettings,
     fill_holes_rshell,

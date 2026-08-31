@@ -6,7 +6,7 @@
 def replay_model_json(json_str: str, *, strict: bool = True) -> List[Any]
 ```
 
-*Source: serializer.py*
+*Source: recording/serializer.py*
 
 ## Import Surface
 

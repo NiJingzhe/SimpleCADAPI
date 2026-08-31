@@ -16,7 +16,7 @@ import tempfile
 import zlib
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from ...serializer import _execute_graph
+from ...recording.serializer import _execute_graph
 from ...topology import OperationGraph, OperationNode
 
 

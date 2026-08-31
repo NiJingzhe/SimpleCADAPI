@@ -15,34 +15,32 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
 DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
-    "operations.py",
-    "_operators_geometry.py",
-    "_operators_transform.py",
-    "_operators_boolean.py",
-    "_operators_product.py",
-    "_operators_sketch.py",
-    "_operators_selection.py",
-    "_operators_features.py",
-    "evolve.py",
+    "operators/geometry.py",
+    "operators/transform.py",
+    "operators/boolean.py",
+    "operators/product.py",
+    "operators/sketch.py",
+    "operators/selection.py",
+    "operators/features.py",
     "ql.py",
-    "serializer.py",
+    "recording/serializer.py",
     "math.py",
-    "placement.py",
-    "material.py",
-    "connector.py",
-    "constraint.py",
-    "part.py",
-    "assembly.py",
-    "assembly_solver.py",
-    "expr.py",
-    "tolerance.py",
-    "units.py",
-    "graph.py",
+    "product/placement.py",
+    "product/material.py",
+    "product/connector.py",
+    "product/constraint.py",
+    "product/part.py",
+    "product/assembly.py",
+    "product/solver.py",
+    "params/expr.py",
+    "params/tolerance.py",
+    "params/units.py",
+    "recording/graph.py",
     "sketch.py",
     "errors.py",
-    "capture.py",
-    "product_packages.py",
-    "topology.py",
+    "product/capture.py",
+    "product/packages.py",
+    "topology/model.py",
     "build/assembly_builder.py",
     "build/dependencies.py",
     "build/incremental_solver.py",
@@ -80,34 +78,32 @@ DEFAULT_STDLIB_SOURCE_FILENAMES: tuple[str, ...] = (
 
 FULL_PUBLIC_FUNCTION_MODULES = frozenset(
     {
-        "operations.py",
-        "_operators_geometry.py",
-        "_operators_transform.py",
-        "_operators_boolean.py",
-        "_operators_product.py",
-        "_operators_sketch.py",
-        "_operators_selection.py",
-        "_operators_features.py",
-        "evolve.py",
+        "operators/geometry.py",
+        "operators/transform.py",
+        "operators/boolean.py",
+        "operators/product.py",
+        "operators/sketch.py",
+        "operators/selection.py",
+        "operators/features.py",
         "ql.py",
         "math.py",
-        "placement.py",
+        "product/placement.py",
     }
 )
 
 EXPORTED_FUNCTION_MODULES = frozenset(
     {
-        "serializer.py",
-        "graph.py",
-        "expr.py",
-        "tolerance.py",
-        "units.py",
+        "recording/serializer.py",
+        "recording/graph.py",
+        "params/expr.py",
+        "params/tolerance.py",
+        "params/units.py",
         "errors.py",
-        "capture.py",
-        "product_packages.py",
-        "assembly_solver.py",
-        "connector.py",
-        "placement.py",
+        "product/capture.py",
+        "product/packages.py",
+        "product/solver.py",
+        "product/connector.py",
+        "product/placement.py",
         "build/assembly_builder.py",
         "build/dependencies.py",
         "build/part_builder.py",
@@ -137,20 +133,20 @@ EXPORTED_FUNCTION_MODULES = frozenset(
 
 EXPORTED_CALLABLE_MODULES = frozenset(
     {
-        "expr.py",
-        "tolerance.py",
-        "units.py",
-        "graph.py",
+        "params/expr.py",
+        "params/tolerance.py",
+        "params/units.py",
+        "recording/graph.py",
         "sketch.py",
         "errors.py",
-        "topology.py",
+        "topology/model.py",
         "math.py",
-        "placement.py",
-        "material.py",
-        "connector.py",
-        "constraint.py",
-        "part.py",
-        "assembly.py",
+        "product/placement.py",
+        "product/material.py",
+        "product/connector.py",
+        "product/constraint.py",
+        "product/part.py",
+        "product/assembly.py",
     }
 )
 
@@ -270,10 +266,22 @@ class APIDocumentGenerator:
         return self.apis
 
     def _module_name_for(self, file_path: Path) -> str:
-        try:
-            return file_path.resolve().relative_to(_package_root_from()).as_posix()
-        except ValueError:
-            pass
+        # Climb to the topmost package directory containing this file (the
+        # highest ancestor still holding an __init__.py) and express the
+        # module relative to it; fall back to the basename for loose files.
+        current = file_path.parent
+        topmost: Path | None = None
+        while (current / "__init__.py").exists():
+            topmost = current
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        if topmost is not None:
+            try:
+                return file_path.resolve().relative_to(topmost.resolve()).as_posix()
+            except ValueError:
+                pass
         return file_path.name
 
     @staticmethod
@@ -492,10 +500,21 @@ class APIDocumentGenerator:
         return f"submodule: `from simplecadapi.{module_stem} import {name}`"
 
     def _find_top_level_init_file(self) -> Path | None:
+        # Climb from each source file to the topmost package directory (the
+        # highest ancestor still holding an __init__.py); source files now
+        # live in subpackages, so their immediate parent init is not the
+        # top-level one.
         for source_file in self.source_files:
-            candidate = source_file.parent / "__init__.py"
-            if candidate.exists():
-                return candidate
+            current = source_file.parent
+            topmost: Path | None = None
+            while (current / "__init__.py").exists():
+                topmost = current / "__init__.py"
+                parent = current.parent
+                if parent == current:
+                    break
+                current = parent
+            if topmost is not None:
+                return topmost
         return None
 
     def generate_markdown_docs(self) -> None:
@@ -633,7 +652,6 @@ class APIDocumentGenerator:
             "Physical Units": [],
             "Types and Errors": [],
             "Advanced Features": [],
-            "Evolve": [],
             "STEP/BREP Inspection": [],
             "Product Build and Cache": [],
             "Reconstruction Evaluation": [],
@@ -654,11 +672,7 @@ class APIDocumentGenerator:
                 categories["Reconstruction Evaluation"].append(api)
                 continue
 
-            if api.source_file == "evolve.py":
-                categories["Evolve"].append(api)
-                continue
-
-            if api.source_file in {"serializer.py", "graph.py"}:
+            if api.source_file in {"recording/serializer.py", "recording/graph.py"}:
                 categories["Modeling Graph and Replay"].append(api)
                 continue
 
@@ -673,11 +687,11 @@ class APIDocumentGenerator:
                 categories["Math Helpers"].append(api)
                 continue
 
-            if api.source_file in {"expr.py", "tolerance.py"}:
+            if api.source_file in {"params/expr.py", "params/tolerance.py"}:
                 categories["Expressions and Parameters"].append(api)
                 continue
 
-            if api.source_file == "units.py":
+            if api.source_file == "params/units.py":
                 categories["Physical Units"].append(api)
                 continue
 

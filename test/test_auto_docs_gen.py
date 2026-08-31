@@ -87,10 +87,10 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             resolved_names = [
                 path.relative_to(package_root).as_posix() for path in resolved
             ]
-            self.assertIn("serializer.py", resolved_names)
-            self.assertIn("graph.py", resolved_names)
-            self.assertIn("expr.py", resolved_names)
-            self.assertIn("tolerance.py", resolved_names)
+            self.assertIn("recording/serializer.py", resolved_names)
+            self.assertIn("recording/graph.py", resolved_names)
+            self.assertIn("params/expr.py", resolved_names)
+            self.assertIn("params/tolerance.py", resolved_names)
             self.assertIn("sketch.py", resolved_names)
             self.assertIn("math.py", resolved_names)
             self.assertIn("translator/freecad_translator/api.py", resolved_names)
@@ -120,7 +120,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             self.assertIn("build/assembly_builder.py", resolved_names)
             self.assertIn("build/dependencies.py", resolved_names)
             self.assertIn("build/results.py", resolved_names)
-            self.assertIn("capture.py", resolved_names)
+            self.assertIn("product/capture.py", resolved_names)
             self.assertIn("cache/policy.py", resolved_names)
             self.assertIn("cache/store.py", resolved_names)
 
@@ -363,7 +363,13 @@ class TestAutoDocsGenExtraction(unittest.TestCase):
     def test_extract_apis_from_v2_public_modules(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            source_file = tmp_path / "serializer.py"
+            (tmp_path / "pkg").mkdir()
+            (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+            (tmp_path / "pkg" / "recording").mkdir()
+            (tmp_path / "pkg" / "recording" / "__init__.py").write_text(
+                "", encoding="utf-8"
+            )
+            source_file = tmp_path / "pkg" / "recording" / "serializer.py"
             source_file.write_text(
                 """
 def export_model_json(session, indent=2):
@@ -393,7 +399,13 @@ def _internal_helper():
     def test_generate_markdown_includes_v2_model_api_entry(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            source_file = tmp_path / "serializer.py"
+            (tmp_path / "pkg").mkdir()
+            (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+            (tmp_path / "pkg" / "recording").mkdir()
+            (tmp_path / "pkg" / "recording" / "__init__.py").write_text(
+                "", encoding="utf-8"
+            )
+            source_file = tmp_path / "pkg" / "recording" / "serializer.py"
             source_file.write_text(
                 """
 def export_model_json(session, indent=2):
@@ -431,7 +443,13 @@ def export_model_json(session, indent=2):
     def test_generate_markdown_avoids_case_insensitive_filename_collisions(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            source_file = tmp_path / "expr.py"
+            (tmp_path / "pkg").mkdir()
+            (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+            (tmp_path / "pkg" / "params").mkdir()
+            (tmp_path / "pkg" / "params" / "__init__.py").write_text(
+                "", encoding="utf-8"
+            )
+            source_file = tmp_path / "pkg" / "params" / "expr.py"
             source_file.write_text(
                 """
 class Const:
@@ -509,7 +527,7 @@ def fit_cubic_bspline_control_points(sample_points, *, tolerance=1e-3):
             (tmp_path / "__init__.py").write_text(
                 "__all__ = ['SurfaceSettings']\n", encoding="utf-8"
             )
-            source_file = tmp_path / "operations.py"
+            source_file = tmp_path / "ql.py"
             source_file.write_text(
                 '''
 from dataclasses import dataclass
@@ -541,11 +559,15 @@ class SurfaceSettings:
     def test_generate_markdown_includes_physical_units_category(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            init_file = tmp_path / "__init__.py"
+            (tmp_path / "pkg" / "params").mkdir(parents=True)
+            init_file = tmp_path / "pkg" / "__init__.py"
             init_file.write_text(
                 "__all__ = ['Dimension', 'convert_value']\n", encoding="utf-8"
             )
-            source_file = tmp_path / "units.py"
+            (tmp_path / "pkg" / "params" / "__init__.py").write_text(
+                "", encoding="utf-8"
+            )
+            source_file = tmp_path / "pkg" / "params" / "units.py"
             source_file.write_text(
                 '''
 class Dimension:

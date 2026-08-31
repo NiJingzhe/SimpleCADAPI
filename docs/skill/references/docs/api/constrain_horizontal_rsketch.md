@@ -6,7 +6,7 @@
 def constrain_horizontal_rsketch(sketch: Sketch, line: Union[SketchRef, str], *, constraint_id: Optional[str] = None) -> Sketch
 ```
 
-*Source: _operators_sketch.py*
+*Source: operators/sketch.py*
 
 ## Import Surface
 

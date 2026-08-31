@@ -2,7 +2,7 @@ import unittest
 
 import simplecadapi as scad
 from simplecadapi import ql as Q
-from simplecadapi import tagging
+from simplecadapi.topology import tagging
 
 
 class TestQLTagPredicates(unittest.TestCase):

@@ -9,7 +9,7 @@ from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 from OCP.gp import gp_Pnt
 
 import simplecadapi as scad
-from simplecadapi.graph import GraphSession
+from simplecadapi.recording.graph import GraphSession
 
 
 def _profile(z: float, radius: float, count: int = 12):

@@ -6,7 +6,7 @@
 def replay_graph(graph: OperationGraph, *, strict: bool = True) -> List[Any]
 ```
 
-*Source: serializer.py*
+*Source: recording/serializer.py*
 
 ## Import Surface
 

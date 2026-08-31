@@ -6,7 +6,7 @@
 def make_scalar_limit_rscalarlimit(lower_value: float, upper_value: float) -> ScalarLimit
 ```
 
-*Source: _operators_product.py*
+*Source: operators/product.py*
 
 ## Import Surface
 

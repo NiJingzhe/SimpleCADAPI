@@ -6,7 +6,7 @@
 def export_model_json(session: 'GraphSession', indent: int = 2, *, result_node_ids: Optional[Sequence[str]] = None) -> str
 ```
 
-*Source: serializer.py*
+*Source: recording/serializer.py*
 
 ## Import Surface
 

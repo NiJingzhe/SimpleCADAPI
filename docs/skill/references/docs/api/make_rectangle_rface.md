@@ -6,7 +6,7 @@
 def make_rectangle_rface(width: ScalarLike, height: ScalarLike, center: Tuple[ScalarLike, ScalarLike, ScalarLike] = (0, 0, 0), normal: Tuple[ScalarLike, ScalarLike, ScalarLike] = (0, 0, 1), *, tag_prefix: Optional[str] = None, edge_tags: Optional[Sequence[str]] = None) -> Face
 ```
 
-*Source: _operators_geometry.py*
+*Source: operators/geometry.py*
 
 ## Import Surface
 

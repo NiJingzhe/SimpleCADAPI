@@ -30,8 +30,8 @@ from typing import List, Optional, Tuple
 
 from ..core import Solid, Wire, Face
 from ..math import fit_cubic_bspline_control_points
-from ..tracking import TrackingPolicy, graph_tracking_scope
-from ..operations import (
+from ..topology.tracking import TrackingPolicy, graph_tracking_scope
+from ..operators import (
     _begin_linear_sketch_edits,
     _end_linear_sketch_edits,
     add_arc_rsketch,

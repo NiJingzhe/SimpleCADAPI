@@ -6,7 +6,7 @@
 def suspend_graph_recording()
 ```
 
-*Source: graph.py*
+*Source: recording/graph.py*
 
 ## Import Surface
 

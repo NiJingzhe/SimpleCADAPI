@@ -6,7 +6,7 @@
 def check_tolerance(value: ScalarLike, tolerance: ToleranceLike, *, method: ToleranceMethod = 'worst_case', name: str | None = None, tolerance_unit: UnitLike | None = None) -> ToleranceCheck
 ```
 
-*Source: tolerance.py*
+*Source: params/tolerance.py*
 
 ## Import Surface
 

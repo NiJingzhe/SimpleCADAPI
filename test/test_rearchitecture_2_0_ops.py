@@ -6,8 +6,8 @@ import unittest
 from unittest import mock
 
 import simplecadapi as scad
-from simplecadapi import operations
-from simplecadapi.graph import GraphSession
+from simplecadapi import operators as operations
+from simplecadapi.recording.graph import GraphSession
 
 
 class TestRearchitecture20CoreOps(unittest.TestCase):

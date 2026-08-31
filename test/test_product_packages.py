@@ -6,12 +6,12 @@ from pathlib import Path
 import pytest
 
 import simplecadapi as scad
-from simplecadapi.product_packages import ProductPackage, ProductPackageError
-from simplecadapi.product_occurrence import ProductOccurrenceError, ProductOccurrenceGraph
+from simplecadapi.product.packages import ProductPackage, ProductPackageError
+from simplecadapi.product.occurrence import ProductOccurrenceError, ProductOccurrenceGraph
 from simplecadapi.artifacts.canonical import canonical_bytes, content_hash, sha256_bytes
 import simplecadapi.artifacts.assembly_io as assembly_io
 import simplecadapi.artifacts.part_io as part_io
-import simplecadapi.product_packages as product_packages
+import simplecadapi.product.packages as product_packages
 from simplecadapi.scene import (
     canonical_zip_bytes,
     parse_canonical_json,

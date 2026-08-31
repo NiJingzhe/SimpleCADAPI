@@ -14,7 +14,7 @@ from OCP.TopLoc import TopLoc_Location
 import simplecadapi as scad
 from simplecadapi.core import Compound, Edge, Face
 from simplecadapi.kernel.ocp_export import make_compound_always
-from simplecadapi.operations import _make_geo_selector
+from simplecadapi.operators import _make_geo_selector
 from simplecadapi.scene import (
     canonical_json_bytes,
     load_contract_artifact,
@@ -22,7 +22,7 @@ from simplecadapi.scene import (
     profile_f32_bits,
     profile_normalize,
 )
-from simplecadapi.serializer import (
+from simplecadapi.recording.serializer import (
     _candidate_shapes_for_geo_selection,
     _geo_selector_score,
     _resolve_shape_from_geo_selector,

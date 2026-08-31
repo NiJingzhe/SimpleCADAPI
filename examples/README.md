@@ -20,7 +20,6 @@ run directly, one script per stage.
 
 - `04_dimension_tolerance_chain.py` — `out/dimension_tolerance_chain/dimension_tolerance_chain.scadpkg`
 - `08_constrained_sketch.py` — `out/constrained_sketch/constrained_sketch.scadpkg`
-- `09_naca0016_blade_freecad.py` — `out/naca0016_blade/naca0016_blade.scadpkg`
 - `10_part_assembly.py` — `out/hydraulic_rod_assembly/hydraulic_rod_assembly.scadpkg`
 - `11_external_reference_gear_train.py` — `out/external_reference_gear_train/nested_external_reference_gear_trains.scadpkg`
 - `12_ap242_gmsh_volume_mesh/model.py` — `out/ap242_gmsh_volume_mesh/ap242_gmsh_bracket.scadpkg`

@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 import simplecadapi as scad
-from simplecadapi import _mesh
+from simplecadapi._internal import mesh as _mesh
 from simplecadapi import scene
 from simplecadapi.scene import (
     export_scene,

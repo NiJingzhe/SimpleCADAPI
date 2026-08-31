@@ -6,7 +6,7 @@
 class SemanticDelta(created: Tuple[SemanticRef, ...] = (), modified: Tuple[SemanticRef, ...] = (), deleted: Tuple[SemanticRef, ...] = (), metadata: Dict[str, Any] = field(default_factory=dict))
 ```
 
-*Source: topology.py*
+*Source: topology/model.py*
 
 ## Import Surface
 

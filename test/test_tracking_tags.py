@@ -5,8 +5,8 @@ import unittest
 import simplecadapi as scad
 from simplecadapi import ql as Q
 from simplecadapi.topology import TopoDelta
-from simplecadapi.tracking import tracked_cut, tracked_union, tracked_extrude
-from simplecadapi.autotag import apply_tracking_tags_to_delta
+from simplecadapi.topology.tracking import tracked_cut, tracked_union, tracked_extrude
+from simplecadapi.topology.autotag import apply_tracking_tags_to_delta
 
 
 def proven_event(op: str, event: str):

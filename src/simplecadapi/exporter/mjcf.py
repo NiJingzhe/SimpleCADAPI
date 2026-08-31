@@ -17,9 +17,9 @@ import numpy as np
 from ..artifacts.assembly_io import materialize_definition
 from ..artifacts.canonical import parse_canonical_json
 from ..artifacts.part_definition import PartDefinition
-from ..assembly import Assembly
-from ..part import Part
-from ..placement import Placement, relative_placement
+from ..product.assembly import Assembly
+from ..product.part import Part
+from ..product.placement import Placement, relative_placement
 from ..translator.package_units import (
     ProductPackageInput,
     read_product_package_translation_units,

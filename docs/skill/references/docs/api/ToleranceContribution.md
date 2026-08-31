@@ -6,7 +6,7 @@
 class ToleranceContribution(variable_expr_id: str, variable_name: str, nominal: float, source_tolerance: DimensionTolerance, sensitivity: float | None, lower_deviation: float, upper_deviation: float, source_unit: Unit | None = None)
 ```
 
-*Source: tolerance.py*
+*Source: params/tolerance.py*
 
 ## Import Surface
 

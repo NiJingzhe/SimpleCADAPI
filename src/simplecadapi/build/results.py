@@ -8,8 +8,8 @@ from ..artifacts.assembly_definition import AssemblyDefinition
 from ..artifacts.feature_graph import FeatureGraphArtifact
 from ..artifacts.interface import PartInterfaceDiff
 from ..artifacts.part_definition import PartDefinition
-from ..assembly import Assembly
-from ..part import Part
+from ..product.assembly import Assembly
+from ..product.part import Part
 from .incremental_solver import AssemblySolveReport
 
 

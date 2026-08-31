@@ -7,7 +7,7 @@ import unittest
 from copy import deepcopy
 
 import simplecadapi as scad
-from simplecadapi.graph import GraphSession
+from simplecadapi.recording.graph import GraphSession
 from simplecadapi.topology import TopoEvent
 
 
@@ -443,7 +443,7 @@ class TestModelJson(unittest.TestCase):
             scad.import_model_json(json.dumps(forged_legacy))
 
     def test_model_json_import_negotiates_frozen_legacy_contract(self):
-        from simplecadapi.serializer import _canonical_contract_payload
+        from simplecadapi.recording.serializer import _canonical_contract_payload
 
         with GraphSession() as session:
             scad.make_box_rsolid(1.0, 1.0, 1.0)

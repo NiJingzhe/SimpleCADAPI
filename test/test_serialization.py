@@ -6,8 +6,8 @@ from copy import deepcopy
 
 import simplecadapi as scad
 from simplecadapi.topology import OperationGraph, TopoDelta
-from simplecadapi.graph import GraphSession, record_operation
-from simplecadapi.serializer import (
+from simplecadapi.recording.graph import GraphSession, record_operation
+from simplecadapi.recording.serializer import (
     export_graph_json,
     import_graph_json,
     import_model_json,

@@ -6,7 +6,7 @@
 def import_model_json(json_str: str) -> Dict[str, Any]
 ```
 
-*Source: serializer.py*
+*Source: recording/serializer.py*
 
 ## Import Surface
 

@@ -14,7 +14,7 @@ from OCP.IFSelect import IFSelect_RetDone
 from OCP.STEPControl import STEPControl_Reader
 from OCP.TopoDS import TopoDS_Shell
 
-from ..._brep_region import (
+from ..._internal.brep_region import (
     PROFILE,
     decode_artifact,
     encode_artifact,

@@ -6,7 +6,7 @@
 def place_component_rassembly(assembly: Assembly, component_id: str, placement: Placement) -> Assembly
 ```
 
-*Source: _operators_product.py*
+*Source: operators/product.py*
 
 ## Import Surface
 

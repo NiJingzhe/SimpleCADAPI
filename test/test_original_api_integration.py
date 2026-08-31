@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 
 import simplecadapi as scad
-from simplecadapi.graph import GraphSession
+from simplecadapi.recording.graph import GraphSession
 from simplecadapi import ql as Q
 
 

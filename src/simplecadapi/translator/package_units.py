@@ -9,7 +9,7 @@ from typing import Any
 from ..artifacts.assembly_definition import AssemblyDefinition
 from ..artifacts.feature_graph import FeatureGraphArtifact, load_feature_graph_artifact
 from ..artifacts.part_definition import PartDefinition
-from ..product_packages import (
+from ..product.packages import (
     ProductPackage,
     read_product_package,
     validate_product_package,
