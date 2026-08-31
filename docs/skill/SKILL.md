@@ -52,10 +52,8 @@ Read exactly one workflow first, per the user's goal:
 | User goal | Workflow |
 | --- | --- |
 | Model one physical part | `references/workflows/single-part-modeling.md` |
-| Constraint-driven profile as design intent | `references/workflows/sketch-feature-modeling.md` |
-| Multi-part product, connectors, constraints, package | `references/workflows/assembly-product-build.md` |
+| Multi-part product or mechanism (custom parts, stdlib gears/bearings, connectors, constraints, package) | `references/workflows/assembly-product-build.md` |
 | Rebuild an editable model from a STEP file | `references/workflows/step-reconstruction.md` |
-| Mechanism from stdlib gears/bearings | `references/workflows/standard-part-assembly.md` |
 | Export/translate a validated package | `references/workflows/export-and-translation.md` |
 
 Do not present route-choice menus when a row already matches: profile,

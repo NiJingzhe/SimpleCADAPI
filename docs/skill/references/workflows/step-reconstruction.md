@@ -65,10 +65,10 @@ repair_routes:
    that could falsify it. A loop on a final planar face may be a later hole or
    pocket, not part of the base profile.
 4. **Build the candidate** via `single-part-modeling.md` (block structure per
-   `discipline/feature-tree-convention.md`; transcribed geometry uses the
-   geometry tier and annotates `profile=geometry` honestly) or
-   `sketch-feature-modeling.md` (Sketch when constraints represent the
-   evidence; direct Wires for non-planar or exact transcription). Overshoot
+   `discipline/feature-tree-convention.md`; sketch tier when constraints
+   represent the evidence (`domains/sketch-and-features.md`), direct
+   geometry tier for non-planar or exact transcription, annotated
+   `profile=geometry` honestly). Overshoot
    through-cut tools; validate one representative feature before patterning.
 5. **Replay in a fresh process**: `export_model_json` →
    `replay_model_json`; then `validate_step_roundtrip_rdescriptor` on the

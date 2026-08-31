@@ -19,6 +19,22 @@ Standing discipline, binding for every role:
 - **Image judgments are delegated.** Visual checks are planned by Role 3
   before the stage model is built; the render may be produced by Role 4
   afterward, but its acceptance verdict is supplied by an isolated subagent.
+- **Standard parts first.** If the requirement can be satisfied by a
+  standard part, or by a part based on one (gear, ring gear, rack,
+  cycloidal disc, bearing, fastener), `scad.std.*` MUST be the basis —
+  hand-modeling a standard shape is a defect, not a fallback. A single
+  std part with no assembly context stays in this workflow via
+  `domains/standard-parts.md`; a mechanism mating several std parts
+  routes to `assembly-product-build.md`.
+- **Sketch tier is the default part form.** Per the Feature Tree
+  Convention, planar profiles and planar paths are sketch tier. When a
+  stage's profiles are sketch tier, its verification contract includes
+  the sketch gates: solve status and remaining DOF recorded before
+  promotion, and promotion preserving measured geometry (closure, area,
+  bounds compare). Plan entities and constraints with stable ids and
+  evidence-backed constraints; intentional free DOF are recorded in the
+  brief, never left silent. Capability detail:
+  `domains/sketch-and-features.md`.
 - **Feature Tree Convention.** Every part source is authored as
   block-structured features per `discipline/feature-tree-convention.md`
   (sketch → basic body op → bool → modifier, one feature per block with its
