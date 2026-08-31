@@ -24,6 +24,7 @@ class ViewDecl:
 
 @dataclass
 class DimDecl:
+    """一条尺寸声明。kind=定位(position)尺寸必须在 datum 里引用已声明基准。"""
     kind: str                     # size | position | overall
     view: str
     semantic: str                 # linear | diameter | radius
@@ -52,6 +53,7 @@ class DimDecl:
 
 @dataclass
 class DatumDecl:
+    """基准符号声明（GB 基准体系）：主基准 A、辅助基准 B/C…。"""
     letter: str                   # A(主) B C...
     kind: str                     # axis | plane
     view: str
@@ -62,6 +64,7 @@ class DatumDecl:
 
 @dataclass
 class CenterDecl:
+    """中心线声明：p1/p2 直线中心线，或 arc=(cx,cy,r,a0,a1) 圆弧中心线。"""
     view: str
     p1: tuple = None
     p2: tuple = None
@@ -70,6 +73,7 @@ class CenterDecl:
 
 @dataclass
 class LeaderDecl:
+    """引出说明声明：从 anchor 引出折线到注释文本。"""
     view: str
     anchor: tuple
     lines: list
@@ -81,6 +85,12 @@ class LeaderDecl:
 
 @dataclass
 class SheetDecl:
+    """一张图纸的完整声明：图幅信息 + 视图 + 基准 + 尺寸 + 中心线 + 引出说明 + 参数表。
+
+    调用方只声明"要表达什么"，不指定任何纸面坐标；布局与标注位置由
+    SheetPlan.solve() 求解。front/anchor 定义主视图锚定，其余视图经
+    ViewDecl.align 相对主视图对正（第一角投影，长对正/高平齐）。
+    """
     title: str
     dwg_no: str
     scale: float

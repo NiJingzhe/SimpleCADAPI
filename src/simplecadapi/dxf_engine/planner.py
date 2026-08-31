@@ -43,6 +43,8 @@ def _text_width(text, h=3.5):
 
 @dataclass
 class Resolved:
+    """一个标注元素在纸面上的求解结果：requested(声明值) → resolved(实际位置) +
+    adjust(最少调整顺延记录) + draw(渲染所需的预计算几何) + rules(触发的规则)。"""
     kind: str
     name: str
     view: str
@@ -59,6 +61,14 @@ ROW_PITCH, BASE_OFF = 11.0, 8.0
 
 
 class SheetPlan:
+    """标注方案求解器：SheetDecl → solve() → resolved/accepted/report() → render()。
+
+    求解流程：视图布局(第一角投影、align 对正) → 基准安放 → 线性尺寸
+    (按视图/侧/行/大外小内排序) → 直径/半径尺寸 → 引出说明 → 参数覆盖检查。
+    所有冲突处理遵循"最少调整"：优先顺延候选位置并记入 Resolved.adjust，
+    放不下则记入 R1 警告，绝不静默丢弃。
+    """
+
     def __init__(self, decl: SheetDecl):
         self.d = decl
         self.s = decl.scale
@@ -74,6 +84,7 @@ class SheetPlan:
 
     # ---------- 几何基元 ----------
     def tx(self, view, p):
+        """视图局部模型坐标 → 纸面坐标（含图纸比例）。"""
         vw = self.views[view]
         return (vw["ox"] + p[0] * self.s, vw["oy"] + p[1] * self.s)
 
@@ -525,6 +536,8 @@ class SheetPlan:
 
     # ---------- 总规划 ----------
     def solve(self):
+        """执行完整求解并返回 self。求解后经 resolved/accepted/report() 审计，
+        再由 render() 出图。重复调用会重置重新求解。"""
         self._prime()
         self._solve_views()
         self._solve_datums()
@@ -560,6 +573,8 @@ class SheetPlan:
                 "R6"))
 
     def report(self) -> str:
+        """输出可审计的求解报告：基准体系、每个元素的 requested→resolved 与调整、
+        参数覆盖 (R5) 表、规则检查 (R1-R7) 结果。生成图纸后必须审阅。"""
         lines = [f"── 标注方案报告 · {self.d.title} ({self.d.dwg_no}, "
                  f"比例 {self.d.scale:g}:1) ──"]
         lines.append("基准体系: " + "; ".join(
@@ -589,8 +604,9 @@ class SheetPlan:
         return "\n".join(lines)
 
     def render(self, dxf_path, png_path):
+        """按求解结果渲染 DXF + PNG 双产物（委托 render_plan）。"""
         from .render import render_plan
-        render_plan(self, dxf_path, png_path)
+        return render_plan(self, dxf_path, png_path)
 
     # ---------- LLM-in-the-loop 评估/执行 (agent.py 承载) ----------
     def evaluate(self):
