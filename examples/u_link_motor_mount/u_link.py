@@ -122,34 +122,50 @@ def assert_params() -> None:
     assert p["cable_w_w"] <= 1.6 * rp, "窗宽不得吃穿窗间壁（w ≤ 1.6×槽半径；w=10/rp=12 时窗间弧余 34mm）"
 
 
-def _u_path_edges(p: dict):
-    """U 路径 5 边：左臂下 → 左拐角弧 → 底部右 → 右拐角弧 → 右臂上（XY 平面, z=0）。"""
+def _u_path_wire(p: dict) -> scad.Wire:
+    """U 路径约束草图（5 实体开放链）→ 求解后提升为扫掠路径 wire。
+
+    切线连续由 4 条端点 tangent 约束承担（替代旧转录版手算 45° 弧中点）；
+    dof=0 全约束提升（feat/ftc: wire promotion 接受开放链，闭合性由
+    消费端契约管——sweep 路径本就开放）。q 只改 rod_d 时路径不变。
+    """
     l, d, r_c = p["L"], p["D"], p["r_corner"]
     xl, xr = -l / 2.0, l / 2.0
-    s2 = math.sqrt(2.0) / 2.0
-    cl, cr = (xl + r_c, r_c), (xr - r_c, r_c)
-    return [
-        scad.make_segment_redge(start=(xl, d, 0.0), end=(xl, r_c, 0.0)),
-        scad.make_three_point_arc_redge(
-            start=(xl, r_c, 0.0),
-            middle=(cl[0] - r_c * s2, cl[1] - r_c * s2, 0.0),
-            end=(cl[0], 0.0, 0.0),
-        ),
-        scad.make_segment_redge(start=(cl[0], 0.0, 0.0), end=(cr[0], 0.0, 0.0)),
-        scad.make_three_point_arc_redge(
-            start=(cr[0], 0.0, 0.0),
-            middle=(cr[0] + r_c * s2, cr[1] - r_c * s2, 0.0),
-            end=(xr, r_c, 0.0),
-        ),
-        scad.make_segment_redge(start=(xr, r_c, 0.0), end=(xr, d, 0.0)),
-    ]
+    sketch = scad.make_sketch_rsketch(name="u_path", plane="XY")
+    seeds = {
+        "lt": (xl, d), "l1": (xl, r_c), "cl": (xl + r_c, r_c),
+        "b1": (xl + r_c, 0.0), "b2": (xr - r_c, 0.0), "cr": (xr - r_c, r_c),
+        "r1": (xr, r_c), "rt": (xr, d),
+    }
+    for pid, (x, y) in seeds.items():
+        sketch = scad.add_point_rsketch(sketch, pid, x, y)
+    sketch = scad.add_line_rsketch(sketch, "arm_l", "lt", "l1")
+    sketch = scad.add_arc_rsketch(sketch, "corner_l", "l1", "b1", "cl")
+    sketch = scad.add_line_rsketch(sketch, "bottom", "b1", "b2")
+    sketch = scad.add_arc_rsketch(sketch, "corner_r", "b2", "r1", "cr")
+    sketch = scad.add_line_rsketch(sketch, "arm_r", "r1", "rt")
+    sketch = scad.constrain_fix_rsketch(sketch, "b1")
+    sketch = scad.constrain_vertical_rsketch(sketch, "arm_l")
+    sketch = scad.constrain_vertical_rsketch(sketch, "arm_r")
+    sketch = scad.constrain_horizontal_rsketch(sketch, "bottom")
+    sketch = scad.constrain_tangent_rsketch(sketch, "arm_l", "corner_l", at_b="start")
+    sketch = scad.constrain_tangent_rsketch(sketch, "corner_l", "bottom", at_a="end")
+    sketch = scad.constrain_tangent_rsketch(sketch, "bottom", "corner_r", at_b="start")
+    sketch = scad.constrain_tangent_rsketch(sketch, "corner_r", "arm_r", at_a="end")
+    sketch = scad.constrain_equal_radius_rsketch(sketch, "corner_l", "corner_r")
+    sketch = scad.constrain_radius_rsketch(sketch, "corner_l", r_c)
+    sketch = scad.constrain_distance_x_rsketch(sketch, "lt", "rt", l)
+    sketch = scad.constrain_distance_y_rsketch(sketch, "b1", "lt", d)
+    sketch = scad.constrain_distance_y_rsketch(sketch, "b1", "rt", d)
+    return scad.make_wire_from_sketch_rwire(
+        sketch=sketch, require_fully_constrained=True)
 
 
 def build_u_rod() -> scad.Solid:
     """S1: 圆截面沿 U 路径扫掠（开口 +Y；端盖平面在 y=D）。"""
     assert_params()
     p = params()
-    path = scad.make_wire_from_edges_rwire(edges=_u_path_edges(p))
+    path = _u_path_wire(p)
     profile = scad.make_circle_rface(
         center=(-p["L"] / 2.0, p["D"], 0.0),
         radius=p["rod_d"] / 2.0,
@@ -202,7 +218,7 @@ def _eroded_sweep(p: dict) -> scad.Solid:
     （圆截面扫掠的内偏移=缩径扫掠，直段/圆弧段均精确——"贴合背板轮廓"的实现）"""
     q = dict(p)
     q["rod_d"] = p["rod_d"] - 2.0 * p["wall_t"]
-    path = scad.make_wire_from_edges_rwire(edges=_u_path_edges(q))
+    path = _u_path_wire(p)  # 路径与 rod_d 无关（q 仅缩径）
     profile = scad.make_circle_rface(
         center=(-q["L"] / 2.0, q["D"], 0.0), radius=q["rod_d"] / 2.0,
         normal=(0.0, -1.0, 0.0))
