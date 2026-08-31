@@ -5386,5 +5386,111 @@ with open(OUT_PATH, 'w', encoding='utf-8') as fh:
         )
 
 
+class TestGeoSelectorStabilityCriterion(unittest.TestCase):
+    """The FreeCAD runtime accepts a clearly separated best geo match.
+
+    A rebuild in FreeCAD's OCC differs from the recorded OCP geometry in the
+    4th-6th significant digit, scoring the correct candidate in the
+    0.01-0.5 band; wrong candidates score >= ~1. Stability is separation,
+    not near-bit-identity.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import math as math_module
+        from pathlib import Path
+
+        import simplecadapi
+
+        source = (
+            Path(simplecadapi.__file__).parent
+            / "translator"
+            / "freecad_translator"
+            / "runtime"
+            / "selections.py"
+        ).read_text()
+        # One namespace dict so runtime snippet functions share globals,
+        # mirroring how the emitter concatenates them into one script scope.
+        cls.runtime = {"math": math_module}
+        exec(compile(source, "selections.py", "exec"), cls.runtime)
+
+    @staticmethod
+    def _edge(length, start, end, center=None):
+        class Point:
+            def __init__(self, vector):
+                self.x, self.y, self.z = vector
+
+        class Vertex:
+            def __init__(self, vector):
+                self.Point = Point(vector)
+
+        class Box:
+            XMin = min(start[0], end[0]) - 0.1
+            XMax = max(start[0], end[0]) + 0.1
+            YMin = min(start[1], end[1]) - 0.1
+            YMax = max(start[1], end[1]) + 0.1
+            ZMin = min(start[2], end[2]) - 0.1
+            ZMax = max(start[2], end[2]) + 0.1
+
+        class Edge:
+            Length = length
+            Vertexes = [Vertex(start), Vertex(end)]
+            BoundBox = Box()
+            CenterOfMass = Point(
+                center
+                if center is not None
+                else tuple((s + e) / 2.0 for s, e in zip(start, end))
+            )
+
+        return Edge()
+
+    @classmethod
+    def _selector(cls):
+        return {
+            "mode": "geo_exact",
+            "kind": "edge",
+            "bbox": {"min": (-0.1, -0.1, -0.1), "max": (10.1, 0.1, 0.1)},
+            "length": 10.0,
+            "center": (5.0, 0.0, 0.0),
+            "start": (0.0, 0.0, 0.0),
+            "end": (10.0, 0.0, 0.0),
+        }
+
+    def _select(self, candidates):
+        class Shape:
+            Edges = list(candidates)
+
+        return self.runtime["_selection_index_for_selector"](
+            Shape(), self._selector(), context="unit test"
+        )
+
+    def test_near_exact_match_still_accepted(self):
+        drifted = self._edge(10.0005, (0.0002, 0, 0), (10.0006, 0, 0))
+        decoy = self._edge(4.0, (20, 20, 20), (24, 20, 20))
+        self.assertEqual(self._select([drifted, decoy]), 0)
+
+    def test_kernel_drift_match_accepted_when_clearly_separated(self):
+        # ~0.5% aggregate drift: score lands in the 0.01-0.5 band.
+        drifted = self._edge(10.05, (0.02, 0, 0), (10.07, 0, 0))
+        decoy = self._edge(4.0, (20, 20, 20), (24, 20, 20))
+        self.assertEqual(self._select([drifted, decoy]), 0)
+        self.assertEqual(self._select([decoy, drifted]), 1)
+
+    def test_similar_runner_up_is_rejected_as_unstable(self):
+        first = self._edge(10.05, (0.02, 0, 0), (10.07, 0, 0))
+        twin = self._edge(10.06, (0.03, 0, 0), (10.08, 0, 0))
+        with self.assertRaisesRegex(RuntimeError, "stable"):
+            self._select([first, twin])
+
+    def test_absent_target_is_rejected(self):
+        decoy = self._edge(4.0, (20, 20, 20), (24, 20, 20))
+        with self.assertRaisesRegex(RuntimeError, "stable"):
+            self._select([decoy])
+
+    def test_single_drifted_candidate_without_rival_is_accepted(self):
+        drifted = self._edge(10.05, (0.02, 0, 0), (10.07, 0, 0))
+        self.assertEqual(self._select([drifted]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
