@@ -511,6 +511,7 @@ class TestSketchApi(unittest.TestCase):
         self.assertEqual(len(replayed), 1)
         self.assertIsInstance(replayed[0], scad.Face)
 
+
     def test_strict_snapshot_comparison_rejects_changed_solved_entity(self):
         from simplecadapi.operators import _assert_sketch_solve_snapshot_dict_matches
 
@@ -744,3 +745,141 @@ class TestSketchApi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSketchChainPromotion(unittest.TestCase):
+    """Wire promotion accepts open chains; closedness is a consumer contract."""
+
+    def _make_open_chain(self):
+        sketch = scad.make_sketch_rsketch("chain")
+        for pid, (x, y) in {"p0": (0.0, 0.0), "p1": (10.0, 0.0), "p2": (10.0, 8.0)}.items():
+            sketch = scad.add_point_rsketch(sketch, pid, x, y)
+        sketch = scad.add_line_rsketch(sketch, "run", "p0", "p1")
+        sketch = scad.add_line_rsketch(sketch, "rise", "p1", "p2")
+        sketch = scad.constrain_fix_rsketch(sketch, "p0")
+        sketch = scad.constrain_horizontal_rsketch(sketch, "run")
+        sketch = scad.constrain_vertical_rsketch(sketch, "rise")
+        sketch = scad.constrain_length_rsketch(sketch, "run", 10.0)
+        sketch = scad.constrain_length_rsketch(sketch, "rise", 8.0)
+        return sketch
+
+    def _make_u_path(self, length=80.0, height=20.0, radius=17.0):
+        xl, xr = -length / 2.0, length / 2.0
+        seeds = {
+            "lt": (xl, height), "l1": (xl, radius), "cl": (xl + radius, radius),
+            "b1": (xl + radius, 0.0), "b2": (xr - radius, 0.0),
+            "cr": (xr - radius, radius), "r1": (xr, radius), "rt": (xr, height),
+        }
+        sketch = scad.make_sketch_rsketch("u_path")
+        for pid, (x, y) in seeds.items():
+            sketch = scad.add_point_rsketch(sketch, pid, x, y)
+        sketch = scad.add_line_rsketch(sketch, "arm_l", "lt", "l1")
+        sketch = scad.add_arc_rsketch(sketch, "corner_l", "l1", "b1", "cl")
+        sketch = scad.add_line_rsketch(sketch, "bottom", "b1", "b2")
+        sketch = scad.add_arc_rsketch(sketch, "corner_r", "b2", "r1", "cr")
+        sketch = scad.add_line_rsketch(sketch, "arm_r", "r1", "rt")
+        sketch = scad.constrain_fix_rsketch(sketch, "b1")
+        sketch = scad.constrain_vertical_rsketch(sketch, "arm_l")
+        sketch = scad.constrain_vertical_rsketch(sketch, "arm_r")
+        sketch = scad.constrain_horizontal_rsketch(sketch, "bottom")
+        sketch = scad.constrain_tangent_rsketch(sketch, "arm_l", "corner_l", at_b="start")
+        sketch = scad.constrain_tangent_rsketch(sketch, "corner_l", "bottom", at_a="end")
+        sketch = scad.constrain_tangent_rsketch(sketch, "bottom", "corner_r", at_b="start")
+        sketch = scad.constrain_tangent_rsketch(sketch, "corner_r", "arm_r", at_a="end")
+        sketch = scad.constrain_equal_radius_rsketch(sketch, "corner_l", "corner_r")
+        sketch = scad.constrain_radius_rsketch(sketch, "corner_l", radius)
+        sketch = scad.constrain_distance_x_rsketch(sketch, "lt", "rt", length)
+        sketch = scad.constrain_distance_y_rsketch(sketch, "b1", "lt", height)
+        sketch = scad.constrain_distance_y_rsketch(sketch, "b1", "rt", height)
+        return sketch, length, height, radius
+
+    def test_open_chain_promotes_to_wire(self):
+        sketch = self._make_open_chain()
+        wire = scad.make_wire_from_sketch_rwire(sketch, require_fully_constrained=True)
+
+        self.assertFalse(wire.is_closed())
+        self.assertEqual(len(wire.get_edges()), 2)
+        self.assertAlmostEqual(
+            sum(edge.get_length() for edge in wire.get_edges()), 18.0, places=6
+        )
+
+    def test_extrude_rejects_open_chain_wire(self):
+        sketch = self._make_open_chain()
+        wire = scad.make_wire_from_sketch_rwire(sketch)
+
+        with self.assertRaises(ValueError):
+            scad.extrude_rsolid(wire, (0.0, 0.0, 1.0), 2.0)
+
+    def test_face_promotion_rejects_open_chain_with_component_listing(self):
+        sketch = self._make_open_chain()
+
+        with self.assertRaises(ValueError) as ctx:
+            scad.make_face_from_sketch_rface(sketch)
+        self.assertIn("open chain", str(ctx.exception))
+
+    def test_tangent_u_path_solves_and_promotes_for_sweep(self):
+        import math
+
+        sketch, length, height, radius = self._make_u_path()
+        result = scad.inspect_sketch_rsketchresult(
+            sketch, require_fully_constrained=True
+        )
+        self.assertEqual(result.status, "solved")
+        self.assertEqual(result.dof, 0)
+
+        path = scad.make_wire_from_sketch_rwire(sketch, require_fully_constrained=True)
+        self.assertFalse(path.is_closed())
+        self.assertEqual(len(path.get_edges()), 5)
+        expected = (
+            2.0 * (height - radius)
+            + (length - 2.0 * radius)
+            + 2.0 * (math.pi * radius / 2.0)
+        )
+        self.assertAlmostEqual(
+            sum(edge.get_length() for edge in path.get_edges()), expected, places=4
+        )
+
+        profile = scad.make_circle_rface(
+            center=(-length / 2.0, height, 0.0),
+            radius=radius,
+            normal=(0.0, -1.0, 0.0),
+        )
+        rod = scad.sweep_rsolid(profile=profile, path=path)
+        self.assertGreater(rod.get_volume(), 0.0)
+
+    def test_branch_point_named_in_promotion_error(self):
+        sketch = scad.make_sketch_rsketch("branchy")
+        for pid, (x, y) in {
+            "c": (0.0, 0.0), "a": (5.0, 0.0), "b": (0.0, 5.0), "d": (-5.0, 0.0),
+        }.items():
+            sketch = scad.add_point_rsketch(sketch, pid, x, y)
+        sketch = scad.add_line_rsketch(sketch, "e1", "c", "a")
+        sketch = scad.add_line_rsketch(sketch, "e2", "c", "b")
+        sketch = scad.add_line_rsketch(sketch, "e3", "c", "d")
+
+        with self.assertRaises(ValueError) as ctx:
+            scad.make_wire_from_sketch_rwire(sketch)
+        message = str(ctx.exception)
+        self.assertIn("branch", message)
+        self.assertIn("'c'", message)
+
+    def test_mixed_sketch_wire_promotes_chain_and_face_promotes_loop(self):
+        sketch = scad.make_sketch_rsketch("mixed")
+        points = {
+            "a": (0.0, 0.0), "b": (4.0, 0.0), "c": (4.0, 3.0), "d": (0.0, 3.0),
+            "e": (8.0, 1.0), "f": (12.0, 1.0),
+        }
+        for pid, (x, y) in points.items():
+            sketch = scad.add_point_rsketch(sketch, pid, x, y)
+        for entity_id, (p, q) in {
+            "rb": ("a", "b"), "rr": ("b", "c"), "rt": ("c", "d"), "rl": ("d", "a"),
+        }.items():
+            sketch = scad.add_line_rsketch(sketch, entity_id, p, q)
+        sketch = scad.add_line_rsketch(sketch, "tail", "e", "f")
+
+        chain_wire = scad.make_wire_from_sketch_rwire(sketch, profile="tail")
+        self.assertFalse(chain_wire.is_closed())
+        self.assertEqual(len(chain_wire.get_edges()), 1)
+
+        loop_face = scad.make_face_from_sketch_rface(sketch)
+        self.assertAlmostEqual(loop_face.get_area(), 12.0, places=6)
