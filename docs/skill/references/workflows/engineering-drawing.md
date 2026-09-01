@@ -138,9 +138,10 @@ warnings or left unsolved, iterate:
    full `report()` audit once more.
 
 Exit gate: `report()` shows R1–R7 ok or accepted-with-reason, the R5
-coverage table has no `MISS`, and no red/blue elements remain. A worked
-driver implementing this loop (eval / render / viz / diff subcommands) ships
-in the repo at `examples/u_link_motor_mount/agent_drawing.py`.
+coverage table has no `MISS`, and no red/blue elements remain. Drive the
+loop directly against `SheetPlan` (solve / evaluate / apply / render);
+declaring `SheetDecl.diag_png` makes every solve/apply auto-refresh the
+annotated conflict image and return a must-read instruction with it.
 
 ## Role 4 — Visual Reviewer
 
