@@ -41,6 +41,9 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "product/capture.py",
     "product/packages.py",
     "topology/model.py",
+    "dxf_engine/model.py",
+    "dxf_engine/planner.py",
+    "dxf_engine/render.py",
     "build/assembly_builder.py",
     "build/dependencies.py",
     "build/incremental_solver.py",
@@ -396,6 +399,8 @@ class APIDocumentGenerator:
                 "inspect_benchmark_step",
                 "run_comparison_bundle",
             }
+        if module_name.startswith("dxf_engine/"):
+            return name in {"render_plan"}
         if module_name in EXPORTED_FUNCTION_MODULES:
             if not exported_names:
                 return True
@@ -428,6 +433,17 @@ class APIDocumentGenerator:
             }
         if module_name == "inverse_engineer/brep/evaluation.py":
             return name in {"EvaluationConfig", "SectionEvaluationConfig"}
+        if module_name.startswith("dxf_engine/"):
+            return name in {
+                "SheetDecl",
+                "ViewDecl",
+                "DimDecl",
+                "DatumDecl",
+                "CenterDecl",
+                "LeaderDecl",
+                "SheetPlan",
+                "Resolved",
+            }
         if name in exported_names:
             return True
         if module_name not in EXPORTED_CALLABLE_MODULES:
@@ -488,6 +504,12 @@ class APIDocumentGenerator:
             return (
                 "inspection namespace: `from simplecadapi.inspect import brep` "
                 f"then `brep.{name}(...)`; unavailable inside GraphSession"
+            )
+
+        if module_name.startswith("dxf_engine/"):
+            return (
+                "drawing namespace: "
+                f"`from simplecadapi.dxf_engine import {name}`"
             )
 
         module_stem = module_name.removesuffix(".py")
@@ -655,6 +677,7 @@ class APIDocumentGenerator:
             "STEP/BREP Inspection": [],
             "Product Build and Cache": [],
             "Reconstruction Evaluation": [],
+            "Engineering Drawings": [],
             "Other": [],
         }
 
@@ -670,6 +693,10 @@ class APIDocumentGenerator:
 
             if api.source_file == "inverse_engineer/brep/evaluation.py":
                 categories["Reconstruction Evaluation"].append(api)
+                continue
+
+            if api.source_file.startswith("dxf_engine/"):
+                categories["Engineering Drawings"].append(api)
                 continue
 
             if api.source_file in {"recording/serializer.py", "recording/graph.py"}:

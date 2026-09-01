@@ -55,6 +55,7 @@ Read exactly one workflow first, per the user's goal:
 | Multi-part product or mechanism (custom parts, stdlib gears/bearings, connectors, constraints, package) | `references/workflows/assembly-product-build.md` |
 | Rebuild an editable model from a STEP file | `references/workflows/step-reconstruction.md` |
 | Export/translate a validated package | `references/workflows/export-and-translation.md` |
+| Produce a GB engineering drawing (DXF) from validated geometry | `references/workflows/engineering-drawing.md` |
 
 Do not present route-choice menus when a row already matches: profile,
 strategy, and tool choices inside a route belong to that workflow's
@@ -173,8 +174,8 @@ print(len(rebuilt))
 ## References
 
 - `references/README.md` — skill layer structure
-- `references/workflows/` — six goal-oriented workflows
-- `references/domains/` — seven capability domains
+- `references/workflows/` — seven goal-oriented workflows
+- `references/domains/` — eight capability domains
 - `references/discipline/` — modeling knowledge and invariants
 - `references/SDK_OVERVIEW.md` — package-level map
 - `references/inspect/brep-reverse-engineering.md`

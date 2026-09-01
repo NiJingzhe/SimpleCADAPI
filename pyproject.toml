@@ -32,6 +32,8 @@ dependencies = [
     "tomli>=2.0,<3; python_version < '3.11'",
     "py-slvs==1.0.6",
     "ocp-gordon>=0.2,<0.3",
+    "ezdxf>=1.4.4",
+    "pymupdf>=1.28.2",
 ]
 
 [project.optional-dependencies]

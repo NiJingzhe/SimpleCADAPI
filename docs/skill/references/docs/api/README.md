@@ -266,6 +266,18 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [inspect_benchmark_step](inspect_benchmark_step.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
 - [run_comparison_bundle](run_comparison_bundle.md) *(from inverse_engineer/brep/evaluation.py)* `reverse-engineering evaluator`
 
+## Engineering Drawings
+
+- [CenterDecl](CenterDecl.md) *(from dxf_engine/model.py)* `submodule:dxf_engine/model`
+- [DatumDecl](DatumDecl.md) *(from dxf_engine/model.py)* `submodule:dxf_engine/model`
+- [DimDecl](DimDecl.md) *(from dxf_engine/model.py)* `submodule:dxf_engine/model`
+- [LeaderDecl](LeaderDecl.md) *(from dxf_engine/model.py)* `submodule:dxf_engine/model`
+- [Resolved](Resolved.md) *(from dxf_engine/planner.py)* `submodule:dxf_engine/planner`
+- [SheetDecl](SheetDecl.md) *(from dxf_engine/model.py)* `submodule:dxf_engine/model`
+- [SheetPlan](SheetPlan.md) *(from dxf_engine/planner.py)* `submodule:dxf_engine/planner`
+- [ViewDecl](ViewDecl.md) *(from dxf_engine/model.py)* `submodule:dxf_engine/model`
+- [render_plan](render_plan.md) *(from dxf_engine/render.py)* `submodule:dxf_engine/render`
+
 ## Other
 
 - [Assembly](Assembly.md) *(from product/assembly.py)* `top-level`

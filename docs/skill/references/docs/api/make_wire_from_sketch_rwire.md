@@ -14,4 +14,4 @@ def make_wire_from_sketch_rwire(sketch: Sketch, profile: int | str = 0, *, requi
 
 ## Description
 
-Promote a sketch profile to a concrete wire, solving internally.
+Promote a sketch profile (closed loop or open chain) to a concrete wire, solving internally.
