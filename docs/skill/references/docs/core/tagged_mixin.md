@@ -33,7 +33,7 @@ scad.apply_tag(box, "role.bracket")
 box.auto_tag_faces("box")
 
 print(scad.list_tags(box))
-top_faces = [face for face in box.get_faces() if "face.top" in scad.list_tags(face)]
+top_faces = [face for face in ql.faces().resolve(box) if "face.top" in scad.list_tags(face)]
 print(len(top_faces))
 ```
 
@@ -105,8 +105,8 @@ body = scad.make_box_rsolid(10, 10, 2)
 scad.apply_tag(body, "role.mounting_plate")
 body.auto_tag_faces("box")
 
-top_faces = Q.select(body.get_faces()).where(Q.tag("face.top")).all()
-role_faces = Q.select(body.get_faces()).where(Q.tag("role.*", scope="effective")).all()
+top_faces = Q.select(ql.faces().resolve(body)).where(Q.tag("face.top")).all()
+role_faces = Q.select(ql.faces().resolve(body)).where(Q.tag("role.*", scope="effective")).all()
 
 print(len(top_faces), len(role_faces))
 ```

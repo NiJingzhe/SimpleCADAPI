@@ -17,7 +17,7 @@ class TestOriginalBooleanApiIntegration(unittest.TestCase):
         result = scad.cut_rsolid(body, tool)
         self.assertIsInstance(result, scad.Solid)
 
-        faces = result.get_faces()
+        faces = result._iter_faces()
         modified = Q.select(faces).where(Q.op("cut", "modified")).all()
         preserved = Q.select(faces).where(Q.op("cut", "preserved")).all()
         tool_faces = Q.select(faces).where(Q.origin("tool")).all()
@@ -33,7 +33,7 @@ class TestOriginalBooleanApiIntegration(unittest.TestCase):
         result = scad.intersect_rsolid(a, b)
         self.assertIsInstance(result, scad.Solid)
 
-        faces = result.get_faces()
+        faces = result._iter_faces()
         tagged = Q.select(faces).where(Q.op("intersect")).all()
         self.assertGreaterEqual(len(tagged), 0)
         self.assertEqual(
@@ -47,7 +47,7 @@ class TestOriginalBooleanApiIntegration(unittest.TestCase):
         result = scad.union_rsolid(a, b)
         self.assertIsInstance(result, scad.Solid)
 
-        faces = result.get_faces()
+        faces = result._iter_faces()
         tagged = Q.select(faces).where(Q.op("union")).all()
         self.assertGreaterEqual(len(tagged), 0)
         self.assertEqual(result.get_metadata("track")["op"], "make_union_rsolid")
@@ -84,7 +84,7 @@ class TestOriginalTransformApiIntegration(unittest.TestCase):
 
         self.assertIsInstance(moved, scad.Solid)
         self.assertEqual(moved.get_metadata("track")["op"], "make_translate_rshape")
-        faces = moved.get_faces()
+        faces = moved._iter_faces()
         self.assertGreater(
             len(
                 Q.select(faces).where(Q.op("make_translate_rshape", "modified")).all()
@@ -98,7 +98,7 @@ class TestOriginalTransformApiIntegration(unittest.TestCase):
 
         self.assertIsInstance(moved, scad.Solid)
         self.assertEqual(moved.get_metadata("track")["op"], "make_rotate_rshape")
-        faces = moved.get_faces()
+        faces = moved._iter_faces()
         self.assertGreater(
             len(Q.select(faces).where(Q.op("make_rotate_rshape", "modified")).all()),
             0,
@@ -111,7 +111,7 @@ class TestOriginalFeatureApiIntegration(unittest.TestCase):
         extruded = scad.extrude_rsolid(profile, (0, 0, 1), 2.0)
 
         self.assertEqual(extruded.get_metadata("track")["op"], "make_extrude_rsolid")
-        faces = extruded.get_faces()
+        faces = extruded._iter_faces()
         self.assertEqual(
             len(Q.select(faces).where(Q.output_role("extrusion.start")).all()), 1
         )
@@ -128,7 +128,7 @@ class TestOriginalFeatureApiIntegration(unittest.TestCase):
         filleted = scad.fillet_rsolid(box, edges, 0.2)
 
         self.assertEqual(filleted.get_metadata("track")["op"], "make_fillet_rsolid")
-        faces = filleted.get_faces()
+        faces = filleted._iter_faces()
         tagged = Q.select(faces).where(Q.op("make_fillet_rsolid")).all()
         self.assertGreater(len(tagged), 0)
 

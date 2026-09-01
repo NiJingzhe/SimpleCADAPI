@@ -104,7 +104,7 @@ def main() -> None:
 
     fcstd_status = f"{fcstd_path} ({fcstd_path.stat().st_size} bytes)"
 
-    solids = preview.get_solids()
+    solids = scad.ql.solids().resolve(preview)
     print(f"envelope_diameter={HOUSING_OUTER_RADIUS * 2.0:.1f}")
     print(f"envelope_height={HOUSING_HEIGHT:.1f}")
     print(f"total_reduction={TOTAL_REDUCTION:.1f}")

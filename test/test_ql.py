@@ -17,7 +17,7 @@ class TestQLTagPredicates(unittest.TestCase):
     def test_tag_face_prefix(self):
         box = scad.make_box_rsolid(1.0, 1.0, 1.0)
         box.auto_tag_faces("box")
-        top_faces = [face for face in box.get_faces() if "face.top" in scad.list_tags(face)]
+        top_faces = [face for face in box._iter_faces() if "face.top" in scad.list_tags(face)]
         self.assertTrue(top_faces)
 
         top_face = top_faces[0]
@@ -299,7 +299,7 @@ class TestSerializableGeometrySelectors(unittest.TestCase):
             .where(Q.tag("first.solid"))
             .shared_boundary(Q.solids().where(Q.tag("first.solid")))
             .resolve(first),
-            first.get_edges(),
+            first._iter_edges(),
         )
         self.assertEqual(
             len(

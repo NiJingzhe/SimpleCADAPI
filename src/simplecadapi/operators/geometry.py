@@ -582,15 +582,15 @@ def _pending_loft_role(shape: AnyShape, role: str, method: str) -> TopoRoleEntry
     )
 
 def _matching_shell_boundary(shell: Shell, profile: Wire) -> Wire:
-    profile_edges = list(profile.get_edges())
+    profile_edges = list(profile._iter_edges())
     matches = [
         boundary
-        for boundary in shell.get_wires()
-        if len(boundary.get_edges()) == len(profile_edges)
+        for boundary in shell._iter_wires()
+        if len(boundary._iter_edges()) == len(profile_edges)
         and all(
             any(
                 edge.wrapped.IsSame(profile_edge.wrapped)
-                for edge in boundary.get_edges()
+                for edge in boundary._iter_edges()
             )
             for profile_edge in profile_edges
         )
@@ -606,8 +606,8 @@ def _apply_loft_role_metadata(
 ) -> AnyShape:
     candidates: Dict[Tuple[TopoKind, str], AnyShape] = {}
     for kind, members in (
-        (TopoKind.FACE, shape.get_faces() if hasattr(shape, "get_faces") else []),
-        (TopoKind.WIRE, shape.get_wires() if hasattr(shape, "get_wires") else []),
+        (TopoKind.FACE, shape._iter_faces() if hasattr(shape, "get_faces") else []),
+        (TopoKind.WIRE, shape._iter_wires() if hasattr(shape, "get_wires") else []),
     ):
         for member in members:
             candidates[(kind, _topo_id(member.wrapped))] = member
@@ -783,7 +783,7 @@ def loft_rshell(
         )
         roles = [
             _pending_loft_role(face, "loft.side", "ResultSideFace")
-            for face in result.get_faces()
+            for face in result._iter_faces()
         ]
         if start_is_wire:
             roles.append(
@@ -936,7 +936,7 @@ def make_solid_from_shell_rsolid(
         )
         _carry_face_provenance(
             result,
-            shell.get_faces(),
+            shell._iter_faces(),
             allow_orientation_change=True,
             replace_local_bindings=False,
         )
@@ -1882,7 +1882,7 @@ def _carry_face_provenance(
     allow_orientation_change: bool = False,
     replace_local_bindings: bool = True,
 ) -> None:
-    result_faces = list(shape.get_faces())
+    result_faces = list(shape._iter_faces())
     if result_face_indices is None:
         mapped_indices = []
         for source in source_faces:
@@ -2056,7 +2056,7 @@ def _attach_brep_region_provenance(
     )
     shape._add_tag_binding(root_binding)
     source_face_ids = tuple(region.get("source_face_ids") or ())
-    for index, face in enumerate(shape.get_faces()):
+    for index, face in enumerate(shape._iter_faces()):
         face_evidence = {
             **evidence,
             "source_face_id": (
@@ -3290,7 +3290,7 @@ def make_helix_redge(
             x_direction=global_x_direction,
         )
         wire = Wire(wire_shape)
-        edges = wire.get_edges()
+        edges = wire._iter_edges()
         if not edges:
             raise ValueError("无法从螺旋线中提取边")
         helix_edge = edges[0]

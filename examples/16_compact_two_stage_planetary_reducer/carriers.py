@@ -249,7 +249,7 @@ tag_prefix: str,) -> scad.Solid:
         f"{stage.stage_id}_carrier_geometry: center_radius={stage.planet_center_radius:.3f} "
         f"arm_length={arm_length:.3f} arm_hub_embed={hub_radius - arm_inner_radius:.3f} "
         f"pin_height={pin_height:.3f} shaft_top={central_shaft_top_z:.3f} "
-        f"faces={len(carrier.get_faces())} volume={carrier.get_volume():.3f}"
+        f"faces={len(scad.ql.faces().resolve(carrier))} volume={carrier.get_volume():.3f}"
     )
     return carrier
 

@@ -93,7 +93,7 @@ def build_render_mesh(
     linear_tolerance: float,
     angular_tolerance: float,
 ) -> RenderMesh:
-    faces = solid.get_faces()
+    faces = solid._iter_faces()
     if len(faces) != len(face_entity_ids):
         raise ValueError("face entity count does not match the solid topology")
     mesh = cached_mesh(
@@ -146,7 +146,7 @@ def build_edge_mesh(
     linear_tolerance: float,
     angular_tolerance: float = DEFAULT_ANGULAR_TOLERANCE,
 ) -> RenderEdgeMesh:
-    edges = solid.get_edges()
+    edges = solid._iter_edges()
     if len(edges) != len(edge_entity_ids):
         raise ValueError("edge entity count does not match the solid topology")
     blocks = tuple(

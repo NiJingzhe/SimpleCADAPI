@@ -52,10 +52,8 @@ Read exactly one workflow first, per the user's goal:
 | User goal | Workflow |
 | --- | --- |
 | Model one physical part | `references/workflows/single-part-modeling.md` |
-| Constraint-driven profile as design intent | `references/workflows/sketch-feature-modeling.md` |
-| Multi-part product, connectors, constraints, package | `references/workflows/assembly-product-build.md` |
+| Multi-part product or mechanism (custom parts, stdlib gears/bearings, connectors, constraints, package) | `references/workflows/assembly-product-build.md` |
 | Rebuild an editable model from a STEP file | `references/workflows/step-reconstruction.md` |
-| Mechanism from stdlib gears/bearings | `references/workflows/standard-part-assembly.md` |
 | Export/translate a validated package | `references/workflows/export-and-translation.md` |
 | Produce a GB engineering drawing (DXF) from validated geometry | `references/workflows/engineering-drawing.md` |
 
@@ -85,7 +83,13 @@ it and stop that route; never invent an alternative route.
 3. One part per file; one assembly file per product; parameters
    live in the file that consumes them; exposed tunable parameters
    are `var()`/`Var` declarations (optionally with `unit`,
-   `tolerance`).
+   `tolerance`). Part sources follow the Feature Tree Convention
+   (`references/discipline/feature-tree-convention.md`): block
+   structure `sketch → basic body op → bool → modifier`, one
+   feature per block with a mandatory boundary comment
+   `# ---- feature: <slug> (<role>) ----`; 2D profiles and planar
+   paths go through the sketch API, primitives only when the shape
+   is completely contained in the basic form.
 4. Booleans (`union_rsolid`, `cut_rsolid`, `intersect_rsolid`)
    accept mixed inputs and return exactly one `Solid`; union
    defaults to `glue=False` with a conservative scale-relative
@@ -94,21 +98,30 @@ it and stop that route; never invent an alternative route.
 5. Build and validate incrementally: each major step prints small
    QL-derived facts; grounding uses QL wherever possible; never
    print whole solids or full model objects.
-6. Tags: attach with `apply_tag(shape=..., tag=...)` (LOCAL scope —
+6. Topology enumeration is QL-only and strictly enforced: plural
+   getters (`get_edges`, `get_faces`, `get_wires`, `get_vertices`,
+   `get_solids`, `get_inner_wires`) accept ONLY an index — the
+   no-argument list form raises. Enumerate, count, and measure via
+   `ql.<kind>().resolve(shape)`; filter with QL predicates plus
+   `take`/`exactly` cardinality; never build selections by looping
+   over an enumerated list and indexing it. Indexed picks
+   (`get_edges(index)`) are reserved for intentional, named choices
+   and are recorded as graph selection nodes.
+7. Tags: attach with `apply_tag(shape=..., tag=...)` (LOCAL scope —
    it never propagates downward); inspect with
    `list_tags(shape=...)`; keep numeric facts in metadata, never in
    tags.
-7. `@scad.part` for one physical single-solid product;
+8. `@scad.part` for one physical single-solid product;
    `@scad.assemble` for assemblies with explicit definitions.
    Neither nests inside an active `GraphSession`. Durable delivery
    is `capture(result, "out/product.scadpkg")` in one call.
-8. `simplecadapi.inspect.brep` is diagnostic-only and rejected
+9. `simplecadapi.inspect.brep` is diagnostic-only and rejected
    inside `GraphSession`; obtain/export geometry first, inspect
    outside.
-9. Standard parts first: before hand-modeling a gear, ring gear,
-   rack, cycloidal disc, or bearing, check `scad.std.gear` /
-   `scad.std.bearing`.
-10. Read `references/docs/guides/cache-build-workflow.md` in full
+10. Standard parts first: before hand-modeling a gear, ring gear,
+    rack, cycloidal disc, or bearing, check `scad.std.gear` /
+    `scad.std.bearing`.
+11. Read `references/docs/guides/cache-build-workflow.md` in full
     before configuring persistent cache, durable builds, or cache
     maintenance; cache mutation requires explicit confirmation.
 

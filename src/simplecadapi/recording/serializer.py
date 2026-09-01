@@ -1441,21 +1441,21 @@ def _candidate_shapes_for_geo_selection(source: AnyShape, kind: str) -> List[Any
         return [source] if isinstance(source, Shell) else []
     if kind == "face":
         if isinstance(source, (Shell, Solid)):
-            return list(source.get_faces())
+            return list(source._iter_faces())
         return [source] if isinstance(source, Face) else []
     if kind == "edge":
         if hasattr(source, "get_edges"):
-            return _dedupe_shapes(cast(Sequence[AnyShape], source.get_edges()))
+            return _dedupe_shapes(cast(Sequence[AnyShape], source._iter_edges()))
         return [source] if isinstance(source, Edge) else []
     if kind == "wire":
         wires: List[AnyShape] = []
         if isinstance(source, Face):
             wires.append(source.get_outer_wire())
-            wires.extend(source.get_inner_wires())
+            wires.extend(source._iter_inner_wires())
         elif isinstance(source, Solid):
-            for face in source.get_faces():
+            for face in source._iter_faces():
                 wires.append(face.get_outer_wire())
-                wires.extend(face.get_inner_wires())
+                wires.extend(face._iter_inner_wires())
         elif hasattr(source, "get_children"):
             wires.extend(
                 cast(AnyShape, child)
@@ -1470,7 +1470,7 @@ def _candidate_shapes_for_geo_selection(source: AnyShape, kind: str) -> List[Any
         if isinstance(source, Edge):
             vertices.extend(cast(Sequence[AnyShape], source.get_children()))
         elif hasattr(source, "get_edges"):
-            for edge in source.get_edges():
+            for edge in source._iter_edges():
                 vertices.extend(cast(Sequence[AnyShape], edge.get_children()))
         elif hasattr(source, "get_children"):
             vertices.extend(
@@ -1612,7 +1612,7 @@ def _geo_selector_score(
             pass
     elif isinstance(shape, Wire):
         if "edge_count" in selector:
-            score += abs(len(shape.get_edges()) - int(selector["edge_count"])) * 10.0
+            score += abs(len(shape._iter_edges()) - int(selector["edge_count"])) * 10.0
         if "closed" in selector and bool(shape.is_closed()) != bool(selector["closed"]):
             score += 10.0
     elif isinstance(shape, Face):
@@ -1635,15 +1635,15 @@ def _geo_selector_score(
             * 5.0
         )
         if "edge_count" in selector:
-            score += abs(len(shape.get_edges()) - int(selector["edge_count"])) * 10.0
+            score += abs(len(shape._iter_edges()) - int(selector["edge_count"])) * 10.0
         if "inner_wire_count" in selector:
             score += (
-                abs(len(shape.get_inner_wires()) - int(selector["inner_wire_count"]))
+                abs(len(shape._iter_inner_wires()) - int(selector["inner_wire_count"]))
                 * 10.0
             )
     elif isinstance(shape, Shell):
         if "face_count" in selector:
-            score += abs(len(shape.get_faces()) - int(selector["face_count"])) * 10.0
+            score += abs(len(shape._iter_faces()) - int(selector["face_count"])) * 10.0
     elif isinstance(shape, Solid):
         if "volume" in selector:
             score += abs(float(shape.get_volume()) - float(selector["volume"]))
@@ -1768,7 +1768,7 @@ def _face_hint_score(face: Face, hint: Dict[str, Any]) -> float:
 def _resolve_edges_from_selector_hints(
     solid: Solid, refs: Sequence[Dict[str, Any]]
 ) -> List[Edge]:
-    edges = solid.get_edges()
+    edges = solid._iter_edges()
     remaining = list(edges)
     resolved: List[Edge] = []
     for ref_dict in refs:
@@ -1787,7 +1787,7 @@ def _resolve_edges_from_selector_hints(
 def _resolve_faces_from_selector_hints(
     solid: Solid, refs: Sequence[Dict[str, Any]]
 ) -> List[Face]:
-    faces = solid.get_faces()
+    faces = solid._iter_faces()
     remaining = list(faces)
     resolved: List[Face] = []
     for ref_dict in refs:
@@ -1810,7 +1810,7 @@ def _resolve_edges_from_refs(
         return []
     edge_map = {
         _shape_topo_ref_dict(edge).get("topo_id"): edge
-        for edge in solid.get_edges()
+        for edge in solid._iter_edges()
         if _shape_topo_ref_dict(edge)
     }
     resolved: List[Edge] = []
@@ -1829,7 +1829,7 @@ def _resolve_faces_from_refs(
         return []
     face_map = {
         _shape_topo_ref_dict(face).get("topo_id"): face
-        for face in solid.get_faces()
+        for face in solid._iter_faces()
         if _shape_topo_ref_dict(face)
     }
     resolved: List[Face] = []
@@ -1842,12 +1842,12 @@ def _resolve_faces_from_refs(
 
 
 def _resolve_edges_from_indices(solid: Solid, indices: Sequence[int]) -> List[Edge]:
-    edges = solid.get_edges()
+    edges = solid._iter_edges()
     return [edges[idx] for idx in indices if 0 <= idx < len(edges)]
 
 
 def _resolve_faces_from_indices(solid: Solid, indices: Sequence[int]) -> List[Face]:
-    faces = solid.get_faces()
+    faces = solid._iter_faces()
     return [faces[idx] for idx in indices if 0 <= idx < len(faces)]
 
 
@@ -2280,11 +2280,11 @@ def _validate_replayed_topology_roles(
             continue
         candidates: List[AnyShape] = []
         if hasattr(output, "get_faces"):
-            candidates.extend(output.get_faces())
+            candidates.extend(output._iter_faces())
         if hasattr(output, "get_edges"):
-            candidates.extend(output.get_edges())
+            candidates.extend(output._iter_edges())
         if hasattr(output, "get_wires"):
-            candidates.extend(output.get_wires())
+            candidates.extend(output._iter_wires())
         for candidate in candidates:
             track = candidate.get_metadata("track")
             if not isinstance(track, dict):
@@ -2362,13 +2362,13 @@ def _validate_operation_output_evidence(
     source = cast(AnyShape, source_outputs[source_output_slot])
     target_kind = next(iter(serialized_kinds))
     if target_kind == "face":
-        runtime_items = source.get_faces()
+        runtime_items = source._iter_faces()
     elif target_kind == "edge":
-        runtime_items = source.get_edges()
+        runtime_items = source._iter_edges()
     elif target_kind == "wire":
-        runtime_items = source.get_wires()
+        runtime_items = source._iter_wires()
     elif target_kind == "vertex":
-        runtime_items = source.get_vertices()
+        runtime_items = source._iter_vertices()
     else:
         raise ValueError(
             f"operation output role '{role}' uses unsupported topology kind '{target_kind}'"

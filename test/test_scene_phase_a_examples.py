@@ -98,7 +98,7 @@ if path.name == "10_part_assembly.py":
             for item in nodes
             if not isinstance(item, Assembly) and item.part_id == part_id
         )
-        faces = part.body.get_faces()
+        faces = part.body._iter_faces()
         face_naming[part_id] = {
             "face_count": len(faces),
             "unnamed_indices": [

@@ -85,7 +85,7 @@ def _build_nested_package(root: Path):
     @scad.part(id="linked", cache=cache, project_root=Path(__file__).parent)
     def build_part() -> scad.Part:
         body = scad.make_box_rsolid(1.0, 2.0, 3.0)
-        face = scad.apply_tag(body.get_faces()[0], "interface.mount_face")
+        face = scad.apply_tag(body.get_faces(0), "interface.mount_face")
         part = scad.make_part_rpart("linked", body, name="Part linked")
         return scad.add_connector_rpart(
             part,

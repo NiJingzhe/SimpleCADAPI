@@ -330,13 +330,21 @@ def _selection_index_for_selector(source_shape, selector, context=None):
             f"best score={best_score:.6g}, second score={second_score:.6g}"
         )
     if best_score > 1e-2:
-        suffix = (
-            "" if second_score == float("inf") else f", second score={second_score:.6g}"
-        )
-        raise RuntimeError(
-            f"Geo selector did not match a stable {kind} candidate; "
-            f"context={context!r}, best score={best_score:.6g}{suffix}"
-        )
+        # A rebuild in a foreign kernel (this FreeCAD's OCC vs the recording
+        # OCP build) differs from the recorded geometry in the 4th-6th
+        # significant digit, which lands the CORRECT candidate in the
+        # 0.01-0.5 score band, while wrong candidates score >= ~1. Accept
+        # the best candidate when it is clearly separated from the runner-up
+        # instead of demanding near-bit-identical geometry.
+        separated = second_score >= best_score * 10.0 + 0.5
+        if not (best_score <= 0.5 and separated):
+            suffix = (
+                "" if second_score == float("inf") else f", second score={second_score:.6g}"
+            )
+            raise RuntimeError(
+                f"Geo selector did not match a stable {kind} candidate; "
+                f"context={context!r}, best score={best_score:.6g}{suffix}"
+            )
     return int(best_index)
 
 

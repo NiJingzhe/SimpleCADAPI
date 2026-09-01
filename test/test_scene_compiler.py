@@ -134,7 +134,7 @@ def test_manual_face_connector_is_exported_with_entity_target():
     solid = scad.make_box_rsolid(width=4.0, height=5.0, depth=6.0)
     connector = scad.make_face_connector_rconnector(
         connector_id="mount",
-        face=solid.get_faces()[0],
+        face=solid.get_faces(0),
     )
     part = scad.make_part_rpart(part_id="block", body=solid)
     part = scad.add_connector_rpart(part=part, connector=connector)
@@ -159,7 +159,7 @@ def test_render_and_collision_use_the_same_default_mesh_object():
 
     render = scene.build_render_mesh(
         solid,
-        face_entity_ids=[f"entity/face/{index}" for index in range(len(solid.get_faces()))],
+        face_entity_ids=[f"entity/face/{index}" for index in range(len(solid._iter_faces()))],
         linear_tolerance=0.35,
         angular_tolerance=0.22,
     )
@@ -170,7 +170,7 @@ def test_render_and_collision_use_the_same_default_mesh_object():
 
 def test_edge_mesh_uses_angular_tolerance_for_curved_edges():
     solid = scad.make_cylinder_rsolid(radius=2.0, height=5.0)
-    edge_ids = [f"edge-{index}" for index, _edge in enumerate(solid.get_edges())]
+    edge_ids = [f"edge-{index}" for index, _edge in enumerate(solid._iter_edges())]
 
     default = scene.build_edge_mesh(
         solid,
@@ -193,7 +193,7 @@ def test_edge_mesh_uses_angular_tolerance_for_curved_edges():
 
 def test_edge_mesh_default_angular_tolerance_preserves_public_call_shape():
     solid = scad.make_cylinder_rsolid(radius=2.0, height=5.0)
-    edge_ids = [f"edge-{index}" for index, _edge in enumerate(solid.get_edges())]
+    edge_ids = [f"edge-{index}" for index, _edge in enumerate(solid._iter_edges())]
 
     mesh = scene.build_edge_mesh(
         solid,

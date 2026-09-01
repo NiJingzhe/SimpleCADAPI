@@ -79,7 +79,7 @@ with scad.GraphSession(graph_id=f"s9_diag_{label}") as session:
 
     counts = {}
     picked = []
-    for e in body.get_edges():
+    for e in scad.ql.edges().resolve(body):
         g = group_of(e)
         counts[g] = counts.get(g, 0) + 1
         if g in want:

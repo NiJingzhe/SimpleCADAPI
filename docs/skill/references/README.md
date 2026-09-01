@@ -43,11 +43,9 @@ workflow pulls them in as conditions require.
 
 | Workflow | Scenario |
 | --- | --- |
-| `single-part-modeling` | one physical part from brief to validated solid |
-| `sketch-feature-modeling` | constraint-driven profile as the design intent |
-| `assembly-product-build` | multi-part product with connectors/constraints and package capture |
+| `single-part-modeling` | one physical part from brief to validated solid — sketch tier by default, std parts first |
+| `assembly-product-build` | multi-part product or mechanism with connectors/constraints and package capture; stdlib gears/bearings live here |
 | `step-reconstruction` | editable rebuild from a target STEP with tiered acceptance |
-| `standard-part-assembly` | mechanisms composed from stdlib components |
 | `export-and-translation` | downstream formats from a validated package |
 
 Each workflow states: goal/scope, task decomposition (required/optional

@@ -247,8 +247,8 @@ tag_prefix: str,) -> scad.Solid:
 
 
 def _ground_gear(*, label: str, solid: scad.Solid) -> None:
-    faces = ql.select(items=solid.get_faces()).all()
-    edges = ql.select(items=solid.get_edges()).all()
+    faces = ql.faces().resolve(solid)
+    edges = ql.edges().resolve(solid)
     print(
         f"gear_{label}: faces={len(faces)} edges={len(edges)} "
         f"volume={solid.get_volume():.3f} tags={','.join(scad.list_tags(shape=solid))}"

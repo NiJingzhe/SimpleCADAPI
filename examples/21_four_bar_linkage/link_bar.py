@@ -142,4 +142,4 @@ def make_link_part(
 def link_faces_and_volume(body: scad.Solid) -> tuple[int, float]:
     """QL grounding facts for one finished link body."""
 
-    return len(body.get_faces()), body.get_volume()
+    return len(scad.ql.faces().resolve(body)), body.get_volume()

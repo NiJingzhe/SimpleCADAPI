@@ -121,7 +121,7 @@ def make_reducer_housing_rpart(*, material: scad.Material) -> scad.Part:
     )
     print(
         f"housing_envelope: diameter={HOUSING_OUTER_RADIUS * 2.0:.1f} "
-        f"height={HOUSING_HEIGHT:.1f} datum_count={len(datum_zs)} faces={len(housing.get_faces())}"
+        f"height={HOUSING_HEIGHT:.1f} datum_count={len(datum_zs)} faces={len(scad.ql.faces().resolve(housing))}"
     )
     part = scad.make_part_rpart(
         part_id="reducer_housing",

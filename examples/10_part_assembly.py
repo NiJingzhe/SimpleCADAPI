@@ -80,7 +80,7 @@ def _build_hydraulic_rod_assembly_body():
         def _require_complete_face_naming(solid, prefix: str) -> None:
             unnamed = [
                 index
-                for index, face in enumerate(solid.get_faces())
+                for index, face in enumerate(ql.faces().resolve(solid))
                 if not any(
                     tag.startswith(prefix)
                     for tag in scad.list_tags(face, scope="local")
@@ -527,7 +527,7 @@ def main() -> None:
     face_count = len(ql.faces().resolve(preview))
     print("assembly", assembly.assembly_id)
     print("components", assembly.component_ids())
-    print("preview_solids", len(preview.get_solids()))
+    print("preview_solids", len(ql.solids().resolve(preview)))
     print("preview_faces", face_count)
     print("preview_volume", round(preview.get_volume(), 3))
     print("graph_nodes", len(payload["graph"]["nodes"]))

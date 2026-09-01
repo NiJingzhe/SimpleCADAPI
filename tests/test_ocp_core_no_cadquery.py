@@ -29,7 +29,7 @@ def test_ocp_native_basic_properties():
     box = make_box_rsolid(1, 2, 3)
     assert isinstance(box, Solid)
     assert box.get_volume() == pytest.approx(6.0)
-    assert len(box.get_faces()) == 6
+    assert len(box._iter_faces()) == 6
 
 
 def test_ocp_native_face_wire_topology_and_extrude():

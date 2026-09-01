@@ -10,8 +10,8 @@ from simplecadapi.sketch import Sketch, SketchRef, SketchSolveResult
 def _box_edge_occurrences():
     box = scad.make_box_rsolid(1.0, 1.0, 1.0)
     occurrences = []
-    for face in box.get_faces():
-        occurrences.extend(face.get_outer_wire().get_edges())
+    for face in box._iter_faces():
+        occurrences.extend(face.get_outer_wire()._iter_edges())
     return box, occurrences
 
 
@@ -132,7 +132,7 @@ def test_semantic_shape_clone_keeps_independent_entity_state():
 def test_solid_get_edges_returns_unique_topological_edges():
     box, _ = _box_edge_occurrences()
 
-    edges = box.get_edges()
+    edges = box._iter_edges()
 
     assert len(edges) == 12
     assert len({edge.topo_id for edge in edges}) == 12

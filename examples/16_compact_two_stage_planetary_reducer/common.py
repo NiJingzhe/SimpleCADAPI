@@ -143,7 +143,7 @@ def _axis_face(
     normal_z: float,
 ) -> scad.Face:
     candidates = []
-    for face in ql.select(items=solid.get_faces()).all():
+    for face in ql.faces().resolve(solid):
         normal = face.get_normal_at()
         if normal_z > 0.0 and normal.z < 0.65:
             continue
@@ -166,7 +166,7 @@ def _axis_face(
 
 
 def _ground_solid(*, label: str, solid: scad.Solid) -> None:
-    faces = ql.select(items=solid.get_faces()).all()
+    faces = ql.faces().resolve(solid)
     local_roles = [
         tag
         for tag in scad.list_tags(shape=solid, scope="local")
@@ -181,7 +181,7 @@ def _ground_solid(*, label: str, solid: scad.Solid) -> None:
 def _ground_compound(*, label: str, compound: scad.Compound) -> None:
     """Print a compact QL-backed summary of an assembly preview compound."""
 
-    solids = ql.select(items=compound.get_solids()).all()
-    face_count = sum(len(ql.select(items=solid.get_faces()).all()) for solid in solids)
+    solids = ql.solids().resolve(compound)
+    face_count = sum(len(ql.faces().resolve(solid)) for solid in solids)
     volume = sum(solid.get_volume() for solid in solids)
     print(f"{label}: solids={len(solids)} faces={face_count} volume={volume:.3f}")

@@ -90,7 +90,7 @@ with GraphSession(graph_id="s7_hyp") as session:
     n_after_cut = len(ql.faces().where(ql.tag("feature.back_face")).resolve(body))
     print(f"H3 back tag after S3 pocket cut: n={n_after_cut}")
 
-    body = u_link.scad.fillet_rsolid(solid=body, edges=list(body.get_edges()),
+    body = u_link.scad.fillet_rsolid(solid=body, edges=ql.edges().resolve(body),
                                      radius=P["fillet_r"], generated_faces_tag="fillet.global_patch")
     n_after_fillet = len(ql.faces().where(ql.tag("feature.back_face")).resolve(body))
     backs4 = ql.faces().where(ql.and_(

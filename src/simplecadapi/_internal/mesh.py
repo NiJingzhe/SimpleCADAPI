@@ -102,7 +102,7 @@ def build_solid_trimesh(
     all_corner_normals: list[tuple[tuple[float, float, float], ...]] = []
     face_ranges: list[FaceTriangleRange] = []
 
-    for face_index, face in enumerate(solid.get_faces()):
+    for face_index, face in enumerate(solid._iter_faces()):
         start = len(all_triangles)
         vertices, triangles, corner_normals = tessellate_face_with_normals(
             face.wrapped,

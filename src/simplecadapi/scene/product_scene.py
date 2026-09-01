@@ -334,11 +334,11 @@ def _part_geometry(
         for item in snapshot["entities"]
     }
 
-    faces = body.get_faces()
-    edges = body.get_edges()
+    faces = body._iter_faces()
+    edges = body._iter_edges()
     vertices_by_id: dict[str, Vertex] = {}
     for edge in edges:
-        for vertex in edge.get_vertices():
+        for vertex in edge._iter_vertices():
             vertices_by_id.setdefault(vertex.topo_id, vertex)
     vertices = list(vertices_by_id.values())
     face_ids = {
@@ -406,7 +406,7 @@ def _part_geometry(
                 "topo_id": face.topo_id,
                 "parent_entity_ids": [solid_id],
                 "child_entity_ids": sorted(
-                    edge_ids[item.topo_id] for item in face.get_edges()
+                    edge_ids[item.topo_id] for item in face._iter_edges()
                 ),
                 "source": source_by_key[("face", face.topo_id)],
                 "geometry": _surface_geometry(face),
@@ -439,7 +439,7 @@ def _part_geometry(
                     if item.topo_id in face_ids
                 ),
                 "child_entity_ids": sorted(
-                    vertex_ids[item.topo_id] for item in edge.get_vertices()
+                    vertex_ids[item.topo_id] for item in edge._iter_vertices()
                 ),
                 "source": source_by_key[("edge", edge.topo_id)],
                 "geometry": _curve_geometry(edge),
@@ -464,7 +464,7 @@ def _part_geometry(
                     for edge in edges
                     if any(
                         child.topo_id == vertex.topo_id
-                        for child in edge.get_vertices()
+                        for child in edge._iter_vertices()
                     )
                 ),
                 "child_entity_ids": [],
