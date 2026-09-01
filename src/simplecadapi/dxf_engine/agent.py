@@ -32,7 +32,7 @@ def _element_geom(r):
             a = dr["anchor"]
             return (f"dim:{r.name}", r.view, a[0], a[1], w, TEXT_H, dr["rot"],
                     [(tuple(dr["m1"]), tuple(dr["m2"])),
-                     (tuple(dr["m1"]), (a[0], a[1]))])
+                     (tuple(dr["m1"]), tuple(dr["insert"]))])
         if dr.get("kind") == "rad-man":
             a = dr["anchor"]
             return (f"dim:{r.name}", r.view, a[0], a[1], w, TEXT_H, dr["rot"],
@@ -199,7 +199,9 @@ def _norm_rot(at):
 
 
 def _apply_rad(plan, act):
-    """半径: at(方位角)/out(外伸)/rot(可覆盖)。mpt 恒取 c+r·u —— 箭头必在圆周。"""
+    """半径: 动作只仲裁 at(方位角, 可选 s 滑移提示; s<0 为弧内侧——文字沿过圆心
+    的尺寸线置于圆内, 箭头自圆心侧指弧)。基线恒在线上方、引线派生延长;
+    rot 恒等于线向 (R2 不可覆盖), mpt 恒取 c+r·u —— 箭头必在圆周。"""
     dcl = _find_dim(plan, act["name"])
     key = f"dim:{dcl.caption}"
     dr = _find_resolved(plan, key).draw
@@ -208,32 +210,47 @@ def _apply_rad(plan, act):
     at0 = math.degrees(math.atan2(dr["mpt"][1] - c[1], dr["mpt"][0] - c[0]))
     at = act.get("at", at0)
     u = (math.cos(math.radians(at)), math.sin(math.radians(at)))
-    out = act.get("out", math.dist(dr["mpt"], dr["tail"]))
-    rot = float(act["rot"]) if "rot" in act else _norm_rot(at)
-    mpt = (c[0] + rr * u[0], c[1] + rr * u[1])
-    tail = (mpt[0] + out * u[0], mpt[1] + out * u[1])
-    tmid = ((mpt[0] + tail[0]) / 2, (mpt[1] + tail[1]) / 2)
+    rot = _norm_rot(at)
     n = (-math.sin(math.radians(rot)), math.cos(math.radians(rot)))
-    anchor = (tmid[0] + n[0], tmid[1] + n[1])
     w = _text_width(dr["text"], TEXT_H)
-    segs = [(mpt, tail)]
+    mpt = (c[0] + rr * u[0], c[1] + rr * u[1])
+    if "s" in act:
+        cands = [float(act["s"])]
+    else:
+        cands = list(3.0 + 6.0 * k for k in range(5)) + [-(w + 4.0),
+                                                         -(w + 10.0),
+                                                         -(w + 18.0)]
     old = _unregister(plan, key)
-    conf = _conflicts(plan, key, dcl.view, anchor[0], anchor[1], w, TEXT_H, rot, segs)
-    if conf and not act.get("force"):
-        _restore(plan, old)
-        return _reject(plan, act, key, dcl.view, conf, anchor[0], anchor[1], w, TEXT_H, rot)
-    dr.update(mpt=mpt, tail=tail, anchor=anchor, rot=rot,
-              arrow_deg=math.degrees(math.atan2(u[1], u[0])) + 180.0,
-              text_x=(anchor[0] - w if u[0] < 0 else anchor[0]),
-              text_y=anchor[1] - TEXT_H * 0.35)
-    _commit(plan, key, anchor[0], anchor[1], w, TEXT_H, rot, segs)
-    _log(plan, key, f"at={at:g}° out={out:g} rot={rot:g}")
-    return {"op": "rad", "element": key, "ok": True,
-            "anchor": [_r(anchor[0]), _r(anchor[1])], "rot": _r(rot)}
+    conf = anchor = None
+    for s0 in cands:
+        inner = (s0 + w) < 0.0
+        tail_k = s0 - 1.5 if inner else s0 + w + 1.5
+        insert = (mpt[0] + s0 * u[0] + n[0] * 1.0,
+                  mpt[1] + s0 * u[1] + n[1] * 1.0)
+        anchor = (insert[0] + u[0] * w / 2 + n[0] * TEXT_H * 0.35,
+                  insert[1] + u[1] * w / 2 + n[1] * TEXT_H * 0.35)
+        tail = (mpt[0] + tail_k * u[0], mpt[1] + tail_k * u[1])
+        segs = [(mpt, tail)]
+        conf = _conflicts(plan, key, dcl.view, anchor[0], anchor[1], w, TEXT_H,
+                          rot, segs)
+        if not conf or act.get("force"):
+            arrow_deg = math.degrees(math.atan2(u[1], u[0]))
+            if not inner:
+                arrow_deg += 180.0
+            dr.update(mpt=mpt, tail=tail, insert=insert, anchor=anchor, rot=rot,
+                      arrow_deg=arrow_deg)
+            _commit(plan, key, anchor[0], anchor[1], w, TEXT_H, rot, segs)
+            _log(plan, key, f"at={at:g}° {'弧内' if inner else '弧外'} s={s0:g}")
+            return {"op": "rad", "element": key, "ok": True,
+                    "anchor": [_r(anchor[0]), _r(anchor[1])], "rot": _r(rot)}
+    _restore(plan, old)
+    return _reject(plan, act, key, dcl.view, conf, anchor[0], anchor[1], w,
+                   TEXT_H, rot)
 
 
 def _apply_dia(plan, act):
-    """直径: at(尺寸线方位)。尺寸线过圆心, 文本锚 0.75r。"""
+    """直径: at(尺寸线方位)。尺寸线过圆心, 文字锚 0.75r 线上方
+    (insert=基线左端, anchor=OBB 中心), rot 恒等于线向 (R2)。"""
     dcl = _find_dim(plan, act["name"])
     key = f"dim:{dcl.caption}"
     dr = _find_resolved(plan, key).draw
@@ -246,15 +263,18 @@ def _apply_dia(plan, act):
     m2 = (c[0] - rr * u[0], c[1] - rr * u[1])
     rot = _norm_rot(at)
     n = (-math.sin(math.radians(rot)), math.cos(math.radians(rot)))
-    anchor = (c[0] + 0.75 * rr * u[0] + n[0], c[1] + 0.75 * rr * u[1] + n[1])
     w = _text_width(dr["text"], TEXT_H)
-    segs = [(m1, m2), (m1, anchor)]
+    insert = (c[0] + 0.75 * rr * u[0] + n[0] * 1.0,
+              c[1] + 0.75 * rr * u[1] + n[1] * 1.0)
+    anchor = (insert[0] + u[0] * w / 2 + n[0] * TEXT_H * 0.35,
+              insert[1] + u[1] * w / 2 + n[1] * TEXT_H * 0.35)
+    segs = [(m1, m2), (m1, insert)]
     old = _unregister(plan, key)
     conf = _conflicts(plan, key, dcl.view, anchor[0], anchor[1], w, TEXT_H, rot, segs)
     if conf and not act.get("force"):
         _restore(plan, old)
         return _reject(plan, act, key, dcl.view, conf, anchor[0], anchor[1], w, TEXT_H, rot)
-    dr.update(m1=m1, m2=m2, anchor=anchor, rot=rot)
+    dr.update(m1=m1, m2=m2, insert=insert, anchor=anchor, rot=rot)
     _commit(plan, key, anchor[0], anchor[1], w, TEXT_H, rot, segs)
     _log(plan, key, f"at={at:g}°")
     return {"op": "dia", "element": key, "ok": True,
@@ -262,51 +282,34 @@ def _apply_dia(plan, act):
 
 
 def _apply_lin(plan, act):
-    """线性: side(bottom/top/left/right)/row(行槽)。自由文本位不支持 (行槽即语义)。"""
+    """线性: side/row 结构位 + slide 沿线 1-DOF。几何与 solver 共用
+    _lin_geometry 派生 (文字滑出测量段时尺寸线自动侧延长), 不存在自由文本位。"""
     dcl = _find_dim(plan, act["name"])
     key = f"dim:{dcl.caption}"
     dr = _find_resolved(plan, key).draw
-    view = dcl.view
-    bb = plan.views[view]["bbox"]
-    p1, p2 = plan.tx(view, dcl.p1), plan.tx(view, dcl.p2)
-    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
-    vertical = abs(dy) >= abs(dx)
-    if vertical and p1[1] > p2[1]:
-        p1, p2 = p2, p1
-    if not vertical and p1[0] > p2[0]:
-        p1, p2 = p2, p1
+    p1, p2 = plan.tx(dcl.view, dcl.p1), plan.tx(dcl.view, dcl.p2)
+    vertical = abs(p2[1] - p1[1]) >= abs(p2[0] - p1[0])
     side = act.get("side", dcl.side or ("right" if vertical else "bottom"))
     row = act.get("row", dcl.row)
-    ang = float(act["rot"]) if "rot" in act else (90.0 if vertical else 0.0)
-    text = dr["text"]
-    w = _text_width(text, TEXT_H)
-    if vertical:
-        xl = (bb.x1 + BASE_OFF + row * ROW_PITCH if side == "right"
-              else bb.x0 - BASE_OFF - row * ROW_PITCH)
-        line = ((xl, p1[1]), (xl, p2[1]))
-        insert, rot, center, _ = plan._text_frame((xl, (p1[1] + p2[1]) / 2), ang,
-                                                  1.0, TEXT_H, w)
-        arrows = ((xl, p1[1]), (xl, p2[1]))
-        exts = [((p1[0], p1[1]), (xl, p1[1])), ((p2[0], p2[1]), (xl, p2[1]))]
-    else:
-        yl = (bb.y0 - BASE_OFF - row * ROW_PITCH if side == "bottom"
-              else bb.y1 + BASE_OFF + row * ROW_PITCH)
-        line = ((p1[0], yl), (p2[0], yl))
-        insert, rot, center, _ = plan._text_frame(((p1[0] + p2[0]) / 2, yl), 0.0,
-                                                  1.0, TEXT_H, w)
-        arrows = ((p1[0], yl), (p2[0], yl))
-        exts = [((p1[0], p1[1]), (p1[0], yl)), ((p2[0], p2[1]), (p2[0], yl))]
-    segs = [line] + exts
+    slide = float(act.get("slide", 0.0))
+    g = plan._lin_geometry(dcl, side, row, slide, dr["text"])
+    w = _text_width(dr["text"], TEXT_H)
+    segs = [g["line"]] + g["exts"]
     old = _unregister(plan, key)
-    conf = _conflicts(plan, key, view, center[0], center[1], w, TEXT_H, rot, segs)
+    conf = _conflicts(plan, key, dcl.view, g["center"][0], g["center"][1],
+                      w, TEXT_H, g["rot"], segs)
     if conf and not act.get("force"):
         _restore(plan, old)
-        return _reject(plan, act, key, view, conf, center[0], center[1], w, TEXT_H, rot)
-    dr.update(line=line, arrows=arrows, exts=exts, insert=insert, rot=rot)
-    _commit(plan, key, center[0], center[1], w, TEXT_H, rot, segs)
-    _log(plan, key, f"{side} row{row}")
+        return _reject(plan, act, key, dcl.view, conf, g["center"][0],
+                       g["center"][1], w, TEXT_H, g["rot"])
+    dr.update(kind="lin", line=g["line"], arrows=g["arrows"], exts=g["exts"],
+              insert=g["insert"], rot=g["rot"])
+    _commit(plan, key, g["center"][0], g["center"][1], w, TEXT_H, g["rot"], segs)
+    _log(plan, key, f"{side} row{row} slide{slide:+g}"
+         + (" 线延长" if g["extended"] else ""))
     return {"op": "lin", "element": key, "ok": True,
-            "anchor": [_r(center[0]), _r(center[1])], "rot": _r(rot)}
+            "anchor": [_r(g["center"][0]), _r(g["center"][1])],
+            "rot": _r(g["rot"])}
 
 
 def _apply_lead(plan, act):
@@ -323,7 +326,8 @@ def _apply_lead(plan, act):
     off = act.get("off", [dr["text_x"] - a[0], dr["text_y_top"] - a[1]])
     tx0, ty0 = a[0] + off[0], a[1] + off[1]
     box = Box(tx0, ty0 - h, tx0 + w, ty0)
-    elb_y = ty0 - h / 2.0
+    # 肘点取框顶上方: 多行文本时框中部肘线会划过第二行字高带
+    elb_y = ty0 + 0.8
     near_x = (box.x0 - 1.2) if dcl.dx_dir < 0 else (box.x1 + 1.2)
     path = [a, (a[0], elb_y), (near_x, elb_y)]
     segs = [(path[i], path[i + 1]) for i in range(len(path) - 1)]
@@ -504,4 +508,15 @@ def apply_actions(plan, actions):
             results.append(fn(plan, act))
         except KeyError as e:
             results.append({"op": act.get("op"), "ok": False, "error": str(e)})
-    return {"results": results, "eval": evaluate_plan(plan)}
+    out = {"results": results, "eval": evaluate_plan(plan)}
+    # agent-in-the-loop: 每次 apply 自动刷新诊断图, 返回文本要求调用方先读图
+    if getattr(plan.d, "diag_png", ""):
+        try:
+            annotate_plan(plan, plan.d.diag_png, out["eval"])
+            out["diag"] = plan.d.diag_png
+            out["instruction"] = ("诊断图已刷新, 提交下一组动作前必读: "
+                                  "灰=ok 红=warn(先读红) 蓝=障碍 "
+                                  "绿箭头=元素可滑移方向与距离")
+        except Exception as e:                # 诊断失败不阻塞动作结果
+            out["diag_error"] = str(e)
+    return out

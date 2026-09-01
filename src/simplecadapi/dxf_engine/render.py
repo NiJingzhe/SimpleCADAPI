@@ -126,12 +126,11 @@ def _render_dim(msp, r):
             dv = (ref[0] - tip[0], ref[1] - tip[1])
             ln = math.hypot(*dv)
             _arrow(msp, tip, math.degrees(math.atan2(dv[1], dv[0])))
-        _rot_text(msp, dr["text"], dr["anchor"], dr["rot"], layer="文字")
+        _rot_text(msp, dr["text"], dr["insert"], dr["rot"], layer="文字")
     elif dr["kind"] == "rad-man":
         _seg(msp, dr["mpt"], dr["tail"], "尺寸标注")
         _arrow(msp, dr["mpt"], dr["arrow_deg"])
-        _rot_text(msp, dr["text"], (dr["text_x"], dr["text_y"]), dr["rot"],
-                  layer="文字")
+        _rot_text(msp, dr["text"], dr["insert"], dr["rot"], layer="文字")
 
 
 def _render_leader(msp, r):

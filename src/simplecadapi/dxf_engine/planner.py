@@ -286,7 +286,13 @@ class SheetPlan:
         elif dcl.semantic == "radius":
             self._solve_radius(dcl, self.views[dcl.view], key)
 
-    def _solve_linear(self, dcl, vw, key):
+    def _lin_geometry(self, dcl, side, row, slide, text):
+        """线性尺寸几何派生 (solver 与 agent 动作共用, 一处派生一处真值):
+        尺寸线在视图 bbox 外第 row 行 (side 侧); 文字只有沿尺寸线方向的
+        1 自由度 (slide, 相对测量中点的纸面偏移); 文字滑出测量段时尺寸线
+        **自动侧延长**覆盖全文 (箭头仍指测量点)。"""
+        vw = self.views[dcl.view]
+        bb = vw["bbox"]
         p1, p2 = self.tx(dcl.view, dcl.p1), self.tx(dcl.view, dcl.p2)
         dx, dy = p2[0] - p1[0], p2[1] - p1[1]
         vertical = abs(dy) >= abs(dx)
@@ -294,61 +300,97 @@ class SheetPlan:
             p1, p2 = p2, p1                      # 方向归一: 自下而上 (字头朝左)
         if not vertical and p1[0] > p2[0]:
             p1, p2 = p2, p1
+        w = _text_width(text, TEXT_H)
+        if vertical:
+            xl = (bb.x1 + BASE_OFF + row * ROW_PITCH if side == "right"
+                  else bb.x0 - BASE_OFF - row * ROW_PITCH)
+            ymid = (p1[1] + p2[1]) / 2 + slide
+            # insert=基线**下端** (文字沿 +y 向上展开, 与渲染 set_placement 一致);
+            # OBB 中心 = insert + u·(w/2) + n·(0.35h), u=(0,1), n=(-1,0)
+            insert = (xl - 1.0, ymid - w / 2)
+            rot, center = 90.0, (xl - 1.0 - TEXT_H * 0.35, ymid)
+            lo = min(p1[1], insert[1] - 2.0)      # 文字滑出 → 侧延长
+            hi = max(p2[1], insert[1] + w + 2.0)
+            line = ((xl, lo), (xl, hi))
+            arrows = ((xl, p1[1]), (xl, p2[1]))
+            exts = [((p1[0], p1[1]), (xl, p1[1])), ((p2[0], p2[1]), (xl, p2[1]))]
+        else:
+            yl = (bb.y0 - BASE_OFF - row * ROW_PITCH if side == "bottom"
+                  else bb.y1 + BASE_OFF + row * ROW_PITCH)
+            xmid = (p1[0] + p2[0]) / 2 + slide
+            # insert=基线**左端** (文字沿 +x 展开, 与渲染一致)
+            insert = (xmid - w / 2, yl + 1.0)
+            rot, center = 0.0, (xmid, yl + 1.0 + TEXT_H * 0.35)
+            lo = min(p1[0], insert[0] - 2.0)
+            hi = max(p2[0], insert[0] + w + 2.0)
+            line = ((lo, yl), (hi, yl))
+            arrows = ((p1[0], yl), (p2[0], yl))
+            exts = [((p1[0], p1[1]), (p1[0], yl)), ((p2[0], p2[1]), (p2[0], yl))]
+        return {"kind": "lin", "line": line, "arrows": arrows, "exts": exts,
+                "insert": insert, "rot": rot, "center": center, "text": text,
+                "slide": slide,
+                "extended": (lo < (p1[1] if vertical else p1[0]) - 0.01 or
+                             hi > (p2[1] if vertical else p2[0]) + 0.01)}
+
+    def _solve_linear(self, dcl, vw, key):
+        p1, p2 = self.tx(dcl.view, dcl.p1), self.tx(dcl.view, dcl.p2)
+        dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+        vertical = abs(dy) >= abs(dx)
         side = dcl.side or ("right" if vertical else "bottom")
-        ang = 90.0 if vertical else 0.0
         value = dcl.value if dcl.value is not None else math.dist(p1, p2) / self.s
         vs = f"{value:.{dcl.dec}f}"
         if "." in vs:
             vs = vs.rstrip("0").rstrip(".")
         text = f"{dcl.prefix}{vs} ({dcl.caption})"
-        bb = vw["bbox"]
         w = _text_width(text, TEXT_H)
+        span = abs(dy) if vertical else abs(dx)
+        if span >= w + 2.0:
+            # 中点居首 (零位移); 冲突时先滑移 (最小调整), 后顺延行
+            slides = (0.0, w / 2 + 2.0, -(w / 2 + 2.0), w + 6.0, -(w + 6.0))
+        else:
+            # 测量段容不下文字: 直接界外放置 + 尺寸线侧延长 (派生)
+            off = span / 2 + w / 2 + 2.0
+            slides = (off, -off)
         adjust = []
         for n_try in range(0, 7):
             row_i = dcl.row + n_try
-            if vertical:
-                xl = (bb.x1 + BASE_OFF + row_i * ROW_PITCH if side == "right"
-                      else bb.x0 - BASE_OFF - row_i * ROW_PITCH)
-                ymid = (p1[1] + p2[1]) / 2
-                line = ((xl, p1[1]), (xl, p2[1]))
-                insert, rot, center, box = self._text_frame(
-                    (xl, ymid), ang, 1.0, TEXT_H, w)
-                arrows = ((xl, p1[1]), (xl, p2[1]))
-                exts = [((p1[0], p1[1]), (xl, p1[1])),
-                        ((p2[0], p2[1]), (xl, p2[1]))]
-            else:
-                yl = (bb.y0 - BASE_OFF - row_i * ROW_PITCH if side == "bottom"
-                      else bb.y1 + BASE_OFF + row_i * ROW_PITCH)
-                xmid = (p1[0] + p2[0]) / 2
-                line = ((p1[0], yl), (p2[0], yl))
-                insert, rot, center, box = self._text_frame(
-                    (xmid, yl), ang, 1.0, TEXT_H, w)
-                arrows = ((p1[0], yl), (p2[0], yl))
-                exts = [((p1[0], p1[1]), (p1[0], yl)),
-                        ((p2[0], p2[1]), (p2[0], yl))]
-            why = self._text_clear(key, center[0], center[1], w, TEXT_H, rot,
-                                   skip_view=dcl.view)
-            # 尺寸线/界线允许压中心线; 但不压他视图图线
-            seg_bad = [v for v in self._seg_vs_views(line, dcl.view)]
-            seg_bad += [v for v in self._seg_vs_views(exts[0], dcl.view)]
-            seg_bad += [v for v in self._seg_vs_views(exts[1], dcl.view)]
-            if seg_bad:
-                why.append(f"线穿视图{'+'.join(seg_bad)}")
-            if not why:
-                if n_try:
-                    adjust.append(f"R1 行顺延 row{row_i}")
-                    self.adjust_count += 1
-                self.text_obbs.append((key, center[0], center[1], w, TEXT_H, rot))
-                for sg in [line] + exts:
-                    self._reg_seg(key, *sg)
-                self.resolved.append(Resolved(
-                    "dim", dcl.caption, dcl.view,
-                    f"{side} row{dcl.row}", f"{side} row{row_i}",
-                    adjust, {"kind": "lin", "line": line, "arrows": arrows,
-                             "exts": exts, "insert": insert, "rot": rot,
-                             "text": text}, "R2/R4"))
-                return
-            adjust.append(f"R1 冲突({why[0]})")
+            for slide in slides:
+                g = self._lin_geometry(dcl, side, row_i, slide, text)
+                why = self._text_clear(key, g["center"][0], g["center"][1],
+                                       w, TEXT_H, g["rot"],
+                                       skip_view=dcl.view)
+                # 尺寸线/界线允许压中心线; 但不压他视图图线
+                seg_bad = []
+                for seg in [g["line"]] + g["exts"]:
+                    seg_bad += self._seg_vs_views(seg, dcl.view)
+                if seg_bad:
+                    why.append(f"线穿视图{'+'.join(seg_bad)}")
+                if not why:
+                    notes = []
+                    if n_try:
+                        notes.append(f"R1 行顺延 row{row_i}")
+                    if slide:
+                        notes.append(f"文字沿线滑移 {slide:+g}")
+                    if g["extended"]:
+                        notes.append("尺寸线侧延长")
+                    adjust += notes
+                    self.adjust_count += len(notes)
+                    self.text_obbs.append((key, g["center"][0], g["center"][1],
+                                           w, TEXT_H, g["rot"]))
+                    for sg in [g["line"]] + g["exts"]:
+                        self._reg_seg(key, *sg)
+                    res = f"{side} row{row_i}"
+                    if slide or g["extended"]:
+                        res += f" slide{slide:+g}" + (" 延长" if g["extended"] else "")
+                    self.resolved.append(Resolved(
+                        "dim", dcl.caption, dcl.view,
+                        f"{side} row{dcl.row}", res, adjust,
+                        {k: g[k] for k in ("kind", "line", "arrows", "exts",
+                                           "insert", "rot", "text",
+                                           "extended")},
+                        "R2/R4"))
+                    return
+            adjust.append(f"R1 冲突@row{row_i}({why[0] if why else '线穿视图'})")
             self.adjust_count += 1
         self.resolved.append(Resolved(
             "dim", dcl.caption, dcl.view, f"{side} row{dcl.row}",
@@ -356,8 +398,9 @@ class SheetPlan:
             "R1/R4"))
 
     def _solve_diameter(self, dcl, vw, key):
-        """直径标注 (GB/T 4458.4 图10): 尺寸线过圆心, 双箭头贴圆;
-        数字在直径线上 75% 处线上方, 平行于尺寸线 (字头随线归一)。"""
+        """直径标注 (GB/T 4458.4 图10): 尺寸线过圆心, 双箭头贴圆; at 定向后
+        文字沿直径线 1-DOF (缺省 0.75r 处, 冲突时换位候选), 基线恒在线上方;
+        m1/m2 恒在圆周。"""
         s = self.s
         c = self.tx(dcl.view, dcl.center)
         r = dcl.radius * s
@@ -371,19 +414,22 @@ class SheetPlan:
         m1 = (c[0] + r * u[0], c[1] + r * u[1])
         m2 = (c[0] - r * u[0], c[1] - r * u[1])
         line = (m1, m2)
-        # 文字锚: 直径线上 0.75r 处, 沿法线上方 (GB 数字在线上方)
         rot = (dcl.at % 180.0 + 180.0) % 180.0
         if rot > 90.0:
             rot -= 180.0
         rr = math.radians(rot)
         n = (-math.sin(rr), math.cos(rr))
-        anchor = (c[0] + 0.75 * r * u[0] + n[0] * 1.0,
-                  c[1] + 0.75 * r * u[1] + n[1] * 1.0)
         w2 = _text_width(text, TEXT_H)
-        ca, sa = math.cos(math.radians(rot)), math.sin(math.radians(rot))
-        ex = abs(ca) * w2 / 2 + abs(sa) * TEXT_H / 2
-        ey = abs(sa) * w2 / 2 + abs(ca) * TEXT_H / 2
-        box = Box(anchor[0] - ex, anchor[1] - ey, anchor[0] + ex, anchor[1] + ey)
+
+        def _anchor_at(uu):
+            """文字基线左端 (0.75r 处线上方) 与 OBB 中心。"""
+            ins = (c[0] + 0.75 * r * uu[0] + n[0] * 1.0,
+                   c[1] + 0.75 * r * uu[1] + n[1] * 1.0)
+            ctr = (ins[0] + uu[0] * w2 / 2 + n[0] * TEXT_H * 0.35,
+                   ins[1] + uu[1] * w2 / 2 + n[1] * TEXT_H * 0.35)
+            return ins, ctr
+
+        insert, anchor = _anchor_at(u)
         why = self._text_clear(key, anchor[0], anchor[1], w2, TEXT_H, rot,
                                skip_view=dcl.view)
         adjust = []
@@ -392,15 +438,13 @@ class SheetPlan:
                 aa = dcl.at + 180.0 * (k % 2) + (12.0 * ((k + 1) // 2)) * (
                     1 if k <= 2 else -1)
                 uu = (math.cos(math.radians(aa)), math.sin(math.radians(aa)))
-                a2 = (c[0] + 0.75 * r * uu[0] + n[0] * 1.0,
-                      c[1] + 0.75 * r * uu[1] + n[1] * 1.0)
-                nb = Box(a2[0] - ex, a2[1] - ey, a2[0] + ex, a2[1] + ey)
-                if not self._text_clear(key, a2[0], a2[1], w2, TEXT_H,
-                                        (aa % 180.0 + 180.0) % 180.0
-                                        if (aa % 180.0) <= 90
-                                        else (aa % 180.0) - 180.0,
+                a2, c2 = _anchor_at(uu)
+                rrot = (aa % 180.0 + 180.0) % 180.0
+                rrot = rrot - 180.0 if rrot > 90.0 else rrot
+                if not self._text_clear(key, c2[0], c2[1], w2, TEXT_H, rrot,
                                         skip_view=dcl.view):
-                    anchor, box = a2, nb
+                    insert, anchor, u = a2, c2, uu
+                    rot = rrot
                     adjust.append(f"换位 {aa:g}°")
                     self.adjust_count += 1
                     break
@@ -408,11 +452,10 @@ class SheetPlan:
                 adjust.append("R1 警告: 文本留于原位")
                 self.adjust_count += 1
         self.text_obbs.append((key, anchor[0], anchor[1], w2, TEXT_H, rot))
-        for sg in (line, (m1, anchor)):
+        for sg in (line, (m1, insert)):
             self._reg_seg(key, *sg)
-        draw = {"kind": "dia-man", "m1": m1, "m2": m2, "anchor": anchor,
-                "text": text, "text_xy": (anchor[0], anchor[1] - TEXT_H * 0.18),
-                "rot": rot}
+        draw = {"kind": "dia-man", "m1": m1, "m2": m2, "insert": insert,
+                "anchor": anchor, "text": text, "rot": rot}
         self.resolved.append(Resolved("dim", dcl.caption, dcl.view,
                                       f"at {dcl.at:g}°", f"rot {rot:g}° 75%r",
                                       adjust, draw, "R2/R5"))
@@ -435,7 +478,8 @@ class SheetPlan:
                 tx0 = a[0] + off[0]
                 ty0 = a[1] + off[1]
                 box = Box(tx0, ty0 - h, tx0 + w, ty0)
-                elb_y = ty0 - h / 2.0
+                # 肘点取框顶上方: 多行文本时框中部肘线会划过第二行字高带
+                elb_y = ty0 + 0.8
                 near_x = (box.x0 - 1.2) if dcl.dx_dir < 0 else (box.x1 + 1.2)
                 path = [a, (a[0], elb_y), (near_x, elb_y)]
                 why = []
@@ -461,7 +505,7 @@ class SheetPlan:
                     seg = (path[i], path[i + 1])
                     for k2, cx2, cy2, w2, h2, r2 in self.text_obbs:
                         if self._seg_obb(seg[0], seg[1], cx2, cy2, w2, h2, r2):
-                            why.append(f"引线压文本{kk2}")
+                            why.append(f"引线压文本{k2}")
                 for i in range(len(path) - 1):
                     seg = (path[i], path[i + 1])
                     for k2, sp2, sq2 in self.segments:
@@ -478,12 +522,13 @@ class SheetPlan:
                 off = dcl.off
                 box = Box(a[0] + off[0], a[1] + off[1] - h,
                           a[0] + off[0] + w, a[1] + off[1])
-                path = [a, (a[0] + dcl.dx_dir * 12.0, box.y0 + h / 2.0),
+                path = [a, (a[0] + dcl.dx_dir * 12.0, box.y1 + 0.8),
                         (box.x0 - 1.2 if dcl.dx_dir < 0 else box.x1 + 1.2,
-                         box.y0 + h / 2.0)]
+                         box.y1 + 0.8)]
                 adjust.append("未找到空位 (警告)")
                 self.adjust_count += 1
-            off, box, path = final
+            else:
+                off, box, path = final
             self.text_obbs.append((f"lead:{dcl.name}",
                                    (box.x0 + box.x1) / 2,
                                    (box.y0 + box.y1) / 2, w, h, 0.0))
@@ -550,7 +595,19 @@ class SheetPlan:
             self._solve_dim(dcl)
         self._solve_leaders()
         self._solve_coverage_rules()
+        self._auto_diag()
         return self
+
+    def _auto_diag(self):
+        """diag_png 声明后: 每次 solve()/apply() 自动刷新冲突诊断图。
+        视觉反馈是 agent-in-the-loop 的一等通道 —— 调用方读图决策, 引擎只供真值。"""
+        if not getattr(self.d, "diag_png", ""):
+            return
+        try:
+            from .agent import annotate_plan, evaluate_plan
+            annotate_plan(self, self.d.diag_png, evaluate_plan(self))
+        except Exception as e:              # 诊断失败不阻塞求解, 如实入日志
+            self.rule_log.append(("R1", "warn", f"诊断图渲染失败: {e}"))
 
     def _solve_datums(self):
         for dcl in self.d.datums:
@@ -601,6 +658,10 @@ class SheetPlan:
                 bad = [dt for st, dt in entries if st != "ok"]
                 lines.append(f"  {rl}: 警告 {len(bad)} 项: " + "; ".join(bad[:4]))
         lines.append(f"调整合计: {self.adjust_count}")
+        if getattr(self.d, "diag_png", ""):
+            lines.append(f"诊断图 DIAG: {self.d.diag_png}")
+            lines.append("  ↑ 每次 solve/apply 自动刷新; 下一步决策前必读 —— "
+                         "灰=ok 红=warn(先读红) 蓝=障碍 绿箭头=元素可滑移方向与距离")
         return "\n".join(lines)
 
     def render(self, dxf_path, png_path):
@@ -620,9 +681,10 @@ class SheetPlan:
         return apply_actions(self, actions)
 
     def _solve_radius(self, dcl, vw, key):
-        """半径标注 (GB/T 4458.4 图10): 尺寸线自弧上箭头点沿径向**向外**引出
-        (不画向圆心、不穿零件), 箭头指弧; 文字在引线上 (箭头尾端方向),
-        平行于引线, 字头不倒置。"""
+        """半径标注 (GB/T 4458.4): 声明只给 at(方位角)。定角后文字仅剩沿引线方向
+        的单一自由度 (起点 s, 引擎按候选搜索), 基线恒在线上方 1mm (法向 n),
+        引线长度 = s+字宽+余量 **派生** —— 文字滑出箭头段时线自动侧延长盖住全文;
+        mpt 恒在圆周 (箭头贴弧), rot 恒等于线向 (R2, 不可声明/覆盖)。"""
         s = self.s
         c = self.tx(dcl.view, dcl.center)
         r = dcl.radius * s
@@ -630,70 +692,78 @@ class SheetPlan:
         value = dcl.value if dcl.value is not None else dcl.radius
         text = f"R{value:g} ({dcl.caption})"
         w = _text_width(text, TEXT_H)
-        mpt = (c[0] + r * u[0], c[1] + r * u[1])          # 弧上箭头点
         rot = (dcl.at % 180.0 + 180.0) % 180.0
         if rot > 90.0:
             rot -= 180.0                                  # 正立化
         rr = math.radians(rot)
         n = (-math.sin(rr), math.cos(rr))
-        key_own = key
+        mpt = (c[0] + r * u[0], c[1] + r * u[1])          # 弧上箭头点
         adjust = []
         chosen = None
-        # 候选只沿声明方位 u 同侧外推: DimDecl 不带弧的角跨度, 翻到对侧 (-u)
-        # 会落在圆的反极点——不在弧上, 箭头指空, 半径标注无意义。
-        for out in (6.0, 12.0, 18.0, 24.0, 30.0):
-            mpt_k = (c[0] + r * u[0], c[1] + r * u[1])
-            tail = (mpt_k[0] + out * u[0], mpt_k[1] + out * u[1])
-            tmid = ((mpt_k[0] + tail[0]) / 2, (mpt_k[1] + tail[1]) / 2)
-            anchor = (tmid[0] + n[0] * 1.0, tmid[1] + n[1] * 1.0)
-            ca, sa = math.cos(math.radians(rot)), math.sin(math.radians(rot))
-            ex = abs(ca) * w / 2 + abs(sa) * TEXT_H / 2
-            ey = abs(sa) * w / 2 + abs(ca) * TEXT_H / 2
-            box = Box(anchor[0] - ex, anchor[1] - ey,
-                      anchor[0] + ex, anchor[1] + ey)
+        # 候选序: 弧外侧引出 (3,9,...) → 弧内侧 (s<0, 文字沿过圆心的尺寸线置于
+        # 圆内, 箭头自圆心侧指向圆弧) —— GB/T 4458.4 半径尺寸线可过圆心。
+        # 内侧候选递进加深: 圆心近障碍时浅位仍探出, 需过心更远的深位。
+        cands = (tuple(3.0 + 6.0 * k for k in range(5))
+                 + (-(w + 4.0), -(w + 10.0), -(w + 18.0)))
+        for s0 in cands:                                  # 文字起点 (1-DOF)
+            inner = (s0 + w) < 0.0                        # 内侧: 文字整段在圆内
+            tail_k = s0 - 1.5 if inner else s0 + w + 1.5  # 引线派生长度
+            insert = (mpt[0] + s0 * u[0] + n[0] * 1.0,    # 基线左端: 线上方 1mm
+                      mpt[1] + s0 * u[1] + n[1] * 1.0)
+            anchor = (insert[0] + u[0] * w / 2 + n[0] * TEXT_H * 0.35,
+                      insert[1] + u[1] * w / 2 + n[1] * TEXT_H * 0.35)
+            tail = (mpt[0] + tail_k * u[0], mpt[1] + tail_k * u[1])
             why = []
             for z in self._zones:
-                if box.overlaps(z.inflate(1.0)):
+                if self._obb_sat(anchor[0], anchor[1], w, TEXT_H, rot,
+                                 z.inflate(1.0)):
                     why.append("禁入区")
             for n_v, vwb in self.views.items():
-                if n_v != dcl.view and box.overlaps(vwb["bbox"].inflate(0.5)):
+                if n_v != dcl.view and self._obb_sat(
+                        anchor[0], anchor[1], w, TEXT_H, rot,
+                        vwb["bbox"].inflate(0.5)):
                     why.append(f"视图{n_v}")
             for kk, cx2, cy2, w2, h2, r2 in self.text_obbs:
                 if kk != key and self._obb_obb(anchor[0], anchor[1], w, TEXT_H,
                                                rot, cx2, cy2, w2, h2, r2):
                     why.append(f"文本{kk.split(':')[-1]}")
             for k2, sp2, sq2 in self.segments:
-                if k2.startswith("cl:") or k2 == key_own:
+                if k2.startswith("cl:") or k2 == key:
                     continue                               # 与中心线相交属正常
-                if (self._seg_cross(mpt_k, tail, sp2, sq2)
+                if (self._seg_cross(mpt, tail, sp2, sq2)
                         or self._seg_obb(sp2, sq2, anchor[0], anchor[1],
                                          w, TEXT_H, rot)):
                     why.append(f"标线{k2}")
             if not why:
-                chosen = (key, mpt_k, tail, tmid, anchor, box, u)
-                if out != 6.0:
-                    adjust.append(f"外推 out={out:g}")
+                chosen = (s0, tail, insert, anchor, inner)
+                if s0 != 3.0:
+                    where = "弧内" if inner else "弧外"
+                    adjust.append(f"文字滑移 {where} s={s0:g}")
                     self.adjust_count += 1
                 break
+            adjust.append(f"R1 冲突@{s0:g}({why[0]})")
         if chosen is None:
-            mpt_k = (c[0] + r * u[0], c[1] + r * u[1])
-            tail = (mpt_k[0] + 22.0 * u[0], mpt_k[1] + 22.0 * u[1])
-            tmid = ((mpt_k[0] + tail[0]) / 2, (mpt_k[1] + tail[1]) / 2)
-            anchor = (tmid[0] + n[0] * 1.0, tmid[1] + n[1] * 1.0)
-            chosen = (key, mpt_k, tail, tmid, anchor,
-                      Box(anchor[0] - w / 2, anchor[1] - TEXT_H / 2,
-                          anchor[0] + w / 2, anchor[1] + TEXT_H / 2), u)
+            s0, inner = 15.0, False
+            tail_k = s0 + w + 1.5
+            insert = (mpt[0] + s0 * u[0] + n[0] * 1.0,
+                      mpt[1] + s0 * u[1] + n[1] * 1.0)
+            anchor = (insert[0] + u[0] * w / 2 + n[0] * TEXT_H * 0.35,
+                      insert[1] + u[1] * w / 2 + n[1] * TEXT_H * 0.35)
+            tail = (mpt[0] + tail_k * u[0], mpt[1] + tail_k * u[1])
+            chosen = (s0, tail, insert, anchor, inner)
             adjust.append("R1 未找到理想位 (警告)")
             self.adjust_count += 1
-        key, mpt_k, tail, tmid, anchor, box, uu = chosen
+        s0, tail, insert, anchor, inner = chosen
         self.text_obbs.append((key, anchor[0], anchor[1], w, TEXT_H, rot))
-        self._reg_seg(key, mpt_k, tail)
-        arrow_deg = math.degrees(math.atan2(uu[1], uu[0])) + 180.0
-        draw = {"kind": "rad-man", "mpt": mpt_k, "tail": tail,
+        self._reg_seg(key, mpt, tail)
+        # 外侧: 箭头自外指向圆弧; 内侧: 箭头自圆心侧指向圆弧
+        arrow_deg = math.degrees(math.atan2(u[1], u[0]))
+        if not inner:
+            arrow_deg += 180.0
+        draw = {"kind": "rad-man", "mpt": mpt, "tail": tail, "insert": insert,
                 "anchor": anchor, "text": text, "rot": rot,
-                "arrow_deg": arrow_deg,
-                "text_x": (anchor[0] - w if uu[0] < 0 else anchor[0]),
-                "text_y": anchor[1] - TEXT_H * 0.35}
+                "arrow_deg": arrow_deg}
         self.resolved.append(Resolved("dim", dcl.caption, dcl.view,
-                                      f"at {dcl.at:g}°", f"rot {rot:g}° 尾端",
+                                      f"at {dcl.at:g}°",
+                                      f"{'弧内' if inner else '弧外'} s={s0:g}",
                                       adjust, draw, "R2/R5"))

@@ -105,3 +105,4 @@ class SheetDecl:
     params: dict = field(default_factory=dict)
     material: str = "PLA-CF / PAHT"
     notes_zone: tuple = (25.0, 5.0, 232.0, 90.0)   # x0,y0,x1,y1 (正序)
+    diag_png: str = ""    # 声明后 solve()/apply() 自动刷新冲突诊断图 (agent-in-the-loop)
