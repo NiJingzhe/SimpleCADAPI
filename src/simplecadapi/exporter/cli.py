@@ -9,7 +9,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from ..product.packages import load_product_package
+from ..product.packages import read_product_package
 from ..translator.freecad_translator import (
     translate_product_package_to_fcstd,
     translate_product_package_to_freecad_script,
@@ -124,7 +124,7 @@ def run(argv: Sequence[str] | None = None) -> tuple[dict[str, Any], int]:
             + ", ".join(unselected_overrides)
         )
     output_paths = _output_paths(input_path, args.output_dir, overrides, formats)
-    package = load_product_package(input_path)
+    package = read_product_package(input_path)
     failures: dict[str, str] = {}
     checks: dict[str, dict[str, Any]] = {}
     freecad_cmd = _freecad_command(args.freecad_cmd) if "fcstd" in formats else None

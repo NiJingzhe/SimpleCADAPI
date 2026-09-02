@@ -10,7 +10,7 @@ class _Package:
 
 def test_check_defaults_to_step_stl_and_obj(monkeypatch, tmp_path: Path):
     input_path = tmp_path / "bracket.scadpkg"
-    monkeypatch.setattr(cli, "load_product_package", lambda value: _Package())
+    monkeypatch.setattr(cli, "read_product_package", lambda value: _Package())
 
     report, exit_code = cli.run([str(input_path), "--check", "--output-dir", str(tmp_path / "out")])
 
@@ -23,7 +23,7 @@ def test_check_defaults_to_step_stl_and_obj(monkeypatch, tmp_path: Path):
 
 
 def test_check_fcstd_reports_missing_freecad(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr(cli, "load_product_package", lambda value: _Package())
+    monkeypatch.setattr(cli, "read_product_package", lambda value: _Package())
     monkeypatch.setattr(cli, "discover_freecad_executable", lambda: None)
 
     report, exit_code = cli.run([str(tmp_path / "part.scadpkg"), "--format", "fcstd", "--check"])
@@ -34,7 +34,7 @@ def test_check_fcstd_reports_missing_freecad(monkeypatch, tmp_path: Path):
 
 
 def test_check_mjcf_requires_assembly(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr(cli, "load_product_package", lambda value: _Package())
+    monkeypatch.setattr(cli, "read_product_package", lambda value: _Package())
 
     report, exit_code = cli.run([str(tmp_path / "part.scadpkg"), "--format", "mjcf", "--check"])
 
