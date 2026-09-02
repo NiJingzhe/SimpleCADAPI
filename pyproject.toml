@@ -130,3 +130,4 @@ testpaths = ["test", "tests"]
 
 [project.scripts]
 simplecad-cache = "simplecadapi.cache.cli:main"
+simplecad-export = "simplecadapi.exporter.cli:main"
