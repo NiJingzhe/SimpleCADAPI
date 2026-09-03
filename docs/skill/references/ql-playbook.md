@@ -5,7 +5,7 @@ faces and rims of extrude-like features, output slots of primitives, and the
 intersection curves (seams) of booleans — then feeding those selections into
 modifiers such as fillet.
 
-Every pattern in this file was executed and checked against `dev` @ `88f251c`
+Every pattern in this file was executed and checked against `dev` @ `e87df6b`
 (2026-09-02, 33/33 checks across four harnesses: extrude family, primitives,
 sweep/loft, D-boss seam). Snippets are trimmed copies of the passing harness
 code. Anything listed under "Verified boundaries" is a real, current engine
@@ -98,6 +98,11 @@ Verified extensions:
   `output_role(...)` or the matching `*_face_tag` / `*_edge_tag` kwarg.
   Box orientation for `width=x, height=y, depth=z`: front/back = ±x,
   left/right = ±y, top/bottom = ±z.
+- **Planar profiles share the box axis convention**: for a +z normal,
+  `width` spans global x (`make_rectangle_rwire(30, 10)` spans 30 in x and
+  10 in y; identical on session and legacy paths). The in-plane basis is the
+  reference vector projected onto the plane, so a +z-normal profile frame is
+  exactly the global (x, y, z).
 - **Seam edges without any name** — select by topology signature (the seam is
   the only full-height edge with a single incident face):
 
@@ -185,25 +190,23 @@ Current engine gaps found by the harnesses — each has a workaround above:
    carry it as a name.
 4. **Primitive auto role tags (`face.box.top`, ...) do not project through
    booleans** — only kwarg-named slots (`top_face_tag="base.top"`) do.
-5. **Planar profile axes now match the box convention** (fixed by
-   `fix/plane-axes-convention`): `_orthonormal_plane_axes` builds the in-plane
-   basis by projecting the reference vector (Gram-Schmidt), so for a +z normal
-   width spans global x, exactly like `make_box_rsolid`. Before the fix,
-   `make_rectangle_rwire(30, 10)` silently spanned 10 in x and 30 in y; the
-   harnesses classified profile edges by length and center sign, which stays
-   the most robust addressing. Known residual behavior (separate issue): the
-   reference-axis branch (`|z_z| > 0.9`) still switches the in-plane basis
-   discontinuously near ~25° from vertical.
+5. **The planar profile in-plane basis switches discontinuously near
+   vertical.** The reference-axis branch (`|z_z| > 0.9`) in the plane-basis
+   helper swaps its reference between global X and Z, so sweeping a plane
+   normal across roughly 25° from vertical rotates the in-plane frame
+   abruptly. When normals vary, address profile edges by length and center
+   sign rather than by axis assumptions.
 6. **N-ary cut unrolls hop-by-hop**; multi-hop modification chains can lose
    projected bindings (later hops overwrite earlier witnesses for the same
    output). For long-range names across a cut chain, prefer naming after the
    final cut, or union-side naming.
 
-## Verification harnesses (2026-09-02, dev @ 88f251c)
+## Verification harnesses (2026-09-02, dev @ e87df6b)
 
 | Harness | Checks | Result |
 | --- | --- | --- |
 | extrude family (5 capabilities + group naming + geometry identity) | 8 | PASS |
+| plane-axes convention (frame properties, rectangle extents on both paths) | 5 | PASS |
 | primitives (box slots, rim, shared edge, kwarg naming, cylinder seam/rim/topology signature) | 8 | PASS |
 | sweep + loft (profile-edge inheritance, caps, rims, shared edges, seam-by-topology) | 9 | PASS |
 | D-boss seam (origin-role partition, 13-edge seam inventory, dual-parent witnesses, fillet, 7/7 patch naming) | 8 | PASS |
