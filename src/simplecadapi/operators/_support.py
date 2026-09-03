@@ -474,7 +474,11 @@ def _orthonormal_plane_axes(
     ref_vec = (
         np.array([1.0, 0.0, 0.0]) if abs(z_axis[2]) > 0.9 else np.array([0.0, 0.0, 1.0])
     )
-    x_axis = np.cross(z_axis, ref_vec)
+    # In-plane x = ref projected onto the plane (Gram-Schmidt): for a +z normal
+    # the frame is exactly the global (x, y, z), matching make_box_rsolid's
+    # width-along-x convention. The ref branch above keeps ref away from z, so
+    # the projection never degenerates.
+    x_axis = ref_vec - float(ref_vec @ z_axis) * z_axis
     x_norm = float(np.linalg.norm(x_axis))
     if x_norm <= 1e-12:
         raise ValueError("无法根据给定法向量构建局部坐标系")
