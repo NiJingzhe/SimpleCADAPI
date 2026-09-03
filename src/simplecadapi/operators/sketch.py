@@ -996,7 +996,7 @@ def _apply_sketch_promotion_metadata(
     if isinstance(shape, Wire):
         wires = [shape]
     elif isinstance(shape, Face):
-        wires = cast(List[Wire], shape._iter_wires())
+        wires = shape._iter_wires()
 
     for wire in wires:
         matches = [
@@ -1025,7 +1025,7 @@ def _apply_sketch_promotion_metadata(
             "sketch.entity_edges", []
         )
     ]
-    for edge in cast(List[Edge], shape._iter_edges()):
+    for edge in shape._iter_edges():
         matches = [source for source in source_edges if source[4].IsSame(edge.wrapped)]
         if len(matches) != 1:
             raise ValueError(
@@ -1145,7 +1145,7 @@ def _apply_sketch_promotion_identity_tags(
     )
 
     if isinstance(shape, Face):
-        for wire in cast(List[Wire], shape._iter_wires()):
+        for wire in shape._iter_wires():
             matches = [
                 source
                 for source in source_wires
@@ -1178,7 +1178,7 @@ def _apply_sketch_promotion_identity_tags(
             "sketch.entity_edges", []
         )
     ]
-    for edge in cast(List[Edge], shape._iter_edges()):
+    for edge in shape._iter_edges():
         matches = [source for source in source_edges if source[2].IsSame(edge.wrapped)]
         if len(matches) != 1:
             raise ValueError(
@@ -1309,7 +1309,7 @@ def _promote_sketch_profile(
                 f"Unsupported sketch promotion target kind '{target_kind}'"
             )
     _apply_sketch_promotion_metadata(
-        cast(Union[Wire, Face], shape),
+        shape,
         sketch=sketch,
         profile=profile,
         profile_payload=profile_payload,
@@ -1318,7 +1318,7 @@ def _promote_sketch_profile(
         solve_snapshot=solve_snapshot,
     )
     return (
-        cast(Union[Wire, Face], shape),
+        shape,
         solve_result,
         profile_payload,
         inner_profile_payloads,

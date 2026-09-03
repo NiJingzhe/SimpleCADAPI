@@ -19,7 +19,7 @@ class ViewDecl:
     n: tuple
     xd: tuple
     align: dict = field(default_factory=dict)   # {"to","side","gap"} side: below|right
-    anchor: tuple = None
+    anchor: tuple | None = None
 
 
 @dataclass
@@ -29,14 +29,14 @@ class DimDecl:
     view: str
     semantic: str                 # linear | diameter | radius
     caption: str                  # 参数名 (进入文本 "值 (caption)")
-    value: float = None
-    p1: tuple = None              # linear 测量点 (视图局部模型坐标)
-    p2: tuple = None
-    center: tuple = None          # dia/rad 圆心
-    radius: float = None
-    at: float = None              # dia/rad 方位角
-    datum: str = None             # position/size 引用的基准字母
-    side: str = None              # bottom/right/left/top
+    value: float | None = None
+    p1: tuple | None = None              # linear 测量点 (视图局部模型坐标)
+    p2: tuple | None = None
+    center: tuple | None = None          # dia/rad 圆心
+    radius: float | None = None
+    at: float | None = None              # dia/rad 方位角
+    datum: str | None = None             # position/size 引用的基准字母
+    side: str | None = None              # bottom/right/left/top
     row: int = 0                  # 期望行 (同侧行距, 碰撞顺延)
     out: float = 8.0              # dia/rad 文本外伸
     dec: int = 0
@@ -66,8 +66,8 @@ class DatumDecl:
 class CenterDecl:
     """中心线声明：p1/p2 直线中心线，或 arc=(cx,cy,r,a0,a1) 圆弧中心线。"""
     view: str
-    p1: tuple = None
-    p2: tuple = None
+    p1: tuple | None = None
+    p2: tuple | None = None
     arc: tuple = None             # (cx, cy, r, a0, a1) 视图局部模型坐标
 
 

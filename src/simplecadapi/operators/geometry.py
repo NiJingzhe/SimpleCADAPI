@@ -269,8 +269,8 @@ def make_cylindrical_surface_rface(
                 Face(
                     make_cylindrical_surface(
                         radius_value,
-                        cast(Tuple[float, float], u_values),
-                        cast(Tuple[float, float], v_values),
+                        u_values,
+                        v_values,
                         origin=global_origin,
                         axis=global_axis,
                         x_direction=global_x_direction,
@@ -788,7 +788,7 @@ def loft_rshell(
         if start_is_wire:
             roles.append(
                 _pending_loft_role(
-                    _matching_shell_boundary(result, cast(Wire, section_list[0])),
+                    _matching_shell_boundary(result, section_list[0]),
                     "loft.start_wire",
                     "EndpointBoundary",
                 )
@@ -796,7 +796,7 @@ def loft_rshell(
         if end_is_wire:
             roles.append(
                 _pending_loft_role(
-                    _matching_shell_boundary(result, cast(Wire, section_list[-1])),
+                    _matching_shell_boundary(result, section_list[-1]),
                     "loft.end_wire",
                     "EndpointBoundary",
                 )
@@ -2164,9 +2164,7 @@ def make_box_rsolid(
             - np.asarray(cs.x_axis, dtype=float) * (width_value / 2.0)
             - np.asarray(cs.y_axis, dtype=float) * (height_value / 2.0)
         )
-        tracked = cast(
-            TrackedResult,
-            tracked_box(
+        tracked = tracked_box(
                 tuple(float(value) for value in corner_global),
                 width_value,
                 height_value,
@@ -2174,8 +2172,7 @@ def make_box_rsolid(
                 x_axis=tuple(float(value) for value in cs.x_axis),
                 y_axis=tuple(float(value) for value in cs.y_axis),
                 z_axis=tuple(float(value) for value in cs.z_axis),
-            ),
-        )
+            )
         solid = cast(Solid, tracked.shape)
 
         # 自动标记面
@@ -2299,15 +2296,12 @@ def make_cylinder_rsolid(
 
         resolved_center = tuple(float(value) for value in center_global)
         resolved_axis = tuple(float(value) for value in axis_global)
-        tracked = cast(
-            TrackedResult,
-            tracked_cylinder(
+        tracked = tracked_cylinder(
                 resolved_center,
                 resolved_axis,
                 radius_value,
                 height_value,
-            ),
-        )
+            )
         solid = cast(Solid, tracked.shape)
 
         # 自动标记面
@@ -2439,16 +2433,13 @@ def make_cone_rsolid(
 
         resolved_center = tuple(float(value) for value in center_global)
         resolved_axis = tuple(float(value) for value in axis_global)
-        tracked = cast(
-            TrackedResult,
-            tracked_cone(
+        tracked = tracked_cone(
                 resolved_center,
                 resolved_axis,
                 bottom_radius_value,
                 top_radius_value,
                 height_value,
-            ),
-        )
+            )
         solid = cast(Solid, tracked.shape)
 
         # 自动标记面
@@ -2532,10 +2523,7 @@ def make_sphere_rsolid(
         center_global = cs.transform_point(np.array(center_value))
 
         resolved_center = tuple(float(value) for value in center_global)
-        solid = cast(
-            Solid,
-            Solid(make_sphere_solid(resolved_center, radius_value)),
-        )
+        solid = Solid(make_sphere_solid(resolved_center, radius_value))
 
         # 自动标记面
         solid.auto_tag_faces("sphere")

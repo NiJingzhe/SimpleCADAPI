@@ -13,7 +13,7 @@ import sys
 import time
 import tempfile
 from threading import RLock
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence, Union
 
 import numpy as np
 
@@ -1682,6 +1682,10 @@ def render_entity_kind_maps_rpath(
             legend_columns=legend_columns,
         )
     return result
+
+
+ColorSpec = Union[int, str, tuple[float, float, float]]
+"""Color spec: palette index, #RRGGBB/#RGB or named string, or (r, g, b) tuple."""
 
 
 def _resolve_color(

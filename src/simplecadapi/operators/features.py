@@ -63,14 +63,11 @@ def extrude_rsolid(
             raise ValueError("只能拉伸线或面")  # type: ignore[unreachable]
 
         resolved_direction = tuple(float(value) for value in global_direction)
-        tracked = cast(
-            TrackedResult,
-            tracked_extrude(
+        tracked = tracked_extrude(
                 face,
                 resolved_direction,
                 distance_value,
-            ),
-        )
+            )
         solid = cast(Solid, tracked.shape)
 
         solid._apply_tag("solid.extrusion", propagate=False)
@@ -173,15 +170,12 @@ def revolve_rsolid(
 
         resolved_axis = tuple(float(value) for value in global_axis)
         resolved_origin = tuple(float(value) for value in global_origin)
-        tracked = cast(
-            TrackedResult,
-            tracked_revolve(
+        tracked = tracked_revolve(
                 face,
                 resolved_axis,
                 resolved_origin,
                 angle_value,
-            ),
-        )
+            )
         solid = cast(Solid, tracked.shape)
 
         solid._metadata = profile._metadata.copy()
@@ -246,7 +240,7 @@ def _normalize_shape_input(
     if isinstance(shapes, Sequence) and not isinstance(shapes, (str, bytes)):
         normalized: List[AnyShape] = []
         for item in shapes:
-            normalized.extend(_normalize_shape_input(cast(AnyShape, item)))
+            normalized.extend(_normalize_shape_input(item))
         return normalized
 
     raise ValueError(
@@ -329,10 +323,7 @@ def fillet_rsolid(
         if not selected_edges:
             raise ValueError("圆角操作至少需要一条边")
 
-        tracked = cast(
-            TrackedResult,
-            tracked_fillet(solid, selected_edges, radius_value),
-        )
+        tracked = tracked_fillet(solid, selected_edges, radius_value)
         result = cast(Solid, tracked.shape)
 
         result._metadata = solid._metadata.copy()
@@ -411,10 +402,7 @@ def chamfer_rsolid(
         if not selected_edges:
             raise ValueError("倒角操作至少需要一条边")
 
-        tracked = cast(
-            TrackedResult,
-            tracked_chamfer(solid, selected_edges, distance_value),
-        )
+        tracked = tracked_chamfer(solid, selected_edges, distance_value)
         result = cast(Solid, tracked.shape)
 
         result._metadata = solid._metadata.copy()
@@ -503,10 +491,7 @@ def shell_rsolid(
         if not selected_faces:
             raise ValueError("抽壳操作至少需要一个待移除面")
 
-        tracked = cast(
-            TrackedResult,
-            tracked_shell(solid, selected_faces, thickness_value),
-        )
+        tracked = tracked_shell(solid, selected_faces, thickness_value)
         result = cast(Solid, tracked.shape)
 
         result._metadata = solid._metadata.copy()
@@ -604,10 +589,7 @@ def loft_rsolid(
             )
 
         tracked = (
-            cast(
-                TrackedResult,
-                tracked_loft(profiles, ruled=ruled),
-            )
+            tracked_loft(profiles, ruled=ruled)
             if policy == TrackingPolicy.FULL
             else None
         )
@@ -713,10 +695,7 @@ def sweep_rsolid(
         normalized_result_tag = (
             normalize_tag(result_tag, strict=True) if result_tag is not None else None
         )
-        tracked = cast(
-            TrackedResult,
-            tracked_sweep(profile, path, is_frenet=is_frenet),
-        )
+        tracked = tracked_sweep(profile, path, is_frenet=is_frenet)
         result = cast(Solid, tracked.shape)
 
         result._metadata = {**profile._metadata, **path._metadata}
@@ -822,17 +801,14 @@ def twisted_sweep_rsolid(
         normalized_result_tag = (
             normalize_tag(result_tag, strict=True) if result_tag is not None else None
         )
-        tracked = cast(
-            TrackedResult,
-            tracked_twisted_sweep(
+        tracked = tracked_twisted_sweep(
                 profile,
                 axis=resolved_axis,
                 origin=resolved_origin,
                 distance=distance_value,
                 twist_angle=twist_value,
                 guide_radius=guide_radius_value,
-            ),
-        )
+            )
         result = cast(Solid, tracked.shape)
         kernel_metadata = result.get_metadata("twisted_sweep.kernel", {})
         result._metadata = profile._metadata.copy()

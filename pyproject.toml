@@ -107,6 +107,15 @@ dev = [
 [tool.ty.environment]
 python-version = "3.10"
 
+# FreeCAD runtime payloads are exec'd inside FreeCAD's embedded interpreter;
+# GRAPH_NODES / App / Part etc. are runtime-injected globals by design.
+[[tool.ty.overrides]]
+include = ["src/simplecadapi/translator/freecad_translator/runtime/**/*.py"]
+
+[tool.ty.overrides.rules]
+unresolved-import = "ignore"
+unresolved-reference = "ignore"
+
 [tool.ty.src]
 include = ["src", "test", "tests", "examples", "tools"]
 exclude = [

@@ -243,6 +243,8 @@ def _apply_rad(plan, act):
             _log(plan, key, f"at={at:g}° {'弧内' if inner else '弧外'} s={s0:g}")
             return {"op": "rad", "element": key, "ok": True,
                     "anchor": [_r(anchor[0]), _r(anchor[1])], "rot": _r(rot)}
+    if anchor is None:
+        anchor = (0.0, 0.0)
     _restore(plan, old)
     return _reject(plan, act, key, dcl.view, conf, anchor[0], anchor[1], w,
                    TEXT_H, rot)

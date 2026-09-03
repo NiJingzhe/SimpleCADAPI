@@ -80,8 +80,10 @@ class SolidWorksTranslator(BaseTranslator):
                         f"operations: {joined}."
                     ),
                     possible_causes=(
-                        "A definition-owned Feature Graph uses operations not "
-                        "implemented by the SolidWorks runtime."
+                        (
+                            "A definition-owned Feature Graph uses operations not "
+                            "implemented by the SolidWorks runtime."
+                        ),
                     ),
                     how_to_fix=(
                         "Use operations declared by solidworks_translator.CAPABILITIES.",

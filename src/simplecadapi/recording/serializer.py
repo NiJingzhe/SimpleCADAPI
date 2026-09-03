@@ -41,6 +41,7 @@ from ..core import (
     use_coordinate_system,
 )
 from .graph import (
+    GraphSession,
     attach_graph_node,
     attach_semantic_graph_node,
     suspend_graph_recording,
@@ -1569,7 +1570,7 @@ def _geo_selector_score(
     if isinstance(shape, Vertex):
         score += (
             _distance3(
-                cast(Tuple[float, float, float], tuple(shape.get_coordinates())),
+                tuple(shape.get_coordinates()),
                 _tuple3_from_any(selector.get("coordinates")),
             )
             * 10.0
@@ -2720,7 +2721,7 @@ def _execute_graph(
                                 str(params["entity_id"]),
                                 str(params["start"]),
                                 str(params["end"]),
-                                control_points=cast(Any, params["control_points"]),
+                                control_points=params["control_points"],
                                 degree=int(params.get("degree", 3)),
                                 knots=cast(Any, params.get("knots")),
                                 multiplicities=cast(Any, params.get("multiplicities")),
@@ -2951,8 +2952,8 @@ def _execute_graph(
                             placement = Placement(**dict(raw_placement))
                         if assembly_outputs and item_outputs:
                             result = ops.add_component_rassembly(
-                                cast(Assembly, assembly_outputs[0]),
-                                cast(Any, item_outputs[0]),
+                                assembly_outputs[0],
+                                item_outputs[0],
                                 component_id=str(params["component_id"]),
                                 placement=placement,
                                 name=cast(Optional[str], params.get("name")),
@@ -3727,8 +3728,8 @@ def _execute_graph(
                         face_outputs = _all_input_outputs(ctx, outputs, node)
                         if len(face_outputs) >= 2:
                             result = ops.make_2d_cut_rface(
-                                cast(Any, face_outputs[0]),
-                                cast(Any, face_outputs[1]),
+                                face_outputs[0],
+                                face_outputs[1],
                             )
                             _store_outputs(node, result)
                         elif ctx.strict:
@@ -3741,8 +3742,8 @@ def _execute_graph(
                         face_outputs = _all_input_outputs(ctx, outputs, node)
                         if len(face_outputs) >= 2:
                             result = ops.make_2d_union_rface(
-                                cast(Any, face_outputs[0]),
-                                cast(Any, face_outputs[1]),
+                                face_outputs[0],
+                                face_outputs[1],
                             )
                             _store_outputs(node, result)
                         elif ctx.strict:
@@ -3755,8 +3756,8 @@ def _execute_graph(
                         face_outputs = _all_input_outputs(ctx, outputs, node)
                         if len(face_outputs) >= 2:
                             result = ops.make_2d_intersect_rface(
-                                cast(Any, face_outputs[0]),
-                                cast(Any, face_outputs[1]),
+                                face_outputs[0],
+                                face_outputs[1],
                             )
                             _store_outputs(node, result)
                         elif ctx.strict:
@@ -3770,7 +3771,7 @@ def _execute_graph(
                         wire_outputs = _input_outputs(ctx, outputs, node, 0)
                         if wire_outputs:
                             result = ops.make_face_from_wire_rface(
-                                cast(Any, wire_outputs[0]),
+                                wire_outputs[0],
                                 normal=cast(Any, tuple(params["normal"])),
                             )
                             _store_outputs(node, result)
@@ -3786,7 +3787,7 @@ def _execute_graph(
                         wire_outputs = _all_input_outputs(ctx, outputs, node)
                         if wire_outputs:
                             result = ops.make_face_from_wires_rface(
-                                cast(Any, wire_outputs[0]),
+                                wire_outputs[0],
                                 cast(Any, wire_outputs[1:]),
                                 normal=cast(Any, tuple(params["normal"])),
                             )
@@ -3846,7 +3847,7 @@ def _execute_graph(
                         profile_outputs = _input_outputs(ctx, outputs, node, 0)
                         if profile_outputs:
                             result = ops.extrude_rsolid(
-                                cast(Any, profile_outputs[0]),
+                                profile_outputs[0],
                                 cast(Any, tuple(params["direction"])),
                                 params["distance"],
                             )
@@ -3863,7 +3864,7 @@ def _execute_graph(
                         profile_outputs = _input_outputs(ctx, outputs, node, 0)
                         if profile_outputs:
                             result = ops.revolve_rsolid(
-                                cast(Any, profile_outputs[0]),
+                                profile_outputs[0],
                                 axis=cast(Any, tuple(params["axis"])),
                                 angle=params["angle"],
                                 origin=cast(Any, tuple(params["origin"])),
@@ -3899,8 +3900,8 @@ def _execute_graph(
                         path_outputs = _input_outputs(ctx, outputs, node, 1)
                         if profile_outputs and path_outputs:
                             result = ops.sweep_rsolid(
-                                cast(Any, profile_outputs[0]),
-                                cast(Any, path_outputs[0]),
+                                profile_outputs[0],
+                                path_outputs[0],
                                 is_frenet=bool(params["is_frenet"]),
                             )
                             _store_outputs(node, result)
@@ -3926,7 +3927,7 @@ def _execute_graph(
                         profile_outputs = _input_outputs(ctx, outputs, node, 0)
                         if profile_outputs:
                             result = ops.twisted_sweep_rsolid(
-                                cast(Any, profile_outputs[0]),
+                                profile_outputs[0],
                                 distance=params["distance"],
                                 twist_angle=params["twist_angle"],
                                 axis=cast(Any, tuple(params["axis"])),
@@ -3946,7 +3947,7 @@ def _execute_graph(
                         input_outputs = _input_outputs(ctx, outputs, node, 0)
                         if input_outputs:
                             result = ops.mirror_shape(
-                                cast(Any, input_outputs[0]),
+                                input_outputs[0],
                                 cast(Any, tuple(params["plane_origin"])),
                                 cast(Any, tuple(params["plane_normal"])),
                             )

@@ -8,7 +8,7 @@ import inspect
 from functools import wraps
 from pathlib import Path
 from threading import Lock
-from typing import Any, Callable, Hashable, Mapping, ParamSpec, Sequence, TypeVar, cast
+from typing import Any, Callable, Hashable, Mapping, ParamSpec, Sequence, TypeVar, cast, overload
 
 from ..artifacts.assembly_io import materialize_definition
 from ..artifacts.brep import write_brep_bytes
@@ -175,7 +175,7 @@ def _connector_interface(connector: Connector, body: Solid) -> ConnectorInterfac
     frame = resolve_connector_placement(connector).to_dict()
     binding: Mapping[str, Any] | None = None
     if anchor.anchor_kind == "geometry":
-        geometry_ref = cast(Any, anchor.geometry_ref)
+        geometry_ref = anchor.geometry_ref
         binding = {
             **geometry_ref.to_dict(),
             "resolved_entities": [resolve_geometry_entity_ref(body, geometry_ref)],
@@ -460,6 +460,20 @@ def _cold_build(
     return part, definition, feature_graph
 
 
+@overload
+def part(func: Callable[_P, _R]) -> Callable[_P, PartBuildResult]: ...
+
+@overload
+def part(
+    *,
+    id: str | None = ...,
+    revision: str = ...,
+    inputs: Sequence[FileInput] = ...,
+    cache: CachePolicy | Mapping[str, Any] | str | None = ...,
+    project_root: str | Path | None = ...,
+    tolerance_profile: str = ...,
+) -> Callable[[Callable[_P, _R]], Callable[_P, PartBuildResult]]: ...
+
 def part(
     func: Callable[_P, _R] | None = None,
     *,
@@ -469,10 +483,7 @@ def part(
     cache: CachePolicy | Mapping[str, Any] | str | None = None,
     project_root: str | Path | None = None,
     tolerance_profile: str = "simplecad-default",
-) -> (
-    Callable[[Callable[_P, _R]], Callable[_P, PartBuildResult]]
-    | Callable[_P, PartBuildResult]
-):
+) -> Callable[[Callable[_P, _R]], Callable[_P, PartBuildResult]] | Callable[_P, PartBuildResult]:
     """Decorate one synchronous builder as a cached single-solid product part."""
 
     def decorate(function: Callable[_P, _R]) -> Callable[_P, PartBuildResult]:

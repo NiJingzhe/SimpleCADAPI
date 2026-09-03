@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from numbers import Real
-from typing import Any, Dict, Mapping, Union
+from typing import TYPE_CHECKING, Any, Dict, Mapping, Union
+
+if TYPE_CHECKING:
+    from .expr import ScalarExpr, ScalarLike
 
 
 class UnitValidationError(ValueError):
