@@ -37,7 +37,9 @@ whole API index up front.
 
 Cross-cutting capabilities — QL grounding, semantic tags, GraphSession replay,
 units/tolerances, incremental validation — are not routing targets; each
-workflow pulls them in as conditions require.
+workflow pulls them in as conditions require. Verified QL selection patterns
+for operation outputs (extrude-family slots, boolean seam curves, seam
+fillets) live in `ql-playbook.md`.
 
 ## Workflows
 

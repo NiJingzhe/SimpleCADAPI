@@ -401,9 +401,12 @@ class TestSurfaceApi(unittest.TestCase):
             scad.make_rectangle_rwire(4.0, 4.0),
         )
 
+        # 2(x) x 4(y) loop poking out on +x: same footprint the test has
+        # always exercised; the dims read (4, 2) under the pre-fix transposed
+        # plane basis, (2, 4) under the width-along-x convention.
         trimmed = scad.trim_surface_rface(
             carrier,
-            scad.make_rectangle_rwire(4.0, 2.0, center=(1.5, 0.0, 0.0)),
+            scad.make_rectangle_rwire(2.0, 4.0, center=(1.5, 0.0, 0.0)),
         )
 
         self.assertAlmostEqual(trimmed.get_area(), 6.0, places=6)
