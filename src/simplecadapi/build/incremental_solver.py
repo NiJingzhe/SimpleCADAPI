@@ -225,11 +225,17 @@ def propagate_assembly_dirty_state(
         if changes["material"]:
             material_instances.update(affected_instances)
             reasons.setdefault("material_changed", set()).update(affected_instances)
+        changed_bindings = changes["bindings"]
+        changed_connectors = changes["connectors"]
+        if not isinstance(changed_bindings, tuple):
+            changed_bindings = ()
+        if not isinstance(changed_connectors, tuple):
+            changed_connectors = ()
         for instance_id in affected_instances:
-            for connector_id in changes["bindings"]:
+            for connector_id in changed_bindings:
                 endpoint = f"{instance_id}.{connector_id}"
                 binding_endpoints.add(endpoint)
-            for connector_id in changes["connectors"]:
+            for connector_id in changed_connectors:
                 endpoint = f"{instance_id}.{connector_id}"
                 connector_endpoints.add(endpoint)
                 dirty_relations.update(

@@ -70,30 +70,24 @@ def union_rsolid(
         effective_tol = _resolve_union_tol(remaining, tol)
         tracked_union_result: Optional[TrackedBooleanResult] = None
         if policy == TrackingPolicy.FULL and len(remaining) >= 2:
-            tracked_union_result = cast(
-                TrackedBooleanResult,
-                _evaluate_tracked_union(
+            tracked_union_result = _evaluate_tracked_union(
                     remaining,
                     glue=glue,
                     tol=effective_tol,
                     clean=clean,
-                ),
-            )
+                )
             if tracked_union_result.solid is None:
                 raise ValueError("union did not produce a valid solid")
             fused_solid = tracked_union_result.solid
         else:
-            fused_solid = cast(
-                Solid,
-                _require_union_solid(
-                    fuse_shapes(
-                        [solid.wrapped for solid in remaining],
-                        glue=glue,
-                        tol=effective_tol,
-                        clean=clean,
-                    ),
-                    effective_tol,
+            fused_solid = _require_union_solid(
+                fuse_shapes(
+                    [solid.wrapped for solid in remaining],
+                    glue=glue,
+                    tol=effective_tol,
+                    clean=clean,
                 ),
+                effective_tol,
             )
 
         all_metadata = {}
@@ -235,10 +229,7 @@ def cut_rsolid(
                 raise ValueError("差集工具实体与当前实体交集体积过小。")
 
             tracked = (
-                cast(
-                    TrackedBooleanResult,
-                    tracked_cut(result_solid, candidate),
-                )
+                tracked_cut(result_solid, candidate)
                 if policy == TrackingPolicy.FULL and len(remaining) == 2
                 else (
                     tracked_cut(result_solid, candidate)
@@ -362,10 +353,7 @@ def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
                 raise ValueError("输入实体无效，无法进行交集运算。")
 
             tracked = (
-                cast(
-                    TrackedBooleanResult,
-                    tracked_intersect(result_solid, candidate),
-                )
+                tracked_intersect(result_solid, candidate)
                 if len(remaining) == 2
                 else tracked_intersect(result_solid, candidate)
             )

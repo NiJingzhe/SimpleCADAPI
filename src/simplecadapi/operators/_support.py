@@ -14,6 +14,7 @@ from typing import (
     Dict,
     List,
     Mapping,
+    NoReturn,
     Optional,
     Sequence,
     Set,
@@ -526,7 +527,7 @@ def _wrap_public_api_error(
     possible_causes: Sequence[str],
     how_to_fix: Sequence[str],
     error: BaseException,
-) -> None:
+) -> NoReturn:
     raise_harness_error(
         operation=operation,
         what_happened=what_happened,
@@ -953,9 +954,10 @@ def _jsonable_geo_value(value: object) -> object:
         return float(value)
     if isinstance(value, (int, float)):
         return value
-    if hasattr(value, "to_tuple"):
+    to_tuple = getattr(value, "to_tuple", None)
+    if callable(to_tuple):
         try:
-            return [float(v) for v in value.to_tuple()]
+            return [float(v) for v in to_tuple()]
         except Exception:
             pass
     if hasattr(value, "x") and hasattr(value, "y") and hasattr(value, "z"):
@@ -1080,7 +1082,7 @@ def _candidate_shapes_for_selection(source: AnyShape, kind: str) -> List[AnyShap
         return [source] if isinstance(source, Wire) else []
     if kind == "vertex":
         if isinstance(source, Edge):
-            return cast(List[AnyShape], source.get_children())
+            return source.get_children()
         if hasattr(source, "get_children"):
             return [
                 cast(AnyShape, child)
@@ -1178,7 +1180,8 @@ def _make_geo_selector(
         selector["face_count"] = len(shape._iter_faces())
     elif isinstance(shape, Solid):
         selector["volume"] = float(shape.get_volume())
-        center = shape.get_center() if hasattr(shape, "get_center") else None
+        get_center = getattr(shape, "get_center", None)
+        center = get_center() if callable(get_center) else None
         if center is not None:
             selector["center"] = [float(center.x), float(center.y), float(center.z)]
     elif isinstance(shape, Compound):
@@ -2131,7 +2134,7 @@ def _apply_tag_rselection(
         ):
             raise TypeError("tag assignment targets must contain only shapes")
         selected = [
-            _semantic_view_target(view, cast(AnyShape, item)) for item in target_shapes
+            _semantic_view_target(view, item) for item in target_shapes
         ]
         refs = tuple(
             ref for ref in _serialize_shape_refs(target_shapes) if isinstance(ref, dict)

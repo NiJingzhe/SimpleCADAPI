@@ -12,10 +12,7 @@ def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyS
         global_vector = cs.transform_vector(np.array(vector_value))
         resolved_vector = tuple(float(value) for value in global_vector)
         if isinstance(shape, Solid):
-            tracked = cast(
-                TrackedResult,
-                tracked_translate(shape, resolved_vector),
-            )
+            tracked = tracked_translate(shape, resolved_vector)
             translated = cast(Solid, tracked.shape)
             translated._metadata = shape._metadata.copy()
             _attach_lineage_from_source(
@@ -90,15 +87,12 @@ def rotate_shape(
             resolved_axis = tuple(float(value) for value in global_axis)
             resolved_origin = tuple(float(value) for value in global_origin)
             if isinstance(shape, Solid):
-                tracked = cast(
-                    TrackedResult,
-                    tracked_rotate(
+                tracked = tracked_rotate(
                         shape,
                         angle_value,
                         axis=resolved_axis,
                         origin=resolved_origin,
-                    ),
-                )
+                    )
                 rotated = cast(Solid, tracked.shape)
                 rotated._metadata = shape._metadata.copy()
                 _attach_lineage_from_source(
@@ -272,7 +266,7 @@ def radial_pattern_rsolidlist(
                 geo["pattern"] = {"type": "radial", "index": i + 1}
                 rotated_shape.set_metadata("geo", geo)
                 _attach_track_summary(rotated_shape, op="radial_pattern")
-                rv.append(cast(Solid, rotated_shape))
+                rv.append(rotated_shape)
             return rv
 
         with suspend_graph_recording():
@@ -345,14 +339,11 @@ def mirror_shape(
         if isinstance(shape, Solid):
             resolved_origin = tuple(float(value) for value in global_origin)
             resolved_normal = tuple(float(value) for value in global_normal)
-            tracked = cast(
-                TrackedResult,
-                tracked_mirror(
+            tracked = tracked_mirror(
                     shape,
                     resolved_origin,
                     resolved_normal,
-                ),
-            )
+                )
             new_shape = cast(Solid, tracked.shape)
             new_shape._metadata = shape._metadata.copy()
             _attach_lineage_from_source(

@@ -1677,7 +1677,7 @@ class Compound(TaggedMixin, TopoMixein):
 
     def _format_string(self, indent: int = 0, show_coordinate_system: bool = True) -> str:
         spaces = "  " * indent
-        solids = cast(List[Solid], self._iter_solids())
+        solids = self._iter_solids()
         result = [
             f"{spaces}Compound:",
             f"{spaces}  solid_count: {len(solids)}",
@@ -1749,4 +1749,4 @@ def clone_semantic_shape_view(shape: AnyShape) -> AnyShape:
     }
 
     clone._refresh_tag_cache(recursive=True)
-    return cast(AnyShape, clone)
+    return clone
