@@ -689,8 +689,16 @@ def _render_sdk_screenshot_rpath(
     show_callouts: bool = True,
     linear_deflection: float = 0.35,
     angular_deflection: float = 0.22,
+    views: Sequence[tuple[float, float, str]] | None = None,
 ) -> Path:
-    """Render SDK solids in an isolated VTK worker on macOS."""
+    """Render SDK solids in an isolated VTK worker on macOS.
+
+    ``views`` switches to the multi-view grid engine: every invocation then
+    renders one tiled image with a panel per ``(elevation, azimuth, label)``
+    view, carrying the same tag highlight groups, legend and callouts (2-D
+    leader-line labels, projected per panel). ``zoom`` only applies to the
+    single-view path; the grid camera uses its standard fitting.
+    """
     if not solids:
         raise ValueError("At least one Solid is required")
     if image_size[0] < 1 or image_size[1] < 1:
@@ -741,6 +749,7 @@ def _render_sdk_screenshot_rpath(
         "edges": _edge_polydata(shapes, deflection=linear_deflection),
     }
     surface_groups = []
+    surface_group_refs: list[tuple[str, tuple[float, float, float]]] = []
     for index, (tag, faces) in enumerate(grouped_faces.items()):
         if not faces:
             continue
@@ -748,7 +757,9 @@ def _render_sdk_screenshot_rpath(
         datasets[name] = _mesh_polydata(
             faces, linear_deflection, angular_deflection
         )
-        surface_groups.append({"dataset": name, "color": tag_colors[str(tag)]})
+        color = tag_colors[str(tag)]
+        surface_groups.append({"dataset": name, "color": color})
+        surface_group_refs.append((name, color))
     legend_items = []
     if show_legend and (tags or show_axes):
         legend_items.extend(
@@ -763,6 +774,50 @@ def _render_sdk_screenshot_rpath(
                     {"label": "+Z", "color": (0.45, 0.65, 1.0)},
                 )
             )
+    if views is not None:
+        normalized_views = tuple(
+            (float(entry[0]), float(entry[1]), str(entry[2])) for entry in views
+        )
+        if not normalized_views:
+            raise ValueError("views must contain at least one (elevation, azimuth, label)")
+        if any(len(entry) != 3 for entry in views):
+            raise ValueError("each view must be an (elevation, azimuth, label) triple")
+        legend_pairs = [
+            (
+                str(item["label"]),
+                (
+                    float(item["color"][0]),
+                    float(item["color"][1]),
+                    float(item["color"][2]),
+                ),
+            )
+            for item in legend_items
+        ]
+        callout_triples = [
+            (
+                labels.get(tag, tag),
+                point,
+                tag_colors.get(tag, (0.95, 0.55, 0.2)),
+            )
+            for tag, point in label_points.items()
+        ] if show_callouts else []
+        group_polydata = [
+            (datasets[name], color, 1.0) for name, color in surface_group_refs
+        ]
+        return _render_polydata_views(
+            datasets["base"],
+            output_path,
+            title="SDK screenshot",
+            views=normalized_views,
+            image_size=(image_size[0] / 100.0, image_size[1] / 100.0),
+            dpi=100,
+            brep_edge_polydata=datasets["edges"],
+            highlighted_groups=group_polydata,
+            legend=legend_pairs or None,
+            legend_panel=len(legend_pairs) > 8,
+            show_axes=show_axes,
+            callouts=callout_triples or None,
+        )
     options = {
         "image_size": image_size,
         "view": view,
@@ -1030,6 +1085,7 @@ def _render_polydata_views_in_process(
     legend: Sequence[tuple[str, tuple[float, float, float]]] | None = None,
     legend_columns: int = 1,
     legend_panel: bool = False,
+    show_axes: bool = False,
     callouts: Sequence[
         tuple[str, tuple[float, float, float], tuple[float, float, float]]
     ]
@@ -1143,6 +1199,14 @@ def _render_polydata_views_in_process(
                 renderer.AddViewProp(entry)
         window.AddRenderer(renderer)
         _set_camera(renderer, elevation, azimuth)
+        if show_axes:
+            spans = np.asarray(renderer.ComputeVisiblePropBounds()).reshape(3, 2)
+            axis_length = max(float(np.ptp(spans, axis=1).max()) * 0.3, 1.0)
+            axes = vtk.vtkAxesActor()
+            axes.SetTotalLength(axis_length, axis_length, axis_length)
+            axes.SetShaftTypeToCylinder()
+            renderer.AddActor(axes)
+            renderer.ResetCameraClippingRange()
         if callouts:
             callout_renderers.append((renderer, index))
     if legend and legend_panel:
@@ -1213,6 +1277,7 @@ def _render_polydata_views(
     legend: Sequence[tuple[str, tuple[float, float, float]]] | None = None,
     legend_columns: int = 1,
     legend_panel: bool = False,
+    show_axes: bool = False,
     callouts: Sequence[
         tuple[str, tuple[float, float, float], tuple[float, float, float]]
     ] | None = None,
@@ -1245,6 +1310,7 @@ def _render_polydata_views(
         "legend": legend,
         "legend_columns": legend_columns,
         "legend_panel": legend_panel,
+        "show_axes": show_axes,
         "callouts": callouts,
     }
     if sys.platform != "darwin":
@@ -1272,6 +1338,7 @@ def _render_polydata_views(
         "legend": legend,
         "legend_columns": legend_columns,
         "legend_panel": legend_panel,
+        "show_axes": show_axes,
         "callouts": callouts,
         "surface_groups": [],
         "edge_groups": [],

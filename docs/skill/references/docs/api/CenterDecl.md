@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class CenterDecl(view: str, p1: tuple = None, p2: tuple = None, arc: tuple = None)
+class CenterDecl(view: str, p1: tuple | None = None, p2: tuple | None = None, arc: tuple = None)
 ```
 
 *Source: dxf_engine/model.py*
