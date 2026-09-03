@@ -45,9 +45,6 @@ dev = [
   "isort>=5.0",
 ]
 editor = []
-collision = [
-    "python-fcl>=0.7.0.11",
-]
 inspect = [
     "matplotlib>=3.7.0",
 ]
