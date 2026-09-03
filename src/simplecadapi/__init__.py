@@ -1,6 +1,6 @@
 """SimpleCAD API: a simplified OCP-native Python CAD modeling API."""
 
-from . import exporter, inspect, math, ql, std, surface, translator, verifier
+from . import exporter, inspect, math, ql, std, surface, translator
 from .artifacts import (
     ArtifactLimits,
     ArtifactValidationError,
@@ -565,7 +565,6 @@ __all__ = [
     "ql",
     "std",
     "translator",
-    "verifier",
     "GraphSession",
     "get_active_session",
     "assemble",

@@ -44,7 +44,7 @@ jobs:
           cache-python: true
 
       - name: Install locked dependencies
-        run: uv sync --locked --group dev --extra collision
+        run: uv sync --locked --group dev
       - name: Verify headless rendering support
         run: command -v xvfb-run
 
