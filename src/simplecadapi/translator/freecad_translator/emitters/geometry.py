@@ -66,6 +66,11 @@ class GeometryEmitterMixin:
                 f"{var_name} = _register_graph_value(_kernel_circle_from_params({rp}, {re}).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
             return lines
+        if node.op == "make_ellipse_redge":
+            lines = [
+                f"{var_name} = _register_graph_value(_kernel_ellipse_from_params({rp}, {re}).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+            ]
+            return lines
         if node.op == "make_angle_arc_redge":
             lines = [
                 f"{var_name} = _register_graph_value(Part.ArcOfCircle(_kernel_circle_from_params({rp}, {re}), float(_resolve_param_value({rp}, {re}, 'start_angle')), float(_resolve_param_value({rp}, {re}, 'end_angle'))).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"

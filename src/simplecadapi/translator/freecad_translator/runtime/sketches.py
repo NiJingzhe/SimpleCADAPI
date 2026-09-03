@@ -312,6 +312,32 @@ def _sketch_wire_shape_from_promotion(params):
                 y_axis,
             )
             edge_shapes.append(Part.Arc(start, middle, end).toShape())
+        elif kind == "ellipse":
+            center = _sketch_world_point(
+                str(entity.get("center")),
+                sketch_payload,
+                solve_snapshot,
+                origin,
+                x_axis,
+                y_axis,
+            )
+            major = _sketch_world_point(
+                str(entity.get("major")),
+                sketch_payload,
+                solve_snapshot,
+                origin,
+                x_axis,
+                y_axis,
+            )
+            minor = _sketch_world_point(
+                str(entity.get("minor")),
+                sketch_payload,
+                solve_snapshot,
+                origin,
+                x_axis,
+                y_axis,
+            )
+            edge_shapes.append(Part.Ellipse(major, minor, center).toShape())
         elif kind == "bspline":
             cps_data = entity.get("control_points", [])
             degree = int(entity.get("degree", 3))
@@ -384,6 +410,8 @@ def _sketch_constraint_priority(item):
         "length": 4,
         "radius": 4,
         "diameter": 4,
+        "major_radius": 4,
+        "minor_radius": 4,
         "angle": 4,
         "parallel": 5,
         "perpendicular": 5,
@@ -1018,6 +1046,73 @@ def _materialize_sketch_constraints(
             )
             continue
 
+        if kind in {"major_radius", "minor_radius"} and len(targets) == 1:
+            entity_ref = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            if entity_ref is None or entity_ref[1] != "ellipse":
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason=f"{kind} requires a materialized ellipse",
+                )
+                continue
+            if kind == "major_radius":
+                # FreeCAD's Radius constraint on an ellipse drives the major radius.
+                _safe_add_sketch_constraint(
+                    sketch_obj,
+                    status,
+                    constraint,
+                    "Radius",
+                    int(entity_ref[0]),
+                    float(value),
+                    expr_ref=value_expr,
+                )
+                continue
+            # FreeCAD has no native ellipse minor-radius constraint; keep the
+            # dimension as a reference distance to the solved minor-axis point.
+            entity = by_id.get(str(targets[0].get("entity_id")))
+            minor_point = None
+            if isinstance(entity, dict):
+                minor_id = str(entity.get("minor"))
+                minor_xy = None
+                try:
+                    minor_xy = _sketch_solved_point(minor_id, sketch_payload, solve_snapshot)
+                except RuntimeError:
+                    minor_xy = None
+                if minor_xy is not None:
+                    minor_point = App.Vector(float(minor_xy[0]), float(minor_xy[1]), 0.0)
+            if minor_point is None:
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason="minor_radius could not resolve the minor-axis point",
+                )
+                continue
+            point_geom = int(sketch_obj.addGeometry(Part.Point(minor_point), True))
+            _safe_add_sketch_constraint(
+                sketch_obj,
+                status,
+                constraint,
+                "Distance",
+                int(entity_ref[0]),
+                3,
+                point_geom,
+                float(value),
+                expr_ref=value_expr,
+            )
+            _sketch_constraint_status_append(
+                status,
+                constraint,
+                True,
+                note=(
+                    "minor_radius is stored as a reference distance to the solved "
+                    "minor-axis point; FreeCAD has no native ellipse "
+                    "minor-radius constraint"
+                ),
+            )
+            continue
+
         if kind == "fix" and len(targets) == 1:
             target = targets[0]
             entity_id = str(target.get("entity_id")) if isinstance(target, dict) else ""
@@ -1232,7 +1327,7 @@ def _make_sketch_promotion_object(
         entity_id = str(entity.get("id"))
         kind = str(entity.get("kind"))
         construction = bool(entity.get("construction", False)) or (
-            kind in {"line", "circle", "arc", "bspline"}
+            kind in {"line", "circle", "arc", "bspline", "ellipse"}
             and entity_id not in profile_ids
         )
         if kind == "line":
@@ -1276,6 +1371,22 @@ def _make_sketch_promotion_object(
             geom_by_entity[entity_id] = geom_index
             point_refs.setdefault(start_id, []).append((geom_index, 1))
             point_refs.setdefault(end_id, []).append((geom_index, 2))
+            point_refs.setdefault(center_id, []).append((geom_index, 3))
+        elif kind == "ellipse":
+            center_id = str(entity.get("center"))
+            center = _sketch_local_point(center_id, sketch_payload, solve_snapshot)
+            major = _sketch_local_point(
+                str(entity.get("major")), sketch_payload, solve_snapshot
+            )
+            minor = _sketch_local_point(
+                str(entity.get("minor")), sketch_payload, solve_snapshot
+            )
+            geom_index = int(
+                obj.addGeometry(
+                    Part.Ellipse(major, minor, center), construction
+                )
+            )
+            geom_by_entity[entity_id] = geom_index
             point_refs.setdefault(center_id, []).append((geom_index, 3))
         elif kind == "bspline":
             cps_data = entity.get("control_points", [])

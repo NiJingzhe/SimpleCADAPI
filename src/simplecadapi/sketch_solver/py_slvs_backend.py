@@ -210,6 +210,11 @@ class _PySlvsSystem:
                 )
             elif entity.kind == "bspline":
                 self._add_bspline_entity(entity_id, entity.data)
+            elif entity.kind == "ellipse":
+                # The ellipse is a pure function of its three axis points;
+                # no solver entity is needed and radius constraints act on
+                # the points directly.
+                pass
             else:
                 raise ValueError(f"Unsupported sketch entity kind '{entity.kind}'")
 
@@ -412,6 +417,20 @@ class _PySlvsSystem:
                 self.workplane,
                 group=self._SOLVE_GROUP,
             )]
+        if kind in {"major_radius", "minor_radius"}:
+            ellipse = self.sketch.entities[refs[0].entity_id]
+            if ellipse.kind != "ellipse":
+                raise ValueError(
+                    f"'{kind}' requires an ellipse target, got '{ellipse.kind}'"
+                )
+            axis_key = "major" if kind == "major_radius" else "minor"
+            return [self.system.addPointsDistance(
+                _as_float(constraint.value),
+                self.point_handles[str(ellipse.data["center"])],
+                self.point_handles[str(ellipse.data[axis_key])],
+                self.workplane,
+                group=self._SOLVE_GROUP,
+            )]
         if kind in {"radius", "diameter"}:
             diameter = _as_float(constraint.value) * (2.0 if kind == "radius" else 1.0)
             target = self.sketch.entities[refs[0].entity_id]
@@ -484,6 +503,12 @@ class _PySlvsSystem:
         if entity.kind == "bspline":
             for handle in self.bspline_pole_handles[ref.entity_id]:
                 self._move_point_to_fixed_group(handle)
+            return []
+        if entity.kind == "ellipse":
+            for key in ("center", "major", "minor"):
+                self._move_point_to_fixed_group(
+                    self.point_handles[str(entity.data[key])]
+                )
             return []
         if entity.kind == "circle":
             self._move_point_to_fixed_group(self.point_handles[str(entity.data["center"])])
@@ -1009,6 +1034,23 @@ class _PySlvsSystem:
                     "sweep": sweep,
                     "length": radius * sweep,
                 }
+            elif entity.kind == "ellipse":
+                center = points[str(entity.data["center"])]
+                major = points[str(entity.data["major"])]
+                minor = points[str(entity.data["minor"])]
+                major_radius = math.dist(center, major)
+                minor_radius = math.dist(center, minor)
+                entities[entity_id] = {
+                    "kind": "ellipse",
+                    "center": center,
+                    "major_point": major,
+                    "minor_point": minor,
+                    "major_radius": major_radius,
+                    "minor_radius": minor_radius,
+                    "angle": math.degrees(
+                        math.atan2(major[1] - center[1], major[0] - center[0])
+                    ),
+                }
             elif entity.kind == "bspline":
                 poles = [
                     points[f"bspline:{entity_id}:pole:{index}"]
@@ -1083,6 +1125,13 @@ class _PySlvsSystem:
                 if radius is None:
                     raise ValueError(f"No solved radius for '{refs[0].entity_id}'")
                 scalars[key] = radius * (2.0 if constraint.kind == "diameter" else 1.0)
+            elif constraint.kind in {"major_radius", "minor_radius"}:
+                ellipse = self.sketch.entities[refs[0].entity_id]
+                axis_key = "major" if constraint.kind == "major_radius" else "minor"
+                scalars[key] = math.dist(
+                    points[str(ellipse.data["center"])],
+                    points[str(ellipse.data[axis_key])],
+                )
             elif constraint.kind == "angle":
                 scalars[key] = self._measured_angle_degrees(refs, points) % 360.0
             elif constraint.kind == "line_distance":

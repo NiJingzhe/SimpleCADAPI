@@ -328,6 +328,7 @@ class Sketch(TaggedMixin, TopoMixein):
                 "circle": {"center"},
                 "arc": {"start", "end", "center"},
                 "bspline": {"start", "end"},
+                "ellipse": {"center", "major", "minor"},
             }.get(entity.kind, set())
             if subentity not in valid_subentities:
                 raise ValueError(
@@ -446,6 +447,60 @@ class Sketch(TaggedMixin, TopoMixein):
             )
         )
         return self
+
+    def add_ellipse(
+        self,
+        entity_id: str,
+        center: SketchRef,
+        major_point: SketchRef,
+        minor_point: SketchRef,
+        *,
+        construction: bool = False,
+    ) -> "Sketch":
+        """Add an ellipse derived from three solving points.
+
+        The center point and the two axis-end points are ordinary sketch
+        points; the ellipse shape is a pure function of them (major axis
+        toward ``major_point``, minor radius is the distance to
+        ``minor_point``), so radius constraints solve natively.
+        """
+        center_id = self.resolve_point_id(center)
+        major_id = self.resolve_point_id(major_point)
+        minor_id = self.resolve_point_id(minor_point)
+        if len({center_id, major_id, minor_id}) != 3:
+            raise ValueError(
+                "A sketch ellipse requires three distinct axis points"
+            )
+        center_xy = self._entity_xy(center_id)
+        major_xy = self._entity_xy(major_id)
+        minor_xy = self._entity_xy(minor_id)
+        major_radius = math.dist(center_xy, major_xy)
+        minor_radius = math.dist(center_xy, minor_xy)
+        if major_radius <= _POINT_EPS or minor_radius <= _POINT_EPS:
+            raise ValueError("A sketch ellipse requires non-degenerate axes")
+        if minor_radius > major_radius:
+            raise ValueError(
+                "A sketch ellipse requires the minor axis not to exceed the major axis"
+            )
+        self._add_entity(
+            SketchEntity(
+                entity_id,
+                "ellipse",
+                {
+                    "center": center_id,
+                    "major": major_id,
+                    "minor": minor_id,
+                },
+                construction=construction,
+            )
+        )
+        return self
+
+    def _entity_xy(self, point_id: str) -> Tuple[float, float]:
+        entity = self.entities[point_id]
+        if entity.kind != "point":
+            raise ValueError(f"Sketch entity '{point_id}' is not a point")
+        return (_as_float(entity.data["x"]), _as_float(entity.data["y"]))
 
     def add_bspline(
         self,
@@ -663,6 +718,22 @@ class Sketch(TaggedMixin, TopoMixein):
                 [(str(profile_payload["entity_ids"][0]), wire.get_edges(0).wrapped)],
             )
             return wire
+        if profile_payload["kind"] == "ellipse":
+            from .operators.geometry import make_ellipse_redge
+
+            edge = make_ellipse_redge(
+                profile_payload["center"],
+                profile_payload["major_radius"],
+                profile_payload["minor_radius"],
+                profile_payload["normal"],
+                major_direction=profile_payload["major_direction"],
+            )
+            wire = make_wire_from_edges_rwire([edge])
+            wire._set_runtime(
+                "sketch.entity_edges",
+                [(str(profile_payload["entity_ids"][0]), wire.get_edges(0).wrapped)],
+            )
+            return wire
         if profile_payload["kind"] == "line_loop":
             points = profile_payload["points"]
             edges = [
@@ -814,7 +885,7 @@ class Sketch(TaggedMixin, TopoMixein):
             raise ValueError(f"Unknown sketch entity '{ref.entity_id}'")
         if ref.kind == "point":
             self.resolve_point_id(ref)
-        elif ref.kind in {"line", "circle", "arc", "bspline"}:
+        elif ref.kind in {"line", "circle", "arc", "bspline", "ellipse"}:
             entity = self.entities[ref.entity_id]
             if entity.kind != ref.kind:
                 raise ValueError(
@@ -836,6 +907,8 @@ class Sketch(TaggedMixin, TopoMixein):
         if entity.kind == "arc" and ref.subentity in {"start", "end", "center"}:
             return str(entity.data[ref.subentity])
         if entity.kind == "bspline" and ref.subentity in {"start", "end"}:
+            return str(entity.data[ref.subentity])
+        if entity.kind == "ellipse" and ref.subentity in {"center", "major", "minor"}:
             return str(entity.data[ref.subentity])
         raise ValueError(f"Cannot resolve {ref!r} to a sketch point")
 
@@ -954,6 +1027,29 @@ class Sketch(TaggedMixin, TopoMixein):
                         "entity_ids": [entity_id],
                         "center": self._point3(center),
                         "radius": float(result.solved_scalars[scalar_key]),
+                        "normal": self._plane_normal_tuple(),
+                    }
+                )
+            if entity.kind == "ellipse":
+                center = result.solved_points[str(entity.data["center"])]
+                major = result.solved_points[str(entity.data["major"])]
+                minor = result.solved_points[str(entity.data["minor"])]
+                center3 = self._point3(center)
+                major3 = self._point3(major)
+                minor3 = self._point3(minor)
+                profiles.append(
+                    {
+                        "id": entity_id,
+                        "kind": "ellipse",
+                        "closed": True,
+                        "entity_ids": [entity_id],
+                        "center": center3,
+                        "major_radius": math.dist(center3, major3),
+                        "minor_radius": math.dist(center3, minor3),
+                        "major_direction": tuple(
+                            value - ref
+                            for value, ref in zip(major3, center3)
+                        ),
                         "normal": self._plane_normal_tuple(),
                     }
                 )

@@ -38,7 +38,8 @@ geometry transcription.
 Read the exact page under `references/docs/api/` for every API used:
 
 - Document: `make_sketch_rsketch`, `add_point_rsketch`, `add_line_rsketch`,
-  `add_arc_rsketch`, `add_circle_rsketch`, `add_bspline_rsketch`.
+  `add_arc_rsketch`, `add_circle_rsketch`, `add_bspline_rsketch`,
+  `add_ellipse_rsketch`.
 - Entities: `get_sketch_entity_rsketchref`, `get_sketch_point_rsketchref`.
 - Constraints: `constrain_coincident_rsketch`, `constrain_collinear_rsketch`,
   `constrain_concentric_rsketch`, `constrain_connect_rsketch`,
@@ -54,6 +55,7 @@ Read the exact page under `references/docs/api/` for every API used:
   `constrain_midpoint_rsketch`, `constrain_midpoint_points_rsketch`,
   `constrain_symmetric_rsketch`, `constrain_mirror_rsketch`,
   `constrain_normal_rsketch`, `constrain_point_on_rsketch`,
+  `constrain_major_radius_rsketch`, `constrain_minor_radius_rsketch`,
   `constrain_fix_rsketch`. Driving `constrain_angle_rsketch` holds the
   directed angle from the first line to the second (0-360 degrees; the
   solve keeps the branch nearest the initial geometry).
