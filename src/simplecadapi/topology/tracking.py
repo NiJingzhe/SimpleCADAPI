@@ -28,6 +28,7 @@ from typing import (
     Iterator,
     List,
     Optional,
+    Sequence,
     Tuple,
     TypeVar,
 )
@@ -1535,13 +1536,25 @@ def tracked_fillet(solid: Solid, edges: List[Edge], radius: float) -> TrackedRes
     return TrackedResult(shape=result_solid, delta=delta, delta_entries=aggregate)
 
 
-def tracked_chamfer(solid: Solid, edges: List[Edge], distance: float) -> TrackedResult:
+def tracked_chamfer(
+    solid: Solid,
+    edges: List[Edge],
+    distance: float,
+    *,
+    distance2: Optional[float] = None,
+    edge_face_pairs: Optional[Sequence[Tuple[Edge, Edge]]] = None,
+) -> TrackedResult:
     """Apply chamfer with face-level history tracking.
 
     Args:
         solid: Solid to chamfer.
         edges: Edges to chamfer.
-        distance: Chamfer distance.
+        distance: Chamfer distance (first leg when asymmetric).
+        distance2: Second leg distance for an asymmetric chamfer; when
+            given, ``edge_face_pairs`` must supply the two adjacent faces
+            per edge (first face takes ``distance``).
+        edge_face_pairs: Per-edge (face1, face2) pairs for asymmetric
+            chamfers.
 
     Returns:
         :class:`TrackedResult` with the chamfered solid and topological delta.
@@ -1550,8 +1563,20 @@ def tracked_chamfer(solid: Solid, edges: List[Edge], distance: float) -> Tracked
     node_id = _make_id("n")
 
     chamfer_op = BRepFilletAPI_MakeChamfer(solid.wrapped)
-    for edge in edges:
-        chamfer_op.Add(distance, edge.wrapped)
+    if distance2 is not None:
+        if edge_face_pairs is None or len(edge_face_pairs) != len(edges):
+            raise ValueError(
+                "An asymmetric chamfer requires one (face1, face2) pair per edge"
+            )
+        for edge, (face1, _face2) in zip(edges, edge_face_pairs):
+            chamfer_op.Add(edge.wrapped)
+            contour_index = int(chamfer_op.Contour(edge.wrapped))
+            # OCC puts the first distance on the passed face; the second
+            # lands on the adjacent one.
+            chamfer_op.SetDists(distance, distance2, contour_index, face1.wrapped)
+    else:
+        for edge in edges:
+            chamfer_op.Add(distance, edge.wrapped)
     chamfer_op.Build()
 
     if not chamfer_op.IsDone():
