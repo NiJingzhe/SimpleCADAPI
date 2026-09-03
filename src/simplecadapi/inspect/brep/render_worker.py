@@ -76,6 +76,7 @@ def _render_views(
         ),
         legend_columns=int(options["legend_columns"]),
         legend_panel=bool(options["legend_panel"]),
+        show_axes=bool(options.get("show_axes", False)),
         callouts=(
             tuple(
                 (str(label), tuple(anchor), tuple(color))

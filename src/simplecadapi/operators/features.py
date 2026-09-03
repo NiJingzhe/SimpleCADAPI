@@ -247,6 +247,15 @@ def _normalize_shape_input(
         "rendering accepts Compound, Solid, Shell, Face, Wire, Edge, Vertex, or nested sequences of those types"
     )
 
+SCREENSHOT_VIEWS: Tuple[Tuple[float, float, str], ...] = (
+    (28.0, -45.0, "isometric"),
+    (90.0, -90.0, "top / X-Y"),
+    (0.0, -90.0, "front / X-Z"),
+    (0.0, 0.0, "side / Y-Z"),
+)
+"""Default multi-view set used by render_screenshot_rpath."""
+
+
 def render_screenshot_rpath(
     shapes: Union[Solid, Sequence[Solid]],
     output_path: str,
@@ -254,12 +263,20 @@ def render_screenshot_rpath(
     tag_labels: Optional[Dict[str, str]] = None,
     image_size: Tuple[int, int] = (1400, 900),
     view: Union[Tuple[float, float], str] = "auto",
+    views: Optional[Sequence[Tuple[float, float, str]]] = None,
     show_axes: bool = True,
     show_legend: bool = True,
     zoom: float = 4.0,
     show_callouts: bool = True,
 ) -> str:
-    """Render SDK solids through the shared OCCT/VTK BREP renderer."""
+    """Render SDK solids through the shared OCCT/VTK BREP renderer.
+
+    By default every render is a multi-view grid (SCREENSHOT_VIEWS: isometric,
+    top, front, side) carrying highlight-tag color groups, callout labels with
+    leader lines, a legend and per-panel axis triads. Pass an explicit
+    ``view`` (preset name or ``(elevation, azimuth)``) for the legacy
+    single-view image, or ``views`` to choose a custom view set.
+    """
     try:
         from ..inspect.brep.render import _render_sdk_screenshot_rpath
 
@@ -267,6 +284,9 @@ def render_screenshot_rpath(
         solids = [shape for shape in shape_list if isinstance(shape, Solid)]
         if len(solids) != len(shape_list) or not solids:
             raise ValueError("render_screenshot_rpath only supports Solid inputs")
+        resolved_views = views
+        if resolved_views is None and (view is None or view == "auto"):
+            resolved_views = SCREENSHOT_VIEWS
         return str(
             _render_sdk_screenshot_rpath(
                 solids,
@@ -279,6 +299,7 @@ def render_screenshot_rpath(
                 show_legend=show_legend,
                 zoom=zoom,
                 show_callouts=show_callouts,
+                views=resolved_views,
             )
         )
     except Exception as e:

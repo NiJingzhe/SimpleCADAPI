@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class ViewDecl(name: str, shape: object, n: tuple, xd: tuple, align: dict = field(default_factory=dict), anchor: tuple = None)
+class ViewDecl(name: str, shape: object, n: tuple, xd: tuple, align: dict = field(default_factory=dict), anchor: tuple | None = None)
 ```
 
 *Source: dxf_engine/model.py*
