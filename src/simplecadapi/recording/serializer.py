@@ -137,6 +137,30 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "status": "replayable",
         "op": "make_constrain_vertical_rsketch",
     },
+    "constrain_points_horizontal_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_points_horizontal_rsketch",
+    },
+    "constrain_points_vertical_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_points_vertical_rsketch",
+    },
+    "constrain_line_distance_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_line_distance_rsketch",
+    },
+    "constrain_normal_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_normal_rsketch",
+    },
+    "constrain_mirror_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_mirror_rsketch",
+    },
+    "constrain_midpoint_points_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_midpoint_points_rsketch",
+    },
     "constrain_parallel_rsketch": {
         "status": "replayable",
         "op": "make_constrain_parallel_rsketch",
@@ -496,6 +520,12 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_constrain_point_on_rsketch",
     "make_constrain_horizontal_rsketch",
     "make_constrain_vertical_rsketch",
+    "make_constrain_points_horizontal_rsketch",
+    "make_constrain_points_vertical_rsketch",
+    "make_constrain_line_distance_rsketch",
+    "make_constrain_normal_rsketch",
+    "make_constrain_mirror_rsketch",
+    "make_constrain_midpoint_points_rsketch",
     "make_constrain_parallel_rsketch",
     "make_constrain_perpendicular_rsketch",
     "make_constrain_collinear_rsketch",

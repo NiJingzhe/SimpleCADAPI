@@ -331,10 +331,16 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [constrain_fix_rsketch](constrain_fix_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_horizontal_rsketch](constrain_horizontal_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_length_rsketch](constrain_length_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_line_distance_rsketch](constrain_line_distance_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_midpoint_points_rsketch](constrain_midpoint_points_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_midpoint_rsketch](constrain_midpoint_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_mirror_rsketch](constrain_mirror_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_normal_rsketch](constrain_normal_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_parallel_rsketch](constrain_parallel_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_perpendicular_rsketch](constrain_perpendicular_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_point_on_rsketch](constrain_point_on_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_points_horizontal_rsketch](constrain_points_horizontal_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_points_vertical_rsketch](constrain_points_vertical_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_radius_rsketch](constrain_radius_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_symmetric_rsketch](constrain_symmetric_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_tangent_rsketch](constrain_tangent_rsketch.md) *(from operators/sketch.py)* `top-level`

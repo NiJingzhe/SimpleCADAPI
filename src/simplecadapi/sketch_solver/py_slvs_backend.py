@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         Sketch,
         SketchConstraint,
         SketchConstraintDiagnostic,
+        SketchEntity,
         SketchRef,
         SketchSolveResult,
     )
@@ -372,6 +373,12 @@ class _PySlvsSystem:
             return [self.system.addLineHorizontal(self._entity(refs[0]), self.workplane, group=self._SOLVE_GROUP)]
         if kind == "vertical":
             return [self.system.addLineVertical(self._entity(refs[0]), self.workplane, group=self._SOLVE_GROUP)]
+        if kind == "points_horizontal":
+            return [self.system.addPointsHorizontal(self._point(refs[0]), self._point(refs[1]), self.workplane, group=self._SOLVE_GROUP)]
+        if kind == "points_vertical":
+            return [self.system.addPointsVertical(self._point(refs[0]), self._point(refs[1]), self.workplane, group=self._SOLVE_GROUP)]
+        if kind == "normal":
+            return self._normal(constraint, refs)
         if kind == "parallel":
             return [self.system.addParallel(self._entity(refs[0]), self._entity(refs[1]), self.workplane, group=self._SOLVE_GROUP)]
         if kind == "perpendicular":
@@ -418,12 +425,46 @@ class _PySlvsSystem:
             if target.kind in {"circle", "arc"}:
                 return [self.system.addPointOnCircle(self._point(refs[0]), self._entity(refs[1]), group=self._SOLVE_GROUP)]
             raise ValueError(f"Unsupported point_on target kind '{target.kind}'")
+        if kind == "angle":
+            # SolveSpace constrains the undirected angle between the two line
+            # directions; the two directed solutions (+theta, -theta) both
+            # satisfy it and the solver picks the basin nearest the initial
+            # geometry. Fold the directed value into the smaller magnitude so
+            # either directed branch can be held.
+            value = _as_float(constraint.value)
+            magnitude = value % 360.0
+            if magnitude < 1e-9 or abs(magnitude - 360.0) < 1e-9:
+                raise ValueError(
+                    "A driving angle of 0/360 degrees means the lines are "
+                    "parallel — use constrain_parallel_rsketch instead"
+                )
+            magnitude = min(magnitude, 360.0 - magnitude)
+            return [self.system.addAngle(
+                magnitude,
+                False,
+                self._entity(refs[0]),
+                self._entity(refs[1]),
+                self.workplane,
+                group=self._SOLVE_GROUP,
+            )]
         if kind == "concentric":
             return [self.system.addPointsCoincident(self._circle_center(refs[0]), self._circle_center(refs[1]), self.workplane, group=self._SOLVE_GROUP)]
         if kind == "midpoint":
             return [self.system.addMidPoint(self._point(refs[0]), self._entity(refs[1]), self.workplane, group=self._SOLVE_GROUP)]
         if kind == "symmetric":
-            return [self.system.addSymmetricLine(self._point(refs[0]), self._point(refs[1]), self._entity(refs[2]), self.workplane, group=self._SOLVE_GROUP)]
+            return self._symmetric_about_line(
+                self._point(refs[0]),
+                self._point(refs[1]),
+                self._entity(refs[2]),
+                self._initial_point(self.sketch.resolve_point_id(refs[0])),
+                self._initial_point(self.sketch.resolve_point_id(refs[1])),
+            )
+        if kind == "mirror":
+            return self._mirror(constraint, refs)
+        if kind == "midpoint_points":
+            return self._midpoint_points(refs)
+        if kind == "line_distance":
+            return self._line_distance(constraint, refs)
         if kind == "tangent":
             return self._tangent(constraint, refs)
         raise ValueError(f"Unsupported sketch constraint kind '{kind}'")
@@ -492,6 +533,191 @@ class _PySlvsSystem:
             axis,
             group=self._SOLVE_GROUP,
         )
+
+    def _initial_point(self, point_id: str) -> Tuple[float, float]:
+        from ..sketch import _as_float
+
+        entity = self.sketch.entities[point_id]
+        return (
+            _as_float(entity.data["x"]),
+            _as_float(entity.data["y"]),
+        )
+
+    def _normal(
+        self,
+        constraint: "SketchConstraint",
+        refs: Sequence["SketchRef"],
+    ) -> Sequence[int]:
+        del constraint
+        entities = [self.sketch.entities[ref.entity_id] for ref in refs]
+        line_index = next(
+            (index for index, entity in enumerate(entities) if entity.kind == "line"),
+            None,
+        )
+        curve_index = next(
+            (
+                index
+                for index, entity in enumerate(entities)
+                if entity.kind in {"circle", "arc"}
+            ),
+            None,
+        )
+        if line_index is None or curve_index is None:
+            raise ValueError(
+                "A normal constraint requires one line and one circle or arc"
+            )
+        # A line normal to a circle or arc passes through its center.
+        return [self.system.addPointOnLine(
+            self._circle_center(refs[curve_index]),
+            self._entity(refs[line_index]),
+            self.workplane,
+            group=self._SOLVE_GROUP,
+        )]
+
+    def _mirror(
+        self,
+        constraint: "SketchConstraint",
+        refs: Sequence["SketchRef"],
+    ) -> Sequence[int]:
+        del constraint
+        a_entity = self.sketch.entities[refs[0].entity_id]
+        b_entity = self.sketch.entities[refs[2].entity_id]
+        if a_entity.kind != b_entity.kind:
+            raise ValueError(
+                "Mirror constraint requires two entities of the same kind, got "
+                f"'{a_entity.kind}' and '{b_entity.kind}'"
+            )
+        axis_entity = self.sketch.entities[refs[1].entity_id]
+        if axis_entity.kind != "line":
+            raise ValueError("Mirror constraint requires a line as its axis")
+        axis = self._entity(refs[1])
+        handles: List[int] = []
+        for point_a, point_b in self._mirror_point_pairs(a_entity, b_entity):
+            handles.extend(self._symmetric_about_line(
+                self.point_handles[point_a],
+                self.point_handles[point_b],
+                axis,
+                self._initial_point(point_a),
+                self._initial_point(point_b),
+            ))
+        return handles
+
+    def _symmetric_about_line(
+        self,
+        p_handle: int,
+        q_handle: int,
+        axis_handle: int,
+        p_initial: Tuple[float, float],
+        q_initial: Tuple[float, float],
+    ) -> Sequence[int]:
+        # py-slvs' addSymmetricLine misbehaves (it mirrors about the
+        # workplane u-axis regardless of the axis entity), so decompose:
+        # P and Q are mirror images about the line iff the midpoint of PQ
+        # lies on the line and PQ is perpendicular to it. The helper segment
+        # and midpoint are solver-only construction entities.
+        segment = self.system.addLineSegment(p_handle, q_handle, group=self._SOLVE_GROUP)
+        midpoint = self.system.addPoint2dV(
+            self.workplane,
+            0.5 * (p_initial[0] + q_initial[0]),
+            0.5 * (p_initial[1] + q_initial[1]),
+            group=self._SOLVE_GROUP,
+        )
+        return [
+            self.system.addMidPoint(midpoint, segment, self.workplane, group=self._SOLVE_GROUP),
+            self.system.addPointOnLine(midpoint, axis_handle, self.workplane, group=self._SOLVE_GROUP),
+            self.system.addPerpendicular(segment, axis_handle, self.workplane, group=self._SOLVE_GROUP),
+        ]
+
+    def _mirror_point_pairs(
+        self,
+        a_entity: "SketchEntity",
+        b_entity: "SketchEntity",
+    ) -> List[Tuple[str, str]]:
+        if a_entity.kind == "circle":
+            return [(str(a_entity.data["center"]), str(b_entity.data["center"]))]
+        roles = ("start", "end")
+        a_points = [str(a_entity.data[role]) for role in roles]
+        b_points = [str(b_entity.data[role]) for role in roles]
+        direct = sum(
+            math.dist(self._initial_point(a), self._initial_point(b))
+            for a, b in zip(a_points, b_points)
+        )
+        flipped = sum(
+            math.dist(self._initial_point(a), self._initial_point(b))
+            for a, b in zip(a_points, reversed(b_points))
+        )
+        if flipped < direct:
+            b_points.reverse()
+        pairs = list(zip(a_points, b_points))
+        if a_entity.kind == "arc":
+            pairs.append(
+                (str(a_entity.data["center"]), str(b_entity.data["center"]))
+            )
+        return pairs
+
+    def _midpoint_points(self, refs: Sequence["SketchRef"]) -> Sequence[int]:
+        mid_id = self.sketch.resolve_point_id(refs[0])
+        a_id = self.sketch.resolve_point_id(refs[1])
+        b_id = self.sketch.resolve_point_id(refs[2])
+        if len({mid_id, a_id, b_id}) != 3:
+            raise ValueError(
+                "A midpoint-points constraint requires three distinct points"
+            )
+        # M is the midpoint of A and B iff |AM| = |MB| and the two segments
+        # through M are parallel; two lines sharing endpoint M that are
+        # parallel are necessarily collinear. The helper lines are solver-only
+        # construction entities, mirroring the tangent decomposition helpers.
+        line_am = self.system.addLineSegment(
+            self.point_handles[a_id], self.point_handles[mid_id],
+            group=self._SOLVE_GROUP,
+        )
+        line_mb = self.system.addLineSegment(
+            self.point_handles[mid_id], self.point_handles[b_id],
+            group=self._SOLVE_GROUP,
+        )
+        return [
+            self.system.addEqualLength(line_am, line_mb, self.workplane, group=self._SOLVE_GROUP),
+            self.system.addParallel(line_am, line_mb, self.workplane, group=self._SOLVE_GROUP),
+        ]
+
+    def _line_distance(
+        self,
+        constraint: "SketchConstraint",
+        refs: Sequence["SketchRef"],
+    ) -> Sequence[int]:
+        from ..sketch import _as_float
+
+        value = _as_float(constraint.value)
+        if value <= 0.0:
+            raise ValueError("A line-to-line distance must be positive")
+        a_entity = self.sketch.entities[refs[0].entity_id]
+        b_entity = self.sketch.entities[refs[1].entity_id]
+        if a_entity.kind != "line" or b_entity.kind != "line":
+            raise ValueError(
+                "A line-to-line distance requires two line entities"
+            )
+        # The minimum distance between two parallel lines equals the distance
+        # from any point of one line to the other; drive line a's start point
+        # against line b. SolveSpace signs the point-line distance with the
+        # right side of the line direction positive, so keep the solved point
+        # on its initial side by flipping the sign for the left side.
+        start_id = str(a_entity.data["start"])
+        b_start = self._initial_point(str(b_entity.data["start"]))
+        b_end = self._initial_point(str(b_entity.data["end"]))
+        probe = self._initial_point(start_id)
+        direction = (b_end[0] - b_start[0], b_end[1] - b_start[1])
+        cross = (
+            direction[0] * (probe[1] - b_start[1])
+            - direction[1] * (probe[0] - b_start[0])
+        )
+        signed = -value if cross >= 0.0 else value
+        return [self.system.addPointLineDistance(
+            signed,
+            self.point_handles[start_id],
+            self._entity(refs[1]),
+            self.workplane,
+            group=self._SOLVE_GROUP,
+        )]
 
     def _tangent(
         self,
@@ -858,7 +1084,9 @@ class _PySlvsSystem:
                     raise ValueError(f"No solved radius for '{refs[0].entity_id}'")
                 scalars[key] = radius * (2.0 if constraint.kind == "diameter" else 1.0)
             elif constraint.kind == "angle":
-                scalars[key] = self._measured_angle_degrees(refs, points)
+                scalars[key] = self._measured_angle_degrees(refs, points) % 360.0
+            elif constraint.kind == "line_distance":
+                scalars[key] = self._measured_line_distance(refs, points)
             else:
                 raise ValueError(
                     f"Constraint kind '{constraint.kind}' cannot be used as a reference measurement"
@@ -980,6 +1208,28 @@ class _PySlvsSystem:
         cross = directions[0][0] * directions[1][1] - directions[0][1] * directions[1][0]
         dot = directions[0][0] * directions[1][0] + directions[0][1] * directions[1][1]
         return math.degrees(math.atan2(cross, dot))
+
+    def _measured_line_distance(
+        self,
+        refs: Sequence["SketchRef"],
+        points: Mapping[str, Tuple[float, float]],
+    ) -> float:
+        b_entity = self.sketch.entities[refs[1].entity_id]
+        b_start = points[str(b_entity.data["start"])]
+        b_end = points[str(b_entity.data["end"])]
+        a_entity = self.sketch.entities[refs[0].entity_id]
+        probe = points[str(a_entity.data["start"])]
+        direction = (b_end[0] - b_start[0], b_end[1] - b_start[1])
+        length = math.hypot(*direction)
+        if length <= 1e-18:
+            raise ValueError("A line-distance measurement requires a non-degenerate line")
+        return abs(
+            (
+                direction[0] * (probe[1] - b_start[1])
+                - direction[1] * (probe[0] - b_start[0])
+            )
+            / length
+        )
 
     @staticmethod
     def _failure_description(result_code: int) -> Tuple[str, str]:

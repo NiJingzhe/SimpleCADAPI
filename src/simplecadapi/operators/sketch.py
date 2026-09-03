@@ -483,6 +483,124 @@ def constrain_vertical_rsketch(
         sketch, "vertical", [line], constraint_id=constraint_id, expected=["line"]
     )
 
+def constrain_points_horizontal_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
+    """Constrain two sketch points to be horizontally aligned."""
+    return _constrain_rsketch(
+        sketch,
+        "points_horizontal",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=["point", "point"],
+    )
+
+def constrain_points_vertical_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
+    """Constrain two sketch points to be vertically aligned."""
+    return _constrain_rsketch(
+        sketch,
+        "points_vertical",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=["point", "point"],
+    )
+
+def constrain_line_distance_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    value: ScalarLike,
+    *,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+) -> Sketch:
+    """Add a driving minimum-distance constraint between two sketch lines.
+
+    The constraint drives the distance from line ``a``'s start point to line
+    ``b``; for parallel lines this is exactly the minimum distance between
+    them. The solved point keeps its initial side of line ``b``.
+    """
+    return _constrain_rsketch(
+        sketch,
+        "line_distance",
+        [a, b],
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        expected=["line", "line"],
+    )
+
+def constrain_normal_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
+    """Constrain a line to be normal to a circle or arc.
+
+    A normal line passes through the curve's center; argument order is free.
+    """
+    return _constrain_rsketch(
+        sketch,
+        "normal",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=[("line", "circle", "arc"), ("line", "circle", "arc")],
+    )
+
+def constrain_mirror_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    axis: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
+    """Constrain two same-kind entities to be mirror images about a line.
+
+    Lines match endpoints by nearest initial position; circles match centers;
+    arcs match endpoints and centers.
+    """
+    return _constrain_rsketch(
+        sketch,
+        "mirror",
+        [a, axis, b],
+        constraint_id=constraint_id,
+        expected=[
+            ("line", "circle", "arc"),
+            "line",
+            ("line", "circle", "arc"),
+        ],
+    )
+
+def constrain_midpoint_points_rsketch(
+    sketch: Sketch,
+    mid: Union[SketchRef, str],
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
+    """Constrain point ``mid`` to be the midpoint of points ``a`` and ``b``."""
+    return _constrain_rsketch(
+        sketch,
+        "midpoint_points",
+        [mid, a, b],
+        constraint_id=constraint_id,
+        expected=["point", "point", "point"],
+    )
+
 def constrain_parallel_rsketch(
     sketch: Sketch,
     a: Union[SketchRef, str],

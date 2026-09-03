@@ -95,6 +95,39 @@ def _sketch_entity_maps(sketch_payload):
     }
 
 
+def _mirror_point_id_pairs(a_entity, b_entity, by_id):
+    """Endpoint pairing for entity mirrors, matching the solver's rule."""
+    kind = str(a_entity.get("kind"))
+    if kind == "circle":
+        return [(str(a_entity.get("center")), str(b_entity.get("center")))]
+    a_points = [str(a_entity.get("start")), str(a_entity.get("end"))]
+    b_points = [str(b_entity.get("start")), str(b_entity.get("end"))]
+
+    def _initial(point_id):
+        entity = by_id.get(point_id)
+        if isinstance(entity, dict) and entity.get("kind") == "point":
+            return (float(entity.get("x", 0.0)), float(entity.get("y", 0.0)))
+        return None
+
+    a_initial = [_initial(point) for point in a_points]
+    b_initial = [_initial(point) for point in b_points]
+    if all(a_initial) and all(b_initial):
+        direct = sum(
+            (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+            for a, b in zip(a_initial, b_initial)
+        )
+        flipped = sum(
+            (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+            for a, b in zip(a_initial, reversed(b_initial))
+        )
+        if flipped < direct:
+            b_points.reverse()
+    pairs = list(zip(a_points, b_points))
+    if kind == "arc":
+        pairs.append((str(a_entity.get("center")), str(b_entity.get("center"))))
+    return pairs
+
+
 def _sketch_solved_point(point_id, sketch_payload, solve_snapshot):
     solved = (
         (solve_snapshot or {}).get("solved_points", {})
@@ -342,9 +375,12 @@ def _sketch_constraint_priority(item):
         "fix": 2,
         "horizontal": 3,
         "vertical": 3,
+        "points_horizontal": 3,
+        "points_vertical": 3,
         "distance": 4,
         "distance_x": 4,
         "distance_y": 4,
+        "line_distance": 4,
         "length": 4,
         "radius": 4,
         "diameter": 4,
@@ -352,11 +388,14 @@ def _sketch_constraint_priority(item):
         "parallel": 5,
         "perpendicular": 5,
         "collinear": 5,
+        "normal": 5,
         "tangent": 5,
         "concentric": 5,
         "equal_length": 5,
         "equal_radius": 5,
         "midpoint": 6,
+        "midpoint_points": 6,
+        "mirror": 6,
         "symmetric": 6,
     }
     return priorities.get(kind, 9), int(_index)
@@ -624,6 +663,157 @@ def _materialize_sketch_constraints(
                 constraint,
                 "Horizontal" if kind == "horizontal" else "Vertical",
                 int(entity_ref[0]),
+            )
+            continue
+
+        if kind in {"points_horizontal", "points_vertical"} and len(targets) == 2:
+            a = _target_point_ref(targets[0], by_id, point_refs)
+            b = _target_point_ref(targets[1], by_id, point_refs)
+            if a is None or b is None:
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason=f"{kind} targets are not represented by safe Sketcher geometry",
+                )
+                continue
+            _safe_add_sketch_constraint(
+                sketch_obj,
+                status,
+                constraint,
+                "Horizontal" if kind == "points_horizontal" else "Vertical",
+                int(a[0]),
+                int(a[1]),
+                int(b[0]),
+                int(b[1]),
+            )
+            continue
+
+        if kind == "line_distance" and len(targets) == 2:
+            a_entity = by_id.get(str(targets[0].get("entity_id"))) if isinstance(targets[0], dict) else None
+            b_ref = _target_entity_ref(targets[1], by_id, geom_by_entity)
+            a_point = (
+                (point_refs.get(str(a_entity.get("start"))) or [None])[0]
+                if isinstance(a_entity, dict) and str(a_entity.get("kind")) == "line"
+                else None
+            )
+            if a_point is None or b_ref is None or b_ref[1] != "line":
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason="line_distance requires two materialized lines",
+                )
+                continue
+            _safe_add_sketch_constraint(
+                sketch_obj,
+                status,
+                constraint,
+                "Distance",
+                int(a_point[0]),
+                int(a_point[1]),
+                int(b_ref[0]),
+                float(value),
+                expr_ref=value_expr,
+            )
+            continue
+
+        if kind == "normal" and len(targets) == 2:
+            refs = [
+                _target_entity_ref(target, by_id, geom_by_entity)
+                for target in targets[:2]
+            ]
+            line_ref = next((item for item in refs if item and item[1] == "line"), None)
+            curve_ref = next(
+                (item for item in refs if item and item[1] in {"circle", "arc"}), None
+            )
+            if line_ref is None or curve_ref is None:
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason="normal requires one materialized line and one circle or arc",
+                )
+                continue
+            _safe_add_sketch_constraint(
+                sketch_obj,
+                status,
+                constraint,
+                "PointOnObject",
+                int(curve_ref[0]),
+                3,
+                int(line_ref[0]),
+            )
+            continue
+
+        if kind == "mirror" and len(targets) == 3:
+            a_entity = by_id.get(str(targets[0].get("entity_id"))) if isinstance(targets[0], dict) else None
+            b_entity = by_id.get(str(targets[2].get("entity_id"))) if isinstance(targets[2], dict) else None
+            axis_ref = _target_entity_ref(targets[1], by_id, geom_by_entity)
+            if (
+                not isinstance(a_entity, dict)
+                or not isinstance(b_entity, dict)
+                or axis_ref is None
+                or axis_ref[1] != "line"
+                or str(a_entity.get("kind")) != str(b_entity.get("kind"))
+            ):
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason="mirror requires same-kind entities and a materialized axis line",
+                )
+                continue
+            mapped_any = False
+            for point_a, point_b in _mirror_point_id_pairs(a_entity, b_entity, by_id):
+                ref_a = (point_refs.get(point_a) or [None])[0]
+                ref_b = (point_refs.get(point_b) or [None])[0]
+                if ref_a is None or ref_b is None:
+                    continue
+                mapped_any = True
+                _safe_add_sketch_constraint(
+                    sketch_obj,
+                    status,
+                    constraint,
+                    "Symmetric",
+                    int(ref_a[0]),
+                    int(ref_a[1]),
+                    int(ref_b[0]),
+                    int(ref_b[1]),
+                    int(axis_ref[0]),
+                )
+            if not mapped_any:
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason="mirror point pairs are not represented by safe Sketcher geometry",
+                )
+            continue
+
+        if kind == "midpoint_points" and len(targets) == 3:
+            a = _target_point_ref(targets[1], by_id, point_refs)
+            b = _target_point_ref(targets[2], by_id, point_refs)
+            mid = _target_point_ref(targets[0], by_id, point_refs)
+            if a is None or b is None or mid is None:
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason="midpoint_points targets are not represented by safe Sketcher geometry",
+                )
+                continue
+            _safe_add_sketch_constraint(
+                sketch_obj,
+                status,
+                constraint,
+                "Symmetric",
+                int(a[0]),
+                int(a[1]),
+                int(b[0]),
+                int(b[1]),
+                int(mid[0]),
+                int(mid[1]),
             )
             continue
 
