@@ -196,14 +196,21 @@ def make_helix_wire(
     center: Sequence[float],
     direction: Sequence[float],
     x_direction: Optional[Sequence[float]] = None,
+    handedness: str = "Right",
 ):
+    if handedness not in {"Right", "Left"}:
+        raise ValueError("handedness must be 'Right' or 'Left'")
     axis = (
         gp_Ax3(_pnt(center), _dir(direction), _dir(x_direction))
         if x_direction is not None
         else gp_Ax3(_pnt(center), _dir(direction))
     )
     geom_surf = Geom_CylindricalSurface(axis, float(radius))
-    geom_line = Geom2d_Line(gp_Pnt2d(0.0, 0.0), gp_Dir2d(2 * math.pi, float(pitch)))
+    # A right-handed helix advances counterclockwise (positive u) as it
+    # climbs; negating the u component mirrors the winding without
+    # changing the ascent direction.
+    u_step = 2 * math.pi if handedness == "Right" else -2 * math.pi
+    geom_line = Geom2d_Line(gp_Pnt2d(0.0, 0.0), gp_Dir2d(u_step, float(pitch)))
     n_turns = float(height) / float(pitch)
     u_start = geom_line.Value(0.0)
     u_stop = geom_line.Value(

@@ -3495,9 +3495,13 @@ def make_helix_redge(
     radius: ScalarLike,
     center: Tuple[float, float, float] = (0, 0, 0),
     dir: Tuple[float, float, float] = (0, 0, 1),
+    *,
+    handedness: str = "Right",
 ) -> Edge:
-    """Create a helix edge."""
+    """Create a helix edge, right- or left-handed."""
     try:
+        if handedness not in {"Right", "Left"}:
+            raise ValueError("handedness 必须是 'Right' 或 'Left'")
         pitch_value = evaluate_scalar(pitch)
         height_value = evaluate_scalar(height)
         radius_value = evaluate_scalar(radius)
@@ -3522,6 +3526,7 @@ def make_helix_redge(
             global_center,
             global_dir,
             x_direction=global_x_direction,
+            handedness=handedness,
         )
         wire = Wire(wire_shape)
         edges = wire._iter_edges()
@@ -3539,6 +3544,7 @@ def make_helix_redge(
                     "radius": radius,
                     "center": center,
                     "dir": dir,
+                    "handedness": handedness,
                 },
                 tags={"primitive", "edge"},
             ),
@@ -3566,11 +3572,16 @@ def make_helix_rwire(
     radius: float,
     center: Tuple[float, float, float] = (0, 0, 0),
     dir: Tuple[float, float, float] = (0, 0, 1),
+    *,
+    handedness: str = "Right",
 ) -> Wire:
-    """Create a helix wire."""
+    """Create a helix wire, right- or left-handed."""
     try:
         if get_active_session() is not None:
-            edge = make_helix_redge(pitch, height, radius, center=center, dir=dir)
+            edge = make_helix_redge(
+                pitch, height, radius, center=center, dir=dir,
+                handedness=handedness,
+            )
             return make_wire_from_edges_rwire([edge])
 
         cs = get_current_cs()

@@ -355,6 +355,17 @@ class GeometryEmitterMixin:
             ]
             return lines
         if node.op == "make_helix_redge":
+            if str(node.params.get("handedness", "Right")) == "Left":
+                # Part::Helix only builds right-handed curves; materialize
+                # the mirrored winding through Part.makeHelix(lefthand=True).
+                lines = [
+                    f"{var_name} = _make_feature({_json_ascii(object_name)}, Part.makeHelix(float(_resolve_param_value({rp}, {re}, 'pitch')), float(_resolve_param_value({rp}, {re}, 'height')), float(_resolve_param_value({rp}, {re}, 'radius')), 0.0, True), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+                    f"{var_name}.Placement = App.Placement(_vec(_resolve_vec3_param({rp}, {re}, 'center') if 'center' in {rp} else (0.0, 0.0, 0.0)), App.Rotation(App.Vector(0.0, 0.0, 1.0), _vec(_resolve_vec3_param({rp}, {re}, 'dir') if 'dir' in {rp} else (0.0, 0.0, 1.0))))",
+                ]
+                lines.append(
+                    f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
+                )
+                return lines
             lines = [
                 f"{var_name} = _make_native_object('Part::Helix', {_json_ascii(object_name)}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
                 f"{var_name}.Pitch = float(_resolve_param_value({rp}, {re}, 'pitch'))",

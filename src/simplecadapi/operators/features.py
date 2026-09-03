@@ -961,11 +961,16 @@ def helical_sweep_rsolid(
     radius: float,
     center: Tuple[float, float, float] = (0, 0, 0),
     dir: Tuple[float, float, float] = (0, 0, 1),
+    *,
+    handedness: str = "Right",
 ) -> Solid:
     """Create a solid by sweeping a profile along a helical path."""
     try:
         if get_active_session() is not None:
-            helix = make_helix_rwire(pitch, height, radius, center=center, dir=dir)
+            helix = make_helix_rwire(
+                pitch, height, radius, center=center, dir=dir,
+                handedness=handedness,
+            )
             return sweep_rsolid(
                 make_face_from_wire_rface(profile), helix, is_frenet=True
             )

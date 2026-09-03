@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def make_helix_redge(pitch: ScalarLike, height: ScalarLike, radius: ScalarLike, center: Tuple[float, float, float] = (0, 0, 0), dir: Tuple[float, float, float] = (0, 0, 1)) -> Edge
+def make_helix_redge(pitch: ScalarLike, height: ScalarLike, radius: ScalarLike, center: Tuple[float, float, float] = (0, 0, 0), dir: Tuple[float, float, float] = (0, 0, 1), *, handedness: str = 'Right') -> Edge
 ```
 
 *Source: operators/geometry.py*
@@ -14,4 +14,4 @@ def make_helix_redge(pitch: ScalarLike, height: ScalarLike, radius: ScalarLike, 
 
 ## Description
 
-Create a helix edge.
+Create a helix edge, right- or left-handed.
