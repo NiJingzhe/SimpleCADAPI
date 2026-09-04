@@ -117,7 +117,7 @@ unresolved-import = "ignore"
 unresolved-reference = "ignore"
 
 [tool.ty.src]
-include = ["src", "test", "tests", "examples", "tools"]
+include = ["src", "test", "tests", "examples", "tools", "viewer/server"]
 exclude = [
     "**/__pycache__/**",
     ".venv/**",
