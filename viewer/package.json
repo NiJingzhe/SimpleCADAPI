@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "prepare:example": "uv run python ../examples/10_part_assembly.py"
+    "prepare:example": "uv run python ../examples/10_part_assembly.py",
+    "test": "npm run prepare:example && tsx --test src/loader.test.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.9.0",
@@ -22,7 +23,9 @@
     "three": "0.178.0"
   },
   "devDependencies": {
+    "@types/node": "^24.10.1",
     "@types/three": "0.178.1",
+    "tsx": "^4.20.3",
     "typescript": "5.7.2",
     "vite": "7.3.6"
   }
