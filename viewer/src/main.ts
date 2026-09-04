@@ -35,6 +35,8 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { bindClickSelection } from './components/click-selection';
 import { bindResizablePanels } from './components/panel-resizer';
 import { SourceDock } from './components/source-dock';
+import { addWideEdgeVisual, cadPointToGltf, disposeObject, materialFor, placementMatrix } from './cad-three';
+import { entityCenter, entityMeasure, formatNumber, qlSelectorForEntity } from './entity-facts';
 import { openCadPackage, type PackageFiles } from './product-package';
 import {
   buildFederatedFeatureModel,
@@ -238,65 +240,6 @@ async function loadGlb(files: PackageFiles, uri: string): Promise<THREE.Object3D
   const gltf = await loader.parseAsync(buffer, '');
   return gltf.scene;
 }
-const CAD_TO_GLTF = new THREE.Matrix4().set(0.001, 0, 0, 0, 0, 0, 0.001, 0, 0, -0.001, 0, 0, 0, 0, 0, 1);
-const GLTF_TO_CAD = new THREE.Matrix4().set(1000, 0, 0, 0, 0, 0, -1000, 0, 0, 1000, 0, 0, 0, 0, 0, 1);
-
-function placementMatrix(transform: Transform): THREE.Matrix4 {
-  const { origin, x_axis, y_axis, z_axis } = transform;
-  const cad = new THREE.Matrix4().set(
-    x_axis[0], y_axis[0], z_axis[0], origin[0],
-    x_axis[1], y_axis[1], z_axis[1], origin[1],
-    x_axis[2], y_axis[2], z_axis[2], origin[2],
-    0, 0, 0, 1,
-  );
-  return CAD_TO_GLTF.clone().multiply(cad).multiply(GLTF_TO_CAD);
-}
-
-function cadPointToGltf(point: Vec3): THREE.Vector3 {
-  return new THREE.Vector3(point[0] / 1000, point[2] / 1000, -point[1] / 1000);
-}
-
-const CAD_EDGE_LIGHTNESS_OFFSET = 0.5;
-const CAD_EDGE_LINE_WIDTH = 1.6;
-const DEFAULT_BASE_COLOR: [number, number, number, 1] = [0.72, 0.75, 0.78, 1];
-
-function cadEdgeColor(baseColor: [number, number, number, 1]): THREE.Color {
-  const hsl = { h: 0, s: 0, l: 0 };
-  new THREE.Color(baseColor[0], baseColor[1], baseColor[2]).getHSL(hsl);
-  return new THREE.Color().setHSL(hsl.h, hsl.s, (hsl.l + CAD_EDGE_LIGHTNESS_OFFSET) % 1);
-}
-
-function materialFor(node: SceneNode): THREE.MeshStandardMaterial {
-  const color = node.material_id ? [0.68, 0.78, 0.88, 1] as const : DEFAULT_BASE_COLOR;
-  return new THREE.MeshStandardMaterial({ color: new THREE.Color(color[0], color[1], color[2]), metalness: 0.08, roughness: 0.52, side: THREE.FrontSide, transparent: color[3] < 1, opacity: color[3] });
-}
-
-function edgeMaterial(): LineMaterial {
-  const material = new LineMaterial({ color: cadEdgeColor(DEFAULT_BASE_COLOR), linewidth: CAD_EDGE_LINE_WIDTH, worldUnits: false, depthTest: true, depthWrite: false });
-  material.resolution.set(renderer.domElement.clientWidth, renderer.domElement.clientHeight);
-  return material;
-}
-
-function addWideEdgeVisual(source: THREE.LineSegments): void {
-  const position = source.geometry.getAttribute('position');
-  const index = source.geometry.index;
-  const indexCount = index?.count ?? position.count;
-  const positions: number[] = [];
-  for (let offset = 0; offset + 1 < indexCount; offset += 2) {
-    const a = index ? index.getX(offset) : offset;
-    const b = index ? index.getX(offset + 1) : offset + 1;
-    positions.push(position.getX(a), position.getY(a), position.getZ(a), position.getX(b), position.getY(b), position.getZ(b));
-  }
-  const geometry = new LineSegmentsGeometry();
-  geometry.setPositions(positions);
-  const visual = new LineSegments2(geometry, edgeMaterial());
-  visual.name = 'cad-edge-visual';
-  visual.userData.pickable = false;
-  source.add(visual);
-  const pickingMaterial = new THREE.LineBasicMaterial();
-  pickingMaterial.visible = false;
-  source.material = pickingMaterial;
-}
 
 function sidecarForNode(node: SceneNode | undefined): EntitySidecar | null {
   if (!currentManifest || !currentFiles || !node?.entity_asset_id) return null;
@@ -336,7 +279,9 @@ async function instantiateNode(node: SceneNode): Promise<THREE.Group> {
       edgeCache.set(edgeAsset.asset_id, edge);
     }
     const edgeInstance = edge.clone(true);
-    edgeInstance.traverse((child) => { if (child instanceof THREE.LineSegments) addWideEdgeVisual(child); });
+    edgeInstance.traverse((child) => {
+      if (child instanceof THREE.LineSegments) addWideEdgeVisual(child, { width: renderer.domElement.clientWidth, height: renderer.domElement.clientHeight });
+    });
     group.add(edgeInstance);
   }
   if (sidecar) {
@@ -369,30 +314,11 @@ function applySelectionModeVisibility(): void {
 
 function clearModel(): void {
   clearSelectionOverlay();
-  const disposedGeometries = new Set<THREE.BufferGeometry>();
-  const disposedMaterials = new Set<THREE.Material>();
-  const dispose = (root: THREE.Object3D): void => {
-    root.traverse((object) => {
-      if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments || object instanceof THREE.Points) {
-        if (!disposedGeometries.has(object.geometry)) {
-          object.geometry.dispose();
-          disposedGeometries.add(object.geometry);
-        }
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => {
-          if (!disposedMaterials.has(material)) {
-            material.dispose();
-            disposedMaterials.add(material);
-          }
-        });
-      }
-    });
-  };
-  for (const object of geometryCache.values()) dispose(object);
-  for (const object of edgeCache.values()) dispose(object);
+  for (const object of geometryCache.values()) disposeObject(object);
+  for (const object of edgeCache.values()) disposeObject(object);
   while (modelRoot.children.length) {
     const child = modelRoot.children[0];
-    dispose(child);
+    disposeObject(child);
     modelRoot.remove(child);
   }
   nodeObjects.clear();
@@ -700,28 +626,9 @@ function sourceLocationsMarkup(sources: OperationSource[]): string {
   return sources.map((source, index) => `<button class="source-location" data-source-index="${index}" type="button">${sourceLocationMarkup(source)}</button>`).join('');
 }
 
-function pythonLiteral(value: unknown): string {
-  if (value === null) return 'None';
-  if (value === true) return 'True';
-  if (value === false) return 'False';
-  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'None';
-  return JSON.stringify(String(value));
-}
-
 function jsonText(value: unknown): string {
   const rendered = JSON.stringify(value, null, 2);
   return rendered === undefined ? 'null' : rendered;
-}
-
-function entityCenter(entity: Entity): Vec3 | null {
-  const value = entity.kind === 'vertex' ? entity.properties.position : entity.properties.centroid;
-  return Array.isArray(value) && value.length === 3 && value.every((item) => typeof item === 'number') ? value as Vec3 : null;
-}
-
-function entityMeasure(entity: Entity): [string, number] | null {
-  const path = entity.kind === 'solid' ? 'geom.volume' : entity.kind === 'face' ? 'geom.area' : entity.kind === 'edge' ? 'geom.length' : null;
-  const value = entity.kind === 'solid' ? entity.properties.volume : entity.kind === 'face' ? entity.properties.area : entity.kind === 'edge' ? entity.properties.length : null;
-  return path && typeof value === 'number' ? [path, value] : null;
 }
 
 function featureIdForGeometry(entity: Entity | undefined): string | null {
@@ -729,45 +636,6 @@ function featureIdForGeometry(entity: Entity | undefined): string | null {
   const source = entity.source;
   if (source.kind !== 'feature_output' || typeof source.definition_id !== 'string' || typeof source.graph_id !== 'string' || typeof source.node_id !== 'string') return null;
   return currentModel.graph.nodes.find((feature) => feature.definition_id === source.definition_id && feature.graph_id === source.graph_id && feature.local_node_id === source.node_id)?.node_id ?? null;
-}
-
-function qlSelectorForEntity(entity: Entity, sidecar: EntitySidecar): { expression: string; unique: boolean } {
-  type Fact = { expression: string; matches: (candidate: Entity) => boolean };
-  const candidates = sidecar.entities.filter((candidate) => candidate.kind === entity.kind);
-  const facts: Fact[] = [];
-  for (const tag of entity.tags) facts.push({ expression: `Q.tag(${pythonLiteral(tag)})`, matches: (candidate) => candidate.tags.includes(tag) });
-  const geometryType = entity.geometry.type;
-  if (typeof geometryType === 'string' && !geometryType.startsWith('other_') && geometryType !== 'brep_solid' && geometryType !== 'point') {
-    const expected = geometryType.toUpperCase().replace(/^BSPLINE_(CURVE|SURFACE)$/, 'BSPLINE');
-    facts.push({ expression: `Q.prop("geom.type", "==", ${pythonLiteral(expected)})`, matches: (candidate) => candidate.geometry.type === geometryType });
-  }
-  const measure = entityMeasure(entity);
-  if (measure) facts.push({ expression: `Q.prop(${pythonLiteral(measure[0])}, "==", ${pythonLiteral(measure[1])})`, matches: (candidate) => entityMeasure(candidate)?.[1] === measure[1] });
-  const center = entityCenter(entity);
-  if (center) {
-    (['x', 'y', 'z'] as const).forEach((axis, index) => facts.push({
-      expression: `Q.prop("geom.center.${axis}", "==", ${pythonLiteral(center[index])})`,
-      matches: (candidate) => entityCenter(candidate)?.[index] === center[index],
-    }));
-  }
-  let matches = candidates;
-  const selectedFacts: Fact[] = [];
-  for (const fact of facts) {
-    const narrowed = matches.filter(fact.matches);
-    if (narrowed.length < matches.length) {
-      selectedFacts.push(fact);
-      matches = narrowed;
-    }
-    if (matches.length === 1) break;
-  }
-  const unique = matches.length === 1 && matches[0].entity_id === entity.entity_id;
-  const factory = entity.kind === 'solid' ? 'Q.ShapeSelector(target_kind="solid")' : `Q.${entity.kind}s()`;
-  const lines = [factory];
-  if (typeof entity.source.node_id === 'string') lines.push(`.from_source(${pythonLiteral(entity.source.node_id)}, ${typeof entity.source.output_slot === 'number' ? entity.source.output_slot : 0})`);
-  if (selectedFacts.length === 1) lines.push(`.where(${selectedFacts[0].expression})`);
-  if (selectedFacts.length > 1) lines.push(`.where(Q.and_(\n    ${selectedFacts.map((fact) => fact.expression).join(',\n    ')}\n))`);
-  lines.push('.exactly(1)');
-  return { expression: `(${lines.map((line) => `    ${line}`).join('\n')}\n)`, unique };
 }
 
 function metadataSection(title: string, value: Record<string, unknown> | undefined): string {
@@ -1013,8 +881,6 @@ function toggleNodeVisibility(nodeId: string): void {
     renderIcons(details);
   } else if (!isEffectivelyVisible(object)) clearSelectionOverlay();
 }
-
-function formatNumber(value: unknown): string { return typeof value === 'number' ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value) : 'n/a'; }
 
 function frameModel(): void {
   const box = new THREE.Box3().setFromObject(modelRoot);

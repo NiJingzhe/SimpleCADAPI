@@ -29,6 +29,32 @@ The same file can be dropped directly into the viewport.
 The file picker accepts local `.scadpkg` product packages only. The viewer does
 not load packages from URL query parameters or require a built-in case registry.
 
+## Reverse-Engineering Studio (`re.html`)
+
+The second entry, `re.html`, is the interactive reconstruction studio: a human
+annotates a STEP target, an agent reconstructs from those annotations, and the
+studio displays the rebuilt result next to the original. See
+`docs/skill/references/workflows/reverse-engineering-studio.md` for the full
+agent-side loop.
+
+```bash
+# from the repo root — binds 127.0.0.1:7170 and opens the studio
+uv run python -m viewer.server <case_dir> --daemon
+```
+
+The case directory must contain the STEP target (`*.step`/`*.stp`); the server
+synthesizes the same GLB + entity-sidecar scene projection packages carry, so
+face/edge/vertex picking works identically on both sides. The rebuilt side
+loads the agent's captured v3 `rebuilt.scadpkg` through the normal package
+loader. During development, `npm run dev` proxies `/api` to the server port.
+
+Governance: the studio UI only selects and describes — it never edits geometry.
+Only the browser writes `re_work/submission.json`; the agent waits on it via
+`uv run python -m viewer.server <case_dir> --wait-only` and writes artifacts
+(`rebuild.py`, `rebuilt.step`, `rebuilt.scadpkg`, `comparison.png`,
+`evaluation.json`) that the UI polls. Every event lands in
+`re_work/session.ndjson` as the training record.
+
 ## Inspecting A Product
 
 The **Components** tab shows the evaluated occurrence hierarchy. Select an
