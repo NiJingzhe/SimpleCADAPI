@@ -4,11 +4,12 @@
 Question: WHY does translating a HistCAD sketch with its own constraints fail
 to solve, when the constraints were extracted from the very same model?
 
-Method (all analysis happens on the tool side; translated sources stay pure):
+Method (all analysis happens on the tool side; the translator stays pure):
 
-1. Reproduce — translate each sampled case with ``--constraints auto`` and
-   collect the per-feature preflight outcome (status, dof, failed ids) from
-   the sidecar report.
+1. Reproduce — render each feature's translated constrained prefix (the same
+   StepEmitter the translator uses) and solve it here, classifying the
+   outcome: solved / drifted (solve moves points > 1e-3 mm off the
+   transcribed coordinates) / conflicting (solver-inconsistent) / exec_error.
 2. Residuals — for EVERY dataset constraint, compute the value implied by the
    transcribed 4-decimal coordinates and compare it with the stated value.
    A residual near 1e-4 means rounding noise; near 0 means the entry is
@@ -48,7 +49,6 @@ from histcad_to_ftc import (  # noqa: E402
     circumcenter,
     entity_kind,
     eval_value_expr,
-    translate_case,
 )
 
 # residual buckets in millimeters (degrees for angular kinds)
@@ -391,33 +391,79 @@ def _halfspace_audit(step: Dict[str, Any]) -> List[Dict[str, Any]]:
 # case evaluation
 
 
+# audit criterion (NOT translation policy): a constrained solve must reproduce
+# the transcribed coordinates; rounding reflow stays below ~2e-4 mm
+_MAX_SOLVE_DRIFT = 1e-3
+
+
+def _audit_feature(step: Dict[str, Any], index: int) -> Dict[str, Any]:
+    """Solve one feature's translated constrained prefix and classify it.
+
+    This is the audit side of the wall: the translator emits constraints
+    unconditionally; here we run them and report what happened.
+    """
+    import simplecadapi as scad  # noqa: PLC0415
+
+    emitter = StepEmitter(step, index, constraints_mode="on")
+    try:
+        feature = emitter.emit_feature()
+    except Exception as exc:  # noqa: BLE001
+        return {"outcome": "unsupported", "status": str(exc)[:80], "dof": None,
+                "max_move": None, "failed_constraints": []}
+    if not feature["constraint_lines"]:
+        return {"outcome": "no-constraints", "status": None, "dof": None,
+                "max_move": None, "failed_constraints": []}
+    namespace: Dict[str, Any] = {"scad": scad}
+    source = "\n".join(feature["sketch_lines"] + feature["constraint_lines"])
+    try:
+        exec(compile(source, "<histcad-audit>", "exec"), namespace)  # noqa: S102
+        result = scad.inspect_sketch_rsketchresult(namespace["s"], strict=False)
+    except Exception as exc:  # noqa: BLE001
+        return {"outcome": "exec_error", "status": str(exc)[:120], "dof": None,
+                "max_move": None, "failed_constraints": []}
+    failed = [d.constraint_id for d in result.diagnostics if d.severity == "error" and d.constraint_id]
+    record: Dict[str, Any] = {
+        "status": result.status,
+        "dof": int(result.dof),
+        "failed_constraints": failed,
+        "max_move": None,
+    }
+    if result.status in {"conflicting", "failed"} or failed:
+        record["outcome"] = "conflicting"
+        return record
+    worst = 0.0
+    seen = False
+    for pid, (x, y) in emitter.pool.items():
+        solved = result.solved_points.get(pid)
+        if solved is not None:
+            seen = True
+            worst = max(worst, math.hypot(solved[0] - x, solved[1] - y))
+    record["max_move"] = worst if seen else None
+    if worst > _MAX_SOLVE_DRIFT:
+        record["outcome"] = "drifted"
+    else:
+        record["outcome"] = "solved"
+    return record
+
+
 def _evaluate(payload: Dict[str, Any]) -> Dict[str, Any]:
     uid = payload["uid"]
-    case = translate_case(payload["steps"], uid, constraints_mode="auto")
-    features = {f["feature"]: f for f in case["features"]}
-    conflicts = {c["feature"]: c for c in case["conflicts"]}
     per_feature: List[Dict[str, Any]] = []
     for index, step in enumerate(payload["steps"]):
         residuals = constraint_residuals(step)
         measured = [r["residual"] for r in residuals if r["residual"] is not None]
         halfspace = _halfspace_audit(step)
-        feature = features.get(index, {})
-        conflict = conflicts.get(index)
+        audit = _audit_feature(step, index)
         per_feature.append({
             "feature": index,
-            "outcome": "conflict" if conflict else feature.get("tier", "no-constraints"),
-            "status": feature.get("status") or (conflict or {}).get("status"),
-            "dof": feature.get("dof", (conflict or {}).get("dof")),
-            "max_move": feature.get("max_move"),
-            "failed_constraints": (conflict or {}).get("failed_constraints", []),
+            **audit,
             "max_residual": max(measured) if measured else None,
             "residuals": residuals,
             "halfspace": halfspace,
         })
     return {
         "uid": uid,
-        "features": [{k: v for k, v in f.items()} for f in per_feature],
-        "notes": case["notes"],
+        "features": per_feature,
     }
 
 
@@ -459,18 +505,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     localized = 0
     localizable = 0
     solved_moves: List[float] = []
+    drifted_moves: List[float] = []
     kind_stats: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
     halfspace_total = Counter()
-    halfspace_failed = Counter()
-    failed_by_uid: Dict[str, List[Any]] = defaultdict(list)
+    halfspace_bad = Counter()
     for result in results:
         for feature in result["features"]:
             outcome = feature["outcome"]
             outcome_bucket[outcome][_bucket(feature["max_residual"])] += 1
             if feature["dof"] is not None:
-                outcome_dof[outcome]["dof=0" if feature["dof"] == 0 else f"dof>0"] += 1
-            if outcome == "conflict":
-                failed_by_uid[result["uid"]].append(feature["feature"])
+                outcome_dof[outcome]["dof=0" if feature["dof"] == 0 else "dof>0"] += 1
+            if outcome in {"conflicting", "exec_error", "unsupported"}:
                 failed_set = set(feature["failed_constraints"])
                 worst = max(
                     (r for r in feature["residuals"] if r["residual"] is not None),
@@ -484,19 +529,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                 for r in feature["residuals"]:
                     if r["label"] in failed_set and r["residual"] is not None:
                         failed_kind_bucket[r["ctype"]][_bucket(r["residual"])] += 1
-            else:
-                if feature["max_move"] is not None:
-                    solved_moves.append(feature["max_move"])
+            if outcome == "solved" and feature["max_move"] is not None:
+                solved_moves.append(feature["max_move"])
+            if outcome == "drifted" and feature["max_move"] is not None:
+                drifted_moves.append(feature["max_move"])
             for r in feature["residuals"]:
                 if r["residual"] is not None:
                     kind_stats[r["ctype"]]["all"].append(r["residual"])
-                    if outcome == "conflict" and r["label"] in set(feature["failed_constraints"]):
+                    if outcome in {"conflicting", "exec_error"} and r["label"] in set(feature["failed_constraints"]):
                         kind_stats[r["ctype"]]["failed"].append(r["residual"])
             for record in feature["halfspace"]:
                 key0 = (record["stated0"] == record["implied0"], record["stated1"] == record["implied1"])
-                halfspace_total[f"s0:{'ok' if key0[0] else 'flip'} s1:{'ok' if key0[1] else 'flip'}"] += 1
-                if outcome == "conflict":
-                    halfspace_failed[f"s0:{'ok' if key0[0] else 'flip'} s1:{'ok' if key0[1] else 'flip'}"] += 1
+                key = f"s0:{'ok' if key0[0] else 'flip'} s1:{'ok' if key0[1] else 'flip'}"
+                halfspace_total[key] += 1
+                if outcome in {"conflicting", "drifted", "exec_error"}:
+                    halfspace_bad[key] += 1
 
     print("\n== outcome x max-residual bucket (per feature) ==")
     for outcome, buckets in sorted(outcome_bucket.items()):
@@ -512,6 +559,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             "== solved-feature point displacement (solver reflow): "
             f"median={solved_moves[len(solved_moves) // 2]:.2e} p90={solved_moves[int(0.9 * len(solved_moves))]:.2e} max={solved_moves[-1]:.2e}"
         )
+    if drifted_moves:
+        drifted_moves.sort()
+        print(
+            "== drifted-feature point displacement: "
+            f"min={drifted_moves[0]:.2e} median={drifted_moves[len(drifted_moves) // 2]:.2e} max={drifted_moves[-1]:.2e}"
+        )
     print("\n== failed constraint kinds x their own residual bucket ==")
     for ctype, buckets in sorted(failed_kind_bucket.items(), key=lambda kv: -sum(kv[1].values())):
         print(f"  {ctype:12s} n={sum(buckets.values()):4d}  " + "  ".join(f"{name}={count}" for name, count in buckets.items()))
@@ -525,8 +578,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if sum(halfspace_total.values()):
         print("\n== DeepCAD halfSpace vs coordinate-implied side ==")
         for key, count in sorted(halfspace_total.items()):
-            failed_count = halfspace_failed.get(key, 0)
-            print(f"  {key}: total={count} in-conflicting-features={failed_count}")
+            bad_count = halfspace_bad.get(key, 0)
+            print(f"  {key}: total={count} in-nonsolving-features={bad_count}")
 
     if args.dump_uid:
         for result in results:

@@ -2,26 +2,27 @@
 """Translate HistCAD sequence JSON into SimpleCADAPI FTC feature-tree sources.
 
 The translator emits one feature block per HistCAD step (sketch entities ->
-promotion -> extrude -> boolean mode), following the Feature Tree Convention:
-block headers ``# ---- feature: <slug> (<role>) ----``, explicit dataflow
-rebinding, and honest tier annotations (``profile=geometry`` for transcribed
-dataset geometry; ``profile=sketch`` when the HistCAD constraints are mapped).
+constraints -> promotion -> extrude -> boolean mode), following the Feature
+Tree Convention: block headers ``# ---- feature: <slug> (<role>) ----``,
+explicit dataflow rebinding, and tier annotations (``profile=sketch`` when
+the HistCAD constraints are mapped, ``profile=geometry`` for transcription).
 
-Translated sources are TRAINING DATA: they contain the model and nothing else.
-Every correctness question (does the constrained sketch solve? which dataset
-constraints conflict?) is answered here, at translation time, and reported
-out-of-band — never by checks embedded in the generated code.
+Translated sources are TRAINING DATA: they contain the model and nothing
+else. The translator ONLY translates — it never solves, never decides tiers
+by outcome, never falls back. Whether a constrained sketch solves, which
+dataset constraints conflict, and how far a solve drifts are questions for
+the external audit tools:
+
+    histcad_conflicts.py   per-constraint residual + solve-outcome analysis
+    histcad_validate.py    build + STEP volume reconciliation
 
 Constraint modes:
-    off   emit transcribed geometry only (``profile=geometry``)
-    on    emit every mappable constraint (``profile=sketch``), no solving
-    auto  solve each feature's constrained sketch in-process first; emit the
-          constrained block when it solves, otherwise transcribed geometry,
-          and record the solver diagnostics in the sidecar report
+    on    translate everything the dataset carries (default)
+    off   transcribe geometry only, dropping the constraint channel
 
 Usage:
     python tools/research/histjson/histcad_to_ftc.py <seq.json> [--out PATH]
-        [--constraints auto|off|on] [--report PATH]
+        [--constraints on|off]
 """
 
 from __future__ import annotations
@@ -754,7 +755,6 @@ class StepEmitter:
             "mode": mode,
             "dropped": self.dropped_constraints,
             "elided": self.elided_constraints,
-            "point_coords": dict(self.pool),
         }
 
 
@@ -764,67 +764,14 @@ class UnsupportedFeature(Exception):
 
 _MODE_ROLES = {"NewBody": "build", "Join": "add", "Cut": "subtract", "Intersect": "intersect"}
 
-_OK_STATUSES = {"solved", "underconstrained"}
 
-# A constrained solve must reproduce the transcribed coordinates: rounding
-# reflow stays below ~2e-4 mm, so a larger drift means the constraints pull
-# the model away from the dataset geometry (wrong dialect or dataset error).
-_MAX_SOLVE_DRIFT = 1e-3
+def translate_steps(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode: str = "on") -> str:
+    """Translate one HistCAD case into a clean FTC source.
 
-
-def _preflight_feature(feature: Dict[str, Any]) -> Dict[str, Any]:
-    """Solve one feature's generated constrained sketch prefix in-process.
-
-    Runs the exact lines that would be emitted, then inspects the sketch with
-    strict=False so a failed solve reports WHICH constraints failed instead of
-    raising. Pure translation-time bookkeeping: nothing of this appears in the
-    generated source.
-    """
-    import simplecadapi as scad  # noqa: PLC0415
-
-    namespace: Dict[str, Any] = {"scad": scad}
-    source = "\n".join(feature["sketch_lines"] + feature["constraint_lines"])
-    try:
-        exec(compile(source, "<histcad-preflight>", "exec"), namespace)  # noqa: S102
-        result = scad.inspect_sketch_rsketchresult(namespace["s"], strict=False)
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "status": "exec_error",
-            "dof": None,
-            "failed_constraints": [],
-            "warnings": [str(exc)[:160]],
-            "max_move": None,
-        }
-    errors = [d for d in result.diagnostics if d.severity == "error"]
-    return {
-        "status": result.status,
-        "dof": int(result.dof),
-        "failed_constraints": [d.constraint_id for d in errors if d.constraint_id],
-        "warnings": sorted({d.code for d in result.diagnostics if d.severity == "warning"}),
-        "max_move": _max_point_move(feature["point_coords"], result.solved_points),
-    }
-
-
-def _max_point_move(
-    initial: Dict[str, Tuple[float, float]],
-    solved: Dict[str, Tuple[float, float]],
-) -> Optional[float]:
-    """Largest point displacement between transcribed and solved coordinates."""
-    worst = 0.0
-    seen = False
-    for pid, (x, y) in initial.items():
-        if pid in solved:
-            seen = True
-            worst = max(worst, math.hypot(solved[pid][0] - x, solved[pid][1] - y))
-    return worst if seen else None
-
-
-def translate_case(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode: str = "auto") -> Dict[str, Any]:
-    """Translate one HistCAD case into a clean FTC source plus a sidecar report.
-
-    Returns ``{"source", "features", "conflicts", "notes"}`` where ``features``
-    records the tier chosen per feature and ``conflicts`` carries the solver
-    diagnostics for every feature that could not keep its constraints.
+    The output carries the model and nothing else: every mappable constraint
+    is translated (``on``), or the geometry is transcribed (``off``). No
+    solving, no tier decisions, no diagnostics — auditing lives in the
+    external tools.
     """
     lines: List[str] = [
         f'"""FTC source generated from HistCAD {uid}."""',
@@ -848,8 +795,6 @@ def translate_case(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode: 
         "def build() -> scad.Part:",
     ]
     notes: List[str] = []
-    feature_records: List[Dict[str, Any]] = []
-    conflicts: List[Dict[str, Any]] = []
     first_feature = True
 
     for index, step in enumerate(steps):
@@ -862,48 +807,14 @@ def translate_case(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode: 
             notes.append(f"step {index}: unsupported ({exc})")
             continue
 
-        use_constraints = bool(feature["constraint_lines"])
-        record: Dict[str, Any] = {"feature": index, "mode": mode}
-        if constraints_mode == "auto" and use_constraints:
-            diag = _preflight_feature(feature)
-            record.update(diag)
-            solved = diag["status"] in _OK_STATUSES and not diag["failed_constraints"]
-            drifted = solved and diag["max_move"] is not None and diag["max_move"] > _MAX_SOLVE_DRIFT
-            if not solved:
-                use_constraints = False
-                conflicts.append({
-                    "feature": index,
-                    "status": diag["status"],
-                    "dof": diag["dof"],
-                    "failed_constraints": diag["failed_constraints"],
-                    "warnings": diag["warnings"],
-                    "dropped_constraints": feature["dropped"],
-                })
-            elif drifted:
-                use_constraints = False
-                conflicts.append({
-                    "feature": index,
-                    "status": "diverged",
-                    "dof": diag["dof"],
-                    "failed_constraints": [],
-                    "warnings": [f"solved but points moved {diag['max_move']:.3e} mm from the transcribed coordinates"],
-                    "dropped_constraints": feature["dropped"],
-                })
         if feature["dropped"]:
             notes.append(f"feature {index}: unmapped constraint kinds {sorted(set(feature['dropped']))}")
-            record["dropped_constraints"] = feature["dropped"]
-        if feature["elided"]:
-            record["elided_coincidents"] = len(feature["elided"])
 
-        record["tier"] = "sketch" if use_constraints else "geometry"
-        feature_records.append(record)
-
-        tier = f"profile={record['tier']}"
+        tier = "profile=sketch" if feature["constraint_lines"] else "profile=geometry"
         slug = f"{mode.lower()}-{index + 1}"
         lines.append(f"    # ---- feature: {slug} ({role}, {tier}) ----")
         lines.extend(f"    {line}" for line in feature["sketch_lines"])
-        if use_constraints:
-            lines.extend(f"    {line}" for line in feature["constraint_lines"])
+        lines.extend(f"    {line}" for line in feature["constraint_lines"])
         lines.extend(f"    {line}" for line in feature["tool_lines"])
         tools = feature["tool_vars"]
         tool_list = "[" + ", ".join(tools) + "]"
@@ -934,13 +845,7 @@ def translate_case(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode: 
     lines.append("    BODIES = list(bodies)")
     lines.append("    return _merge_bodies(bodies)")
     header_notes = [f"    # {note}" for note in notes]
-    source = "\n".join(lines[:6] + header_notes + lines[6:]) + "\n"
-    return {"source": source, "features": feature_records, "conflicts": conflicts, "notes": notes}
-
-
-def translate_steps(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode: str = "auto") -> str:
-    """Source-only convenience wrapper around :func:`translate_case`."""
-    return translate_case(steps, uid, constraints_mode=constraints_mode)["source"]
+    return "\n".join(lines[:6] + header_notes + lines[6:]) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -951,33 +856,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("json_file", type=Path)
     parser.add_argument("--out", type=Path, default=None)
-    parser.add_argument("--constraints", choices=["auto", "off", "on"], default="auto")
-    parser.add_argument("--report", type=Path, default=None,
-                        help="sidecar report path (default: <out>.report.json)")
+    parser.add_argument("--constraints", choices=["on", "off"], default="on")
     args = parser.parse_args(argv)
 
     steps = json.loads(args.json_file.read_text())
-    case = translate_case(steps, args.json_file.stem, constraints_mode=args.constraints)
+    source = translate_steps(steps, args.json_file.stem, constraints_mode=args.constraints)
     out_path = args.out or args.json_file.with_suffix(".ftc.py")
-    out_path.write_text(case["source"])
-    print(f"wrote {out_path}")
-
-    report_path = args.report or out_path.with_suffix(out_path.suffix + ".report.json")
-    report_path.write_text(json.dumps(
-        {
-            "uid": args.json_file.stem,
-            "constraints": args.constraints,
-            "features": case["features"],
-            "conflicts": case["conflicts"],
-            "notes": case["notes"],
-        },
-        indent=2,
-    ))
-    sketch_tier = sum(1 for f in case["features"] if f["tier"] == "sketch")
-    print(f"features: {len(case['features'])}, sketch tier: {sketch_tier}, conflicts: {len(case['conflicts'])}")
-    for conflict in case["conflicts"]:
-        print(f"  ! feature {conflict['feature']}: {conflict['status']} dof={conflict['dof']} failed={conflict['failed_constraints']}")
-    print(f"wrote {report_path}")
+    out_path.write_text(source)
+    print(f"wrote {out_path} ({source.count(chr(10))} lines, constraints={args.constraints})")
     return 0
 
 

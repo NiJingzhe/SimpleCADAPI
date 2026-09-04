@@ -2,15 +2,15 @@
 """Execute translated HistCAD FTC sources and reconcile against STEP truth.
 
 For each sampled uid: translate the HistCAD JSON into a clean FTC source
-(``histcad_to_ftc.translate_case``), execute it in-process, read the packaged
-STEP file, and compare total solid volume. Constraint-conflict auditing is
-translation-time data from the sidecar report — generated sources stay pure.
-Writes a JSON report and prints a pass/fail summary.
+(``histcad_to_ftc.translate_steps`` — pure translation), execute it
+in-process, read the packaged STEP file, and compare total solid volume.
+Writes a JSON report and prints a pass/fail summary. Constraint auditing
+(solve outcomes, conflicts, drift) lives in histcad_conflicts.py.
 
 Usage:
     python tools/research/histjson/histcad_validate.py --tar JSON.tar.gz
         --step-tar STEP.tar.gz [--uids a/b,c/d] [--count N] [--stride K]
-        [--workers W] [--constraints auto|off|on] [--report PATH]
+        [--workers W] [--constraints on|off] [--report PATH]
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from histcad_to_ftc import translate_case  # noqa: E402
+from histcad_to_ftc import translate_steps  # noqa: E402
 
 _TOLERANCE = 1e-3  # relative volume error
 
@@ -113,18 +113,14 @@ def _evaluate_case(payload: Dict[str, Any]) -> Dict[str, Any]:
     uid = payload["uid"]
     entry: Dict[str, Any] = {"uid": uid}
     try:
-        case = translate_case(
+        source = translate_steps(
             payload["steps"], uid, constraints_mode=payload["constraints"]
         )
     except Exception as exc:  # noqa: BLE001
         entry.update(status="translate_error", error=str(exc)[:300])
         return entry
-    source = case["source"]
     entry["source"] = source
     entry["line_count"] = source.count("\n")
-    entry["features"] = case["features"]
-    entry["conflicts"] = case["conflicts"]
-    entry["notes"] = case["notes"]
     built = _build_volume(source)
     if isinstance(built, _ErrorVolume) or built is None:
         entry.update(status="build_error", error=getattr(built, "message", "no volume"))
@@ -157,7 +153,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--count", type=int, default=40)
     parser.add_argument("--stride", type=int, default=997)
     parser.add_argument("--workers", type=int, default=6)
-    parser.add_argument("--constraints", choices=["auto", "off", "on"], default="off")
+    parser.add_argument("--constraints", choices=["on", "off"], default="off")
     parser.add_argument("--report", type=Path, default=None)
     args = parser.parse_args(argv)
 
@@ -216,31 +212,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     errors = [r for r in results if r["status"] in {"translate_error", "build_error"}]
     for error in errors[:10]:
         print(f"  ! {error['uid']}: {error.get('error', '')[:200]}")
-
-    total_features = 0
-    sketch_features = 0
-    conflict_features = 0
-    failed_kind_counts: Dict[str, int] = {}
-    for result in results:
-        for feature in result.get("features") or []:
-            total_features += 1
-            if feature.get("tier") == "sketch":
-                sketch_features += 1
-        for conflict in result.get("conflicts") or []:
-            conflict_features += 1
-            for cid in conflict.get("failed_constraints") or []:
-                kind = cid.split("_", 1)[1].split("-")[0] if "_" in cid else cid
-                failed_kind_counts[kind] = failed_kind_counts.get(kind, 0) + 1
-    if total_features:
-        print(
-            f"sketch-tier retention: {sketch_features}/{total_features} features "
-            f"({100.0 * sketch_features / total_features:.1f}%)"
-        )
-    if conflict_features:
-        print(
-            f"conflicting features: {conflict_features}; "
-            f"top conflicting kinds: {dict(sorted(failed_kind_counts.items(), key=lambda kv: -kv[1])[:8])}"
-        )
 
     report = args.report or Path(__file__).resolve().parent / "out" / "histcad_validate.json"
     report.parent.mkdir(parents=True, exist_ok=True)
