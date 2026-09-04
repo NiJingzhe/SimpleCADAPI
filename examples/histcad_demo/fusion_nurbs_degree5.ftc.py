@@ -1,8 +1,8 @@
-"""FTC source generated from HistCAD 0100-01000035."""
+"""FTC source generated from HistCAD 0100/01000035."""
 
 import simplecadapi as scad
 
-BODIES = None  # all solid bodies before single-solid merge (harness)
+BODIES = None  # all solid bodies before single-solid merge
 
 
 def _merge_bodies(bodies):
@@ -17,7 +17,7 @@ def _merge_bodies(bodies):
 
 @scad.part(id='histcad-0100-01000035', revision='1.0.0')
 def build() -> scad.Part:
-    # ---- feature: newbody-1 (build, profile=geometry) ----
+    # ---- feature: newbody-1 (build, profile=sketch) ----
     s = scad.make_sketch_rsketch(name='f0', plane={'origin': (0.0, 0.0, 86.0), 'x_axis': (-1.0, 0.0, 0.0), 'y_axis': (-0.0, -1.0, 0.0)})
     s = scad.add_point_rsketch(s, 'f0_p1', 0.30010942, -1.89989058)
     s = scad.add_point_rsketch(s, 'f0_p2', 0.0, -1.9)
@@ -49,6 +49,8 @@ def build() -> scad.Part:
     multiplicities=[6, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 6], weights=None,
     periodic=False)
     s = scad.add_line_rsketch(s, 'line_6', 'f0_p12', 'f0_p2')
+    s = scad.constrain_parallel_rsketch(s, 'line_2', 'line_3', constraint_id='h11_Parallel-2')
+    s = scad.constrain_parallel_rsketch(s, 'line_5', 'line_6', constraint_id='h12_Parallel-2')
     f0_face0 = scad.make_face_from_sketch_rface(s, profile=0)
     f0_tool0 = scad.extrude_rsolid(profile=f0_face0, direction=(0.0, 0.0, 1.0), distance=100.0)
     bodies = list([f0_tool0])

@@ -935,7 +935,7 @@ class _PySlvsSystem:
 
     def _circle_center(self, ref: "SketchRef") -> int:
         entity = self.sketch.entities[ref.entity_id]
-        if entity.kind not in {"circle", "arc"}:
+        if entity.kind not in {"circle", "arc", "ellipse"}:
             raise ValueError(f"Entity '{ref.entity_id}' has no circular center")
         return self.point_handles[str(entity.data["center"])]
     def _initial_radius(self, ref: "SketchRef") -> float:

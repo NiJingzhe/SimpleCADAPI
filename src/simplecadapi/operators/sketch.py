@@ -749,13 +749,13 @@ def constrain_concentric_rsketch(
     *,
     constraint_id: Optional[str] = None,
 ) -> Sketch:
-    """Constrain two sketch circles to share a center."""
+    """Constrain two sketch circles/arcs/ellipses to share a center."""
     return _constrain_rsketch(
         sketch,
         "concentric",
         [a, b],
         constraint_id=constraint_id,
-        expected=[("circle", "arc"), ("circle", "arc")],
+        expected=[("circle", "arc", "ellipse"), ("circle", "arc", "ellipse")],
     )
 
 def constrain_midpoint_rsketch(

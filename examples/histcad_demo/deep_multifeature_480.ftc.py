@@ -1,8 +1,8 @@
-"""FTC source generated from HistCAD 0007-00078940."""
+"""FTC source generated from HistCAD 0007/00078940."""
 
 import simplecadapi as scad
 
-BODIES = None  # all solid bodies before single-solid merge (harness)
+BODIES = None  # all solid bodies before single-solid merge
 
 
 def _merge_bodies(bodies):
@@ -148,7 +148,7 @@ def build() -> scad.Part:
     bodies = _next
     if not _merged:
         bodies.extend([f2_tool0])
-    # ---- feature: join-4 (add, profile=geometry) ----
+    # ---- feature: join-4 (add, profile=sketch) ----
     s = scad.make_sketch_rsketch(name='f3', plane={'origin': (0.04, -0.9544, 1.016), 'x_axis': (1.0, 0.0, 0.0), 'y_axis': (0.0, 1.0, 0.0)})
     s = scad.add_point_rsketch(s, 'f3_p1', 0.0711, 3.0303)
     s = scad.add_point_rsketch(s, 'f3_p2', 0.2477, 3.0547)
@@ -172,6 +172,9 @@ def build() -> scad.Part:
     s = scad.add_point_rsketch(s, 'f3_p11', 0.0711, 7.045)
     s = scad.add_line_rsketch(s, 'line_10', 'f3_p10', 'f3_p11')
     s = scad.add_line_rsketch(s, 'line_11', 'f3_p11', 'f3_p1')
+    s = scad.constrain_vertical_rsketch(s, 'line_5', constraint_id='h12_Vertical')
+    s = scad.constrain_vertical_rsketch(s, 'line_8', constraint_id='h13_Vertical')
+    s = scad.constrain_vertical_rsketch(s, 'line_11', constraint_id='h14_Vertical')
     f3_face0 = scad.make_face_from_sketch_rface(s, profile=0)
     f3_tool0 = scad.extrude_rsolid(profile=f3_face0, direction=(0.0, 0.0, 1.0), distance=0.508)
     _merged = False
@@ -185,7 +188,7 @@ def build() -> scad.Part:
     bodies = _next
     if not _merged:
         bodies.extend([f3_tool0])
-    # ---- feature: cut-5 (subtract, profile=geometry) ----
+    # ---- feature: cut-5 (subtract, profile=sketch) ----
     s = scad.make_sketch_rsketch(name='f4', plane={'origin': (0.9796, 4.1627, 1.524), 'x_axis': (1.0, 0.0, 0.0), 'y_axis': (0.0, 1.0, 0.0)})
     s = scad.add_point_rsketch(s, 'f4_p1', -0.197, 0.1979)
     s = scad.add_point_rsketch(s, 'f4_p2', 0.2159, 0.4159)
@@ -203,6 +206,9 @@ def build() -> scad.Part:
     s = scad.add_point_rsketch(s, 'f4_p8', -0.1855, -0.3182)
     s = scad.add_line_rsketch(s, 'line_7', 'f4_p7', 'f4_p8')
     s = scad.add_line_rsketch(s, 'line_8', 'f4_p8', 'f4_p5')
+    s = scad.constrain_vertical_rsketch(s, 'line_2', constraint_id='h9_Vertical')
+    s = scad.constrain_vertical_rsketch(s, 'line_6', constraint_id='h10_Vertical')
+    s = scad.constrain_vertical_rsketch(s, 'line_8', constraint_id='h11_Vertical')
     f4_face0 = scad.make_face_from_sketch_rface(s, profile=0)
     f4_tool0 = scad.extrude_rsolid(profile=f4_face0, direction=(-0.0, -0.0, -1.0), distance=0.762)
     f4_face1 = scad.make_face_from_sketch_rface(s, profile=1)
@@ -231,7 +237,7 @@ def build() -> scad.Part:
     f5_face1 = scad.make_face_from_sketch_rface(s, profile=1)
     f5_tool1 = scad.extrude_rsolid(profile=f5_face1, direction=(-0.0, -0.0, -1.0), distance=0.762)
     bodies = [scad.cut_rsolid(_b, [f5_tool0, f5_tool1]) for _b in bodies]
-    # ---- feature: cut-7 (subtract, profile=geometry) ----
+    # ---- feature: cut-7 (subtract, profile=sketch) ----
     s = scad.make_sketch_rsketch(name='f6', plane={'origin': (0.04, -0.9544, 1.016), 'x_axis': (1.0, 0.0, 0.0), 'y_axis': (0.0, 1.0, 0.0)})
     s = scad.add_point_rsketch(s, 'f6_p1', -3.1152, 1.9984)
     s = scad.add_point_rsketch(s, 'f6_p2', -1.3323, 0.8171)
@@ -265,10 +271,16 @@ def build() -> scad.Part:
     s = scad.add_point_rsketch(s, 'f6_p16', -3.069, 3.0233)
     s = scad.add_line_rsketch(s, 'line_15', 'f6_p15', 'f6_p16')
     s = scad.add_line_rsketch(s, 'line_16', 'f6_p16', 'f6_p1')
+    s = scad.constrain_horizontal_rsketch(s, 'line_4', constraint_id='h17_Horizontal')
+    s = scad.constrain_horizontal_rsketch(s, 'line_14', constraint_id='h18_Horizontal')
+    s = scad.constrain_vertical_rsketch(s, 'line_3', constraint_id='h19_Vertical')
+    s = scad.constrain_vertical_rsketch(s, 'line_5', constraint_id='h20_Vertical')
+    s = scad.constrain_vertical_rsketch(s, 'line_8', constraint_id='h21_Vertical')
+    s = scad.constrain_vertical_rsketch(s, 'line_13', constraint_id='h22_Vertical')
     f6_face0 = scad.make_face_from_sketch_rface(s, profile=0)
     f6_tool0 = scad.extrude_rsolid(profile=f6_face0, direction=(-0.0, -0.0, -1.0), distance=1.016)
     bodies = [scad.cut_rsolid(_b, [f6_tool0]) for _b in bodies]
-    # ---- feature: join-8 (add, profile=geometry) ----
+    # ---- feature: join-8 (add, profile=sketch) ----
     s = scad.make_sketch_rsketch(name='f7', plane={'origin': (0.0, 0.0, 0.0), 'x_axis': (1.0, 0.0, 0.0), 'y_axis': (0.0, 1.0, 0.0)})
     s = scad.add_point_rsketch(s, 'f7_p1', -1.235498946, 1.553280221)
     s = scad.add_point_rsketch(s, 'f7_p2', -2.1112, 1.8303)
@@ -284,6 +296,7 @@ def build() -> scad.Part:
     s = scad.add_point_rsketch(s, 'f7_p8', 2.318, 1.6293)
     s = scad.add_line_rsketch(s, 'line_3', 'f7_p7', 'f7_p8')
     s = scad.add_line_rsketch(s, 'line_4', 'f7_p8', 'f7_p6')
+    s = scad.constrain_horizontal_rsketch(s, 'line_1', constraint_id='h7_Horizontal')
     f7_face0 = scad.make_face_from_sketch_rface(s, profile=0)
     f7_tool0 = scad.extrude_rsolid(profile=f7_face0, direction=(0.0, 0.0, 1.0), distance=0.7106)
     f7_face1 = scad.make_face_from_sketch_rface(s, profile=1)
@@ -299,7 +312,7 @@ def build() -> scad.Part:
     bodies = _next
     if not _merged:
         bodies.extend([f7_tool0, f7_tool1])
-    # ---- feature: cut-9 (subtract, profile=geometry) ----
+    # ---- feature: cut-9 (subtract, profile=sketch) ----
     s = scad.make_sketch_rsketch(name='f8', plane={'origin': (0.04, -0.9544, 1.016), 'x_axis': (1.0, 0.0, 0.0), 'y_axis': (0.0, 1.0, 0.0)})
     s = scad.add_point_rsketch(s, 'f8_p1', -4.725, 1.7223)
     s = scad.add_point_rsketch(s, 'f8_p2', -4.5689, -1.4439)
@@ -325,6 +338,11 @@ def build() -> scad.Part:
     s = scad.add_point_rsketch(s, 'f8_p12', 3.5298, -0.3612)
     s = scad.add_line_rsketch(s, 'line_11', 'f8_p11', 'f8_p12')
     s = scad.add_line_rsketch(s, 'line_12', 'f8_p12', 'f8_p7')
+    s = scad.constrain_vertical_rsketch(s, 'line_3', constraint_id='h13_Vertical')
+    s = scad.constrain_vertical_rsketch(s, 'line_5', constraint_id='h14_Vertical')
+    s = scad.constrain_vertical_rsketch(s, 'line_8', constraint_id='h15_Vertical')
+    s = scad.constrain_vertical_rsketch(s, 'line_10', constraint_id='h16_Vertical')
+    s = scad.constrain_vertical_rsketch(s, 'line_12', constraint_id='h17_Vertical')
     f8_face0 = scad.make_face_from_sketch_rface(s, profile=0)
     f8_tool0 = scad.extrude_rsolid(profile=f8_face0, direction=(-0.0, -0.0, -1.0), distance=0.762)
     f8_face1 = scad.make_face_from_sketch_rface(s, profile=1)
@@ -460,7 +478,7 @@ def build() -> scad.Part:
     f10_face0 = scad.make_face_from_sketch_rface(s, profile=0)
     f10_tool0 = scad.extrude_rsolid(profile=f10_face0, direction=(-0.0, -0.0, -1.0), distance=1.016)
     bodies = [scad.cut_rsolid(_b, [f10_tool0]) for _b in bodies]
-    # ---- feature: cut-12 (subtract, profile=geometry) ----
+    # ---- feature: cut-12 (subtract, profile=sketch) ----
     s = scad.make_sketch_rsketch(name='f11', plane={'origin': (0.04, -0.9544, 1.016), 'x_axis': (1.0, 0.0, 0.0), 'y_axis': (0.0, 1.0, 0.0)})
     s = scad.add_point_rsketch(s, 'f11_p1', -0.724, -1.2309)
     s = scad.add_point_rsketch(s, 'f11_p2', 2.559, -1.2309)
@@ -472,6 +490,7 @@ def build() -> scad.Part:
     s = scad.add_point_rsketch(s, 'f11_p5', 0.009, -0.4256)
     s = scad.add_line_rsketch(s, 'line_4', 'f11_p4', 'f11_p5')
     s = scad.add_line_rsketch(s, 'line_5', 'f11_p5', 'f11_p1')
+    s = scad.constrain_horizontal_rsketch(s, 'line_1', constraint_id='h6_Horizontal')
     f11_face0 = scad.make_face_from_sketch_rface(s, profile=0)
     f11_tool0 = scad.extrude_rsolid(profile=f11_face0, direction=(-0.0, -0.0, -1.0), distance=0.762)
     bodies = [scad.cut_rsolid(_b, [f11_tool0]) for _b in bodies]

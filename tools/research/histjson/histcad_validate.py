@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Execute translated HistCAD FTC sources and reconcile against STEP truth.
 
-For each sampled uid: translate the HistCAD JSON into an FTC source, execute
-it in-process, read the packaged STEP file, and compare total solid volume.
+For each sampled uid: translate the HistCAD JSON into a clean FTC source
+(``histcad_to_ftc.translate_case``), execute it in-process, read the packaged
+STEP file, and compare total solid volume. Constraint-conflict auditing is
+translation-time data from the sidecar report — generated sources stay pure.
 Writes a JSON report and prints a pass/fail summary.
 
 Usage:
-    python tools/research/histcad_validate.py --tar JSON.tar.gz
+    python tools/research/histjson/histcad_validate.py --tar JSON.tar.gz
         --step-tar STEP.tar.gz [--uids a/b,c/d] [--count N] [--stride K]
         [--workers W] [--constraints auto|off|on] [--report PATH]
 """
@@ -14,7 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import io
+import importlib.util
 import itertools
 import json
 import math
@@ -27,7 +29,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from histcad_to_ftc import translate_steps  # noqa: E402
+from histcad_to_ftc import translate_case  # noqa: E402
 
 _TOLERANCE = 1e-3  # relative volume error
 
@@ -63,14 +65,11 @@ def _step_volume(step_bytes: bytes) -> Optional[float]:
 
 _CASES_DIR = Path(__file__).resolve().parent / "out" / "_cases"
 _CASE_COUNTER = itertools.count()
-_LAST_BUILD_STATS: List[Dict[str, Any]] = []
 
 
 def _build_volume(source: str) -> Optional[float]:
     # @scad.part inspects the build function's real source file and needs a
     # project root, so materialize the case inside the repository tree.
-    import importlib.util
-
     _CASES_DIR.mkdir(parents=True, exist_ok=True)
     module_path = _CASES_DIR / f"case_{os.getpid()}_{next(_CASE_COUNTER)}.py"
     module_path.write_text(source)
@@ -88,8 +87,6 @@ def _build_volume(source: str) -> Optional[float]:
             BRepGProp.VolumeProperties_s(solid, props)
             return float(props.Mass())
 
-        _LAST_BUILD_STATS.clear()
-        _LAST_BUILD_STATS.append(_build_stats(module))
         bodies = getattr(module, "BODIES", None)
         if bodies:
             return sum(_volume(b.wrapped) for b in bodies)
@@ -112,36 +109,26 @@ class _ErrorVolume(float):
         return instance
 
 
-def _build_stats(module) -> Dict[str, Any]:
-    fallbacks = list(getattr(module, "SKETCH_TIER_FALLBACKS", []) or [])
-    conflicts = list(getattr(module, "SKETCH_CONFLICTS", []) or [])
-    failed: List[str] = []
-    for conflict in conflicts:
-        failed.extend(conflict.get("failed_constraints") or [])
-    return {
-        "sketch_fallback_features": fallbacks,
-        "conflicts": conflicts,
-        "failed_constraint_ids": failed,
-    }
-
-
 def _evaluate_case(payload: Dict[str, Any]) -> Dict[str, Any]:
     uid = payload["uid"]
     entry: Dict[str, Any] = {"uid": uid}
     try:
-        source = translate_steps(
+        case = translate_case(
             payload["steps"], uid, constraints_mode=payload["constraints"]
         )
     except Exception as exc:  # noqa: BLE001
         entry.update(status="translate_error", error=str(exc)[:300])
         return entry
+    source = case["source"]
     entry["source"] = source
     entry["line_count"] = source.count("\n")
+    entry["features"] = case["features"]
+    entry["conflicts"] = case["conflicts"]
+    entry["notes"] = case["notes"]
     built = _build_volume(source)
     if isinstance(built, _ErrorVolume) or built is None:
         entry.update(status="build_error", error=getattr(built, "message", "no volume"))
         return entry
-    entry.update(_LAST_BUILD_STATS[0] if _LAST_BUILD_STATS else {})
     entry["built_volume"] = built
     truth = _step_volume(payload["step_bytes"])
     if truth is None:
@@ -230,16 +217,28 @@ def main(argv: Optional[List[str]] = None) -> int:
     for error in errors[:10]:
         print(f"  ! {error['uid']}: {error.get('error', '')[:200]}")
 
-    fallback_features = 0
+    total_features = 0
+    sketch_features = 0
+    conflict_features = 0
     failed_kind_counts: Dict[str, int] = {}
     for result in results:
-        fallback_features += len(result.get("sketch_fallback_features") or [])
-        for cid in result.get("failed_constraint_ids") or []:
-            kind = cid.split("_", 1)[1].split("-")[0] if "_" in cid else cid
-            failed_kind_counts[kind] = failed_kind_counts.get(kind, 0) + 1
-    if fallback_features:
+        for feature in result.get("features") or []:
+            total_features += 1
+            if feature.get("tier") == "sketch":
+                sketch_features += 1
+        for conflict in result.get("conflicts") or []:
+            conflict_features += 1
+            for cid in conflict.get("failed_constraints") or []:
+                kind = cid.split("_", 1)[1].split("-")[0] if "_" in cid else cid
+                failed_kind_counts[kind] = failed_kind_counts.get(kind, 0) + 1
+    if total_features:
         print(
-            f"sketch-tier fallbacks: {fallback_features} features; "
+            f"sketch-tier retention: {sketch_features}/{total_features} features "
+            f"({100.0 * sketch_features / total_features:.1f}%)"
+        )
+    if conflict_features:
+        print(
+            f"conflicting features: {conflict_features}; "
             f"top conflicting kinds: {dict(sorted(failed_kind_counts.items(), key=lambda kv: -kv[1])[:8])}"
         )
 

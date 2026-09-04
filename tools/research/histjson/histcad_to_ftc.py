@@ -5,17 +5,23 @@ The translator emits one feature block per HistCAD step (sketch entities ->
 promotion -> extrude -> boolean mode), following the Feature Tree Convention:
 block headers ``# ---- feature: <slug> (<role>) ----``, explicit dataflow
 rebinding, and honest tier annotations (``profile=geometry`` for transcribed
-dataset geometry; ``profile=sketch`` only when every HistCAD constraint maps
-onto a native sketch constraint).
+dataset geometry; ``profile=sketch`` when the HistCAD constraints are mapped).
+
+Translated sources are TRAINING DATA: they contain the model and nothing else.
+Every correctness question (does the constrained sketch solve? which dataset
+constraints conflict?) is answered here, at translation time, and reported
+out-of-band — never by checks embedded in the generated code.
+
+Constraint modes:
+    off   emit transcribed geometry only (``profile=geometry``)
+    on    emit every mappable constraint (``profile=sketch``), no solving
+    auto  solve each feature's constrained sketch in-process first; emit the
+          constrained block when it solves, otherwise transcribed geometry,
+          and record the solver diagnostics in the sidecar report
 
 Usage:
-    python tools/research/histcad_to_ftc.py <seq.json> [--out PATH]
-        [--constraints auto|off|on]
-    python tools/research/histcad_to_ftc.py --tar A.tar.gz --step-tar B.tar.gz
-        [--execute K] [--stride N] [--workers W] [--out-dir DIR]
-
-``--execute`` rebuilds a strided sample of models and reconciles total volume
-against the packaged STEP ground truth.
+    python tools/research/histjson/histcad_to_ftc.py <seq.json> [--out PATH]
+        [--constraints auto|off|on] [--report PATH]
 """
 
 from __future__ import annotations
@@ -24,7 +30,6 @@ import argparse
 import json
 import math
 import re
-import sys
 import tarfile
 from collections import defaultdict, deque
 from pathlib import Path
@@ -90,7 +95,6 @@ def eval_value_expr(value: Any) -> Optional[float]:
 
 # ---------------------------------------------------------------------------
 # geometry helpers
-
 
 def euler_to_axes(euler: Sequence[float]) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
     """Rotation basis from HistCAD Euler angles [alpha, beta, gamma] (degrees).
@@ -163,7 +167,6 @@ def entity_kind(entity_id: str) -> str:
 
 # ---------------------------------------------------------------------------
 # sketch structure analysis (mirrors Sketch profile ordering)
-
 
 def _sample_entity(kind: str, data: Dict[str, Any], count: int = 12) -> List[Tuple[float, float]]:
     if kind == "circle":
@@ -326,9 +329,11 @@ class StepEmitter:
         self.name = f"f{index}"
         self.constraints_mode = constraints_mode
         self.lines: List[str] = []
-        self.pool: Dict[Tuple[float, float], str] = {}
+        self.pool: Dict[str, Tuple[float, float]] = {}
+        self.sub_points: Dict[Tuple[str, str], str] = {}
         self.counter = 0
         self.dropped_constraints: List[str] = []
+        self.elided_constraints: List[str] = []
 
         cs = step.get("coordinate_system") or {}
         euler = cs.get("Euler Angles") or [0.0, 0.0, 0.0]
@@ -347,16 +352,17 @@ class StepEmitter:
 
     def point(self, x: float, y: float) -> str:
         key = _pt_key((x, y))
-        if key in self.pool:
-            return self.pool[key]
+        for pid, (px, py) in self.pool.items():
+            if _pt_key((px, py)) == key:
+                return pid
         self.counter += 1
         pid = f"{self.name}_p{self.counter}"
-        self.pool[key] = pid
-        self.lines.append(f"s_geo = scad.add_point_rsketch(s_geo, {pid!r}, {_fmt(x)}, {_fmt(y)})")
+        self.pool[pid] = (float(x), float(y))
+        self.lines.append(f"s = scad.add_point_rsketch(s, {pid!r}, {_fmt(x)}, {_fmt(y)})")
         return pid
 
     def emit_sketch(self) -> None:
-        self.lines.append(f"s_geo = scad.make_sketch_rsketch(name={self.name!r}, plane={self.plane_literal})")
+        self.lines.append(f"s = scad.make_sketch_rsketch(name={self.name!r}, plane={self.plane_literal})")
         for eid, data in self.sketch.items():
             if not isinstance(data, dict):
                 continue
@@ -364,10 +370,12 @@ class StepEmitter:
             if kind == "line":
                 start = self.point(*data["start"])
                 end = self.point(*data["end"])
-                self.lines.append(f"s_geo = scad.add_line_rsketch(s_geo, {eid!r}, {start!r}, {end!r})")
+                self.sub_points[(eid, "start")], self.sub_points[(eid, "end")] = start, end
+                self.lines.append(f"s = scad.add_line_rsketch(s, {eid!r}, {start!r}, {end!r})")
             elif kind == "circle":
                 center = self.point(*data["center"])
-                self.lines.append(f"s_geo = scad.add_circle_rsketch(s_geo, {eid!r}, {center!r}, {_fmt(data['radius'])})")
+                self.sub_points[(eid, "center")] = center
+                self.lines.append(f"s = scad.add_circle_rsketch(s, {eid!r}, {center!r}, {_fmt(data['radius'])})")
             elif kind == "arc":
                 cx, cy = circumcenter(data["start"], data["middle"], data["end"])
                 center = self.point(cx, cy)
@@ -382,7 +390,9 @@ class StepEmitter:
                     start_pt, end_pt = end_pt, start_pt
                 start = self.point(*start_pt)
                 end = self.point(*end_pt)
-                self.lines.append(f"s_geo = scad.add_arc_rsketch(s_geo, {eid!r}, {start!r}, {end!r}, {center!r})")
+                self.sub_points[(eid, "start")], self.sub_points[(eid, "end")] = start, end
+                self.sub_points[(eid, "center")] = center
+                self.lines.append(f"s = scad.add_arc_rsketch(s, {eid!r}, {start!r}, {end!r}, {center!r})")
             elif kind == "ellipse":
                 cx, cy = data["center"]
                 major, minor = float(data["major"]), float(data["minor"])
@@ -390,17 +400,21 @@ class StepEmitter:
                 center = self.point(cx, cy)
                 major_pt = self.point(cx + major * math.cos(theta), cy + major * math.sin(theta))
                 minor_pt = self.point(cx - minor * math.sin(theta), cy + minor * math.cos(theta))
-                self.lines.append(f"s_geo = scad.add_ellipse_rsketch(s_geo, {eid!r}, {center!r}, {major_pt!r}, {minor_pt!r})")
+                self.sub_points[(eid, "center")] = center
+                self.sub_points[(eid, "major")] = major_pt
+                self.sub_points[(eid, "minor")] = minor_pt
+                self.lines.append(f"s = scad.add_ellipse_rsketch(s, {eid!r}, {center!r}, {major_pt!r}, {minor_pt!r})")
             elif kind == "elliptical_arc":
                 raise UnsupportedFeature("elliptical_arc entity")
             elif kind == "nurbs":
                 knots, mults = knot_multiplicities(data["knots"])
                 start = self.point(*data["controls"][0])
                 end = self.point(*data["controls"][-1])
+                self.sub_points[(eid, "start")], self.sub_points[(eid, "end")] = start, end
                 controls = ", ".join(f"({_fmt(c[0])}, {_fmt(c[1])})" for c in data["controls"])
                 weights = list(data["weights"]) if data.get("weights") else None
                 self.lines.append(
-                    f"s_geo = scad.add_bspline_rsketch(s_geo, {eid!r}, {start!r}, {end!r},\n"
+                    f"s = scad.add_bspline_rsketch(s, {eid!r}, {start!r}, {end!r},\n"
                     f"    control_points=[{controls}],\n"
                     f"    degree={int(data['degree'])}, knots={knots!r},\n"
                     f"    multiplicities={mults!r}, weights={weights!r},\n"
@@ -427,6 +441,77 @@ class StepEmitter:
             return None
         return repr(f"{eid}.{sub}"), "point"
 
+    def _pooled_pid(self, target: str) -> Optional[str]:
+        """Pooled point id behind a dataset point reference, if tracked."""
+        eid, _, sub = target.partition(".")
+        if not sub:
+            return None
+        return self.sub_points.get((eid, sub))
+
+    def point_xy(self, target: str) -> Optional[Tuple[float, float]]:
+        """Initial coordinates of a dataset point reference, if resolvable."""
+        eid, _, sub = target.partition(".")
+        data = self.sketch.get(eid)
+        if not isinstance(data, dict):
+            return None
+        kind = self.entity_kind_map.get(eid, entity_kind(eid))
+        if kind == "point":
+            return (float(data["x"]), float(data["y"]))
+        if kind == "line" and sub in {"start", "end"}:
+            p = data[sub]
+            return (float(p[0]), float(p[1]))
+        if kind == "circle" and sub == "center":
+            c = data["center"]
+            return (float(c[0]), float(c[1]))
+        if kind == "arc":
+            if sub in {"start", "end"}:
+                p = data[sub]
+                return (float(p[0]), float(p[1]))
+            if sub == "center":
+                return circumcenter(data["start"], data["middle"], data["end"])
+        if kind == "ellipse" and sub == "center":
+            c = data["center"]
+            return (float(c[0]), float(c[1]))
+        if kind == "nurbs" and sub in {"start", "end"}:
+            p = data["controls"][0 if sub == "start" else -1]
+            return (float(p[0]), float(p[1]))
+        return None
+
+    def _entity_endpoints(self, target: str) -> List[Tuple[float, float]]:
+        """Transcribed endpoints of a line/arc/nurbs reference."""
+        eid = target.partition(".")[0]
+        data = self.sketch.get(eid)
+        if not isinstance(data, dict):
+            return []
+        kind = self.entity_kind_map.get(eid, entity_kind(eid))
+        if kind in {"line", "arc"}:
+            return [
+                (float(data["start"][0]), float(data["start"][1])),
+                (float(data["end"][0]), float(data["end"][1])),
+            ]
+        if kind == "nurbs":
+            controls = data.get("controls") or []
+            if len(controls) >= 2 and not data.get("periodic"):
+                return [
+                    (float(controls[0][0]), float(controls[0][1])),
+                    (float(controls[-1][0]), float(controls[-1][1])),
+                ]
+        return []
+
+    def _tangency_selector(self, curve_target: str, other_target: str) -> Optional[str]:
+        """Which curve endpoint carries endpoint tangency (nearest shared junction)."""
+        ends = self._entity_endpoints(curve_target)
+        other = self._entity_endpoints(other_target)
+        if len(ends) != 2 or not other:
+            return None
+        best: Optional[str] = None
+        best_distance = math.inf
+        for name, point in zip(("start", "end"), ends):
+            distance = min(math.dist(point, q) for q in other)
+            if distance < best_distance:
+                best, best_distance = name, distance
+        return best
+
     def emit_constraints(self) -> List[str]:
         if self.constraints_mode == "off":
             return []
@@ -439,6 +524,10 @@ class StepEmitter:
             for entry in entries:
                 counter += 1
                 label = f"h{counter}_{ctype}"
+                if isinstance(entry, str):
+                    # "Horizontal": ["line_1", "line_3"] yields one string per
+                    # line — wrap so the mapper sees a single-target entry
+                    entry = [entry]
                 lines.extend(self._map_constraint(str(ctype), entry, label))
         return lines
 
@@ -450,7 +539,7 @@ class StepEmitter:
 
     def _map_constraint(self, ctype: str, entry: Any, label: str = "h?"):
         self._current_label = label
-        drop = lambda label: self.dropped_constraints.append(label)  # noqa: E731
+        drop = lambda lbl: self.dropped_constraints.append(lbl)  # noqa: E731
 
         if not isinstance(entry, list):
             drop(ctype)
@@ -458,13 +547,28 @@ class StepEmitter:
         refs = [self._ref(t) for t in entry if isinstance(t, str)]
 
         if ctype == "Coincident" and len(refs) == 2 and all(r and r[1] == "point" for r in refs):
+            # When both refs pooled onto the SAME point, the identity already
+            # holds by construction; a degenerate point-coincident equation
+            # makes the solver's Jacobian singular, so elide it.
+            pa = self._pooled_pid(str(entry[0]))
+            pb = self._pooled_pid(str(entry[1]))
+            if pa is not None and pa == pb:
+                self.elided_constraints.append(label)
+                return []
             return self._constrain(f"constrain_coincident_rsketch(s, {refs[0][0]}, {refs[1][0]})")
         if ctype in {"Horizontal", "Vertical"}:
             fn = "Horizontal" if ctype == "Horizontal" else "Vertical"
             if len(refs) == 2 and all(r and r[1] == "point" for r in refs):
                 return self._constrain(f"constrain_points_{fn.lower()}_rsketch(s, {refs[0][0]}, {refs[1][0]})")
-            if len(refs) == 1 and refs[0] and refs[0][1] == "line":
-                return self._constrain(f"constrain_{fn.lower()}_rsketch(s, {refs[0][0]})")
+            lines = [r for r in refs if r and r[1] == "line"]
+            if refs and len(lines) == len(refs) and lines:
+                # dataset form: a flat list of lines, each individually
+                # horizontal/vertical ("Horizontal": ["line_1", "line_3"])
+                return [
+                    c
+                    for i, r in enumerate(lines)
+                    for c in self._constrain(f"constrain_{fn.lower()}_rsketch(s, {r[0]})", label if i == 0 else f"{label}-{i + 2}")
+                ]
         if ctype == "Parallel" and len(refs) >= 2:
             chain = [r for r in refs if r and r[1] == "line"]
             if len(chain) == len(refs) and len(chain) >= 2:
@@ -478,16 +582,44 @@ class StepEmitter:
         if ctype == "Equal" and len(refs) >= 2 and all(r for r in refs):
             out: List[str] = []
             ok = True
+            pairs: List[Tuple[str, str]] = []
             for a, b in zip(refs, refs[1:]):
-                if {a[1], b[1]} == {"line"}:
-                    out.extend(self._constrain(f"constrain_equal_length_rsketch(s, {a[0]}, {b[0]})"))
-                elif {a[1], b[1]} <= {"circle", "arc"}:
-                    out.extend(self._constrain(f"constrain_equal_radius_rsketch(s, {a[0]}, {b[0]})"))
-                else:
+                if a is None or b is None:
                     ok = False
+                    break
+                pairs.append((a[1], b[1]))
             if ok:
+                for i, (ka, kb) in enumerate(pairs):
+                    chain_label = label if i == 0 else f"{label}-{i + 2}"
+                    if ka == kb == "line":
+                        out.extend(self._constrain(f"constrain_equal_length_rsketch(s, {refs[i][0]}, {refs[i + 1][0]})", chain_label))
+                    elif ka in {"circle", "arc"} and kb in {"circle", "arc"}:
+                        out.extend(self._constrain(f"constrain_equal_radius_rsketch(s, {refs[i][0]}, {refs[i + 1][0]})", chain_label))
+                    else:
+                        ok = False
+                        break
+            if ok and out:
                 return out
         if ctype == "Tangent" and len(refs) == 2 and all(r and r[1] in {"line", "circle", "arc"} for r in refs):
+            kinds = [r[1] for r in refs]
+            if "arc" in kinds:
+                if "circle" in kinds:
+                    drop(f"{ctype}(arc,circle)")  # solver has no arc/circle endpoint tangency
+                    return []
+                # Endpoint tangency: HistCAD marks the junction only through
+                # the shared Coincident endpoint, so select the arc endpoint
+                # nearest the other curve.
+                kwargs: List[str] = []
+                for i in (0, 1):
+                    if kinds[i] != "arc":
+                        continue
+                    selector = self._tangency_selector(str(entry[i]), str(entry[1 - i]))
+                    if selector is None:
+                        drop(f"{ctype}(no-junction)")
+                        return []
+                    kwargs.append(f"at_{'a' if i == 0 else 'b'}={selector!r}")
+                suffix = (", " + ", ".join(kwargs)) if kwargs else ""
+                return self._constrain(f"constrain_tangent_rsketch(s, {refs[0][0]}, {refs[1][0]}{suffix})")
             return self._constrain(f"constrain_tangent_rsketch(s, {refs[0][0]}, {refs[1][0]})")
         if ctype == "Concentric" and len(refs) >= 2:
             chain = [r for r in refs if r and r[1] in {"circle", "arc", "ellipse"}]
@@ -499,7 +631,11 @@ class StepEmitter:
                 ]
         if ctype in {"Diameter", "Radius", "MajorRadius", "MinorRadius"} and len(entry) == 2:
             ref = self._ref(entry[0])
-            value = eval_value_expr(entry[1]) if not isinstance(entry[1], str) or "." not in entry[1] else eval_value_expr(entry[1])
+            value = eval_value_expr(entry[1])
+            if ref and value is not None and ctype in {"MajorRadius", "MinorRadius"}:
+                # dataset Major/MinorRadius store the FULL axis length while
+                # the sketch's major/minor (and our constraint) are semi-axes
+                value = value / 2.0
             if ref and value is not None:
                 fn = {
                     "Radius": "constrain_radius_rsketch",
@@ -551,8 +687,20 @@ class StepEmitter:
             pair = [self._ref(t) for t in entry[:2]]
             if value is not None and all(r for r in pair):
                 if all(r[1] == "point" for r in pair):
-                    fn = {"HORIZONTAL": "distance_x", "VERTICAL": "distance_y"}.get(direction, "distance")
-                    return self._constrain(f"constrain_{fn}_rsketch(s, {pair[0][0]}, {pair[1][0]}, {_fmt(abs(value))})")
+                    if direction in {"HORIZONTAL", "VERTICAL"}:
+                        # The payload stores a magnitude; the axis-distance
+                        # constraint is directed (b - a), so take the sign from
+                        # the transcribed coordinates and the constraint holds
+                        # exactly at solve start.
+                        pa, pb = self.point_xy(str(entry[0])), self.point_xy(str(entry[1]))
+                        if pa and pb:
+                            delta = (pb[0] - pa[0]) if direction == "HORIZONTAL" else (pb[1] - pa[1])
+                            magnitude = abs(value)
+                            signed = magnitude if delta >= 0.0 else -magnitude
+                            fn = "distance_x" if direction == "HORIZONTAL" else "distance_y"
+                            return self._constrain(f"constrain_{fn}_rsketch(s, {pair[0][0]}, {pair[1][0]}, {_fmt(signed)})")
+                    else:
+                        return self._constrain(f"constrain_distance_rsketch(s, {pair[0][0]}, {pair[1][0]}, {_fmt(abs(value))})")
                 if all(r[1] == "line" for r in pair):
                     return self._constrain(f"constrain_line_distance_rsketch(s, {pair[0][0]}, {pair[1][0]}, {_fmt(abs(value))})")
         drop(ctype if len(entry) != 2 else f"{ctype}({len(entry)})")
@@ -576,30 +724,9 @@ class StepEmitter:
         for island, (outer, holes) in enumerate(groups):
             face_var = f"{self.name}_face{island}"
             inner = f", inner_profiles={[h['index'] for h in holes]}" if holes else ""
-            promote = (
-                f"scad.make_face_from_sketch_rface(s, profile={outer['index']}{inner})"
+            tool_lines.append(
+                f"{face_var} = scad.make_face_from_sketch_rface(s, profile={outer['index']}{inner})"
             )
-            if constraint_lines:
-                tool_lines.append(f"try:")
-                tool_lines.append(f"    {face_var} = {promote}")
-                tool_lines.append(f"except Exception:")
-                tool_lines.append(f"    SKETCH_TIER_FALLBACKS.append({self.index!r})")
-                tool_lines.append(f"    try:")
-                tool_lines.append(f"        _diag = scad.inspect_sketch_rsketchresult(s, strict=False)")
-                tool_lines.append(f"        SKETCH_CONFLICTS.append({{")
-                tool_lines.append(f"            'feature': {self.index!r},")
-                tool_lines.append(f"            'status': _diag.status,")
-                tool_lines.append(f"            'dof': _diag.dof,")
-                tool_lines.append(f"            'failed_constraints': [d.constraint_id for d in _diag.diagnostics if d.severity == 'error'],")
-                tool_lines.append(f"            'warnings': [d.code for d in _diag.diagnostics if d.severity == 'warning'],")
-                tool_lines.append(f"        }})")
-                tool_lines.append(f"    except Exception as _exc:")
-                tool_lines.append(f"        SKETCH_CONFLICTS.append({{'feature': {self.index!r}, 'status': 'inspect_failed', 'failed_constraints': [], 'warnings': [str(_exc)[:120]]}})")
-                tool_lines.append(
-                    f"    {face_var} = scad.make_face_from_sketch_rface(s_geo, profile={outer['index']}{inner})"
-                )
-            else:
-                tool_lines.append(f"{face_var} = {promote}")
             if towards > 0 and opposite > 0:
                 tool_var = f"{self.name}_tool{island}"
                 tool_lines.append(
@@ -626,6 +753,8 @@ class StepEmitter:
             "tool_vars": tool_vars,
             "mode": mode,
             "dropped": self.dropped_constraints,
+            "elided": self.elided_constraints,
+            "point_coords": dict(self.pool),
         }
 
 
@@ -635,16 +764,74 @@ class UnsupportedFeature(Exception):
 
 _MODE_ROLES = {"NewBody": "build", "Join": "add", "Cut": "subtract", "Intersect": "intersect"}
 
+_OK_STATUSES = {"solved", "underconstrained"}
 
-def translate_steps(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode: str = "auto") -> str:
+# A constrained solve must reproduce the transcribed coordinates: rounding
+# reflow stays below ~2e-4 mm, so a larger drift means the constraints pull
+# the model away from the dataset geometry (wrong dialect or dataset error).
+_MAX_SOLVE_DRIFT = 1e-3
+
+
+def _preflight_feature(feature: Dict[str, Any]) -> Dict[str, Any]:
+    """Solve one feature's generated constrained sketch prefix in-process.
+
+    Runs the exact lines that would be emitted, then inspects the sketch with
+    strict=False so a failed solve reports WHICH constraints failed instead of
+    raising. Pure translation-time bookkeeping: nothing of this appears in the
+    generated source.
+    """
+    import simplecadapi as scad  # noqa: PLC0415
+
+    namespace: Dict[str, Any] = {"scad": scad}
+    source = "\n".join(feature["sketch_lines"] + feature["constraint_lines"])
+    try:
+        exec(compile(source, "<histcad-preflight>", "exec"), namespace)  # noqa: S102
+        result = scad.inspect_sketch_rsketchresult(namespace["s"], strict=False)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "exec_error",
+            "dof": None,
+            "failed_constraints": [],
+            "warnings": [str(exc)[:160]],
+            "max_move": None,
+        }
+    errors = [d for d in result.diagnostics if d.severity == "error"]
+    return {
+        "status": result.status,
+        "dof": int(result.dof),
+        "failed_constraints": [d.constraint_id for d in errors if d.constraint_id],
+        "warnings": sorted({d.code for d in result.diagnostics if d.severity == "warning"}),
+        "max_move": _max_point_move(feature["point_coords"], result.solved_points),
+    }
+
+
+def _max_point_move(
+    initial: Dict[str, Tuple[float, float]],
+    solved: Dict[str, Tuple[float, float]],
+) -> Optional[float]:
+    """Largest point displacement between transcribed and solved coordinates."""
+    worst = 0.0
+    seen = False
+    for pid, (x, y) in initial.items():
+        if pid in solved:
+            seen = True
+            worst = max(worst, math.hypot(solved[pid][0] - x, solved[pid][1] - y))
+    return worst if seen else None
+
+
+def translate_case(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode: str = "auto") -> Dict[str, Any]:
+    """Translate one HistCAD case into a clean FTC source plus a sidecar report.
+
+    Returns ``{"source", "features", "conflicts", "notes"}`` where ``features``
+    records the tier chosen per feature and ``conflicts`` carries the solver
+    diagnostics for every feature that could not keep its constraints.
+    """
     lines: List[str] = [
         f'"""FTC source generated from HistCAD {uid}."""',
         "",
         "import simplecadapi as scad",
         "",
-        "BODIES = None  # all solid bodies before single-solid merge (harness)",
-        "SKETCH_TIER_FALLBACKS = []  # feature indexes whose constrained solve fell back",
-        "SKETCH_CONFLICTS = []  # per-fallback solver diagnostics (dataset audit)",
+        "BODIES = None  # all solid bodies before single-solid merge",
         "",
         "",
         "def _merge_bodies(bodies):",
@@ -661,9 +848,9 @@ def translate_steps(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode:
         "def build() -> scad.Part:",
     ]
     notes: List[str] = []
-    body_var = "body"
+    feature_records: List[Dict[str, Any]] = []
+    conflicts: List[Dict[str, Any]] = []
     first_feature = True
-    all_dropped: List[str] = []
 
     for index, step in enumerate(steps):
         mode = str(step.get("operation"))
@@ -674,21 +861,49 @@ def translate_steps(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode:
         except UnsupportedFeature as exc:
             notes.append(f"step {index}: unsupported ({exc})")
             continue
-        all_dropped.extend(feature["dropped"])
 
-        if constraints_mode == "off" or not feature["constraint_lines"]:
-            tier = "profile=geometry"
-        elif feature["dropped"]:
-            tier = "profile=sketch+geometry (partial constraints)"
-        else:
-            tier = "profile=sketch (fallback=geometry)"
+        use_constraints = bool(feature["constraint_lines"])
+        record: Dict[str, Any] = {"feature": index, "mode": mode}
+        if constraints_mode == "auto" and use_constraints:
+            diag = _preflight_feature(feature)
+            record.update(diag)
+            solved = diag["status"] in _OK_STATUSES and not diag["failed_constraints"]
+            drifted = solved and diag["max_move"] is not None and diag["max_move"] > _MAX_SOLVE_DRIFT
+            if not solved:
+                use_constraints = False
+                conflicts.append({
+                    "feature": index,
+                    "status": diag["status"],
+                    "dof": diag["dof"],
+                    "failed_constraints": diag["failed_constraints"],
+                    "warnings": diag["warnings"],
+                    "dropped_constraints": feature["dropped"],
+                })
+            elif drifted:
+                use_constraints = False
+                conflicts.append({
+                    "feature": index,
+                    "status": "diverged",
+                    "dof": diag["dof"],
+                    "failed_constraints": [],
+                    "warnings": [f"solved but points moved {diag['max_move']:.3e} mm from the transcribed coordinates"],
+                    "dropped_constraints": feature["dropped"],
+                })
         if feature["dropped"]:
             notes.append(f"feature {index}: unmapped constraint kinds {sorted(set(feature['dropped']))}")
+            record["dropped_constraints"] = feature["dropped"]
+        if feature["elided"]:
+            record["elided_coincidents"] = len(feature["elided"])
+
+        record["tier"] = "sketch" if use_constraints else "geometry"
+        feature_records.append(record)
+
+        tier = f"profile={record['tier']}"
         slug = f"{mode.lower()}-{index + 1}"
         lines.append(f"    # ---- feature: {slug} ({role}, {tier}) ----")
         lines.extend(f"    {line}" for line in feature["sketch_lines"])
-        lines.append("    s = s_geo")
-        lines.extend(f"    {line}" for line in feature["constraint_lines"])
+        if use_constraints:
+            lines.extend(f"    {line}" for line in feature["constraint_lines"])
         lines.extend(f"    {line}" for line in feature["tool_lines"])
         tools = feature["tool_vars"]
         tool_list = "[" + ", ".join(tools) + "]"
@@ -719,27 +934,50 @@ def translate_steps(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode:
     lines.append("    BODIES = list(bodies)")
     lines.append("    return _merge_bodies(bodies)")
     header_notes = [f"    # {note}" for note in notes]
-    return "\n".join(lines[:6] + header_notes + lines[6:]) + "\n"
+    source = "\n".join(lines[:6] + header_notes + lines[6:]) + "\n"
+    return {"source": source, "features": feature_records, "conflicts": conflicts, "notes": notes}
+
+
+def translate_steps(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode: str = "auto") -> str:
+    """Source-only convenience wrapper around :func:`translate_case`."""
+    return translate_case(steps, uid, constraints_mode=constraints_mode)["source"]
 
 
 # ---------------------------------------------------------------------------
-# validation harness
+# CLI
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("json_file", nargs="?", type=Path)
+    parser.add_argument("json_file", type=Path)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--constraints", choices=["auto", "off", "on"], default="auto")
+    parser.add_argument("--report", type=Path, default=None,
+                        help="sidecar report path (default: <out>.report.json)")
     args = parser.parse_args(argv)
 
-    if not args.json_file:
-        parser.error("provide a json file (tar batch mode lives in histcad_validate.py)")
     steps = json.loads(args.json_file.read_text())
-    source = translate_steps(steps, args.json_file.stem, constraints_mode=args.constraints)
+    case = translate_case(steps, args.json_file.stem, constraints_mode=args.constraints)
     out_path = args.out or args.json_file.with_suffix(".ftc.py")
-    out_path.write_text(source)
+    out_path.write_text(case["source"])
     print(f"wrote {out_path}")
+
+    report_path = args.report or out_path.with_suffix(out_path.suffix + ".report.json")
+    report_path.write_text(json.dumps(
+        {
+            "uid": args.json_file.stem,
+            "constraints": args.constraints,
+            "features": case["features"],
+            "conflicts": case["conflicts"],
+            "notes": case["notes"],
+        },
+        indent=2,
+    ))
+    sketch_tier = sum(1 for f in case["features"] if f["tier"] == "sketch")
+    print(f"features: {len(case['features'])}, sketch tier: {sketch_tier}, conflicts: {len(case['conflicts'])}")
+    for conflict in case["conflicts"]:
+        print(f"  ! feature {conflict['feature']}: {conflict['status']} dof={conflict['dof']} failed={conflict['failed_constraints']}")
+    print(f"wrote {report_path}")
     return 0
 
 
