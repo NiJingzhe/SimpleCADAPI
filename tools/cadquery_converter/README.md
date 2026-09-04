@@ -8,9 +8,16 @@ See [SFTC.md](./SFTC.md) for the output code standard.
 ## Setup
 
 ```bash
-uv sync --group dev
-uv pip install pyarrow cadquery
+# Do not change the repo's .python-version (official pin is 3.10).
+# CadQuery 2.8 needs Python >=3.11 and matches main cadquery-ocp 7.9 —
+# pass --python 3.11 explicitly for converter work only.
+uv sync --python 3.11 --group dev
+uv pip install 'cadquery==2.8.0' pyarrow
+
+# Always use the same interpreter afterwards, e.g.:
+#   uv run --python 3.11 python ...
 ```
+
 
 ## Single file
 
