@@ -173,12 +173,20 @@ def compose_submission(
 
     seq = case.read_submission_seq() + 1
     annotations_out: list[dict[str, Any]] = []
+    referenced_ops: list[str] = []
     for annotation in payload.get("annotations", []):
         record = dict(annotation)
         entity_ids = [
             str(item) for item in record.get("entity_ids", []) if isinstance(item, str)
         ][:MAX_ENTITIES_PER_ANNOTATION]
         record["entity_ids"] = entity_ids
+        operations = [
+            str(item)
+            for item in record.get("operations", [])
+            if isinstance(item, str) and item not in referenced_ops
+        ]
+        record["operations"] = operations
+        referenced_ops.extend(operations)
         context: dict[str, Any] = {}
         unresolved: list[str] = []
         for entity_id in entity_ids:
@@ -190,6 +198,10 @@ def compose_submission(
             record["unresolved_entity_ids"] = unresolved
         record["context"] = context
         annotations_out.append(record)
+
+    from .operation_tips import operation_context_for
+
+    operation_context = operation_context_for(referenced_ops)
 
     snapshot_path: str | None = None
     snapshot = payload.get("snapshot_png")
@@ -211,6 +223,7 @@ def compose_submission(
             "summary": summary,
         },
         "annotations": annotations_out,
+        "operation_context": operation_context,
         "note": str(payload.get("note") or ""),
         "snapshot": snapshot_path,
     }

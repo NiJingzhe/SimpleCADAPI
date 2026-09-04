@@ -148,6 +148,73 @@ def test_compose_submission_attaches_context_and_names_failures(scene, case: ReC
     assert case.read_submission_seq() == submission["submission_seq"]
 
 
+def test_operations_registry_loads_from_markdown() -> None:
+    from viewer.server import operation_tips
+
+    payload = operation_tips.operation_payload()
+    assert [category["id"] for category in payload["categories"]] == [
+        "sketch",
+        "solid",
+        "modify",
+        "surface",
+        "pattern",
+    ]
+    assert payload["errors"] == []
+    op_ids = {operation["op_id"] for operation in payload["operations"]}
+    assert {"sketch", "extrude", "boolean", "fillet", "surface_patch", "radial_pattern"} <= op_ids
+    for operation in payload["operations"]:
+        assert operation["hint"].strip()
+        assert operation["api"] and operation["reads"] and operation["doc_refs"]
+        assert (Path(REPO_ROOT) / operation["doc_refs"][0]).is_file(), operation["op_id"]
+    fillet = next(operation for operation in payload["operations"] if operation["op_id"] == "fillet")
+    assert any("ql-playbook" in ref for ref in fillet["doc_refs"])
+
+
+def test_operations_registry_names_broken_markdown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from viewer.server import operation_tips
+
+    (tmp_path / "good.md").write_text(
+        "---\nlabel: good\ncategory: solid\napi:\n  - union_rsolid\nreads:\n  - overlaps\ndoc_refs:\n  - docs/x.md\n---\nDo it.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "broken.md").write_text("no frontmatter at all", encoding="utf-8")
+    monkeypatch.setattr(operation_tips, "_TIPS_DIR", tmp_path)
+    monkeypatch.setattr(operation_tips, "_REGISTRY_CACHE", None)
+    monkeypatch.setattr(operation_tips, "_REGISTRY_STAMP", None)
+    payload = operation_tips.operation_payload()
+    assert {operation["op_id"] for operation in payload["operations"]} == {"good"}
+    # failures are named, not swallowed
+    assert len(payload["errors"]) == 1 and payload["errors"][0].startswith("broken.md:")
+
+
+def test_compose_submission_embeds_operation_context(scene, case: ReCase) -> None:
+    submission = compose_submission(
+        case,
+        _null_describe,
+        scene.summary,
+        {
+            "annotations": [
+                {
+                    "annotation_id": "a1",
+                    "kind": "free",
+                    "intent": "free",
+                    "text": "[face:6](face:6) then [fillet](op:fillet)",
+                    "entity_ids": [],
+                    "operations": ["fillet", "not_a_tip"],
+                }
+            ],
+            "note": "",
+        },
+    )
+    annotation = submission["annotations"][0]
+    assert annotation["operations"] == ["fillet", "not_a_tip"]
+    context = submission["operation_context"]
+    assert set(context) == {"fillet"}
+    assert context["fillet"]["category"] == "modify"
+    assert context["fillet"]["hint"]
+    assert any("ql-playbook" in ref for ref in context["fillet"]["doc_refs"])
+
+
 def test_wait_handshake_times_out_then_returns(case: ReCase) -> None:
     state = StudioState(case)
     server = StudioServer(("127.0.0.1", 0), state)
@@ -211,6 +278,11 @@ def test_http_endpoints(case: ReCase) -> None:
         assert "scene.json" in scene_payload["files"]
         with urllib.request.urlopen(f"{base}/api/entity?id=face:6", timeout=3) as response:
             assert json.loads(response.read())["geometry"]["type"] == "CYLINDER"
+        with urllib.request.urlopen(f"{base}/api/operations", timeout=3) as response:
+            operations = json.loads(response.read())
+        assert operations["errors"] == []
+        assert len(operations["categories"]) == 5
+        assert any(operation["op_id"] == "extrude" for operation in operations["operations"])
         request = urllib.request.Request(
             f"{base}/api/annotate",
             data=json.dumps({"action": "add", "annotation": {"annotation_id": "x1"}}).encode(),

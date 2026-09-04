@@ -106,9 +106,68 @@
   background: #10151c; border: 1px solid #262d37; color: #dfe7f1;
   border-radius: 6px; padding: 6px 10px; font-size: 12px;
 }
-.re-note-input { flex: 1; }
 .re-round-note { flex: 1; }
 .re-chip-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 96px; overflow: auto; }
+
+/* -- free-form composer: entity / operation chips inline with text ---------- */
+
+.re-composer-host { flex: 1; min-width: 0; display: flex; }
+.re-composer-input {
+  flex: 1;
+  background: #10151c; border: 1px solid #262d37; color: #dfe7f1;
+  border-radius: 6px; padding: 7px 10px; font-size: 12px; line-height: 1.7;
+  min-height: 48px; max-height: 150px; overflow-y: auto; outline: none;
+  white-space: pre-wrap; overflow-wrap: break-word; cursor: text;
+  font-family: inherit;
+}
+.re-composer-input:focus { border-color: #3b82c4; box-shadow: 0 0 0 2px rgba(59, 130, 196, 0.18); }
+.re-composer-input[data-empty='true']::before {
+  content: attr(data-placeholder);
+  color: #56657a; pointer-events: none;
+}
+
+.re-token {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid; border-radius: 4px; padding: 0 5px; margin: 0 1px;
+  font-size: 11px; line-height: 1.6; vertical-align: baseline;
+  user-select: all; white-space: nowrap;
+}
+.re-token-glyph {
+  font: 700 8px/1 ui-monospace, 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.04em; opacity: 0.9;
+}
+.re-token-label { font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+
+/* entity kinds: four colors */
+.re-token-face   { color: #a8cdf5; border-color: #33587e; background: rgba(79, 156, 240, 0.13); }
+.re-token-edge   { color: #a9e2bd; border-color: #2f5c42; background: rgba(79, 197, 122, 0.13); }
+.re-token-vertex { color: #f2c4a3; border-color: #7c5232; background: rgba(224, 129, 79, 0.13); }
+.re-token-body   { color: #e7d5a8; border-color: #79622f; background: rgba(201, 162, 79, 0.13); }
+
+/* operation tips: one color per category */
+.re-token-op.re-opcat-sketch  { color: #a8e0da; border-color: #2f5c57; background: rgba(69, 184, 173, 0.12); }
+.re-token-op.re-opcat-solid   { color: #b9c8ee; border-color: #3c4d7e; background: rgba(122, 148, 212, 0.12); }
+.re-token-op.re-opcat-modify  { color: #eeb9c3; border-color: #7e3c4a; background: rgba(212, 122, 138, 0.12); }
+.re-token-op.re-opcat-surface { color: #d3c4ee; border-color: #4c3a7e; background: rgba(157, 122, 212, 0.12); }
+.re-token-op.re-opcat-pattern { color: #e6bce6; border-color: #6b3a6b; background: rgba(196, 111, 196, 0.12); }
+
+/* -- operation tips palette --------------------------------------------------- */
+
+.re-op-palette {
+  display: flex; flex-wrap: wrap; gap: 4px 14px;
+  margin-bottom: 8px; max-height: 140px; overflow-y: auto;
+}
+.re-op-group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.re-op-button {
+  border: 1px solid; background: #131920; color: #b8c4d4;
+  border-radius: 999px; padding: 2px 9px; font-size: 11px; cursor: pointer;
+}
+.re-op-button:hover { filter: brightness(1.25); }
+.re-op-button.re-opcat-sketch  { color: #a8e0da; border-color: #2f5c57; }
+.re-op-button.re-opcat-solid   { color: #b9c8ee; border-color: #3c4d7e; }
+.re-op-button.re-opcat-modify  { color: #eeb9c3; border-color: #7e3c4a; }
+.re-op-button.re-opcat-surface { color: #d3c4ee; border-color: #4c3a7e; }
+.re-op-button.re-opcat-pattern { color: #e6bce6; border-color: #6b3a6b; }
 
 .re-chip {
   display: inline-flex; align-items: center; gap: 6px;
@@ -152,6 +211,25 @@
   height: 100%; box-sizing: border-box;
 }
 
+/* -- source panel: file tabs + read-only CodeMirror -------------------------- */
+
+.re-source-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.re-source-tabs {
+  display: flex; gap: 2px; padding: 4px 8px 0;
+  border-bottom: 1px solid #1b2129; background: #0d1117;
+}
+.re-source-tab {
+  border: 1px solid #262d37; border-bottom: none; background: #10151c; color: #8b98a9;
+  border-radius: 6px 6px 0 0; padding: 3px 10px; font-size: 11px; cursor: pointer;
+}
+.re-source-tab.active { color: #bfdcff; border-color: #3b82c4; background: #131920; }
+.re-source-editor { flex: 1; min-height: 0; overflow: hidden; }
+.re-source-editor .cm-editor { background: #21252b; }
+.re-source-editor .cm-scroller { font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+
+/* -- feature tree (shared tree-row styles come from style.css) ---------------- */
+
+.re-feature-tree { height: 100%; overflow: auto; padding: 4px 0; }
 .re-feature-list { padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .re-feature-row {
   display: flex; gap: 10px; align-items: baseline; text-align: left;

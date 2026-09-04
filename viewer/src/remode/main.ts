@@ -1,9 +1,11 @@
 // Reverse-engineering studio (re-mode): annotate a STEP target for an agent.
 //
 // Left: original STEP viewport with entity picking, circle/lasso region
-// annotation and an intent palette. Right top: rebuilt result (v3 .scadpkg)
-// plus the agent's comparison image. Right bottom: FTC source, feature tree,
-// evaluation report, last submission, and the live context preview.
+// annotation and a free-form composer — picked entities and operation tips
+// appear as inline colored chips, peers of plain text. Right top: rebuilt
+// result (v3 .scadpkg) plus the agent's comparison image. Right bottom:
+// FTC source (CodeMirror, syntax highlighted), feature DAG tree, evaluation
+// report, last submission, and the live context preview.
 //
 // Governance: the UI only selects and describes. It never edits geometry —
 // every rebuild flows through the agent's code, and only this UI writes
@@ -11,30 +13,22 @@
 
 import '../style.css';
 import './remode.css';
-import { MARK_COLORS, SceneView, type CameraState, type PickResult, type SelectionMode } from '../scene-view';
+import { PythonEditor } from '../components/source-dock';
 import { openCadPackage, type PackageFiles } from '../product-package';
-import type { SceneManifest } from '../scene2';
+import { buildFederatedFeatureModel, type ModelDocument, type SceneManifest } from '../scene2';
+import { MARK_COLORS, SceneView, type CameraState, type PickResult, type SelectionMode } from '../scene-view';
+import { TokenComposer, type ComposerTokenKind } from './composer';
+import { FeatureTreeView } from './feature-tree';
 
-type IntentKind = 'sketch_base' | 'revolve_axis' | 'pattern_seed' | 'fillet_group' | 'exact_copy' | 'question' | 'other';
-
-const INTENT_LABELS: Array<{ value: IntentKind; label: string }> = [
-  { value: 'sketch_base', label: 'sketch base' },
-  { value: 'revolve_axis', label: 'revolve axis' },
-  { value: 'pattern_seed', label: 'pattern seed' },
-  { value: 'fillet_group', label: 'fillet group' },
-  { value: 'exact_copy', label: 'exact-copy region' },
-  { value: 'question', label: 'ask agent' },
-  { value: 'other', label: 'other' },
-];
-
-type SelectionEntry = { nodeId: string; entityId: string; canonical: string; kind: string };
+type DraftEntry = { nodeId: string; entityId: string; canonical: string; kind: string };
 
 type Annotation = {
   annotation_id: string;
-  kind: 'entity_set';
-  intent: IntentKind;
+  kind: 'free';
+  intent: 'free';
   text: string;
-  entries: SelectionEntry[];
+  entries: DraftEntry[];
+  operations: string[];
   screen_polygon?: Array<[number, number]>;
   color: string;
   created_at: string;
@@ -48,7 +42,23 @@ type SessionPayload = {
   artifacts: Record<string, { present: boolean; mtime?: number; size?: number }>;
 };
 
-type RegionResolveResponse = { entity_ids: string[]; count: number };
+type RegionResolveResponse = { entity_ids: string[]; count: string | number };
+
+type OperationTip = {
+  op_id: string;
+  label: string;
+  category: string;
+  api: string[];
+  reads: string[];
+  doc_refs: string[];
+  hint: string;
+};
+
+type OperationsPayload = {
+  categories: Array<{ id: string; label: string; description: string }>;
+  operations: OperationTip[];
+  errors: string[];
+};
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('re-mode root is missing');
@@ -74,12 +84,12 @@ app.innerHTML = `
             <button class="re-mode-button" data-selection-mode="component" type="button">BODY</button>
           </div>
           <div class="re-tool-group"><span class="re-tool-label">DRAW</span>
-            <button class="re-mode-button" data-draw-mode="off" type="button">OFF</button>
+            <button class="re-mode-button active" data-draw-mode="off" type="button">OFF</button>
             <button class="re-mode-button" data-draw-mode="circle" type="button">◯ CIRCLE</button>
             <button class="re-mode-button" data-draw-mode="lasso" type="button">～ LASSO</button>
           </div>
           <div class="re-tool-group">
-            <button id="re-clear-selection" class="re-mode-button" type="button">CLEAR SEL</button>
+            <button id="re-clear-selection" class="re-mode-button" type="button">CLEAR DRAFT</button>
           </div>
         </div>
         <div class="re-viewport" id="re-original-viewport">
@@ -88,9 +98,9 @@ app.innerHTML = `
         </div>
         <div class="re-selection-info" id="re-selection-info"><span class="re-muted">click faces / draw a region to select</span></div>
         <div class="re-composer">
+          <div class="re-op-palette" id="re-op-palette"><span class="re-muted">loading operations…</span></div>
           <div class="re-composer-row">
-            <select id="re-intent-select" class="re-input"></select>
-            <input id="re-note-input" class="re-input re-note-input" placeholder="annotation text (what is this region / how is it made)" />
+            <div id="re-composer-host" class="re-composer-host"></div>
             <button id="re-add-annotation" class="re-add-button" type="button" disabled>ADD</button>
           </div>
           <div class="re-round-row">
@@ -120,8 +130,12 @@ app.innerHTML = `
             <button class="re-tab" data-bottom-tab="context" type="button">CONTEXT PREVIEW</button>
           </div>
           <div class="re-bottom-body">
-            <pre class="re-code" id="re-source" hidden></pre>
-            <div class="re-feature-list" id="re-features" hidden></div>
+            <div class="re-source-panel" id="re-source-panel">
+              <div class="re-source-tabs" id="re-source-tabs"></div>
+              <div class="re-source-editor" id="re-source-editor"></div>
+            </div>
+            <div class="tree feature-tree re-feature-tree" id="re-features" hidden></div>
+            <div class="re-feature-list re-feature-fallback" id="re-features-fallback" hidden></div>
             <pre class="re-code" id="re-evaluation" hidden></pre>
             <div class="re-code" id="re-submission" hidden></div>
             <div class="re-code" id="re-context" hidden></div>
@@ -142,27 +156,23 @@ const rebuiltHost = $<HTMLDivElement>('div#re-rebuilt-viewport');
 const comparisonImg = $<HTMLImageElement>('img#re-comparison-img');
 const selectionInfo = $<HTMLDivElement>('div#re-selection-info');
 const chipList = $<HTMLDivElement>('div#re-chip-list');
-const intentSelect = $<HTMLSelectElement>('select#re-intent-select');
-const noteInput = $<HTMLInputElement>('input#re-note-input');
+const opPalette = $<HTMLDivElement>('div#re-op-palette');
+const composerHost = $<HTMLDivElement>('div#re-composer-host');
 const roundNoteInput = $<HTMLInputElement>('input#re-round-note');
 const addAnnotationButton = $<HTMLButtonElement>('button#re-add-annotation');
 const submitButton = $<HTMLButtonElement>('button#re-submit-button');
 const agentState = $('span#re-agent-state');
 const topStats = $('div#re-top-stats');
 const statusLine = $('span#re-status');
-const sourcePre = $<HTMLPreElement>('pre#re-source');
+const sourcePanel = $<HTMLDivElement>('div#re-source-panel');
+const sourceTabs = $<HTMLDivElement>('div#re-source-tabs');
+const sourceEditorHost = $<HTMLDivElement>('div#re-source-editor');
 const featureList = $<HTMLDivElement>('div#re-features');
+const featureListFallback = $<HTMLDivElement>('div#re-features-fallback');
 const evaluationPre = $<HTMLPreElement>('pre#re-evaluation');
 const submissionDiv = $<HTMLDivElement>('div#re-submission');
 const contextDiv = $<HTMLDivElement>('div#re-context');
 const rebuiltState = $<HTMLSpanElement>('span#re-rebuilt-state');
-
-for (const intent of INTENT_LABELS) {
-  const option = document.createElement('option');
-  option.value = intent.value;
-  option.textContent = intent.label;
-  intentSelect.append(option);
-}
 
 const originalView = new SceneView(originalHost, { selectionMode: 'face' });
 const rebuiltView = new SceneView(rebuiltHost, { selectionMode: 'face' });
@@ -190,15 +200,9 @@ function indexSidecarIds(view: SceneView): void {
   }
 }
 
-// -- selection + annotations ----------------------------------------------------
+// -- free-form composer (entity + operation chips inline with text) -----------
 
-let selection = new Map<string, SelectionEntry>(); // scene entity id -> entry
-const annotations: Annotation[] = [];
-let annotationCounter = 0;
-let drawMode: 'off' | 'circle' | 'lasso' = 'off';
-let drawPoints: Array<[number, number]> = [];
-let drawing = false;
-let currentPolygon: Array<[number, number]> | null = null;
+const draft = new Map<string, DraftEntry>(); // canonical id -> picked entry
 
 function markColor(index: number): string {
   return MARK_COLORS[index % MARK_COLORS.length];
@@ -208,26 +212,35 @@ function setStatus(message: string): void {
   statusLine.textContent = message;
 }
 
+function composerKind(kind: string): ComposerTokenKind {
+  if (kind === 'edge' || kind === 'vertex' || kind === 'body' || kind === 'face') return kind;
+  return 'body';
+}
+
+function postSelectEvent(): void {
+  void fetch('/api/event', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'select', entity_ids: [...draft.keys()] }),
+  });
+}
+
 function addSelectionEntry(nodeId: string, entityId: string, kind: string, quiet = false): void {
   const canonical = canonicalBySceneId.get(entityId);
-  if (!canonical) return;
-  if (selection.has(entityId)) return;
-  selection.set(entityId, { nodeId, entityId, canonical, kind });
+  if (!canonical || draft.has(canonical)) return;
+  draft.set(canonical, { nodeId, entityId, canonical, kind });
   originalView.addMark(nodeId, entityId, '#fff04d');
-  if (!quiet) {
-    void fetch('/api/event', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'select', entity_ids: [...selection.values()].map((entry) => entry.canonical) }),
-    });
-  }
+  composer.insertToken({ token: canonical, label: canonical, kind: composerKind(kind) });
+  if (!quiet) void postSelectEvent();
   refreshSelectionInfo();
 }
 
 function toggleSelectionEntry(nodeId: string, entityId: string, kind: string): void {
-  if (selection.has(entityId)) {
-    selection.delete(entityId);
+  const canonical = canonicalBySceneId.get(entityId);
+  if (canonical && draft.has(canonical)) {
+    draft.delete(canonical);
     originalView.removeMark(`${nodeId}::${entityId}`);
+    composer.removeToken(canonical);
     refreshSelectionInfo();
     return;
   }
@@ -235,46 +248,62 @@ function toggleSelectionEntry(nodeId: string, entityId: string, kind: string): v
 }
 
 function refreshSelectionInfo(): void {
-  const entries = [...selection.values()];
+  const entries = [...draft.values()];
+  addAnnotationButton.disabled = composer.isEmpty();
   if (!entries.length) {
-    selectionInfo.innerHTML = '<span class="re-muted">click faces / draw a region to select</span>';
-    addAnnotationButton.disabled = true;
+    selectionInfo.innerHTML = '<span class="re-muted">click faces / draw a region to select — picks become tags in the composer</span>';
     return;
   }
-  addAnnotationButton.disabled = false;
   const kinds = new Map<string, number>();
   for (const entry of entries) kinds.set(entry.kind, (kinds.get(entry.kind) ?? 0) + 1);
-  selectionInfo.innerHTML = `<strong>${entries.length} selected</strong> <span class="re-muted">${[...kinds].map(([kind, count]) => `${count} ${kind}`).join(' · ')}</span> <span class="re-id-list" title="${entries.map((entry) => entry.canonical).join(', ')}">${entries.slice(0, 6).map((entry) => entry.canonical).join(', ')}${entries.length > 6 ? ' …' : ''}</span>`;
+  selectionInfo.innerHTML = `<strong>${entries.length} tagged</strong> <span class="re-muted">${[...kinds].map(([kind, count]) => `${count} ${kind}`).join(' · ')}</span> <span class="re-id-list" title="${entries.map((entry) => entry.canonical).join(', ')}">${entries.slice(0, 6).map((entry) => entry.canonical).join(', ')}${entries.length > 6 ? ' …' : ''}</span>`;
 }
 
-function annotationColorCount(): number {
-  return annotations.length;
-}
+const composer = new TokenComposer({
+  placeholder: 'annotation text — clicked entities and operation tips land here as tags; Enter commits, Shift+Enter newline',
+  onChange: () => refreshSelectionInfo(),
+  onCommit: () => addAnnotation(),
+});
+composerHost.append(composer.host);
+
+// -- annotations ---------------------------------------------------------------
+
+const annotations: Annotation[] = [];
+let annotationCounter = 0;
+let drawMode: 'off' | 'circle' | 'lasso' = 'off';
+let drawPoints: Array<[number, number]> = [];
+let drawing = false;
+let currentPolygon: Array<[number, number]> | null = null;
 
 function addAnnotation(): void {
-  const entries = [...selection.values()];
-  if (!entries.length) return;
-  const color = markColor(annotationColorCount());
+  const text = composer.value().trim();
+  const tokens = composer.listTokens();
+  const entityTokens = tokens.filter((token) => token.kind !== 'op');
+  if (!text && !entityTokens.length) return;
+  const entries = entityTokens
+    .map((token) => draft.get(token.token))
+    .filter((entry): entry is DraftEntry => Boolean(entry));
+  const operations = [...new Set(tokens.filter((token) => token.kind === 'op').map((token) => token.token.replace(/^op:/, '')))];
+  const color = markColor(annotations.length);
   const annotation: Annotation = {
     annotation_id: `a${++annotationCounter}-${Date.now().toString(36)}`,
-    kind: 'entity_set',
-    intent: intentSelect.value as IntentKind,
-    text: noteInput.value.trim(),
+    kind: 'free',
+    intent: 'free',
+    text,
     entries,
+    operations,
     screen_polygon: currentPolygon ?? undefined,
     color,
     created_at: new Date().toISOString(),
   };
   for (const entry of entries) {
     originalView.removeMark(`${entry.nodeId}::${entry.entityId}`);
-  }
-  for (const entry of entries) {
     originalView.addMark(entry.nodeId, entry.entityId, color);
   }
   annotations.push(annotation);
-  selection.clear();
+  draft.clear();
+  composer.clear();
   currentPolygon = null;
-  noteInput.value = '';
   void postAnnotation('add', annotation);
   renderChips();
   renderAnnotationsCanvas();
@@ -314,6 +343,7 @@ function serializeAnnotation(annotation: Annotation): Record<string, unknown> {
     intent: annotation.intent,
     text: annotation.text,
     entity_ids: annotation.entries.map((entry) => entry.canonical),
+    operations: annotation.operations,
     screen_polygon: annotation.screen_polygon ?? null,
     color: annotation.color,
     created_at: annotation.created_at,
@@ -327,7 +357,7 @@ function renderChips(): void {
     chip.type = 'button';
     chip.className = 're-chip';
     chip.style.setProperty('--chip-color', annotation.color);
-    chip.innerHTML = `<span class="re-chip-dot"></span><strong>${annotation.intent}</strong><span class="re-chip-count">${annotation.entries.length}</span>${annotation.text ? `<span class="re-chip-text">${annotation.text}</span>` : ''}<span class="re-chip-remove" title="remove">×</span>`;
+    chip.innerHTML = `<span class="re-chip-dot"></span><strong>${annotation.intent}</strong><span class="re-chip-count">${annotation.entries.length}</span>${annotation.operations.length ? `<span class="re-chip-count">${annotation.operations.length} op</span>` : ''}${annotation.text ? `<span class="re-chip-text">${escapeHtml(annotation.text)}</span>` : ''}<span class="re-chip-remove" title="remove">×</span>`;
     chip.addEventListener('click', (event) => {
       if ((event.target as HTMLElement).classList.contains('re-chip-remove')) {
         removeAnnotation(annotation.annotation_id);
@@ -343,13 +373,69 @@ function renderContextPreview(): void {
   const payload = {
     note: roundNoteInput.value,
     annotations: annotations.map(serializeAnnotation),
-    _server_adds: 'per-entity describe_entity context (geometry, bounds, adjacency), target summary, viewport snapshot',
+    _server_adds: 'per-entity describe_entity context (geometry, bounds, adjacency), operation tips (api, reads, doc_refs, hint), target summary, viewport snapshot',
   };
   contextDiv.innerHTML = `<pre class="re-code">${escapeHtml(JSON.stringify(payload, null, 2))}</pre>`;
 }
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character] || character);
+}
+
+// -- operation tips palette (server registry, content lives in md files) -------
+
+async function loadOperations(): Promise<void> {
+  try {
+    const response = await fetch('/api/operations');
+    if (!response.ok) {
+      opPalette.innerHTML = '<span class="re-muted">operation registry unavailable</span>';
+      return;
+    }
+    const payload = (await response.json()) as OperationsPayload;
+    renderOperationPalette(payload);
+    if (payload.errors.length) setStatus(`operation registry: ${payload.errors.join('; ')}`);
+  } catch {
+    opPalette.innerHTML = '<span class="re-muted">operation registry unreachable</span>';
+  }
+}
+
+function renderOperationPalette(payload: OperationsPayload): void {
+  opPalette.replaceChildren();
+  const byCategory = new Map<string, OperationTip[]>();
+  for (const op of payload.operations) {
+    const list = byCategory.get(op.category) ?? [];
+    list.push(op);
+    byCategory.set(op.category, list);
+  }
+  for (const category of payload.categories) {
+    const ops = byCategory.get(category.id);
+    if (!ops?.length) continue;
+    const group = document.createElement('div');
+    group.className = 're-op-group';
+    const label = document.createElement('span');
+    label.className = 're-tool-label';
+    label.textContent = category.label;
+    label.title = category.description;
+    group.append(label);
+    for (const op of ops) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `re-op-button re-opcat-${category.id}`;
+      button.textContent = op.label;
+      button.title = `${op.api.join(', ')}\n\n${op.hint}`;
+      button.addEventListener('click', () => {
+        composer.insertToken({ token: `op:${op.op_id}`, label: op.label, kind: 'op', category: category.id });
+        composer.focus();
+        void fetch('/api/event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'op_chip', op_id: op.op_id }),
+        });
+      });
+      group.append(button);
+    }
+    opPalette.append(group);
+  }
 }
 
 // -- annotation canvas (circle / lasso) -------------------------------------------
@@ -457,18 +543,21 @@ async function resolveRegion(polygon: Array<[number, number]>): Promise<void> {
       return;
     }
     const result = (await response.json()) as RegionResolveResponse;
+    const wantedKind = originalView.selectionMode === 'vertex' ? 'vertex' : 'face';
     let added = 0;
     for (const canonical of result.entity_ids) {
       const sceneId = sceneIdByCanonical.get(canonical);
       const nodeId = sceneId ? nodeIdBySceneId.get(sceneId) : undefined;
       if (!sceneId || !nodeId) continue;
       const entity = originalView.entityFor(nodeId, sceneId);
-      addSelectionEntry(nodeId, sceneId, entity?.kind ?? 'face', true);
+      const kind = entity?.kind ?? 'face';
+      if (kind !== wantedKind) continue;
+      addSelectionEntry(nodeId, sceneId, kind, true);
       added += 1;
     }
     currentPolygon = polygon;
     refreshSelectionInfo();
-    setStatus(`region resolved: ${added} entities`);
+    setStatus(`region resolved: ${added} entities tagged`);
   } catch {
     setStatus('region resolve unreachable');
   }
@@ -484,12 +573,14 @@ function canvasPoint(event: PointerEvent): [number, number] {
 
 originalView.onPick = (result: PickResult) => {
   if (drawMode !== 'off' || !result.entityId) return;
-  toggleSelectionEntry(result.nodeId, result.entityId, result.mode === 'component' ? 'body' : result.mode);
-  if (selection.has(result.entityId)) void inspectEntity(result);
+  const kind = result.mode === 'component' ? 'body' : result.mode === 'solid' ? 'body' : result.mode;
+  toggleSelectionEntry(result.nodeId, result.entityId, kind);
+  if (result.entityId && draft.has(canonicalBySceneId.get(result.entityId) ?? '')) void inspectEntity(result);
 };
 
 async function inspectEntity(result: PickResult): Promise<void> {
-  const entry = selection.get(result.entityId!);
+  const canonical = canonicalBySceneId.get(result.entityId!);
+  const entry = canonical ? draft.get(canonical) : undefined;
   if (!entry) return;
   try {
     const response = await fetch(`/api/entity?id=${encodeURIComponent(entry.canonical)}`);
@@ -527,8 +618,9 @@ for (const button of Array.from(document.querySelectorAll<HTMLButtonElement>('.r
 }
 
 $('button#re-clear-selection').addEventListener('click', () => {
-  for (const entry of selection.values()) originalView.removeMark(`${entry.nodeId}::${entry.entityId}`);
-  selection.clear();
+  for (const entry of draft.values()) originalView.removeMark(`${entry.nodeId}::${entry.entityId}`);
+  draft.clear();
+  composer.clear();
   currentPolygon = null;
   refreshSelectionInfo();
   renderAnnotationsCanvas();
@@ -540,9 +632,6 @@ $('button#re-fit-button').addEventListener('click', () => {
 });
 
 addAnnotationButton.addEventListener('click', addAnnotation);
-noteInput.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') addAnnotation();
-});
 roundNoteInput.addEventListener('input', renderContextPreview);
 
 submitButton.addEventListener('click', async () => {
@@ -583,16 +672,102 @@ for (const button of Array.from(document.querySelectorAll<HTMLButtonElement>('.r
   });
 }
 
+// -- source panel (CodeMirror) + feature DAG tree ------------------------------
+
+const sourceEditor = new PythonEditor({ parent: sourceEditorHost });
+const sourceFiles = new Map<string, string>();
+let currentSourcePath: string | null = null;
+let packageModel: ModelDocument | null = null;
+
+const featureTree = new FeatureTreeView(featureList, {
+  onSelectFeature: (feature) => {
+    selectBottomTab('source');
+    const span = feature.sources[0];
+    if (span?.path && sourceFiles.has(span.path)) {
+      showSourceFile(span.path, { line: span.line, endLine: span.end_line });
+    }
+  },
+});
+
+function showSourceFile(path: string, reveal?: { line: number; endLine: number }): void {
+  const content = sourceFiles.get(path);
+  if (content === undefined) return;
+  if (path !== currentSourcePath) {
+    currentSourcePath = path;
+    sourceEditor.setContent(content);
+    renderSourceTabs();
+  }
+  if (reveal) sourceEditor.revealLines(reveal.line, reveal.endLine);
+  else sourceEditor.clearHighlight();
+}
+
+function setSourceFile(path: string, content: string, prefer = false): void {
+  sourceFiles.set(path, content);
+  if (prefer || currentSourcePath === null) showSourceFile(path);
+  renderSourceTabs();
+}
+
+function renderSourceTabs(): void {
+  sourceTabs.replaceChildren();
+  if (sourceFiles.size <= 1) return;
+  for (const path of sourceFiles.keys()) {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = `re-source-tab${path === currentSourcePath ? ' active' : ''}`;
+    tab.textContent = path;
+    tab.addEventListener('click', () => showSourceFile(path));
+    sourceTabs.append(tab);
+  }
+}
+
+function updateFeatureVisibility(): void {
+  featureList.hidden = !packageModel;
+  featureListFallback.hidden = packageModel !== null;
+}
+
+/** FTC header fallback before the agent captures a package with a real DAG. */
+
+function renderFallbackFeatureTree(source: string): void {
+  if (packageModel) return;
+  updateFeatureVisibility();
+  featureListFallback.replaceChildren();
+  const headerPattern = /^#\s*----\s*feature:\s*(.+?)\s*\((.+?)\)\s*----/gm;
+  let match: RegExpExecArray | null;
+  let found = false;
+  while ((match = headerPattern.exec(source))) {
+    found = true;
+    const line = source.slice(0, match.index).split('\n').length;
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 're-feature-row';
+    row.innerHTML = `<span class="re-feature-op">${escapeHtml(match[2])}</span><span class="re-feature-label">${escapeHtml(match[1])}</span>`;
+    row.addEventListener('click', () => {
+      selectBottomTab('source');
+      showSourceFile('rebuild.py', { line, endLine: line + 12 });
+    });
+    featureListFallback.append(row);
+  }
+  if (!found) featureListFallback.innerHTML = '<div class="re-muted" style="padding:8px">no feature headers found in rebuild.py</div>';
+}
+
+function selectBottomTab(tab: string): void {
+  for (const item of Array.from(document.querySelectorAll<HTMLButtonElement>('.re-tab[data-bottom-tab]'))) {
+    item.classList.toggle('active', item.dataset.bottomTab === tab);
+  }
+  sourcePanel.hidden = tab !== 'source';
+  if (tab === 'features') updateFeatureVisibility();
+  else {
+    featureList.hidden = true;
+    featureListFallback.hidden = true;
+  }
+  evaluationPre.hidden = tab !== 'evaluation';
+  submissionDiv.hidden = tab !== 'submission';
+  contextDiv.hidden = tab !== 'context';
+  if (tab === 'source') sourceEditor.requestMeasure();
+}
+
 for (const button of Array.from(document.querySelectorAll<HTMLButtonElement>('.re-tab[data-bottom-tab]'))) {
-  button.addEventListener('click', () => {
-    const tab = button.dataset.bottomTab;
-    document.querySelectorAll<HTMLButtonElement>('.re-tab[data-bottom-tab]').forEach((item) => item.classList.toggle('active', item === button));
-    sourcePre.hidden = tab !== 'source';
-    featureList.hidden = tab !== 'features';
-    evaluationPre.hidden = tab !== 'evaluation';
-    submissionDiv.hidden = tab !== 'submission';
-    contextDiv.hidden = tab !== 'context';
-  });
+  button.addEventListener('click', () => selectBottomTab(button.dataset.bottomTab ?? 'source'));
 }
 
 // -- session polling + artifact loading ------------------------------------------
@@ -635,24 +810,14 @@ async function loadRebuilt(mtime: number): Promise<void> {
   await rebuiltView.loadScene(opened.files);
   rebuiltState.textContent = 'rebuilt package loaded';
   const manifest = JSON.parse(new TextDecoder().decode(opened.files['scene.json'])) as SceneManifest;
-  renderFeatureTree(manifest);
-}
-
-function renderFeatureTree(manifest: SceneManifest | null): void {
-  const rows: string[] = [];
-  if (manifest?.feature_index?.length) {
-    for (const feature of manifest.feature_index) {
-      rows.push(`<button class="re-feature-row" type="button"><span class="re-feature-op">${escapeHtml(feature.op)}</span><span class="re-feature-label">${escapeHtml(feature.label ?? feature.node_id)}</span></button>`);
-    }
-  } else {
-    const source = sourcePre.textContent ?? '';
-    const headerPattern = /^#\s*----\s*feature:\s*(.+?)\s*\((.+?)\)\s*----/gm;
-    let match: RegExpExecArray | null;
-    while ((match = headerPattern.exec(source))) {
-      rows.push(`<button class="re-feature-row" type="button"><span class="re-feature-op">${escapeHtml(match[2])}</span><span class="re-feature-label">${escapeHtml(match[1])}</span></button>`);
-    }
+  const federated = buildFederatedFeatureModel(manifest, opened.files);
+  packageModel = federated.model;
+  for (const [path, content] of federated.sources) {
+    const duplicate = [...sourceFiles.entries()].some(([, text]) => text === content);
+    if (!duplicate) setSourceFile(path, content);
   }
-  featureList.innerHTML = rows.length ? rows.join('') : '<div class="re-muted" style="padding:8px">no feature tree yet — the agent has not produced a rebuild</div>';
+  featureTree.setModel(packageModel);
+  updateFeatureVisibility();
 }
 
 async function loadArtifactText(name: 'rebuild.py' | 'evaluation.json', mtime: number): Promise<void> {
@@ -660,8 +825,8 @@ async function loadArtifactText(name: 'rebuild.py' | 'evaluation.json', mtime: n
   if (!response.ok) return;
   const text = await response.text();
   if (name === 'rebuild.py') {
-    sourcePre.textContent = text;
-    renderFeatureTree(null);
+    setSourceFile('rebuild.py', text, true);
+    renderFallbackFeatureTree(text);
   } else {
     try {
       evaluationPre.textContent = JSON.stringify(JSON.parse(text), null, 2);
@@ -683,6 +848,7 @@ async function loadSubmissionTab(): Promise<void> {
       <span class="re-chip-dot" style="--chip-color: ${String(annotation.color ?? '#888')}"></span>
       <strong>${escapeHtml(String(annotation.intent))}</strong>
       <span>${(annotation.entity_ids as string[] | undefined)?.length ?? 0} entities</span>
+      ${(annotation.operations as string[] | undefined)?.length ? `<span>${(annotation.operations as string[]).length} ops</span>` : ''}
       ${annotation.text ? `<span class="re-muted">${escapeHtml(String(annotation.text))}</span>` : ''}
       ${(annotation.unresolved_entity_ids as string[] | undefined)?.length ? `<span class="re-warn">unresolved: ${(annotation.unresolved_entity_ids as string[]).join(', ')}</span>` : ''}
     </div>`).join('');
@@ -734,15 +900,17 @@ function startPolling(): void {
 // Debug/console access for the internal tool (also used by e2e verification).
 declare global {
   interface Window {
-    __reDebug?: { originalView: SceneView; rebuiltView: SceneView; annotations: Annotation[] };
+    __reDebug?: { originalView: SceneView; rebuiltView: SceneView; annotations: Annotation[]; composer: TokenComposer };
   }
 }
-window.__reDebug = { originalView, rebuiltView, annotations };
+window.__reDebug = { originalView, rebuiltView, annotations, composer };
 
 new ResizeObserver(() => sizeAnnotateCanvas()).observe(originalHost);
 sizeAnnotateCanvas();
 renderContextPreview();
+refreshSelectionInfo();
 void loadSubmissionTab();
+void loadOperations();
 void loadOriginalScene();
 startPolling();
 const retryOriginal = window.setInterval(() => {

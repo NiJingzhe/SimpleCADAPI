@@ -74,11 +74,51 @@ const editorExtensions: Extension[] = [
   }),
 ];
 
+export type PythonEditorOptions = {
+  parent: HTMLElement;
+  content?: string;
+};
+
+/** Read-only CodeMirror 6 Python view with line-range highlighting. */
+export class PythonEditor {
+  readonly view: EditorView;
+
+  constructor(options: PythonEditorOptions) {
+    this.view = new EditorView({
+      state: EditorState.create({ doc: options.content ?? '', extensions: editorExtensions }),
+      parent: options.parent,
+    });
+  }
+
+  setContent(content: string): void {
+    this.view.dispatch({
+      changes: { from: 0, to: this.view.state.doc.length, insert: content },
+      effects: setHighlight.of(null),
+    });
+  }
+
+  revealLines(startLine: number, endLine: number): void {
+    const start = Math.max(1, Math.min(startLine, this.view.state.doc.lines));
+    const end = Math.max(start, Math.min(endLine, this.view.state.doc.lines));
+    const effects: StateEffect<unknown>[] = [setHighlight.of({ startLine: start, endLine: end })];
+    effects.push(EditorView.scrollIntoView(this.view.state.doc.line(start).from, { y: 'center' }));
+    this.view.dispatch({ effects });
+  }
+
+  clearHighlight(): void {
+    this.view.dispatch({ effects: setHighlight.of(null) });
+  }
+
+  requestMeasure(): void {
+    this.view.requestMeasure();
+  }
+}
+
 export class SourceDock {
   private readonly files = new Map<string, string>();
   private readonly rows = new Map<string, HTMLButtonElement>();
   private readonly media: MediaQueryList;
-  private readonly view: EditorView;
+  private readonly editor: PythonEditor;
   private activeFilePath: string | null = null;
   private currentHighlight: HighlightRange = null;
   private dockHeight: number;
@@ -88,13 +128,7 @@ export class SourceDock {
     this.media = window.matchMedia(options.desktopMedia ?? '(min-width: 901px)');
     this.dockHeight = options.defaultHeight ?? 300;
     this.fileListWidth = options.defaultFileListWidth ?? 148;
-    this.view = new EditorView({
-      state: EditorState.create({
-        doc: '',
-        extensions: editorExtensions,
-      }),
-      parent: options.editorHost,
-    });
+    this.editor = new PythonEditor({ parent: options.editorHost });
     options.toggleButton.addEventListener('click', () => this.setOpen(options.dock.hidden));
     options.closeButton.addEventListener('click', () => this.setOpen(false));
     this.bindHeightResize();
@@ -111,7 +145,7 @@ export class SourceDock {
     this.options.fileCount.textContent = '0';
     this.options.activePath.textContent = 'No source file selected';
     this.options.emptyState.hidden = false;
-    this.view.setState(this.editorState(''));
+    this.editor.setContent('');
     this.options.toggleButton.disabled = true;
     this.setOpen(false);
   }
@@ -128,7 +162,7 @@ export class SourceDock {
       this.activeFilePath = null;
       this.options.activePath.textContent = 'No embedded source files';
       this.options.emptyState.hidden = false;
-      this.view.setState(this.editorState(''));
+      this.editor.setContent('');
       this.setOpen(false);
       return;
     }
@@ -144,15 +178,8 @@ export class SourceDock {
     });
   }
 
-  private editorState(content: string): EditorState {
-    return EditorState.create({ doc: content, extensions: editorExtensions });
-  }
-
   private replaceDocument(content: string): void {
-    this.view.dispatch({
-      changes: { from: 0, to: this.view.state.doc.length, insert: content },
-      effects: setHighlight.of(null),
-    });
+    this.editor.setContent(content);
   }
 
   private showFile(path: string, highlight: HighlightRange = null): void {
@@ -163,12 +190,11 @@ export class SourceDock {
       this.replaceDocument(content);
     }
     this.currentHighlight = highlight;
-    const effects: StateEffect<unknown>[] = [setHighlight.of(highlight)];
     if (highlight) {
-      const line = Math.max(1, Math.min(highlight.startLine, this.view.state.doc.lines));
-      effects.push(EditorView.scrollIntoView(this.view.state.doc.line(line).from, { y: 'center' }));
+      this.editor.revealLines(highlight.startLine, highlight.endLine);
+    } else {
+      this.editor.clearHighlight();
     }
-    this.view.dispatch({ effects });
     this.options.activePath.textContent = path;
     this.options.emptyState.hidden = true;
     for (const [rowPath, row] of this.rows) {
@@ -206,7 +232,7 @@ export class SourceDock {
     this.syncLayout();
     if (nextOpen) {
       requestAnimationFrame(() => {
-        this.view.requestMeasure();
+        this.editor.requestMeasure();
         if (this.currentHighlight) this.showFile(this.activeFilePath!, this.currentHighlight);
       });
     }
@@ -241,7 +267,7 @@ export class SourceDock {
         resizer.removeEventListener('pointermove', move);
         resizer.removeEventListener('pointerup', finish);
         resizer.removeEventListener('pointercancel', finish);
-        this.view.requestMeasure();
+        this.editor.requestMeasure();
       };
       resizer.addEventListener('pointermove', move);
       resizer.addEventListener('pointerup', finish);
@@ -266,7 +292,7 @@ export class SourceDock {
       const move = (moveEvent: PointerEvent): void => {
         this.fileListWidth = Math.max(minWidth, Math.min(maxWidth, startWidth + moveEvent.clientX - startX));
         dock.style.setProperty('--source-files-width', `${this.fileListWidth}px`);
-        this.view.requestMeasure();
+        this.editor.requestMeasure();
       };
       const finish = (): void => {
         fileListResizer.classList.remove('dragging');
