@@ -57,8 +57,6 @@ import {
 
 type SelectionMode = 'component' | 'solid' | 'face' | 'edge' | 'vertex';
 
-const MAX_PACKAGE_BYTES = 256 * 1024 * 1024;
-
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('viewer root is missing');
 
@@ -1033,7 +1031,7 @@ function frameModel(): void {
   controls.update();
 }
 
-async function loadPackage(files: PackageFiles): Promise<void> {
+async function loadPackage(files: PackageFiles, packageSchema: string): Promise<void> {
   const manifest = JSON.parse(strFromU8(bytesFor(files, 'scene.json'))) as SceneManifest;
   if (manifest.schema_version !== '2.0') throw new Error(`unsupported scene schema: ${manifest.schema_version}`);
   clearModel();
@@ -1049,7 +1047,7 @@ async function loadPackage(files: PackageFiles): Promise<void> {
   renderFeatureTree();
   sceneTitle.textContent = manifest.scene_id.replaceAll('-', ' ');
   nodeCount.textContent = String(manifest.nodes.length);
-  packageMeta.textContent = `Scene 2.0 · ${manifest.units} · ${manifest.definitions.length} definitions`;
+  packageMeta.textContent = `Package ${packageSchema} · Scene ${manifest.schema_version} · ${manifest.units} · ${manifest.definitions.length} definitions`;
   const nodesByParent = new Map<string | null, SceneNode[]>();
   for (const node of manifest.nodes) nodesByParent.set(node.parent_node_id, [...(nodesByParent.get(node.parent_node_id) ?? []), node]);
   const build = async (parent: THREE.Object3D, parentId: string | null): Promise<void> => {
@@ -1115,7 +1113,8 @@ fileInput.addEventListener('change', async () => {
   try {
     loading.classList.remove('hidden');
     setStatus('Opening product package');
-    await loadPackage((await openCadPackage(new Uint8Array(await file.arrayBuffer()))).files);
+    const opened = await openCadPackage(new Uint8Array(await file.arrayBuffer()));
+    await loadPackage(opened.files, opened.schemaVersion);
   } catch (error) {
     setStatus(error instanceof Error ? error.message : 'Unable to open package');
     loading.classList.add('hidden');
@@ -1135,7 +1134,8 @@ viewport.addEventListener('drop', async (event) => {
   try {
     loading.classList.remove('hidden');
     setStatus('Opening product package');
-    await loadPackage((await openCadPackage(new Uint8Array(await file.arrayBuffer()))).files);
+    const opened = await openCadPackage(new Uint8Array(await file.arrayBuffer()));
+    await loadPackage(opened.files, opened.schemaVersion);
   } catch (error) {
     setStatus(error instanceof Error ? error.message : 'Unable to open package');
     loading.classList.add('hidden');

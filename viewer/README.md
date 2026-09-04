@@ -1,10 +1,14 @@
 # SimpleCAD Product Viewer
 
-This browser-only viewer opens canonical `.scadpkg` product packages without
-importing SimpleCAD, Python, or OpenCascade. The loader validates `package.json`,
-the complete content-addressed definition closure, and the embedded evaluated
-scene before parsing GLB or entity assets. It rejects standalone Scene ZIPs and
-any package with missing, extra, length-mismatched, or hash-mismatched members.
+This browser-only viewer opens canonical `.scadpkg` product packages (package
+schema 3.0) without importing SimpleCAD, Python, or OpenCascade. The loader
+validates `package.json`, the exact member closure (`definitions/`,
+`occurrences/root.json`, `blobs/`, `projections/scene/scene.json`), and the
+embedded evaluated scene before parsing GLB or entity assets. It rejects older
+package schemas, standalone Scene ZIPs, and any package with missing, extra,
+length-mismatched, or hash-mismatched members. Product definition ZIPs and
+feature-graph archives are integrity-checked as package blobs but never
+re-packed, because the viewer renders exclusively from the scene projection.
 
 ## Run
 
