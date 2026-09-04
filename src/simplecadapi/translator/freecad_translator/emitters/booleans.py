@@ -142,7 +142,7 @@ class BooleanEmitterMixin:
             lines = [
                 f"{var_name} = doc.addObject('Part::Chamfer', {_json_ascii(object_name)})",
                 f"{var_name}.Base = GRAPH_NODES[{_json_ascii(inputs[0])}]",
-                f"{var_name}.Edges = [(int(idx) + 1, float(_resolve_param_value({rp}, {re}, 'distance')), float(_resolve_param_value({rp}, {re}, 'distance'))) for idx in _selected_indices_from_nodes({rp}.get('selected_edge_node_ids', []), {rp}.get('selected_edge_indices', []), _shape_from_graph_node({_json_ascii(inputs[0])}), 'edge')]",
+                f"{var_name}.Edges = [(int(idx) + 1, float(_resolve_param_value({rp}, {re}, 'distance')), float(_resolve_param_value({rp}, {re}, 'distance2') if 'distance2' in {rp} else float(_resolve_param_value({rp}, {re}, 'distance')))) for idx in _selected_indices_from_nodes({rp}.get('selected_edge_node_ids', []), {rp}.get('selected_edge_indices', []), _shape_from_graph_node({_json_ascii(inputs[0])}), 'edge')]",
             ]
             lines.append(
                 f"_apply_detail_feature_bindings({var_name}, {re}, 'distance')"

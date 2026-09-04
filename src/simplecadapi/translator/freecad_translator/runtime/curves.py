@@ -58,6 +58,38 @@ def _periodic_axis_rotation(axis, kernel_x_axis=None, kernel_y_axis=None):
     return App.Rotation(x_axis, y_axis, z_axis, "ZXY")
 
 
+def _kernel_ellipse_from_params(params, param_exprs):
+    """Part.Ellipse from center/radii/normal/major_direction params."""
+    normal = (
+        _resolve_vec3_param(params, param_exprs, "normal")
+        if "normal" in params
+        else (0.0, 0.0, 1.0)
+    )
+    center = _vec(_resolve_vec3_param(params, param_exprs, "center"))
+    major_radius = float(
+        _resolve_param_value(params, param_exprs, "major_radius")
+    )
+    minor_radius = float(
+        _resolve_param_value(params, param_exprs, "minor_radius")
+    )
+    normal_vec = _normalized_vec(normal)
+    major_direction = params.get("major_direction")
+    if major_direction is None:
+        major_vec = _periodic_axis_x(normal_vec)
+    else:
+        major_vec = _normalized_vec(_vec(major_direction))
+        major_vec = major_vec - normal_vec * float(major_vec.dot(normal_vec))
+        if float(getattr(major_vec, "Length", 0.0)) <= 1e-12:
+            major_vec = _periodic_axis_x(normal_vec)
+        major_vec = _normalized_vec(major_vec)
+    minor_vec = _normalized_vec(normal_vec.cross(major_vec))
+    return Part.Ellipse(
+        center + major_vec * major_radius,
+        center + minor_vec * minor_radius,
+        center,
+    )
+
+
 def _kernel_circle_from_params(params, param_exprs):
     normal = (
         _resolve_vec3_param(params, param_exprs, "normal")

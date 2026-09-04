@@ -95,6 +95,39 @@ def _sketch_entity_maps(sketch_payload):
     }
 
 
+def _mirror_point_id_pairs(a_entity, b_entity, by_id):
+    """Endpoint pairing for entity mirrors, matching the solver's rule."""
+    kind = str(a_entity.get("kind"))
+    if kind == "circle":
+        return [(str(a_entity.get("center")), str(b_entity.get("center")))]
+    a_points = [str(a_entity.get("start")), str(a_entity.get("end"))]
+    b_points = [str(b_entity.get("start")), str(b_entity.get("end"))]
+
+    def _initial(point_id):
+        entity = by_id.get(point_id)
+        if isinstance(entity, dict) and entity.get("kind") == "point":
+            return (float(entity.get("x", 0.0)), float(entity.get("y", 0.0)))
+        return None
+
+    a_initial = [_initial(point) for point in a_points]
+    b_initial = [_initial(point) for point in b_points]
+    if all(a_initial) and all(b_initial):
+        direct = sum(
+            (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+            for a, b in zip(a_initial, b_initial)
+        )
+        flipped = sum(
+            (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+            for a, b in zip(a_initial, reversed(b_initial))
+        )
+        if flipped < direct:
+            b_points.reverse()
+    pairs = list(zip(a_points, b_points))
+    if kind == "arc":
+        pairs.append((str(a_entity.get("center")), str(b_entity.get("center"))))
+    return pairs
+
+
 def _sketch_solved_point(point_id, sketch_payload, solve_snapshot):
     solved = (
         (solve_snapshot or {}).get("solved_points", {})
@@ -279,6 +312,32 @@ def _sketch_wire_shape_from_promotion(params):
                 y_axis,
             )
             edge_shapes.append(Part.Arc(start, middle, end).toShape())
+        elif kind == "ellipse":
+            center = _sketch_world_point(
+                str(entity.get("center")),
+                sketch_payload,
+                solve_snapshot,
+                origin,
+                x_axis,
+                y_axis,
+            )
+            major = _sketch_world_point(
+                str(entity.get("major")),
+                sketch_payload,
+                solve_snapshot,
+                origin,
+                x_axis,
+                y_axis,
+            )
+            minor = _sketch_world_point(
+                str(entity.get("minor")),
+                sketch_payload,
+                solve_snapshot,
+                origin,
+                x_axis,
+                y_axis,
+            )
+            edge_shapes.append(Part.Ellipse(major, minor, center).toShape())
         elif kind == "bspline":
             cps_data = entity.get("control_points", [])
             degree = int(entity.get("degree", 3))
@@ -342,21 +401,29 @@ def _sketch_constraint_priority(item):
         "fix": 2,
         "horizontal": 3,
         "vertical": 3,
+        "points_horizontal": 3,
+        "points_vertical": 3,
         "distance": 4,
         "distance_x": 4,
         "distance_y": 4,
+        "line_distance": 4,
         "length": 4,
         "radius": 4,
         "diameter": 4,
+        "major_radius": 4,
+        "minor_radius": 4,
         "angle": 4,
         "parallel": 5,
         "perpendicular": 5,
         "collinear": 5,
+        "normal": 5,
         "tangent": 5,
         "concentric": 5,
         "equal_length": 5,
         "equal_radius": 5,
         "midpoint": 6,
+        "midpoint_points": 6,
+        "mirror": 6,
         "symmetric": 6,
     }
     return priorities.get(kind, 9), int(_index)
@@ -627,6 +694,157 @@ def _materialize_sketch_constraints(
             )
             continue
 
+        if kind in {"points_horizontal", "points_vertical"} and len(targets) == 2:
+            a = _target_point_ref(targets[0], by_id, point_refs)
+            b = _target_point_ref(targets[1], by_id, point_refs)
+            if a is None or b is None:
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason=f"{kind} targets are not represented by safe Sketcher geometry",
+                )
+                continue
+            _safe_add_sketch_constraint(
+                sketch_obj,
+                status,
+                constraint,
+                "Horizontal" if kind == "points_horizontal" else "Vertical",
+                int(a[0]),
+                int(a[1]),
+                int(b[0]),
+                int(b[1]),
+            )
+            continue
+
+        if kind == "line_distance" and len(targets) == 2:
+            a_entity = by_id.get(str(targets[0].get("entity_id"))) if isinstance(targets[0], dict) else None
+            b_ref = _target_entity_ref(targets[1], by_id, geom_by_entity)
+            a_point = (
+                (point_refs.get(str(a_entity.get("start"))) or [None])[0]
+                if isinstance(a_entity, dict) and str(a_entity.get("kind")) == "line"
+                else None
+            )
+            if a_point is None or b_ref is None or b_ref[1] != "line":
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason="line_distance requires two materialized lines",
+                )
+                continue
+            _safe_add_sketch_constraint(
+                sketch_obj,
+                status,
+                constraint,
+                "Distance",
+                int(a_point[0]),
+                int(a_point[1]),
+                int(b_ref[0]),
+                float(value),
+                expr_ref=value_expr,
+            )
+            continue
+
+        if kind == "normal" and len(targets) == 2:
+            refs = [
+                _target_entity_ref(target, by_id, geom_by_entity)
+                for target in targets[:2]
+            ]
+            line_ref = next((item for item in refs if item and item[1] == "line"), None)
+            curve_ref = next(
+                (item for item in refs if item and item[1] in {"circle", "arc"}), None
+            )
+            if line_ref is None or curve_ref is None:
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason="normal requires one materialized line and one circle or arc",
+                )
+                continue
+            _safe_add_sketch_constraint(
+                sketch_obj,
+                status,
+                constraint,
+                "PointOnObject",
+                int(curve_ref[0]),
+                3,
+                int(line_ref[0]),
+            )
+            continue
+
+        if kind == "mirror" and len(targets) == 3:
+            a_entity = by_id.get(str(targets[0].get("entity_id"))) if isinstance(targets[0], dict) else None
+            b_entity = by_id.get(str(targets[2].get("entity_id"))) if isinstance(targets[2], dict) else None
+            axis_ref = _target_entity_ref(targets[1], by_id, geom_by_entity)
+            if (
+                not isinstance(a_entity, dict)
+                or not isinstance(b_entity, dict)
+                or axis_ref is None
+                or axis_ref[1] != "line"
+                or str(a_entity.get("kind")) != str(b_entity.get("kind"))
+            ):
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason="mirror requires same-kind entities and a materialized axis line",
+                )
+                continue
+            mapped_any = False
+            for point_a, point_b in _mirror_point_id_pairs(a_entity, b_entity, by_id):
+                ref_a = (point_refs.get(point_a) or [None])[0]
+                ref_b = (point_refs.get(point_b) or [None])[0]
+                if ref_a is None or ref_b is None:
+                    continue
+                mapped_any = True
+                _safe_add_sketch_constraint(
+                    sketch_obj,
+                    status,
+                    constraint,
+                    "Symmetric",
+                    int(ref_a[0]),
+                    int(ref_a[1]),
+                    int(ref_b[0]),
+                    int(ref_b[1]),
+                    int(axis_ref[0]),
+                )
+            if not mapped_any:
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason="mirror point pairs are not represented by safe Sketcher geometry",
+                )
+            continue
+
+        if kind == "midpoint_points" and len(targets) == 3:
+            a = _target_point_ref(targets[1], by_id, point_refs)
+            b = _target_point_ref(targets[2], by_id, point_refs)
+            mid = _target_point_ref(targets[0], by_id, point_refs)
+            if a is None or b is None or mid is None:
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason="midpoint_points targets are not represented by safe Sketcher geometry",
+                )
+                continue
+            _safe_add_sketch_constraint(
+                sketch_obj,
+                status,
+                constraint,
+                "Symmetric",
+                int(a[0]),
+                int(a[1]),
+                int(b[0]),
+                int(b[1]),
+                int(mid[0]),
+                int(mid[1]),
+            )
+            continue
+
         if (
             kind in {"parallel", "perpendicular", "equal_length", "angle"}
             and len(targets) == 2
@@ -825,6 +1043,73 @@ def _materialize_sketch_constraints(
                 int(entity_ref[0]),
                 float(value),
                 expr_ref=value_expr,
+            )
+            continue
+
+        if kind in {"major_radius", "minor_radius"} and len(targets) == 1:
+            entity_ref = _target_entity_ref(targets[0], by_id, geom_by_entity)
+            if entity_ref is None or entity_ref[1] != "ellipse":
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason=f"{kind} requires a materialized ellipse",
+                )
+                continue
+            if kind == "major_radius":
+                # FreeCAD's Radius constraint on an ellipse drives the major radius.
+                _safe_add_sketch_constraint(
+                    sketch_obj,
+                    status,
+                    constraint,
+                    "Radius",
+                    int(entity_ref[0]),
+                    float(value),
+                    expr_ref=value_expr,
+                )
+                continue
+            # FreeCAD has no native ellipse minor-radius constraint; keep the
+            # dimension as a reference distance to the solved minor-axis point.
+            entity = by_id.get(str(targets[0].get("entity_id")))
+            minor_point = None
+            if isinstance(entity, dict):
+                minor_id = str(entity.get("minor"))
+                minor_xy = None
+                try:
+                    minor_xy = _sketch_solved_point(minor_id, sketch_payload, solve_snapshot)
+                except RuntimeError:
+                    minor_xy = None
+                if minor_xy is not None:
+                    minor_point = App.Vector(float(minor_xy[0]), float(minor_xy[1]), 0.0)
+            if minor_point is None:
+                _sketch_constraint_status_append(
+                    status,
+                    constraint,
+                    False,
+                    reason="minor_radius could not resolve the minor-axis point",
+                )
+                continue
+            point_geom = int(sketch_obj.addGeometry(Part.Point(minor_point), True))
+            _safe_add_sketch_constraint(
+                sketch_obj,
+                status,
+                constraint,
+                "Distance",
+                int(entity_ref[0]),
+                3,
+                point_geom,
+                float(value),
+                expr_ref=value_expr,
+            )
+            _sketch_constraint_status_append(
+                status,
+                constraint,
+                True,
+                note=(
+                    "minor_radius is stored as a reference distance to the solved "
+                    "minor-axis point; FreeCAD has no native ellipse "
+                    "minor-radius constraint"
+                ),
             )
             continue
 
@@ -1042,7 +1327,7 @@ def _make_sketch_promotion_object(
         entity_id = str(entity.get("id"))
         kind = str(entity.get("kind"))
         construction = bool(entity.get("construction", False)) or (
-            kind in {"line", "circle", "arc", "bspline"}
+            kind in {"line", "circle", "arc", "bspline", "ellipse"}
             and entity_id not in profile_ids
         )
         if kind == "line":
@@ -1086,6 +1371,22 @@ def _make_sketch_promotion_object(
             geom_by_entity[entity_id] = geom_index
             point_refs.setdefault(start_id, []).append((geom_index, 1))
             point_refs.setdefault(end_id, []).append((geom_index, 2))
+            point_refs.setdefault(center_id, []).append((geom_index, 3))
+        elif kind == "ellipse":
+            center_id = str(entity.get("center"))
+            center = _sketch_local_point(center_id, sketch_payload, solve_snapshot)
+            major = _sketch_local_point(
+                str(entity.get("major")), sketch_payload, solve_snapshot
+            )
+            minor = _sketch_local_point(
+                str(entity.get("minor")), sketch_payload, solve_snapshot
+            )
+            geom_index = int(
+                obj.addGeometry(
+                    Part.Ellipse(major, minor, center), construction
+                )
+            )
+            geom_by_entity[entity_id] = geom_index
             point_refs.setdefault(center_id, []).append((geom_index, 3))
         elif kind == "bspline":
             cps_data = entity.get("control_points", [])

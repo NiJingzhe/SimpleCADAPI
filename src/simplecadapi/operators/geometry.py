@@ -1432,6 +1432,252 @@ def make_circle_rface(
             error=e,
         )
 
+def make_ellipse_redge(
+    center: Tuple[float, float, float],
+    major_radius: ScalarLike,
+    minor_radius: ScalarLike,
+    normal: Tuple[float, float, float] = (0, 0, 1),
+    *,
+    major_direction: Optional[Tuple[float, float, float]] = None,
+    tag_prefix: Optional[str] = None,
+) -> Edge:
+    """Create a full ellipse edge.
+
+    ``major_direction`` orients the major axis in the ellipse plane; when
+    omitted the plane basis derived from ``normal`` picks it.
+    """
+    try:
+        major_value = evaluate_scalar(major_radius)
+        minor_value = evaluate_scalar(minor_radius)
+        if major_value <= 0 or minor_value <= 0:
+            raise ValueError("椭圆半径必须大于0")
+        if minor_value > major_value:
+            raise ValueError("椭圆短半轴不能大于长半轴")
+
+        cs = get_current_cs()
+        center_value = cast(Tuple[float, float, float], evaluate_value(center))
+        normal_value = cast(Tuple[float, float, float], evaluate_value(normal))
+        center_global = cs.transform_point(np.array(center_value))
+        normal_global = cs.transform_vector(np.array(normal_value))
+        direction_value = (
+            major_direction
+            if major_direction is not None
+            else _default_plane_x_direction(normal_value)
+        )
+        direction_global = cs.transform_vector(np.array(direction_value))
+
+        edge_shape = make_ellipse_edge(
+            center_global,
+            major_value,
+            minor_value,
+            normal_global,
+            major_direction=direction_global,
+        )
+        edge = cast(
+            Edge,
+            _finalize_primitive_shape(
+                Edge(edge_shape),
+                op="make_ellipse_redge",
+                params={
+                    "center": center,
+                    "major_radius": major_radius,
+                    "minor_radius": minor_radius,
+                    "normal": normal,
+                    "major_direction": major_direction,
+                },
+                tags={"primitive", "edge"},
+            ),
+        )
+        return cast(
+            Edge,
+            _apply_shape_tag_prefix(
+                edge,
+                tag_prefix,
+                kind="edge",
+                authoring_source="simplecadapi.make_ellipse_redge.tag_prefix",
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_ellipse_redge",
+            what_happened="Failed to create an ellipse edge.",
+            possible_causes=[
+                "The major or minor radius is not positive.",
+                "The minor radius exceeds the major radius.",
+                "The normal or major direction vector is invalid.",
+            ],
+            how_to_fix=[
+                "Use positive radii with minor not exceeding major.",
+                "Pass a valid non-zero normal and an in-plane major direction.",
+            ],
+            error=e,
+        )
+
+def make_ellipse_rwire(
+    center: Tuple[float, float, float],
+    major_radius: ScalarLike,
+    minor_radius: ScalarLike,
+    normal: Tuple[float, float, float] = (0, 0, 1),
+    *,
+    major_direction: Optional[Tuple[float, float, float]] = None,
+    tag_prefix: Optional[str] = None,
+    edge_tag: Optional[str] = None,
+) -> Wire:
+    """Create an elliptical wire."""
+    try:
+        if get_active_session() is not None:
+            edge = make_ellipse_redge(
+                center, major_radius, minor_radius, normal,
+                major_direction=major_direction,
+            )
+            wire = make_wire_from_edges_rwire([edge])
+            local_edge_tag = edge_tag or "ellipse"
+            return cast(
+                Wire,
+                _apply_profile_tag_prefix(
+                    wire,
+                    tag_prefix,
+                    (
+                        [local_edge_tag]
+                        if tag_prefix is not None or edge_tag is not None
+                        else None
+                    ),
+                    authoring_source="simplecadapi.make_ellipse_rwire.tag_prefix",
+                ),
+            )
+
+        with suspend_graph_recording():
+            edge = make_ellipse_redge(
+                center, major_radius, minor_radius, normal,
+                major_direction=major_direction,
+            )
+        wire_shape = make_wire_from_edges_ocp([edge.wrapped])
+        wire = cast(
+            Wire,
+            _finalize_primitive_shape(
+                Wire(wire_shape),
+                op="make_ellipse_wire",
+                params={
+                    "center": center,
+                    "major_radius": major_radius,
+                    "minor_radius": minor_radius,
+                    "normal": normal,
+                    "major_direction": major_direction,
+                },
+                tags={"primitive", "wire"},
+            ),
+        )
+        local_edge_tag = edge_tag or "ellipse"
+        return cast(
+            Wire,
+            _apply_profile_tag_prefix(
+                wire,
+                tag_prefix,
+                (
+                    [local_edge_tag]
+                    if tag_prefix is not None or edge_tag is not None
+                    else None
+                ),
+                authoring_source="simplecadapi.make_ellipse_rwire.tag_prefix",
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_ellipse_rwire",
+            what_happened="Failed to create an elliptical wire.",
+            possible_causes=[
+                "The underlying ellipse edge could not be created.",
+                "The radii or direction vectors are invalid.",
+            ],
+            how_to_fix=[
+                "Verify the center, radii, normal, and major direction values.",
+                "Use positive radii with minor not exceeding major.",
+            ],
+            error=e,
+        )
+
+def make_ellipse_rface(
+    center: Tuple[float, float, float],
+    major_radius: ScalarLike,
+    minor_radius: ScalarLike,
+    normal: Tuple[float, float, float] = (0, 0, 1),
+    *,
+    major_direction: Optional[Tuple[float, float, float]] = None,
+    tag_prefix: Optional[str] = None,
+    edge_tag: Optional[str] = None,
+) -> Face:
+    """Create an elliptical face."""
+    try:
+        if get_active_session() is not None:
+            wire = make_ellipse_rwire(
+                center,
+                major_radius,
+                minor_radius,
+                normal,
+                major_direction=major_direction,
+                tag_prefix=tag_prefix,
+                edge_tag=edge_tag,
+            )
+            return make_face_from_wire_rface(wire, normal=normal, tag_prefix=tag_prefix)
+
+        with suspend_graph_recording():
+            wire = make_ellipse_rwire(
+                center,
+                major_radius,
+                minor_radius,
+                normal,
+                major_direction=major_direction,
+                tag_prefix=tag_prefix,
+                edge_tag=edge_tag,
+            )
+        face_shape = make_face_from_wire_ocp(wire.wrapped)
+        face = Face(face_shape)
+        face._metadata = wire._metadata.copy()
+        result = cast(
+            Face,
+            _finalize_primitive_shape(
+                face,
+                op="make_ellipse_face",
+                params={
+                    "center": center,
+                    "major_radius": major_radius,
+                    "minor_radius": minor_radius,
+                    "normal": normal,
+                    "major_direction": major_direction,
+                },
+                tags={"primitive", "face"},
+            ),
+        )
+        result = cast(
+            Face,
+            _copy_exact_topology_identity_tags(
+                result, [wire], operation="make_ellipse_rface"
+            ),
+        )
+        return cast(
+            Face,
+            _apply_shape_tag_prefix(
+                result,
+                tag_prefix,
+                kind="face",
+                authoring_source="simplecadapi.make_ellipse_rface.tag_prefix",
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="make_ellipse_rface",
+            what_happened="Failed to create an elliptical face.",
+            possible_causes=[
+                "The underlying elliptical wire could not be created.",
+                "The kernel could not create a face from the wire.",
+            ],
+            how_to_fix=[
+                "Verify the center, radii, normal, and major direction values.",
+                "Use positive radii with minor not exceeding major.",
+            ],
+            error=e,
+        )
+
 def make_rectangle_rwire(
     width: ScalarLike,
     height: ScalarLike,
@@ -3249,9 +3495,13 @@ def make_helix_redge(
     radius: ScalarLike,
     center: Tuple[float, float, float] = (0, 0, 0),
     dir: Tuple[float, float, float] = (0, 0, 1),
+    *,
+    handedness: str = "Right",
 ) -> Edge:
-    """Create a helix edge."""
+    """Create a helix edge, right- or left-handed."""
     try:
+        if handedness not in {"Right", "Left"}:
+            raise ValueError("handedness 必须是 'Right' 或 'Left'")
         pitch_value = evaluate_scalar(pitch)
         height_value = evaluate_scalar(height)
         radius_value = evaluate_scalar(radius)
@@ -3276,6 +3526,7 @@ def make_helix_redge(
             global_center,
             global_dir,
             x_direction=global_x_direction,
+            handedness=handedness,
         )
         wire = Wire(wire_shape)
         edges = wire._iter_edges()
@@ -3293,6 +3544,7 @@ def make_helix_redge(
                     "radius": radius,
                     "center": center,
                     "dir": dir,
+                    "handedness": handedness,
                 },
                 tags={"primitive", "edge"},
             ),
@@ -3320,11 +3572,16 @@ def make_helix_rwire(
     radius: float,
     center: Tuple[float, float, float] = (0, 0, 0),
     dir: Tuple[float, float, float] = (0, 0, 1),
+    *,
+    handedness: str = "Right",
 ) -> Wire:
-    """Create a helix wire."""
+    """Create a helix wire, right- or left-handed."""
     try:
         if get_active_session() is not None:
-            edge = make_helix_redge(pitch, height, radius, center=center, dir=dir)
+            edge = make_helix_redge(
+                pitch, height, radius, center=center, dir=dir,
+                handedness=handedness,
+            )
             return make_wire_from_edges_rwire([edge])
 
         cs = get_current_cs()

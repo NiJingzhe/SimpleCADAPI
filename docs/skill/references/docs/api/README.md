@@ -29,6 +29,9 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [make_cylinder_rsolid](make_cylinder_rsolid.md) *(from operators/geometry.py)* `top-level`
 - [make_cylindrical_surface_rface](make_cylindrical_surface_rface.md) *(from operators/geometry.py)* `top-level`
 - [make_edge_connector_rconnector](make_edge_connector_rconnector.md) *(from operators/product.py)* `top-level`
+- [make_ellipse_redge](make_ellipse_redge.md) *(from operators/geometry.py)* `top-level`
+- [make_ellipse_rface](make_ellipse_rface.md) *(from operators/geometry.py)* `top-level`
+- [make_ellipse_rwire](make_ellipse_rwire.md) *(from operators/geometry.py)* `top-level`
 - [make_face_connector_rconnector](make_face_connector_rconnector.md) *(from operators/product.py)* `top-level`
 - [make_face_from_sketch_rface](make_face_from_sketch_rface.md) *(from operators/sketch.py)* `top-level`
 - [make_face_from_wire_rface](make_face_from_wire_rface.md) *(from operators/geometry.py)* `top-level`
@@ -307,6 +310,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [add_circle_rsketch](add_circle_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [add_component_rassembly](add_component_rassembly.md) *(from operators/product.py)* `top-level`
 - [add_connector_rpart](add_connector_rpart.md) *(from operators/product.py)* `top-level`
+- [add_ellipse_rsketch](add_ellipse_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [add_fixed_constraint_rassembly](add_fixed_constraint_rassembly.md) *(from operators/product.py)* `top-level`
 - [add_gear_constraint_rassembly](add_gear_constraint_rassembly.md) *(from operators/product.py)* `top-level`
 - [add_line_rsketch](add_line_rsketch.md) *(from operators/sketch.py)* `top-level`
@@ -331,10 +335,18 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [constrain_fix_rsketch](constrain_fix_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_horizontal_rsketch](constrain_horizontal_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_length_rsketch](constrain_length_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_line_distance_rsketch](constrain_line_distance_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_major_radius_rsketch](constrain_major_radius_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_midpoint_points_rsketch](constrain_midpoint_points_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_midpoint_rsketch](constrain_midpoint_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_minor_radius_rsketch](constrain_minor_radius_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_mirror_rsketch](constrain_mirror_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_normal_rsketch](constrain_normal_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_parallel_rsketch](constrain_parallel_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_perpendicular_rsketch](constrain_perpendicular_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_point_on_rsketch](constrain_point_on_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_points_horizontal_rsketch](constrain_points_horizontal_rsketch.md) *(from operators/sketch.py)* `top-level`
+- [constrain_points_vertical_rsketch](constrain_points_vertical_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_radius_rsketch](constrain_radius_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_symmetric_rsketch](constrain_symmetric_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_tangent_rsketch](constrain_tangent_rsketch.md) *(from operators/sketch.py)* `top-level`

@@ -398,15 +398,59 @@ def fillet_rsolid(
             error=e,
         )
 
+def _chamfer_reference_face_pairs(
+    edges: Sequence[Edge],
+    reference_direction: Tuple[float, float, float],
+) -> List[Tuple[Edge, Edge]]:
+    """Order each edge's adjacent faces as (reference, other).
+
+    The reference face is the adjacent face whose outward normal has the
+    largest dot product with ``reference_direction``.
+    """
+    direction = np.array(reference_direction, dtype=float)
+    norm = float(np.linalg.norm(direction))
+    if norm <= 1e-12:
+        raise ValueError("chamfer reference_direction must be non-zero")
+    direction = direction / norm
+    pairs: List[Tuple[Edge, Edge]] = []
+    for edge in edges:
+        faces = edge.get_incident_faces()
+        if len(faces) < 2:
+            raise ValueError(
+                "An angled chamfer needs two adjacent faces per selected edge"
+            )
+        def alignment(face: Edge) -> float:
+            normal = face.get_normal_at()
+            return float(
+                normal.x * direction[0]
+                + normal.y * direction[1]
+                + normal.z * direction[2]
+            )
+
+        ranked = sorted(faces, key=alignment, reverse=True)
+        pairs.append((ranked[0], ranked[1]))
+    return pairs
+
+
 def chamfer_rsolid(
     solid: Solid,
     edges: Union[Sequence[Edge], ShapeSelector],
     distance: ScalarLike,
     *,
+    angle: Optional[float] = None,
+    reference_direction: Optional[Tuple[float, float, float]] = None,
     result_tag: Optional[str] = None,
     generated_faces_tag: Optional[str] = None,
 ) -> Solid:
-    """Apply chamfers, with optional tagging of kernel-proven patch faces."""
+    """Apply chamfers, with optional tagging of kernel-proven patch faces.
+
+    Without ``angle`` the chamfer is symmetric (both legs equal
+    ``distance``). With ``angle`` — measured in degrees between the chamfer
+    face and the reference face — the chamfer is asymmetric with the second
+    leg at ``distance * tan(angle)`` on the non-reference side;
+    ``reference_direction`` picks, per edge, the adjacent face whose outward
+    normal best matches it as the reference face.
+    """
     try:
         assignments = _normalize_operation_role_tags(
             _OP_MAKE_CHAMFER_RSOLID,
@@ -423,7 +467,29 @@ def chamfer_rsolid(
         if not selected_edges:
             raise ValueError("倒角操作至少需要一条边")
 
-        tracked = tracked_chamfer(solid, selected_edges, distance_value)
+        chamfer_distance2: Optional[float] = None
+        edge_face_pairs: Optional[List[Tuple[Edge, Edge]]] = None
+        if angle is not None:
+            if reference_direction is None:
+                raise ValueError(
+                    "An angled chamfer requires reference_direction to pick "
+                    "the face anchoring the distance"
+                )
+            angle_radians = math.radians(float(angle))
+            if not (0.0 < angle_radians < 0.5 * math.pi):
+                raise ValueError("Chamfer angle must be between 0 and 90 degrees")
+            chamfer_distance2 = distance_value * math.tan(angle_radians)
+            edge_face_pairs = _chamfer_reference_face_pairs(
+                selected_edges, reference_direction
+            )
+
+        tracked = tracked_chamfer(
+            solid,
+            selected_edges,
+            distance_value,
+            distance2=chamfer_distance2,
+            edge_face_pairs=edge_face_pairs,
+        )
         result = cast(Solid, tracked.shape)
 
         result._metadata = solid._metadata.copy()
@@ -435,7 +501,11 @@ def chamfer_rsolid(
             "distance": distance,
             "edge_count": len(selected_edges),
             "selected_edges": selected_edge_refs,
+            "angle": angle,
+            "reference_direction": reference_direction,
         }
+        if chamfer_distance2 is not None:
+            selection_params["distance2"] = chamfer_distance2
         if selected_edge_node_ids:
             selection_params["selected_edge_node_ids"] = selected_edge_node_ids
         else:
@@ -891,11 +961,16 @@ def helical_sweep_rsolid(
     radius: float,
     center: Tuple[float, float, float] = (0, 0, 0),
     dir: Tuple[float, float, float] = (0, 0, 1),
+    *,
+    handedness: str = "Right",
 ) -> Solid:
     """Create a solid by sweeping a profile along a helical path."""
     try:
         if get_active_session() is not None:
-            helix = make_helix_rwire(pitch, height, radius, center=center, dir=dir)
+            helix = make_helix_rwire(
+                pitch, height, radius, center=center, dir=dir,
+                handedness=handedness,
+            )
             return sweep_rsolid(
                 make_face_from_wire_rface(profile), helix, is_frenet=True
             )

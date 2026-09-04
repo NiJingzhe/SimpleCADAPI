@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def make_helix_rwire(pitch: float, height: float, radius: float, center: Tuple[float, float, float] = (0, 0, 0), dir: Tuple[float, float, float] = (0, 0, 1)) -> Wire
+def make_helix_rwire(pitch: float, height: float, radius: float, center: Tuple[float, float, float] = (0, 0, 0), dir: Tuple[float, float, float] = (0, 0, 1), *, handedness: str = 'Right') -> Wire
 ```
 
 *Source: operators/geometry.py*
@@ -14,4 +14,4 @@ def make_helix_rwire(pitch: float, height: float, radius: float, center: Tuple[f
 
 ## Description
 
-Create a helix wire.
+Create a helix wire, right- or left-handed.

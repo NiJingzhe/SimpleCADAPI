@@ -117,6 +117,7 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     "add_circle_rsketch": {"status": "replayable", "op": "add_circle_rsketch"},
     "add_arc_rsketch": {"status": "replayable", "op": "add_arc_rsketch"},
     "add_bspline_rsketch": {"status": "replayable", "op": "add_bspline_rsketch"},
+    "add_ellipse_rsketch": {"status": "replayable", "op": "add_ellipse_rsketch"},
     "constrain_coincident_rsketch": {
         "status": "replayable",
         "op": "make_constrain_coincident_rsketch",
@@ -136,6 +137,38 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
     "constrain_vertical_rsketch": {
         "status": "replayable",
         "op": "make_constrain_vertical_rsketch",
+    },
+    "constrain_major_radius_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_major_radius_rsketch",
+    },
+    "constrain_minor_radius_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_minor_radius_rsketch",
+    },
+    "constrain_points_horizontal_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_points_horizontal_rsketch",
+    },
+    "constrain_points_vertical_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_points_vertical_rsketch",
+    },
+    "constrain_line_distance_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_line_distance_rsketch",
+    },
+    "constrain_normal_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_normal_rsketch",
+    },
+    "constrain_mirror_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_mirror_rsketch",
+    },
+    "constrain_midpoint_points_rsketch": {
+        "status": "replayable",
+        "op": "make_constrain_midpoint_points_rsketch",
     },
     "constrain_parallel_rsketch": {
         "status": "replayable",
@@ -478,6 +511,7 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_point_rvertex",
     "make_line_redge",
     "make_circle_redge",
+    "make_ellipse_redge",
     "make_three_point_arc_redge",
     "make_angle_arc_redge",
     "make_spline_redge",
@@ -492,10 +526,19 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "add_circle_rsketch",
     "add_arc_rsketch",
     "add_bspline_rsketch",
+    "add_ellipse_rsketch",
     "make_constrain_coincident_rsketch",
     "make_constrain_point_on_rsketch",
     "make_constrain_horizontal_rsketch",
     "make_constrain_vertical_rsketch",
+    "make_constrain_major_radius_rsketch",
+    "make_constrain_minor_radius_rsketch",
+    "make_constrain_points_horizontal_rsketch",
+    "make_constrain_points_vertical_rsketch",
+    "make_constrain_line_distance_rsketch",
+    "make_constrain_normal_rsketch",
+    "make_constrain_mirror_rsketch",
+    "make_constrain_midpoint_points_rsketch",
     "make_constrain_parallel_rsketch",
     "make_constrain_perpendicular_rsketch",
     "make_constrain_collinear_rsketch",
@@ -940,6 +983,7 @@ def export_model_json(
                 "make_point_rvertex",
                 "make_line_redge",
                 "make_circle_redge",
+                "make_ellipse_redge",
                 "make_three_point_arc_redge",
                 "make_angle_arc_redge",
                 "make_spline_redge",

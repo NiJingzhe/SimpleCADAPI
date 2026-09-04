@@ -248,6 +248,67 @@ def add_circle_rsketch(
             error=e,
         )
 
+def add_ellipse_rsketch(
+    sketch: Sketch,
+    entity_id: str,
+    center: Union[SketchRef, str],
+    major_point: Union[SketchRef, str],
+    minor_point: Union[SketchRef, str],
+    *,
+    construction: bool = False,
+) -> Sketch:
+    """Add an ellipse entity derived from three solving points.
+
+    The ellipse shape is a pure function of the center, major-axis, and
+    minor-axis points; radius constraints therefore solve natively.
+    """
+    try:
+        center_ref = _resolve_sketch_target(sketch, center, expected="point")
+        major_ref = _resolve_sketch_target(sketch, major_point, expected="point")
+        minor_ref = _resolve_sketch_target(sketch, minor_point, expected="point")
+        updated = _sketch_update_target(sketch)
+        updated.add_ellipse(
+            entity_id,
+            center_ref,
+            major_ref,
+            minor_ref,
+            construction=construction,
+        )
+        return cast(
+            Sketch,
+            _finalize_runtime_object(
+                updated,
+                op=_OP_ADD_ELLIPSE_RSKETCH,
+                params={
+                    "sketch_id": updated.sketch_id,
+                    "entity_id": entity_id,
+                    "center": _sketch_target_to_path(center_ref),
+                    "major_point": _sketch_target_to_path(major_ref),
+                    "minor_point": _sketch_target_to_path(minor_ref),
+                    "construction": construction,
+                },
+                input_objects=[sketch],
+                tags={"sketch", "ellipse"},
+            ),
+        )
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="add_ellipse_rsketch",
+            what_happened="Failed to add an ellipse to the sketch.",
+            possible_causes=[
+                "The entity id is duplicated.",
+                "One of the axis point refs does not belong to this sketch.",
+                "The three axis points are not distinct or are degenerate.",
+                "The minor axis exceeds the major axis at the initial positions.",
+            ],
+            how_to_fix=[
+                "Use a unique entity id.",
+                "Create the center, major, and minor points first.",
+                "Place the major point farther from the center than the minor point.",
+            ],
+            error=e,
+        )
+
 def add_bspline_rsketch(
     sketch: Sketch,
     entity_id: str,
@@ -483,6 +544,124 @@ def constrain_vertical_rsketch(
         sketch, "vertical", [line], constraint_id=constraint_id, expected=["line"]
     )
 
+def constrain_points_horizontal_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
+    """Constrain two sketch points to be horizontally aligned."""
+    return _constrain_rsketch(
+        sketch,
+        "points_horizontal",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=["point", "point"],
+    )
+
+def constrain_points_vertical_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
+    """Constrain two sketch points to be vertically aligned."""
+    return _constrain_rsketch(
+        sketch,
+        "points_vertical",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=["point", "point"],
+    )
+
+def constrain_line_distance_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    value: ScalarLike,
+    *,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+) -> Sketch:
+    """Add a driving minimum-distance constraint between two sketch lines.
+
+    The constraint drives the distance from line ``a``'s start point to line
+    ``b``; for parallel lines this is exactly the minimum distance between
+    them. The solved point keeps its initial side of line ``b``.
+    """
+    return _constrain_rsketch(
+        sketch,
+        "line_distance",
+        [a, b],
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        expected=["line", "line"],
+    )
+
+def constrain_normal_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
+    """Constrain a line to be normal to a circle or arc.
+
+    A normal line passes through the curve's center; argument order is free.
+    """
+    return _constrain_rsketch(
+        sketch,
+        "normal",
+        [a, b],
+        constraint_id=constraint_id,
+        expected=[("line", "circle", "arc"), ("line", "circle", "arc")],
+    )
+
+def constrain_mirror_rsketch(
+    sketch: Sketch,
+    a: Union[SketchRef, str],
+    axis: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
+    """Constrain two same-kind entities to be mirror images about a line.
+
+    Lines match endpoints by nearest initial position; circles match centers;
+    arcs match endpoints and centers.
+    """
+    return _constrain_rsketch(
+        sketch,
+        "mirror",
+        [a, axis, b],
+        constraint_id=constraint_id,
+        expected=[
+            ("line", "circle", "arc"),
+            "line",
+            ("line", "circle", "arc"),
+        ],
+    )
+
+def constrain_midpoint_points_rsketch(
+    sketch: Sketch,
+    mid: Union[SketchRef, str],
+    a: Union[SketchRef, str],
+    b: Union[SketchRef, str],
+    *,
+    constraint_id: Optional[str] = None,
+) -> Sketch:
+    """Constrain point ``mid`` to be the midpoint of points ``a`` and ``b``."""
+    return _constrain_rsketch(
+        sketch,
+        "midpoint_points",
+        [mid, a, b],
+        constraint_id=constraint_id,
+        expected=["point", "point", "point"],
+    )
+
 def constrain_parallel_rsketch(
     sketch: Sketch,
     a: Union[SketchRef, str],
@@ -558,8 +737,8 @@ def constrain_tangent_rsketch(
         constraint_id=constraint_id,
         metadata={"at_a": at_a, "at_b": at_b, "mode": mode},
         expected=[
-            ("line", "circle", "arc", "bspline"),
-            ("line", "circle", "arc", "bspline"),
+            ("line", "circle", "arc", "bspline", "ellipse"),
+            ("line", "circle", "arc", "bspline", "ellipse"),
         ],
     )
 
@@ -570,13 +749,13 @@ def constrain_concentric_rsketch(
     *,
     constraint_id: Optional[str] = None,
 ) -> Sketch:
-    """Constrain two sketch circles to share a center."""
+    """Constrain two sketch circles/arcs/ellipses to share a center."""
     return _constrain_rsketch(
         sketch,
         "concentric",
         [a, b],
         constraint_id=constraint_id,
-        expected=[("circle", "arc"), ("circle", "arc")],
+        expected=[("circle", "arc", "ellipse"), ("circle", "arc", "ellipse")],
     )
 
 def constrain_midpoint_rsketch(
@@ -779,6 +958,44 @@ def constrain_diameter_rsketch(
         constraint_id=constraint_id,
         driving=driving,
         expected=[("circle", "arc")],
+    )
+
+def constrain_major_radius_rsketch(
+    sketch: Sketch,
+    ellipse: Union[SketchRef, str],
+    value: ScalarLike,
+    *,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+) -> Sketch:
+    """Add a driving major-radius constraint to a sketch ellipse."""
+    return _constrain_rsketch(
+        sketch,
+        "major_radius",
+        [ellipse],
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        expected=["ellipse"],
+    )
+
+def constrain_minor_radius_rsketch(
+    sketch: Sketch,
+    ellipse: Union[SketchRef, str],
+    value: ScalarLike,
+    *,
+    constraint_id: Optional[str] = None,
+    driving: bool = True,
+) -> Sketch:
+    """Add a driving minor-radius constraint to a sketch ellipse."""
+    return _constrain_rsketch(
+        sketch,
+        "minor_radius",
+        [ellipse],
+        value=value,
+        constraint_id=constraint_id,
+        driving=driving,
+        expected=["ellipse"],
     )
 
 def constrain_fix_rsketch(

@@ -14,4 +14,4 @@ def constrain_concentric_rsketch(sketch: Sketch, a: Union[SketchRef, str], b: Un
 
 ## Description
 
-Constrain two sketch circles to share a center.
+Constrain two sketch circles/arcs/ellipses to share a center.

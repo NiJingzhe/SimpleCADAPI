@@ -38,19 +38,27 @@ geometry transcription.
 Read the exact page under `references/docs/api/` for every API used:
 
 - Document: `make_sketch_rsketch`, `add_point_rsketch`, `add_line_rsketch`,
-  `add_arc_rsketch`, `add_circle_rsketch`, `add_bspline_rsketch`.
+  `add_arc_rsketch`, `add_circle_rsketch`, `add_bspline_rsketch`,
+  `add_ellipse_rsketch`.
 - Entities: `get_sketch_entity_rsketchref`, `get_sketch_point_rsketchref`.
 - Constraints: `constrain_coincident_rsketch`, `constrain_collinear_rsketch`,
   `constrain_concentric_rsketch`, `constrain_connect_rsketch`,
   `constrain_distance_rsketch`, `constrain_distance_x_rsketch`,
-  `constrain_distance_y_rsketch`, `constrain_diameter_rsketch`,
+  `constrain_distance_y_rsketch`, `constrain_line_distance_rsketch`,
+  `constrain_diameter_rsketch`,
   `constrain_radius_rsketch`, `constrain_length_rsketch`,
   `constrain_equal_length_rsketch`, `constrain_equal_radius_rsketch`,
   `constrain_angle_rsketch`, `constrain_parallel_rsketch`,
   `constrain_perpendicular_rsketch`, `constrain_horizontal_rsketch`,
-  `constrain_vertical_rsketch`, `constrain_tangent_rsketch`,
-  `constrain_midpoint_rsketch`, `constrain_symmetric_rsketch`,
-  `constrain_point_on_rsketch`, `constrain_fix_rsketch`.
+  `constrain_vertical_rsketch`, `constrain_points_horizontal_rsketch`,
+  `constrain_points_vertical_rsketch`, `constrain_tangent_rsketch`,
+  `constrain_midpoint_rsketch`, `constrain_midpoint_points_rsketch`,
+  `constrain_symmetric_rsketch`, `constrain_mirror_rsketch`,
+  `constrain_normal_rsketch`, `constrain_point_on_rsketch`,
+  `constrain_major_radius_rsketch`, `constrain_minor_radius_rsketch`,
+  `constrain_fix_rsketch`. Driving `constrain_angle_rsketch` holds the
+  directed angle from the first line to the second (0-360 degrees; the
+  solve keeps the branch nearest the initial geometry).
 - Promotion: `make_wire_from_sketch_rwire`, `make_face_from_sketch_rface`.
 - Diagnostics: `inspect_sketch_rsketchresult` (non-recording).
 

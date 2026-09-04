@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def chamfer_rsolid(solid: Solid, edges: Union[Sequence[Edge], ShapeSelector], distance: ScalarLike, *, result_tag: Optional[str] = None, generated_faces_tag: Optional[str] = None) -> Solid
+def chamfer_rsolid(solid: Solid, edges: Union[Sequence[Edge], ShapeSelector], distance: ScalarLike, *, angle: Optional[float] = None, reference_direction: Optional[Tuple[float, float, float]] = None, result_tag: Optional[str] = None, generated_faces_tag: Optional[str] = None) -> Solid
 ```
 
 *Source: operators/features.py*
@@ -15,3 +15,10 @@ def chamfer_rsolid(solid: Solid, edges: Union[Sequence[Edge], ShapeSelector], di
 ## Description
 
 Apply chamfers, with optional tagging of kernel-proven patch faces.
+
+Without ``angle`` the chamfer is symmetric (both legs equal
+``distance``). With ``angle`` — measured in degrees between the chamfer
+face and the reference face — the chamfer is asymmetric with the second
+leg at ``distance * tan(angle)`` on the non-reference side;
+``reference_direction`` picks, per edge, the adjacent face whose outward
+normal best matches it as the reference face.

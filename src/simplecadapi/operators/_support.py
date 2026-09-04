@@ -167,6 +167,7 @@ from ..kernel.ocp_curves import (
     make_arc_three_point_edge,
     make_bspline_edge,
     make_circle_edge,
+    make_ellipse_edge,
     make_helix_wire,
     make_interpolated_bspline_edge,
     make_line_edge,
@@ -239,6 +240,8 @@ _OP_LOAD_BREP_REGION_RSHELL = "load_brep_region_rshell"
 _OP_MAKE_LINE_REDGE = "make_line_redge"
 
 _OP_MAKE_CIRCLE_REDGE = "make_circle_redge"
+
+_OP_ADD_ELLIPSE_RSKETCH = "add_ellipse_rsketch"
 
 _OP_MAKE_THREE_POINT_ARC_REDGE = "make_three_point_arc_redge"
 
@@ -445,6 +448,12 @@ _SKETCH_CONSTRAINT_OPS = {
     "point_on": "make_constrain_point_on_rsketch",
     "horizontal": "make_constrain_horizontal_rsketch",
     "vertical": "make_constrain_vertical_rsketch",
+    "points_horizontal": "make_constrain_points_horizontal_rsketch",
+    "points_vertical": "make_constrain_points_vertical_rsketch",
+    "line_distance": "make_constrain_line_distance_rsketch",
+    "normal": "make_constrain_normal_rsketch",
+    "mirror": "make_constrain_mirror_rsketch",
+    "midpoint_points": "make_constrain_midpoint_points_rsketch",
     "parallel": "make_constrain_parallel_rsketch",
     "perpendicular": "make_constrain_perpendicular_rsketch",
     "collinear": "make_constrain_collinear_rsketch",
@@ -460,6 +469,8 @@ _SKETCH_CONSTRAINT_OPS = {
     "length": "make_constrain_length_rsketch",
     "angle": "make_constrain_angle_rsketch",
     "radius": "make_constrain_radius_rsketch",
+    "major_radius": "make_constrain_major_radius_rsketch",
+    "minor_radius": "make_constrain_minor_radius_rsketch",
     "diameter": "make_constrain_diameter_rsketch",
     "fix": "make_constrain_fix_rsketch",
 }
