@@ -70,8 +70,19 @@ def eval_value_expr(value: Any) -> Optional[float]:
             tokens.append(repr(factor))
     if not tokens:
         return None
+    # Insert explicit multiplication between adjacent numeric tokens so
+    # "78 mm" becomes "78*1.0" and "(20/12) ft" becomes "( 20 / 12 )*304.8".
+    joined: List[str] = []
+    for token in tokens:
+        if (
+            joined
+            and joined[-1] not in "+-*/("
+            and token not in "+-*/)"
+        ):
+            joined.append("*")
+        joined.append(token)
     try:
-        result = eval(" ".join(tokens), {"__builtins__": {}}, {})  # noqa: S307
+        result = eval(" ".join(joined), {"__builtins__": {}}, {})  # noqa: S307
     except Exception:
         return None
     return float(result) if isinstance(result, (int, float)) and math.isfinite(result) else None
@@ -341,11 +352,11 @@ class StepEmitter:
         self.counter += 1
         pid = f"{self.name}_p{self.counter}"
         self.pool[key] = pid
-        self.lines.append(f"s = scad.add_point_rsketch(s, {pid!r}, {_fmt(x)}, {_fmt(y)})")
+        self.lines.append(f"s_geo = scad.add_point_rsketch(s_geo, {pid!r}, {_fmt(x)}, {_fmt(y)})")
         return pid
 
     def emit_sketch(self) -> None:
-        self.lines.append(f"s = scad.make_sketch_rsketch(name={self.name!r}, plane={self.plane_literal})")
+        self.lines.append(f"s_geo = scad.make_sketch_rsketch(name={self.name!r}, plane={self.plane_literal})")
         for eid, data in self.sketch.items():
             if not isinstance(data, dict):
                 continue
@@ -353,10 +364,10 @@ class StepEmitter:
             if kind == "line":
                 start = self.point(*data["start"])
                 end = self.point(*data["end"])
-                self.lines.append(f"s = scad.add_line_rsketch(s, {eid!r}, {start!r}, {end!r})")
+                self.lines.append(f"s_geo = scad.add_line_rsketch(s_geo, {eid!r}, {start!r}, {end!r})")
             elif kind == "circle":
                 center = self.point(*data["center"])
-                self.lines.append(f"s = scad.add_circle_rsketch(s, {eid!r}, {center!r}, {_fmt(data['radius'])})")
+                self.lines.append(f"s_geo = scad.add_circle_rsketch(s_geo, {eid!r}, {center!r}, {_fmt(data['radius'])})")
             elif kind == "arc":
                 cx, cy = circumcenter(data["start"], data["middle"], data["end"])
                 center = self.point(cx, cy)
@@ -371,7 +382,7 @@ class StepEmitter:
                     start_pt, end_pt = end_pt, start_pt
                 start = self.point(*start_pt)
                 end = self.point(*end_pt)
-                self.lines.append(f"s = scad.add_arc_rsketch(s, {eid!r}, {start!r}, {end!r}, {center!r})")
+                self.lines.append(f"s_geo = scad.add_arc_rsketch(s_geo, {eid!r}, {start!r}, {end!r}, {center!r})")
             elif kind == "ellipse":
                 cx, cy = data["center"]
                 major, minor = float(data["major"]), float(data["minor"])
@@ -379,7 +390,7 @@ class StepEmitter:
                 center = self.point(cx, cy)
                 major_pt = self.point(cx + major * math.cos(theta), cy + major * math.sin(theta))
                 minor_pt = self.point(cx - minor * math.sin(theta), cy + minor * math.cos(theta))
-                self.lines.append(f"s = scad.add_ellipse_rsketch(s, {eid!r}, {center!r}, {major_pt!r}, {minor_pt!r})")
+                self.lines.append(f"s_geo = scad.add_ellipse_rsketch(s_geo, {eid!r}, {center!r}, {major_pt!r}, {minor_pt!r})")
             elif kind == "elliptical_arc":
                 raise UnsupportedFeature("elliptical_arc entity")
             elif kind == "nurbs":
@@ -389,7 +400,7 @@ class StepEmitter:
                 controls = ", ".join(f"({_fmt(c[0])}, {_fmt(c[1])})" for c in data["controls"])
                 weights = list(data["weights"]) if data.get("weights") else None
                 self.lines.append(
-                    f"s = scad.add_bspline_rsketch(s, {eid!r}, {start!r}, {end!r},\n"
+                    f"s_geo = scad.add_bspline_rsketch(s_geo, {eid!r}, {start!r}, {end!r},\n"
                     f"    control_points=[{controls}],\n"
                     f"    degree={int(data['degree'])}, knots={knots!r},\n"
                     f"    multiplicities={mults!r}, weights={weights!r},\n"
@@ -414,24 +425,31 @@ class StepEmitter:
         }.get(kind, set())
         if sub not in sub_map:
             return None
-        return f"{eid!r}.{sub}", "point"
+        return repr(f"{eid}.{sub}"), "point"
 
     def emit_constraints(self) -> List[str]:
         if self.constraints_mode == "off":
             return []
         lines: List[str] = []
         constraints = self.step.get("constraints") or {}
+        counter = 0
         for ctype, entries in sorted(constraints.items()):
             if not isinstance(entries, list):
                 entries = [entries]
             for entry in entries:
-                lines.extend(self._map_constraint(str(ctype), entry))
+                counter += 1
+                label = f"h{counter}_{ctype}"
+                lines.extend(self._map_constraint(str(ctype), entry, label))
         return lines
 
-    def _constrain(self, call: str) -> List[str]:
-        return [f"s = scad.{call}"]
+    def _constrain(self, call: str, label: Optional[str] = None) -> List[str]:
+        label = label or getattr(self, "_current_label", "h?")
+        # tag every emitted constraint with its HistCAD identity so solver
+        # diagnostics can name the offending source entry
+        return [f"s = scad.{call[:-1]}, constraint_id={label!r})"]
 
-    def _map_constraint(self, ctype: str, entry: Any) -> List[str]:
+    def _map_constraint(self, ctype: str, entry: Any, label: str = "h?"):
+        self._current_label = label
         drop = lambda label: self.dropped_constraints.append(label)  # noqa: E731
 
         if not isinstance(entry, list):
@@ -450,7 +468,11 @@ class StepEmitter:
         if ctype == "Parallel" and len(refs) >= 2:
             chain = [r for r in refs if r and r[1] == "line"]
             if len(chain) == len(refs) and len(chain) >= 2:
-                return [c for a, b in zip(chain, chain[1:]) for c in self._constrain(f"constrain_parallel_rsketch(s, {a[0]}, {b[0]})")]
+                return [
+                    c
+                    for i, (a, b) in enumerate(zip(chain, chain[1:]))
+                    for c in self._constrain(f"constrain_parallel_rsketch(s, {a[0]}, {b[0]})", f"{label}-{i + 2}")
+                ]
         if ctype == "Perpendicular" and len(refs) == 2 and all(r and r[1] == "line" for r in refs):
             return self._constrain(f"constrain_perpendicular_rsketch(s, {refs[0][0]}, {refs[1][0]})")
         if ctype == "Equal" and len(refs) >= 2 and all(r for r in refs):
@@ -470,7 +492,11 @@ class StepEmitter:
         if ctype == "Concentric" and len(refs) >= 2:
             chain = [r for r in refs if r and r[1] in {"circle", "arc", "ellipse"}]
             if len(chain) == len(refs) and len(chain) >= 2:
-                return [c for a, b in zip(chain, chain[1:]) for c in self._constrain(f"constrain_concentric_rsketch(s, {a[0]}, {b[0]})")]
+                return [
+                    c
+                    for i, (a, b) in enumerate(zip(chain, chain[1:]))
+                    for c in self._constrain(f"constrain_concentric_rsketch(s, {a[0]}, {b[0]})", f"{label}-{i + 2}")
+                ]
         if ctype in {"Diameter", "Radius", "MajorRadius", "MinorRadius"} and len(entry) == 2:
             ref = self._ref(entry[0])
             value = eval_value_expr(entry[1]) if not isinstance(entry[1], str) or "." not in entry[1] else eval_value_expr(entry[1])
@@ -537,8 +563,6 @@ class StepEmitter:
     def emit_feature(self) -> Dict[str, Any]:
         self.emit_sketch()
         constraint_lines = self.emit_constraints()
-        promotion_index = len(self.lines)
-        self.lines.append("del face")  # placeholder removed below
 
         profiles = classify_profiles(self.sketch)
         groups = nest_profiles(profiles)
@@ -552,9 +576,30 @@ class StepEmitter:
         for island, (outer, holes) in enumerate(groups):
             face_var = f"{self.name}_face{island}"
             inner = f", inner_profiles={[h['index'] for h in holes]}" if holes else ""
-            tool_lines.append(
-                f"{face_var} = scad.make_face_from_sketch_rface(s, profile={outer['index']}{inner})"
+            promote = (
+                f"scad.make_face_from_sketch_rface(s, profile={outer['index']}{inner})"
             )
+            if constraint_lines:
+                tool_lines.append(f"try:")
+                tool_lines.append(f"    {face_var} = {promote}")
+                tool_lines.append(f"except Exception:")
+                tool_lines.append(f"    SKETCH_TIER_FALLBACKS.append({self.index!r})")
+                tool_lines.append(f"    try:")
+                tool_lines.append(f"        _diag = scad.inspect_sketch_rsketchresult(s, strict=False)")
+                tool_lines.append(f"        SKETCH_CONFLICTS.append({{")
+                tool_lines.append(f"            'feature': {self.index!r},")
+                tool_lines.append(f"            'status': _diag.status,")
+                tool_lines.append(f"            'dof': _diag.dof,")
+                tool_lines.append(f"            'failed_constraints': [d.constraint_id for d in _diag.diagnostics if d.severity == 'error'],")
+                tool_lines.append(f"            'warnings': [d.code for d in _diag.diagnostics if d.severity == 'warning'],")
+                tool_lines.append(f"        }})")
+                tool_lines.append(f"    except Exception as _exc:")
+                tool_lines.append(f"        SKETCH_CONFLICTS.append({{'feature': {self.index!r}, 'status': 'inspect_failed', 'failed_constraints': [], 'warnings': [str(_exc)[:120]]}})")
+                tool_lines.append(
+                    f"    {face_var} = scad.make_face_from_sketch_rface(s_geo, profile={outer['index']}{inner})"
+                )
+            else:
+                tool_lines.append(f"{face_var} = {promote}")
             if towards > 0 and opposite > 0:
                 tool_var = f"{self.name}_tool{island}"
                 tool_lines.append(
@@ -574,7 +619,6 @@ class StepEmitter:
             else:
                 raise UnsupportedFeature("zero-extent extrude")
 
-        del self.lines[promotion_index]
         return {
             "sketch_lines": self.lines,
             "constraint_lines": constraint_lines,
@@ -599,6 +643,8 @@ def translate_steps(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode:
         "import simplecadapi as scad",
         "",
         "BODIES = None  # all solid bodies before single-solid merge (harness)",
+        "SKETCH_TIER_FALLBACKS = []  # feature indexes whose constrained solve fell back",
+        "SKETCH_CONFLICTS = []  # per-fallback solver diagnostics (dataset audit)",
         "",
         "",
         "def _merge_bodies(bodies):",
@@ -630,12 +676,18 @@ def translate_steps(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode:
             continue
         all_dropped.extend(feature["dropped"])
 
-        tier = "profile=geometry" if (feature["dropped"] or constraints_mode != "on") else "profile=sketch"
+        if constraints_mode == "off" or not feature["constraint_lines"]:
+            tier = "profile=geometry"
+        elif feature["dropped"]:
+            tier = "profile=sketch+geometry (partial constraints)"
+        else:
+            tier = "profile=sketch (fallback=geometry)"
         if feature["dropped"]:
             notes.append(f"feature {index}: unmapped constraint kinds {sorted(set(feature['dropped']))}")
         slug = f"{mode.lower()}-{index + 1}"
         lines.append(f"    # ---- feature: {slug} ({role}, {tier}) ----")
         lines.extend(f"    {line}" for line in feature["sketch_lines"])
+        lines.append("    s = s_geo")
         lines.extend(f"    {line}" for line in feature["constraint_lines"])
         lines.extend(f"    {line}" for line in feature["tool_lines"])
         tools = feature["tool_vars"]

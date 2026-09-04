@@ -63,6 +63,7 @@ def _step_volume(step_bytes: bytes) -> Optional[float]:
 
 _CASES_DIR = Path(__file__).resolve().parent / "out" / "_cases"
 _CASE_COUNTER = itertools.count()
+_LAST_BUILD_STATS: List[Dict[str, Any]] = []
 
 
 def _build_volume(source: str) -> Optional[float]:
@@ -87,6 +88,8 @@ def _build_volume(source: str) -> Optional[float]:
             BRepGProp.VolumeProperties_s(solid, props)
             return float(props.Mass())
 
+        _LAST_BUILD_STATS.clear()
+        _LAST_BUILD_STATS.append(_build_stats(module))
         bodies = getattr(module, "BODIES", None)
         if bodies:
             return sum(_volume(b.wrapped) for b in bodies)
@@ -109,6 +112,19 @@ class _ErrorVolume(float):
         return instance
 
 
+def _build_stats(module) -> Dict[str, Any]:
+    fallbacks = list(getattr(module, "SKETCH_TIER_FALLBACKS", []) or [])
+    conflicts = list(getattr(module, "SKETCH_CONFLICTS", []) or [])
+    failed: List[str] = []
+    for conflict in conflicts:
+        failed.extend(conflict.get("failed_constraints") or [])
+    return {
+        "sketch_fallback_features": fallbacks,
+        "conflicts": conflicts,
+        "failed_constraint_ids": failed,
+    }
+
+
 def _evaluate_case(payload: Dict[str, Any]) -> Dict[str, Any]:
     uid = payload["uid"]
     entry: Dict[str, Any] = {"uid": uid}
@@ -125,6 +141,7 @@ def _evaluate_case(payload: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(built, _ErrorVolume) or built is None:
         entry.update(status="build_error", error=getattr(built, "message", "no volume"))
         return entry
+    entry.update(_LAST_BUILD_STATS[0] if _LAST_BUILD_STATS else {})
     entry["built_volume"] = built
     truth = _step_volume(payload["step_bytes"])
     if truth is None:
@@ -212,6 +229,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     errors = [r for r in results if r["status"] in {"translate_error", "build_error"}]
     for error in errors[:10]:
         print(f"  ! {error['uid']}: {error.get('error', '')[:200]}")
+
+    fallback_features = 0
+    failed_kind_counts: Dict[str, int] = {}
+    for result in results:
+        fallback_features += len(result.get("sketch_fallback_features") or [])
+        for cid in result.get("failed_constraint_ids") or []:
+            kind = cid.split("_", 1)[1].split("-")[0] if "_" in cid else cid
+            failed_kind_counts[kind] = failed_kind_counts.get(kind, 0) + 1
+    if fallback_features:
+        print(
+            f"sketch-tier fallbacks: {fallback_features} features; "
+            f"top conflicting kinds: {dict(sorted(failed_kind_counts.items(), key=lambda kv: -kv[1])[:8])}"
+        )
 
     report = args.report or Path(__file__).resolve().parent / "out" / "histcad_validate.json"
     report.parent.mkdir(parents=True, exist_ok=True)
