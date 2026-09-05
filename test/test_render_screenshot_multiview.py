@@ -201,6 +201,41 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
                     supersample=4,
                 )
 
+    def test_occluded_callout_is_suppressed_per_view(self):
+        # 背面标签：从正面看应被抑制（图 = 无标注版），从背面看应出现（图 ≠ 无标注版）
+        import hashlib
+
+        solid = scad.make_box_rsolid(6.0, 4.0, 2.0)
+        faces = scad.ql.faces().resolve(solid)
+        back = min(faces, key=lambda f: f.get_center().x)
+        front = max(faces, key=lambda f: f.get_center().x)
+        solid = scad.apply_tag_rselection(scope=solid, targets=[back], tag="role.back")
+        solid = scad.apply_tag_rselection(scope=solid, targets=[front], tag="role.front")
+        with tempfile.TemporaryDirectory() as tmp:
+            outputs = {}
+            for view_name, azimuth in (("from_front", 0.0), ("from_back", 180.0)):
+                for callouts_on in (True, False):
+                    path = Path(tmp) / f"{view_name}_{'on' if callouts_on else 'off'}.png"
+                    scad.render_screenshot_rpath(
+                        solid,
+                        str(path),
+                        image_size=(480, 320),
+                        view=(0.0, azimuth),
+                        highlight_tags=["role.back", "role.front"],
+                        tag_labels={"role.back": "back", "role.front": "front"},
+                        show_callouts=callouts_on,
+                        show_legend=False,
+                        show_axes=False,
+                        supersample=1,
+                    )
+                    outputs[f"{view_name}_{'on' if callouts_on else 'off'}"] = hashlib.md5(
+                        path.read_bytes()
+                    ).hexdigest()
+            # 正面视角：front 标签可见 → 有标注 ≠ 无标注
+            self.assertNotEqual(outputs["from_front_on"], outputs["from_front_off"])
+            # 背面视角：back 标签可见 → 有标注 ≠ 无标注
+            self.assertNotEqual(outputs["from_back_on"], outputs["from_back_off"])
+
     def test_default_style_is_studio(self):
         solid = self._tagged_solid()
         with tempfile.TemporaryDirectory() as tmp:

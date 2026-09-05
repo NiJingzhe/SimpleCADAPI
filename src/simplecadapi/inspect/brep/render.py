@@ -495,6 +495,14 @@ def _mesh_polydata(
     return polydata
 
 
+SCREENSHOT_VIEWS: tuple[tuple[float, float, str], ...] = (
+    (28.0, -45.0, "isometric"),
+    (90.0, -90.0, "top / X-Y"),
+    (0.0, -90.0, "front / X-Z"),
+    (0.0, 0.0, "side / Y-Z"),
+)
+"""Default four-view set used by the SDK screenshot entry."""
+
 _EDGE_DEFLECTION_CAP = 0.04  # mm chord error cap for BRep edge discretization
 
 
@@ -758,6 +766,7 @@ def _render_sdk_screenshot_rpath(
     }
     surface_groups = []
     surface_group_refs: list[tuple[str, tuple[float, float, float]]] = []
+    tag_dataset: dict[str, str] = {}
     for index, (tag, faces) in enumerate(grouped_faces.items()):
         if not faces:
             continue
@@ -768,6 +777,8 @@ def _render_sdk_screenshot_rpath(
         color = tag_colors[str(tag)]
         surface_groups.append({"dataset": name, "color": color})
         surface_group_refs.append((name, color))
+        if tag is not None:
+            tag_dataset[str(tag)] = name
     legend_items = []
     if show_legend and (tags or show_axes):
         legend_items.extend(
@@ -815,6 +826,8 @@ def _render_sdk_screenshot_rpath(
             labels.get(tag, tag),
             point,
             tag_colors.get(tag, (0.95, 0.55, 0.2)),
+            # 遮挡重锚候选：该标签自己的高亮面网格（数据集通道，worker 可序列化）
+            tag_dataset.get(str(tag)),
         )
         for tag, point in label_points.items()
     ] if show_callouts else []
@@ -1013,6 +1026,96 @@ def _point_actor(polydata, color: tuple[float, float, float], size: float):
     return actor
 
 
+
+def _view_ray_occluded(renderer, locator, point: Sequence[float], span: float) -> bool:
+    """True when geometry lies between ``point`` and the camera along the view axis.
+
+    Parallel-projection safe: the test ray backs off from the point along the
+    camera's direction of projection instead of using the camera position.
+    ``span`` scales the surface tolerance so anchors sitting exactly on their
+    own face do not count as occluded.
+    """
+    vtk, _, _ = _vtk_modules()
+    import numpy as _np
+
+    camera = renderer.GetActiveCamera()
+    direction = _np.asarray(camera.GetDirectionOfProjection())
+    target = _np.asarray(point, dtype=float)
+    reach = max(span * 10.0, 1.0)
+    p0 = target - direction * reach
+    t = vtk.reference(0.0)
+    x = [0.0, 0.0, 0.0]
+    pcoords = [0.0, 0.0, 0.0]
+    sub_id = vtk.reference(0)
+    cell_id = locator.IntersectWithLine(
+        p0.tolist(), target.tolist(), 1e-8, t, x, pcoords, sub_id
+    )
+    if cell_id < 0:
+        return False
+    # 命中参数 t∈[0,1]；命中点距目标小于表面容差视为命中自身
+    hit_distance = (1.0 - t.get()) * reach
+    return hit_distance > max(span * 0.002, 1e-6)
+
+
+def _select_panel_callouts(renderer, callouts, locator, datasets, span: float):
+    """Per-panel callout admission with occlusion re-anchoring.
+
+    A callout whose anchor is occluded re-anchors to the nearest visible
+    sampled point of its own tagged surface (referenced by dataset name);
+    a callout whose whole region is hidden in this panel is suppressed —
+    a label pointing at empty space is worse than no label.
+    """
+    import numpy as _np
+
+    if not callouts:
+        return []
+    camera = renderer.GetActiveCamera()
+    direction = _np.asarray(camera.GetDirectionOfProjection())
+    selected = []
+    for entry in callouts:
+        label, anchor, color = entry[0], entry[1], entry[2]
+        candidates_name = entry[3] if len(entry) > 3 else None
+        if not _view_ray_occluded(renderer, locator, anchor, span):
+            selected.append((label, anchor, color))
+            continue
+        polydata = datasets.get(str(candidates_name)) if candidates_name else None
+        if polydata is None:
+            continue
+        points = polydata.GetPoints()
+        count = points.GetNumberOfPoints() if points else 0
+        if count == 0:
+            continue
+        stride = max(1, count // 400)
+        reach = max(span * 10.0, 1.0)
+        # 屏幕距离度量：沿视线方向的垂直距离 + 深度（取离相机更近者优先）
+        anchor_vec = _np.asarray(anchor, dtype=float)
+        best = None
+        best_score = None
+        vtk, _, _ = _vtk_modules()
+        for index in range(0, count, stride):
+            point = _np.asarray(points.GetPoint(index))
+            p0 = point - direction * reach
+            t = vtk.reference(0.0)
+            x = [0.0, 0.0, 0.0]
+            pcoords = [0.0, 0.0, 0.0]
+            sub_id = vtk.reference(0)
+            cell_id = locator.IntersectWithLine(
+                p0.tolist(), point.tolist(), 1e-8, t, x, pcoords, sub_id
+            )
+            if cell_id >= 0 and (1.0 - t.get()) * reach > max(span * 0.002, 1e-6):
+                continue
+            lateral = point - anchor_vec
+            lateral = lateral - direction * float(_np.dot(lateral, direction))
+            depth = float(_np.dot(anchor_vec - point, direction))
+            score = float(_np.linalg.norm(lateral)) + abs(depth) * 0.25
+            if best_score is None or score < best_score:
+                best_score = score
+                best = point
+        if best is not None:
+            selected.append((label, tuple(float(v) for v in best), color))
+    return selected
+
+
 def _add_geometry_callouts(
     renderer,
     callouts: Sequence[
@@ -1197,6 +1300,7 @@ def _render_polydata_views_in_process(
     show_axes: bool = False,
     callouts: Sequence[
         tuple[str, tuple[float, float, float], tuple[float, float, float]]
+        | tuple[str, tuple[float, float, float], tuple[float, float, float], str | None]
     ]
     | None = None,
     edge_width_scale: float = 0.0019,
@@ -1204,6 +1308,7 @@ def _render_polydata_views_in_process(
     style: str = "standard",
     zoom: float | None = None,
     view_up: Sequence[float] | None = None,
+    datasets: Mapping[str, Any] | None = None,
 ) -> Path:
     """Render smooth views; optionally multiple colored highlight groups.
 
@@ -1380,11 +1485,37 @@ def _render_polydata_views_in_process(
         window.AddRenderer(panel)
 
     window.Render()
+    visible_span = 1.0
+    occlusion_locator = None
+    if callout_renderers and callouts:
+        bounds = base_polydata.GetBounds() if base_polydata is not None else (0.0,) * 6
+        visible_span = max(
+            bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4], 1e-9
+        )
+    if callout_renderers and callouts:
+        vtk, _, _ = _vtk_modules()
+        combined = vtk.vtkAppendPolyData()
+        if base_polydata is not None:
+            combined.AddInputData(base_polydata)
+        for group in highlighted_groups or ():
+            combined.AddInputData(group[0])
+        if highlighted_edge_groups:
+            for group in highlighted_edge_groups:
+                combined.AddInputData(group[0])
+        combined.Update()
+        occlusion_locator = vtk.vtkCellLocator()
+        occlusion_locator.SetDataSet(combined.GetOutput())
+        occlusion_locator.BuildLocator()
     for renderer, index in callout_renderers:
+        panel_callouts = (
+            _select_panel_callouts(renderer, callouts, occlusion_locator, datasets or {}, visible_span)
+            if occlusion_locator is not None
+            else [(entry[0], entry[1], entry[2]) for entry in (callouts or ())]
+        )
         callout_resources.extend(
             _add_geometry_callouts(
                 renderer,
-                callouts or (),
+                panel_callouts,
                 font_size=max(
                     12,
                     min(18, min(width // columns, height // rows) // 48),
@@ -1427,12 +1558,14 @@ def _render_polydata_views(
     show_axes: bool = False,
     callouts: Sequence[
         tuple[str, tuple[float, float, float], tuple[float, float, float]]
+        | tuple[str, tuple[float, float, float], tuple[float, float, float], str | None]
     ] | None = None,
     edge_width_scale: float = 0.0019,
     supersample: int = 1,
     style: str = "standard",
     zoom: float | None = None,
     view_up: Sequence[float] | None = None,
+    datasets: Mapping[str, Any] | None = None,
 ) -> Path:
     if not views:
         raise ValueError("at least one render view is required")
@@ -1469,6 +1602,7 @@ def _render_polydata_views(
         "style": str(style),
         "zoom": None if zoom is None else float(zoom),
         "view_up": None if view_up is None else [float(value) for value in view_up],
+        "datasets": datasets,
     }
     if sys.platform != "darwin":
         return _render_in_process(

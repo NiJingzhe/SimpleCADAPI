@@ -250,13 +250,18 @@ def _normalize_shape_input(
         "raw TopoDS_Shape, or nested sequences of those types"
     )
 
-SCREENSHOT_VIEWS: Tuple[Tuple[float, float, str], ...] = (
-    (28.0, -45.0, "isometric"),
-    (90.0, -90.0, "top / X-Y"),
-    (0.0, -90.0, "front / X-Z"),
-    (0.0, 0.0, "side / Y-Z"),
-)
-"""Default multi-view set used by render_screenshot_rpath."""
+def _screenshot_views() -> Tuple[Tuple[float, float, str], ...]:
+    """Default multi-view set used by render_screenshot_rpath (engine-owned)."""
+    from ..inspect.brep.render import SCREENSHOT_VIEWS
+
+    return SCREENSHOT_VIEWS
+
+
+def __getattr__(name: str):
+    # 保持 SCREENSHOT_VIEWS 的模块属性兼容（PEP 562，懒加载避免 VTK 导入开销）
+    if name == "SCREENSHOT_VIEWS":
+        return _screenshot_views()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def render_screenshot_rpath(
@@ -321,7 +326,7 @@ def render_screenshot_rpath(
             )
         resolved_views = views
         if resolved_views is None and (view is None or view == "auto"):
-            resolved_views = SCREENSHOT_VIEWS
+            resolved_views = _screenshot_views()
         return str(
             _render_sdk_screenshot_rpath(
                 solids,
