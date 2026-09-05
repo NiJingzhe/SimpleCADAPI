@@ -48,6 +48,16 @@ face/edge/vertex picking works identically on both sides. The rebuilt side
 loads the agent's captured v3 `rebuilt.scadpkg` through the normal package
 loader. During development, `npm run dev` proxies `/api` to the server port.
 
+Annotation happens in a free-form composer: picked entities and operation
+tips land as inline color-coded chips (serialized as `[face:12](face:12)` /
+`[fillet](op:fillet)`) alongside plain text. The operation palette is served
+from a markdown registry — one file per tip in `viewer/server/operations/`
+(frontmatter `label/category/api/reads/doc_refs` + hint body), editable
+without code changes; referenced tips travel inside the submission as
+`operation_context`. The rebuilt panel shows the package's feature DAG and
+the syntax-highlighted, self-contained rebuild source with feature-to-source
+line reveal.
+
 Governance: the studio UI only selects and describes — it never edits geometry.
 Only the browser writes `re_work/submission.json`; the agent waits on it via
 `uv run python -m viewer.server <case_dir> --wait-only` and writes artifacts

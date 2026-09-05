@@ -174,7 +174,7 @@ print(len(rebuilt))
 ## References
 
 - `references/README.md` — skill layer structure
-- `references/workflows/` — seven goal-oriented workflows
+- `references/workflows/` — six goal-oriented workflows
 - `references/domains/` — eight capability domains
 - `references/discipline/` — modeling knowledge and invariants
 - `references/SDK_OVERVIEW.md` — package-level map
