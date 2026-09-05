@@ -618,28 +618,48 @@ def _render_sdk_polydata_in_process(
 ) -> Path:
     vtk, _, _ = _vtk_modules()
     width, height = (int(value) for value in options["image_size"])
+    studio = str(options.get("style", "standard")) == "studio"
     renderer = vtk.vtkRenderer()
-    renderer.SetBackground(0.067, 0.067, 0.067)
-    renderer.SetUseFXAA(True)
     window = _offscreen_window(width, height)
+    window.SetMultiSamples(8 if studio else 0)
+    # studio = pure black stage; the bodies and edge ink carry the image
+    if studio:
+        renderer.SetBackground(0.0, 0.0, 0.0)
+    else:
+        renderer.SetBackground(0.067, 0.067, 0.067)
+    renderer.SetUseFXAA(True)
     window.AddRenderer(renderer)
     base = datasets.get("base")
     if base is not None:
-        renderer.AddActor(_surface_actor(base, (0.6, 0.62, 0.64), 1.0))
+        renderer.AddActor(_surface_actor(base, (0.66, 0.68, 0.72) if studio else (0.6, 0.62, 0.64), 1.0, studio=studio))
     for item in options.get("surface_groups", []):
         polydata = datasets.get(str(item["dataset"]))
         if polydata is not None:
-            renderer.AddActor(_surface_actor(polydata, tuple(item["color"]), 1.0))
+            renderer.AddActor(_surface_actor(polydata, tuple(item["color"]), 1.0, studio=studio))
     edges = datasets.get("edges")
     if edges is not None:
-        renderer.AddActor(_line_actor(edges, (0.78, 0.80, 0.84), 1.0))
+        if studio:
+            ink_source = base if base is not None else edges
+            b = ink_source.GetBounds()
+            span = max(b[1] - b[0], b[3] - b[2], b[5] - b[4], 1e-9)
+            # dark CAD ink; tube radius scales with the model, tunable via
+            # edge_width_scale — long exploded stacks need thinner tubes or
+            # the ink swamps small parts (gears, bearings)
+            edge_scale = float(options.get("edge_width_scale", 0.0026))
+            if edge_scale > 0.0:
+                renderer.AddActor(_tube_edge_actor(edges, span * edge_scale, (0.145, 0.165, 0.196)))
+        else:
+            renderer.AddActor(_line_actor(edges, (0.78, 0.80, 0.84), 1.0))
 
     bounds = renderer.ComputeVisiblePropBounds()
     spans = (bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
     elevation, azimuth = _screenshot_view_angles(options["view"], spans)
-    _set_camera(renderer, elevation, azimuth)
+    _set_camera(renderer, elevation, azimuth, view_up=options.get("view_up"))
     renderer.GetActiveCamera().Zoom(float(options["zoom"]) / 4.0)
     renderer.ResetCameraClippingRange()
+    if studio:
+        # key/fill/rim derive from the camera pose, so set them after the camera
+        _studio_lights(renderer)
 
     if options.get("show_axes"):
         _add_corner_axes(window, renderer, (0.0, 0.0, 1.0, 1.0), corner="bottom-right")
@@ -682,9 +702,12 @@ def _render_sdk_screenshot_rpath(
     show_legend: bool = True,
     zoom: float = 4.0,
     show_callouts: bool = True,
-    linear_deflection: float = 0.35,
-    angular_deflection: float = 0.22,
+    linear_deflection: float | None = None,
+    angular_deflection: float | None = None,
     views: Sequence[tuple[float, float, str]] | None = None,
+    style: str = "standard",
+    edge_width_scale: float | None = None,
+    view_up: Sequence[float] | None = None,
 ) -> Path:
     """Render SDK solids in an isolated VTK worker on macOS.
 
@@ -693,6 +716,13 @@ def _render_sdk_screenshot_rpath(
     view, carrying the same tag highlight groups, legend and callouts (2-D
     leader-line labels, projected per panel). ``zoom`` only applies to the
     single-view path; the grid camera uses its standard fitting.
+
+    ``style="studio"`` renders the single-view path as a product shot:
+    gradient backdrop, three-point lighting, glossy steel material and BRep
+    edges drawn as bold dark tubes ( ``standard`` keeps the flat inspection
+    look). It requires an explicit ``view`` (it is not implemented for the
+    ``views`` grid). ``linear_deflection``/``angular_deflection`` default to
+    the inspection tessellation; tighten them for high-resolution exports.
     """
     if not solids:
         raise ValueError("At least one Solid is required")
@@ -700,6 +730,18 @@ def _render_sdk_screenshot_rpath(
         raise ValueError("image_size values must be greater than zero")
     if zoom <= 0.0:
         raise ValueError("zoom must be greater than zero")
+    if style not in ("standard", "studio"):
+        raise ValueError(f"unknown render style: {style!r} (expected 'standard' or 'studio')")
+    if style == "studio" and views is not None:
+        raise ValueError("style='studio' applies to the single-view path; pass view= instead of views=")
+    if linear_deflection is None:
+        linear_deflection = 0.35
+    if angular_deflection is None:
+        angular_deflection = 0.22
+    if edge_width_scale is None:
+        edge_width_scale = 0.0026
+    if edge_width_scale < 0.0 or edge_width_scale > 0.02:
+        raise ValueError("edge_width_scale must be within [0, 0.02] (fraction of model span)")
     tags = tuple(str(tag) for tag in highlight_tags)
     labels = dict(tag_labels or {})
     palette = (
@@ -820,6 +862,9 @@ def _render_sdk_screenshot_rpath(
         "show_axes": show_axes,
         "surface_groups": surface_groups,
         "legend_items": legend_items,
+        "style": style,
+        "edge_width_scale": float(edge_width_scale),
+        "view_up": None if view_up is None else [float(value) for value in view_up],
         "callouts": (
             [
                 {"label": labels.get(tag, tag), "point": point}
@@ -897,7 +942,7 @@ def _point_polydata(points: Sequence[Sequence[float]]):
     return polydata
 
 
-def _surface_actor(polydata, color: tuple[float, float, float], opacity: float):
+def _surface_actor(polydata, color: tuple[float, float, float], opacity: float, *, studio: bool = False):
     vtk, _, _ = _vtk_modules()
     mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputData(polydata)
@@ -913,12 +958,76 @@ def _surface_actor(polydata, color: tuple[float, float, float], opacity: float):
     prop.SetColor(*color)
     prop.SetOpacity(opacity)
     prop.SetInterpolationToPhong()
-    prop.SetAmbient(0.24)
-    prop.SetDiffuse(0.72)
-    prop.SetSpecular(0.22)
-    prop.SetSpecularPower(28.0)
+    if studio:
+        # Studio metal: low flat ambient, tight bright specular so curved
+        # faces pick up the key light as a moving highlight.
+        prop.SetAmbient(0.17)
+        prop.SetDiffuse(0.62)
+        prop.SetSpecular(0.50)
+        prop.SetSpecularPower(45.0)
+        prop.SetSpecularColor(1.0, 0.97, 0.92)
+    else:
+        prop.SetAmbient(0.24)
+        prop.SetDiffuse(0.72)
+        prop.SetSpecular(0.22)
+        prop.SetSpecularPower(28.0)
     prop.EdgeVisibilityOff()
     return actor
+
+
+def _tube_edge_actor(polydata, radius: float, color: tuple[float, float, float]):
+    """BRep edges as thin tubes: LineWidth is capped around 3px on macOS, so
+    bold "ink" edges need geometry, not the line width property."""
+    vtk, _, _ = _vtk_modules()
+    tubes = vtk.vtkTubeFilter()
+    tubes.SetInputData(polydata)
+    tubes.SetRadius(radius)
+    tubes.SetNumberOfSides(10)
+    tubes.CappingOn()
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputConnection(tubes.GetOutputPort())
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    actor.GetProperty().SetColor(*color)
+    actor.GetProperty().LightingOff()
+    return actor
+
+
+def _studio_lights(renderer) -> None:
+    """Warm key + cool fill + cool rim, derived from the camera pose so the
+    lit side always faces the viewer regardless of elevation/azimuth."""
+    import numpy as np
+
+    vtk, _, _ = _vtk_modules()
+    renderer.AutomaticLightCreationOff()
+    cam = renderer.GetActiveCamera()
+    focal = np.asarray(cam.GetFocalPoint(), dtype=float)
+    view_dir = np.asarray(cam.GetPosition(), dtype=float) - focal
+    span = float(np.linalg.norm(view_dir))
+    if span <= 0.0:
+        bounds = renderer.ComputeVisiblePropBounds()
+        span = max(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
+        span = max(span, 1e-9)
+        view_dir = np.asarray([0.6, 0.5, 0.6])
+    view_dir = view_dir / np.linalg.norm(view_dir)
+    world_up = np.asarray([0.0, 0.0, 1.0])
+    right = np.cross(view_dir, world_up)
+    right /= max(np.linalg.norm(right), 1e-9)
+    up = np.cross(right, view_dir)
+
+    def light(color, intensity, offset):
+        bulb = vtk.vtkLight()
+        bulb.SetColor(*color)
+        bulb.SetIntensity(intensity)
+        bulb.SetPosition(*(focal + np.asarray(offset) * span))
+        bulb.SetFocalPoint(*focal)
+        renderer.AddLight(bulb)
+
+    # warm key upper-right of the camera, cool fill from camera-left,
+    # cool rim behind/above the model for silhouette separation
+    light((1.00, 0.96, 0.90), 1.55, view_dir * 0.55 + right * 0.60 + up * 0.70)
+    light((0.60, 0.70, 0.85), 0.68, view_dir * 0.35 - right * 0.95 + up * 0.05)
+    light((0.88, 0.93, 1.00), 1.05, -view_dir * 0.90 + up * 0.60 - right * 0.15)
 
 
 def _line_actor(polydata, color: tuple[float, float, float], width: float):
@@ -1035,6 +1144,7 @@ def _set_camera(
     elevation: float,
     azimuth: float,
     bounds: Sequence[float] | None = None,
+    view_up: Sequence[float] | None = None,
 ) -> None:
     shared_bounds = bounds
     bounds = renderer.ComputeVisiblePropBounds() if shared_bounds is None else shared_bounds
@@ -1062,7 +1172,11 @@ def _set_camera(
     camera.ParallelProjectionOn()
     camera.SetFocalPoint(*center)
     camera.SetPosition(*(center + direction * distance))
-    if abs(direction[2]) > 0.95:
+    if view_up is not None:
+        # explicit roll (e.g. riding an inclined camera orbit); the caller
+        # guarantees it is not parallel to the view direction
+        camera.SetViewUp(*[float(value) for value in view_up])
+    elif abs(direction[2]) > 0.95:
         camera.SetViewUp(0.0, 1.0, 0.0)
     else:
         camera.SetViewUp(0.0, 0.0, 1.0)

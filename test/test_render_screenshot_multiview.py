@@ -126,6 +126,67 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
                     views=[],
                 )
 
+    def test_studio_style_is_rejected_for_the_views_grid(self):
+        solid = self._tagged_solid()
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(scad.SimpleCADError):
+                scad.render_screenshot_rpath(
+                    solid,
+                    str(Path(tmp) / "studio-grid.png"),
+                    view="iso",
+                    views=[(30.0, 45.0, "iso")],
+                    style="studio",
+                )
+
+    def test_unknown_style_is_rejected(self):
+        solid = self._tagged_solid()
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(scad.SimpleCADError):
+                scad.render_screenshot_rpath(
+                    solid,
+                    str(Path(tmp) / "unknown-style.png"),
+                    view="iso",
+                    style="cinematic",
+                )
+
+    def test_out_of_range_edge_width_scale_is_rejected(self):
+        solid = self._tagged_solid()
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(scad.SimpleCADError):
+                scad.render_screenshot_rpath(
+                    solid,
+                    str(Path(tmp) / "bad-edge-scale.png"),
+                    view="iso",
+                    style="studio",
+                    edge_width_scale=0.5,
+                )
+
+    def test_studio_single_view_render_writes_image(self):
+        solid = self._tagged_solid()
+        with tempfile.TemporaryDirectory() as tmp:
+            standard = Path(tmp) / "standard.png"
+            studio = Path(tmp) / "studio.png"
+            scad.render_screenshot_rpath(
+                solid,
+                str(standard),
+                image_size=(640, 400),
+                view=(30.0, 45.0),
+                show_axes=False,
+            )
+            scad.render_screenshot_rpath(
+                solid,
+                str(studio),
+                image_size=(640, 400),
+                view=(30.0, 45.0),
+                style="studio",
+                show_axes=False,
+            )
+            self.assertTrue(studio.is_file())
+            # studio must actually change the picture, not just be accepted:
+            # lighting, backdrop and tubed edges all differ from the flat
+            # inspection look produced by the same view
+            self.assertNotEqual(standard.read_bytes(), studio.read_bytes())
+
 
 if __name__ == "__main__":
     unittest.main()

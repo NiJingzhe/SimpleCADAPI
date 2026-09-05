@@ -268,6 +268,11 @@ def render_screenshot_rpath(
     show_legend: bool = True,
     zoom: float = 4.0,
     show_callouts: bool = True,
+    linear_deflection: Optional[float] = None,
+    angular_deflection: Optional[float] = None,
+    style: str = "standard",
+    edge_width_scale: Optional[float] = None,
+    view_up: Optional[Sequence[float]] = None,
 ) -> str:
     """Render SDK solids through the shared OCCT/VTK BREP renderer.
 
@@ -276,6 +281,13 @@ def render_screenshot_rpath(
     leader lines, a legend and per-panel axis triads. Pass an explicit
     ``view`` (preset name or ``(elevation, azimuth)``) for the legacy
     single-view image, or ``views`` to choose a custom view set.
+
+    ``style="studio"`` turns the single-view path into a product shot
+    (gradient backdrop, three-point lighting, bold tubed BRep edges);
+    ``linear_deflection``/``angular_deflection`` tighten the tessellation
+    for high-resolution exports. ``edge_width_scale`` tunes the studio edge
+    tube radius as a fraction of model span (default 0.0026; use ~0.001 for
+    exploded stacks so the ink does not swamp small parts).
     """
     try:
         from ..inspect.brep.render import _render_sdk_screenshot_rpath
@@ -299,7 +311,12 @@ def render_screenshot_rpath(
                 show_legend=show_legend,
                 zoom=zoom,
                 show_callouts=show_callouts,
+                linear_deflection=linear_deflection,
+                angular_deflection=angular_deflection,
                 views=resolved_views,
+                style=style,
+                edge_width_scale=edge_width_scale,
+                view_up=tuple(float(value) for value in view_up) if view_up is not None else None,
             )
         )
     except Exception as e:
