@@ -25,25 +25,28 @@ export function cadPointToGltf(point: Vec3): THREE.Vector3 {
   return new THREE.Vector3(point[0] / 1000, point[2] / 1000, -point[1] / 1000);
 }
 
-export const CAD_EDGE_LIGHTNESS_OFFSET = 0.5;
-export const CAD_EDGE_LINE_WIDTH = 1.6;
+export const CAD_EDGE_LINE_WIDTH = 2.4;
+/** Explicit dark edge color — must read as a firm outline on the lit body
+ * while staying distinguishable from the pure-black viewport background. */
+export const CAD_EDGE_COLOR = '#3a414d';
 export const DEFAULT_BASE_COLOR: [number, number, number, 1] = [0.72, 0.75, 0.78, 1];
 
 export type Resolution = { width: number; height: number };
 
-export function cadEdgeColor(baseColor: [number, number, number, 1]): THREE.Color {
-  const hsl = { h: 0, s: 0, l: 0 };
-  new THREE.Color(baseColor[0], baseColor[1], baseColor[2]).getHSL(hsl);
-  return new THREE.Color().setHSL(hsl.h, hsl.s, (hsl.l + CAD_EDGE_LIGHTNESS_OFFSET) % 1);
-}
-
 export function materialFor(node: SceneNode): THREE.MeshStandardMaterial {
   const color = node.material_id ? [0.68, 0.78, 0.88, 1] as const : DEFAULT_BASE_COLOR;
-  return new THREE.MeshStandardMaterial({ color: new THREE.Color(color[0], color[1], color[2]), metalness: 0.08, roughness: 0.52, side: THREE.FrontSide, transparent: color[3] < 1, opacity: color[3] });
+  // Faces are pushed back in depth: edge lines lie exactly ON the surface, and
+  // without the offset the face triangles win the depth fight per-pixel —
+  // edges render as broken dashed fragments (classic CAD z-fighting).
+  return new THREE.MeshStandardMaterial({ color: new THREE.Color(color[0], color[1], color[2]), metalness: 0.08, roughness: 0.52, side: THREE.FrontSide, transparent: color[3] < 1, opacity: color[3], polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
 }
 
 export function edgeMaterial(resolution: Resolution): LineMaterial {
-  const material = new LineMaterial({ color: cadEdgeColor(DEFAULT_BASE_COLOR), linewidth: CAD_EDGE_LINE_WIDTH, worldUnits: false, depthTest: true, depthWrite: false });
+  // Negative slope-scaled polygon offset: at silhouettes the line runs along
+  // a surface seen edge-on and parts of its quad sit genuinely behind the
+  // local surface depth — a constant bias loses there, a slope-scaled pull
+  // (mirror of the faces' +1 push) wins at every viewing angle.
+  const material = new LineMaterial({ color: CAD_EDGE_COLOR, linewidth: CAD_EDGE_LINE_WIDTH, worldUnits: false, depthTest: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   material.resolution.set(Math.max(resolution.width, 1), Math.max(resolution.height, 1));
   return material;
 }

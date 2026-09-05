@@ -318,6 +318,26 @@ scad.exporter.export_product_package_to_obj(
     "out/mounting_plate.scadpkg", "out/mounting_plate.obj"
 )
 ```
+
+### Command-line product export
+
+Export the standard delivery set (AP242 STEP, binary STL, and OBJ) from a
+validated product package with no wrapper script:
+
+```bash
+uv run simplecad-export out/mounting_plate.scadpkg --output-dir out/exports
+```
+
+Request additional targets explicitly.  FCStd requires `FreeCADCmd` (or an
+explicit `--freecad-cmd` path); `--check` validates the package, output paths,
+and selected target prerequisites without writing files.
+
+```bash
+uv run simplecad-export out/mounting_plate.scadpkg \
+  --format fcstd --format mjcf --output-dir out/exports --check
+uv run simplecad-export out/mounting_plate.scadpkg \
+  --format fcstd --freecad-cmd /path/to/FreeCADCmd --output-dir out/exports
+```
 STL and OBJ share one direct OpenCASCADE tessellation of the evaluated BREP.
 Both outputs contain the same oriented triangles and require no optional
 remeshing dependency. Control curved-surface accuracy with `linear_deflection`

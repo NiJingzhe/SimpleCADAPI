@@ -159,37 +159,175 @@ def trim_descriptor(descriptor: dict[str, Any]) -> dict[str, Any]:
     return trimmed
 
 
+def _truncated(items: list[Any], source_count: int) -> dict[str, Any]:
+    """A context list that names when it was cut (never silently truncated)."""
+
+    if source_count > MAX_ADJACENCY_IDS:
+        return {"items": items, "total": source_count, "truncated": True}
+    return {"items": items, "total": source_count, "truncated": False}
+
+
+def _face_ref(descriptor: dict[str, Any]) -> dict[str, Any]:
+    geometry = descriptor.get("geometry") or {}
+    return {
+        "topo_id": descriptor.get("entity_id"),
+        "surface_type": geometry.get("type"),
+        "area": geometry.get("area"),
+    }
+
+
+def _edge_ref(descriptor: dict[str, Any]) -> dict[str, Any]:
+    geometry = descriptor.get("geometry") or {}
+    return {
+        "topo_id": descriptor.get("entity_id"),
+        "curve_type": geometry.get("type"),
+        "length": geometry.get("length"),
+    }
+
+
+def entity_neighborhood(
+    describe: Any,
+    adjacency: Any,
+    entity_id: str,
+) -> dict[str, Any]:
+    """One-level adjacency card for a selected entity.
+
+    ``describe`` is ``BRepModel.describe_entity`` and ``adjacency`` is
+    ``BRepModel.adjacency_details``. The card carries the entity itself plus
+    exactly one level of neighbors: a face lists its edges, and because the
+    edges are listed each edge also lists its adjacent faces; vertices come
+    along the same way. Lists are capped at ``MAX_ADJACENCY_IDS`` with the
+    cut named in the payload.
+    """
+
+    descriptor = describe(entity_id)
+    kind = descriptor.get("kind")
+    card: dict[str, Any] = {"entity": trim_descriptor(descriptor), "level": 1}
+
+    if kind == "face":
+        details = adjacency(entity_id)
+        edge_ids: list[str] = list(details.get("edges", []))
+        vertices: dict[str, dict[str, Any]] = {}
+        edges: list[dict[str, Any]] = []
+        for edge_id in edge_ids[:MAX_ADJACENCY_IDS]:
+            edge_descriptor = describe(edge_id)
+            edge_details = adjacency(edge_id)
+            for vertex_id in edge_details.get("vertices", []):
+                if vertex_id in vertices:
+                    continue
+                vertex_geometry = describe(vertex_id).get("geometry") or {}
+                vertices[vertex_id] = {
+                    "topo_id": vertex_id,
+                    "coordinates": vertex_geometry.get("coordinates"),
+                }
+            adjacent_face_ids: list[str] = list(edge_details.get("faces", []))
+            edges.append(
+                {
+                    **_edge_ref(edge_descriptor),
+                    "adjacent_faces": _truncated(
+                        [_face_ref(describe(face_id)) for face_id in adjacent_face_ids[:MAX_ADJACENCY_IDS]],
+                        len(adjacent_face_ids),
+                    ),
+                }
+            )
+        neighboring_face_ids: list[str] = list(details.get("neighboring_faces", []))
+        card["edges"] = _truncated(edges, len(edge_ids))
+        card["vertices"] = _truncated(
+            [vertices[key] for key in sorted(vertices)], len(vertices)
+        )
+        card["neighboring_faces"] = _truncated(
+            [_face_ref(describe(face_id)) for face_id in neighboring_face_ids[:MAX_ADJACENCY_IDS]],
+            len(neighboring_face_ids),
+        )
+    elif kind == "edge":
+        details = adjacency(entity_id)
+        face_ids: list[str] = list(details.get("faces", []))
+        vertex_ids: list[str] = list(details.get("vertices", []))
+        adjacent_edge_ids: list[str] = list(details.get("adjacent_edges", []))
+        card["vertices"] = _truncated(
+            [
+                {
+                    "topo_id": vertex_id,
+                    "coordinates": (describe(vertex_id).get("geometry") or {}).get("coordinates"),
+                }
+                for vertex_id in vertex_ids[:MAX_ADJACENCY_IDS]
+            ],
+            len(vertex_ids),
+        )
+        # one incident face = free/boundary edge, two = interior edge
+        card["adjacent_faces"] = _truncated(
+            [_face_ref(describe(face_id)) for face_id in face_ids[:MAX_ADJACENCY_IDS]],
+            len(face_ids),
+        )
+        card["adjacent_edges"] = _truncated(
+            [_edge_ref(describe(edge_id)) for edge_id in adjacent_edge_ids[:MAX_ADJACENCY_IDS]],
+            len(adjacent_edge_ids),
+        )
+    elif kind == "vertex":
+        details = adjacency(entity_id)
+        edge_ids = list(details.get("edges", []))
+        face_ids = list(details.get("faces", []))
+        card["adjacent_edges"] = _truncated(
+            [_edge_ref(describe(edge_id)) for edge_id in edge_ids[:MAX_ADJACENCY_IDS]],
+            len(edge_ids),
+        )
+        card["adjacent_faces"] = _truncated(
+            [_face_ref(describe(face_id)) for face_id in face_ids[:MAX_ADJACENCY_IDS]],
+            len(face_ids),
+        )
+    return card
+
+
 def compose_submission(
     case: ReCase,
     describe: Any,
     summary: dict[str, Any],
     payload: dict[str, Any],
+    adjacency: Any | None = None,
 ) -> dict[str, Any]:
     """Assemble submission.json from the UI payload plus server-side context.
 
     ``describe`` is ``BRepModel.describe_entity``; unresolved entity ids are
-    reported per annotation instead of being silently dropped.
+    reported per annotation instead of being silently dropped. When
+    ``adjacency`` (``BRepModel.adjacency_details``) is provided, each
+    annotated entity's context becomes a one-level neighborhood card
+    (``entity_neighborhood``) instead of a bare descriptor.
     """
 
     seq = case.read_submission_seq() + 1
     annotations_out: list[dict[str, Any]] = []
+    referenced_ops: list[str] = []
     for annotation in payload.get("annotations", []):
         record = dict(annotation)
         entity_ids = [
             str(item) for item in record.get("entity_ids", []) if isinstance(item, str)
         ][:MAX_ENTITIES_PER_ANNOTATION]
         record["entity_ids"] = entity_ids
+        operations = [
+            str(item)
+            for item in record.get("operations", [])
+            if isinstance(item, str) and item not in referenced_ops
+        ]
+        record["operations"] = operations
+        referenced_ops.extend(operations)
         context: dict[str, Any] = {}
         unresolved: list[str] = []
         for entity_id in entity_ids:
             try:
-                context[entity_id] = trim_descriptor(describe(entity_id))
+                if adjacency is not None:
+                    context[entity_id] = entity_neighborhood(describe, adjacency, entity_id)
+                else:
+                    context[entity_id] = trim_descriptor(describe(entity_id))
             except Exception:
                 unresolved.append(entity_id)
         if unresolved:
             record["unresolved_entity_ids"] = unresolved
         record["context"] = context
         annotations_out.append(record)
+
+    from .operation_tips import operation_context_for
+
+    operation_context = operation_context_for(referenced_ops)
 
     snapshot_path: str | None = None
     snapshot = payload.get("snapshot_png")
@@ -211,6 +349,7 @@ def compose_submission(
             "summary": summary,
         },
         "annotations": annotations_out,
+        "operation_context": operation_context,
         "note": str(payload.get("note") or ""),
         "snapshot": snapshot_path,
     }
@@ -321,6 +460,7 @@ __all__ = [
     "MAX_ENTITIES_PER_ANNOTATION",
     "ReCase",
     "compose_submission",
+    "entity_neighborhood",
     "resolve_region",
     "trim_descriptor",
     "write_json_atomic",

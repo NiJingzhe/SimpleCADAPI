@@ -3,6 +3,32 @@
 Take a validated product package and produce the requested downstream
 deliverables.
 
+## Preferred command path
+
+For normal delivery, use the package exporter CLI rather than writing a
+one-off Python wrapper. It validates the `.scadpkg`, chooses the conventional
+output names, prints one JSON report, and lets independent targets finish even
+when an optional target is unavailable:
+
+```bash
+uv run simplecad-export out/product.scadpkg --output-dir out/exports
+```
+
+Without `--format`, this writes AP242 STEP, binary STL, and OBJ. Add unusual
+or backend-dependent outputs deliberately; `--check` performs all package,
+output-path, and selected-target prerequisite checks without writing files:
+
+```bash
+uv run simplecad-export out/product.scadpkg \
+  --format fcstd --format mjcf --output-dir out/exports --check
+uv run simplecad-export out/product.scadpkg \
+  --format fcstd --freecad-cmd /path/to/FreeCADCmd --output-dir out/exports
+```
+
+Use the lower-level Python APIs only when a workflow needs behavior the CLI
+does not expose, such as consuming a report in-process or a format-specific
+option not represented by a CLI flag.
+
 ## Goal and scope
 
 Use when geometry and product validation already passed and the remaining
@@ -21,7 +47,7 @@ optional_domains:
   - step-inspection          # roundtrip validation of exports
 artifacts:
   - refreshed package (capture re-run if sources changed)
-  - export reports per format
+  - simplecad-export JSON report (or API reports for programmatic export)
 validation_gates:
   - package is current (sources unchanged since capture)
   - each export report read and printed
@@ -43,11 +69,18 @@ repair_routes:
    (`domains/export-and-translation.md` table): editable FreeCAD document →
    `.FCStd`; neutral exchange → AP242 `.step`; DCC/surface inspection →
    `.obj`; additive manufacturing → `.stl`; MuJoCo simulation → MJCF.
-3. **Export from the package path** (`scad.exporter.*` /
-   `scad.translator.<backend>.*`), one call per target, keyword arguments.
-4. **Read every report**: definition ids, occurrence/solid/triangle counts,
-   material items, limitations. Print the facts; never assume success from a
-   missing exception.
+3. **Preflight and export from the package path**. Start with
+   `uv run simplecad-export <package>.scadpkg --output-dir <dir> --check`.
+   It checks the package and default STEP/STL/OBJ targets. Add each non-default
+   target with `--format`; FCStd requires FreeCADCmd (or `--freecad-cmd`) and
+   MJCF requires an assembly-rooted package. Re-run without `--check` to write
+   the files. Use `--output FORMAT=PATH` for a non-conventional file name and
+   `--overwrite` only when replacement is intentional.
+4. **Read the JSON report**: definition ids, occurrence/solid/triangle counts,
+   material items, limitations, and per-target failures. Print the facts;
+   never assume success from a missing exception. An unavailable optional
+   target returns a nonzero status but does not erase successful independent
+   exports.
 5. **Validate roundtrip when it matters**: consumers that re-import STEP →
    `validate_step_roundtrip_rdescriptor` on the exported file.
 6. **Report**: file paths, per-format report facts, parameters chosen
@@ -55,9 +88,10 @@ repair_routes:
 
 ## API pages to read
 
-`capture` (when re-capturing), the exporter page(s) for every format
-requested, the translator page(s) for every backend requested, and
-`validate_step_roundtrip_rdescriptor` when roundtrip validation applies.
+`capture` (when re-capturing), this workflow's CLI command contract, the
+exporter page(s) for every format requested when using APIs or interpreting
+format-specific reports, the translator page(s) for every backend requested,
+and `validate_step_roundtrip_rdescriptor` when roundtrip validation applies.
 
 ## Validation gates
 
@@ -69,11 +103,14 @@ requested, the translator page(s) for every backend requested, and
 - MJCF: every intended joint present; loop-closing constraints emitted as
   equality/connect; public connectors only expose sites/endpoints.
 - `.FCStd`: translation consumed the intended package revision.
+- `simplecad-export --check` passes before delivery export; the final JSON
+  report records every requested target as successful.
 
 ## Failure routes
 
-- FreeCAD/FreeCADCmd missing → report the missing backend; offer STEP as the
-  neutral fallback and say so explicitly.
+- FreeCAD/FreeCADCmd missing → `simplecad-export --check --format fcstd`
+  reports the missing backend before writing. Export default STEP/STL/OBJ if
+  requested, offer STEP as the neutral fallback, and say so explicitly.
 - STL/OBJ too coarse or too large → adjust deflection parameters, re-export;
   both formats share one tessellation pass.
 - MJCF joints missing → the assembly lacked explicit constraints; return to

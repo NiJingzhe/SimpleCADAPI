@@ -1,10 +1,14 @@
 import * as THREE from 'three';
-import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+type ClickSelectionControls = {
+  target: THREE.Vector3;
+  update(): void;
+};
 
 type ClickSelectionOptions = {
   element: HTMLElement;
   camera: THREE.PerspectiveCamera;
-  controls: OrbitControls;
+  controls: ClickSelectionControls;
   movementThreshold?: number;
   onPointerStateChange?: (active: boolean) => void;
   onClick: (event: PointerEvent) => void;
@@ -17,6 +21,7 @@ export function bindClickSelection(options: ClickSelectionOptions): () => void {
     y: number;
     button: number;
     position: THREE.Vector3;
+    up: THREE.Vector3;
     target: THREE.Vector3;
     zoom: number;
   } | null = null;
@@ -27,6 +32,7 @@ export function bindClickSelection(options: ClickSelectionOptions): () => void {
       y: event.clientY,
       button: event.button,
       position: camera.position.clone(),
+      up: camera.up.clone(),
       target: controls.target.clone(),
       zoom: camera.zoom,
     };
@@ -39,17 +45,16 @@ export function bindClickSelection(options: ClickSelectionOptions): () => void {
     if (!down || down.button !== 0 || event.button !== 0) return;
     if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > movementThreshold) return;
 
-    // OrbitControls treats any pointer movement as rotation. Drain that movement,
-    // then restore the click-time camera before committing selection.
-    const damping = controls.enableDamping;
-    controls.enableDamping = false;
+    // The controls may have applied pointer movement between down and up
+    // (turntable damping, trackball momentum). Drain it, then restore the
+    // click-time camera — position and orientation — before picking.
     controls.update();
     camera.position.copy(down.position);
+    camera.up.copy(down.up);
     camera.zoom = down.zoom;
     camera.updateProjectionMatrix();
     controls.target.copy(down.target);
     controls.update();
-    controls.enableDamping = damping;
     onClick(event);
   };
   const onPointerLeave = (): void => {
