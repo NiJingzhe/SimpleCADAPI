@@ -770,7 +770,9 @@ def _render_sdk_screenshot_rpath(
     for index, (tag, faces) in enumerate(grouped_faces.items()):
         if not faces:
             continue
-        name = f"surface_group_{index}"
+        # NOTE: name must match the wrapper's worker-datasets scheme
+        # (surface_groups_{index}) so candidate lookups survive the worker hop.
+        name = f"surface_groups_{index}"
         datasets[name] = _mesh_polydata(
             faces, linear_deflection, angular_deflection
         )
@@ -1128,7 +1130,7 @@ def _add_geometry_callouts(
     """Project anchors to non-overlapping 2D labels connected by leader lines."""
     vtk, _, _ = _vtk_modules()
     width, height = viewport_size
-    margin = 12
+    margin = font_size // 2
     line_height = font_size + 8
     placed: list[tuple[float, float, float, float]] = []
     resources: list[tuple[Any, ...]] = []
@@ -1411,13 +1413,15 @@ def _render_polydata_views_in_process(
         label.SetPosition(16 * supersample, 14 * supersample)
         text = label.GetTextProperty()
         text.SetColor((0.85, 0.89, 0.94) if style == "studio" else (0.08, 0.11, 0.15))
-        text.SetFontSize(max(14, min(width // columns, height // rows) // 34))
+        # font sizes below are FINAL-image pixels; the window is supersampled,
+        # so scale here once and keep every downstream heuristic in final px
+        text.SetFontSize(max(14, min(width // columns, height // rows) // 34) * supersample)
         text.SetBold(True)
         renderer.AddViewProp(label)
         if index == 0 and legend and not legend_panel:
             viewport_width = render_width // columns
             viewport_height = height // rows
-            legend_font = max(10, min(16, min(viewport_width, viewport_height) // 52))
+            legend_font = max(12, min(20, min(viewport_width, viewport_height) // 34)) * supersample
             legend_spacing = int(legend_font * 1.55)
             legend_rows = (len(legend) + legend_columns - 1) // legend_columns
             column_width = max(
@@ -1463,7 +1467,7 @@ def _render_polydata_views_in_process(
         panel.SetViewport(render_width / width, 0.0, 1.0, 1.0)
         panel.SetBackground(0.0, 0.0, 0.0) if style == "studio" else panel.SetBackground(0.94, 0.96, 0.98)
         panel.SetInteractive(False)
-        panel_font = max(10, min(16, height // 78))
+        panel_font = max(12, min(20, height // 52)) * supersample
         panel_spacing = int(panel_font * 1.55)
         panel_rows = (len(legend) + legend_columns - 1) // legend_columns
         panel_column_width = legend_panel_width / legend_columns
@@ -1517,8 +1521,8 @@ def _render_polydata_views_in_process(
                 renderer,
                 panel_callouts,
                 font_size=max(
-                    12,
-                    min(18, min(width // columns, height // rows) // 48),
+                    18,
+                    min(28, min(width // columns, height // rows) // 30),
                 ),
                 viewport_size=(width // columns, height // rows),
             )

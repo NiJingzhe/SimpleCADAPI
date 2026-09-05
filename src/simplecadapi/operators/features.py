@@ -297,14 +297,7 @@ def render_screenshot_rpath(
     up to four explicit ``(elevation, azimuth, label)`` triples.
     ``zoom`` applies to single-panel renders only.
 
-
-    By default every render is a multi-view grid (SCREENSHOT_VIEWS: isometric,
-    top, front, side) carrying highlight-tag color groups, callout labels with
-    leader lines, a legend and per-panel axis triads. Pass an explicit
-    ``view`` (preset name or ``(elevation, azimuth)``) for the legacy
-    single-view image, or ``views`` to choose a custom view set.
-
-    ``supersample`` (default 2) renders at an integer multiple and
+    ``supersample (default 2) renders at an integer multiple and
     downsamples with LANCZOS for deterministic crisp edges; 1 renders 1:1.
     ``style="studio"`` turns the single-view path into a product shot
     (gradient backdrop, three-point lighting, bold tubed BRep edges);
@@ -327,6 +320,27 @@ def render_screenshot_rpath(
         resolved_views = views
         if resolved_views is None and (view is None or view == "auto"):
             resolved_views = _screenshot_views()
+        # Agent-facing contract: a requested tag that matches nothing is
+        # almost certainly a typo or a tag from a different build stage —
+        # fail loudly instead of silently labelling empty air.
+        missing = sorted(
+            tag
+            for tag in (str(item) for item in (highlight_tags or ()))
+            if not any(
+                isinstance(shape, Solid) and shape._has_tag(tag)
+                or (
+                    isinstance(shape, Solid)
+                    and any(face._has_tag(tag) for face in shape._iter_faces())
+                )
+                for shape in solids
+            )
+        )
+        if missing:
+            raise ValueError(
+                "highlight_tags matched no geometry: "
+                + ", ".join(missing)
+                + " — check tag names and the build stage that produced them"
+            )
         return str(
             _render_sdk_screenshot_rpath(
                 solids,

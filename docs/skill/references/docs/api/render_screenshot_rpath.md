@@ -28,13 +28,7 @@ azimuth)`` pair renders a single full-frame panel; ``views`` accepts
 up to four explicit ``(elevation, azimuth, label)`` triples.
 ``zoom`` applies to single-panel renders only.
 
-By default every render is a multi-view grid (SCREENSHOT_VIEWS: isometric,
-top, front, side) carrying highlight-tag color groups, callout labels with
-leader lines, a legend and per-panel axis triads. Pass an explicit
-``view`` (preset name or ``(elevation, azimuth)``) for the legacy
-single-view image, or ``views`` to choose a custom view set.
-
-``supersample`` (default 2) renders at an integer multiple and
+``supersample (default 2) renders at an integer multiple and
 downsamples with LANCZOS for deterministic crisp edges; 1 renders 1:1.
 ``style="studio"`` turns the single-view path into a product shot
 (gradient backdrop, three-point lighting, bold tubed BRep edges);
