@@ -116,6 +116,13 @@ include = ["src/simplecadapi/translator/freecad_translator/runtime/**/*.py"]
 unresolved-import = "ignore"
 unresolved-reference = "ignore"
 
+[tool.ty.rules]
+# OCP/VTK are compiled C-extension bindings that ship no .pyi stubs, and
+# example scripts import sibling modules — import resolution is
+# environmental noise in this repo, not signal. Real import typos surface
+# at runtime and in the test suite.
+unresolved-import = "ignore"
+
 [tool.ty.src]
 include = ["src", "test", "tests", "examples", "tools", "viewer/server"]
 exclude = [

@@ -77,23 +77,31 @@ def _render_views(
         legend_columns=int(options["legend_columns"]),
         legend_panel=bool(options["legend_panel"]),
         show_axes=bool(options.get("show_axes", False)),
+        datasets=datasets,
+        edge_width_scale=float(options.get("edge_width_scale", 0.0019)),
+        supersample=int(options.get("supersample", 1)),
+        style=str(options.get("style", "standard")),
+        zoom=None if options.get("zoom") is None else float(options["zoom"]),
+        view_up=(
+            None
+            if options.get("view_up") is None
+            else tuple(float(value) for value in options["view_up"])
+        ),
         callouts=(
-            tuple(
-                (str(label), tuple(anchor), tuple(color))
-                for label, anchor, color in callouts
-            )
+            [
+                (
+                    str(entry[0]),
+                    tuple(float(value) for value in entry[1]),
+                    tuple(entry[2]),
+                    *([str(entry[3])] if len(entry) > 3 else []),
+                )
+                for entry in callouts
+            ]
             if callouts is not None
             else None
         ),
     )
 
-
-def _render_sdk(
-    datasets: Mapping[str, Any], output_path: Path, options: Mapping[str, Any]
-) -> None:
-    from .render import _render_sdk_polydata_in_process
-
-    _render_sdk_polydata_in_process(datasets, output_path, options)
 
 
 def _main(manifest_path: Path) -> None:
@@ -114,8 +122,6 @@ def _main(manifest_path: Path) -> None:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         if mode == "views":
             _render_views(datasets, output_path, options)
-        elif mode == "sdk":
-            _render_sdk(datasets, output_path, options)
         else:
             raise ValueError(f"unsupported render worker mode: {mode}")
         Path(payload["completion_path"]).touch()

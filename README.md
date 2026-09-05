@@ -6,6 +6,109 @@
 
 [中文说明](README.zh-CN.md)
 
+## What Can It Do
+
+Four capability pillars. Every case below is a **real, reproducible session**:
+the replay demos are single-file offline HTML pages that faithfully replay the
+full recorded conversation (user turns, agent thinking, every tool call and
+patch, role switches) next to the exported 3D model — open them directly in a
+browser.
+
+### 1 · Single-Part Modeling
+
+Parametric parts authored as readable [Feature Tree
+Convention](docs/skill/references/discipline/feature-tree-convention.md)
+feature blocks — named parameters with units, verifier-first staged modeling,
+deterministic face tags that survive re-parameterization, and synchronized
+`.scadpkg` / STEP AP242 / STL / editable FreeCAD exports.
+
+<table>
+<tr>
+<th width="18%">Case</th>
+<th width="40%">First-turn requirement (excerpt)</th>
+<th width="42%">Delivered model · BRep turntable</th>
+</tr>
+<tr>
+<td><b>Robotic-arm U-link + motor mount</b><br/>15 user turns · 601 tool calls<br/><a href="examples/u_link_motor_mount/demo/index.html">▶ Full session replay</a></td>
+<td>"Build a parametric robotic-arm link that adapts to length changes and mounts motors generically: sweep a circular profile down D → right L → up D into a U; cut motor sockets with spheres; the mounting face must carry a deterministic name indexable by the query language; split the bottom cylinder into a half cylinder; then fillet everything."</td>
+<td><img src="img/capability/ulink_turntable.gif" width="420" alt="u_link turntable"></td>
+</tr>
+<tr>
+<td><b>Parametric flange plate</b><br/>2 user turns · 66 tool calls<br/><a href="examples/flange_plate/demo/index.html">▶ Full session replay</a></td>
+<td>"Parametric flange: OD 100, thickness 10, hub ⌀55 top +30, bore ⌀30, 6×⌀11 bolt holes on PCD 78, hub-root R3 / rim R2 fillets; every dimension a named parameter; edge-selection cards printed before each fillet; parameter-feasibility guards; one feature per block."<br/><br/><i>GIF shows the final 8-hole @PCD 84.5 state: turn 2 re-parameterized 6→8 holes; PCD 88 was rejected live by the guards and 85 excluded for fillet tangency.</i></td>
+<td><img src="img/capability/flange_turntable.gif" width="420" alt="flange turntable"></td>
+</tr>
+<tr>
+<td><b>Ribbed L-bracket (FEM main model)</b><br/>2 user turns · 49 tool calls<br/><a href="examples/12_ap242_gmsh_volume_mesh/demo/index.html">▶ Full session replay</a></td>
+<td>"Formalize the existing legacy L-bracket script through the single-part workflow: rebuild with FTC feature blocks and named parameters; geometric equivalence to the legacy model (volume delta < 0.1%); the <code>interface.*</code> FEM boundary tags must survive untouched — the downstream Gmsh/CalculiX pipeline selects faces by them."</td>
+<td><img src="img/capability/bracket_turntable.gif" width="420" alt="bracket turntable"></td>
+</tr>
+Turntables are rendered by the in-repo [Scene Viewer](viewer/)'s BRep renderer
+(face shading + wide edges); one full turn = 48 deterministic azimuth steps
+driven through `viewer/gif-harness.html`.
+
+</table>
+
+### 2 · Assembly Modeling
+
+Nested durable assemblies with explicit kinematics: gear meshes, revolute
+joints, and bearing interfaces are solved constraints, not eyeballed
+positions. Standard parts — involute gears, ball bearings (as subassemblies
+with individual balls), roller-chain sprockets, metric fasteners with real
+thread profiles — come from `scad.std.*` and compose into mechanisms that
+export to STEP, editable FreeCAD projects, and MJCF for physics engines.
+
+<table>
+<tr>
+<td width="44%" align="center" valign="top">
+<img src="img/capability/bldc_assembly.png" alt="BLDC joint actuator assembled"><br/>
+<b>Integrated BLDC joint actuator</b> — assembled, studio render<br/>
+29 components · 51 constraints, all solved · 20:1 two-stage planetary
+</td>
+<td width="56%" align="center" valign="top">
+<img src="img/capability/bldc_exploded.gif" width="430" alt="BLDC joint actuator exploded turntable"><br/>
+<b>Same model, exploding turntable</b> — four modules (ESC · motor ·<br/>
+two-stage reducer · output shaft) separate along the axis while<br/>
+concentric parts peel into radius bands; camera circles on an inclined orbit
+</td>
+</tr>
+</table>
+
+Reproduce it: `uv run python examples/20_integrated_bldc_joint_actuator/main.py`
+builds the package from scratch; `render_showcase.py` renders the views above;
+`export_all.py` emits STEP / editable FCStd / MJCF.
+
+### 3 · Reverse Engineering
+
+Import a STEP, inspect its BREP in the browser, circle and annotate regions,
+and let an agent reconstruct a parametric editable model from the annotations —
+the whole human-agent session is recorded and replayable. Showcase video ships
+separately with the release.
+
+### 4 · Simulation Plugins
+
+The same parametric package feeds downstream solvers without manual rework:
+AP242 STEP into Gmsh for volume meshing and CalculiX for static FEM (boundary
+faces are selected by preserved `interface.*` tags, so simulation survives
+model revisions), and MJCF into MuJoCo for mechanism dynamics.
+
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/ap242_gmsh_bracket_static_von_mises.png" alt="Bracket FEM von Mises"><br/>
+<b>L-bracket static FEM</b> — CalculiX von Mises<br/>
+meshed via Gmsh OpenCASCADE kernel from the AP242 export
+</td>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/ap242_gmsh_bracket_stl_views.png" alt="Bracket views"><br/>
+<b>Four-bar linkage + MuJoCo</b> — virtual collision<br/>
+MJCF export straight from the assembly (video ships separately)
+</td>
+</tr>
+</table>
+
+---
+
 ## Update Notes (2.0.4b3 development)
 
 > **Beta release:** Validate generated definitions, assembly constraints, and
