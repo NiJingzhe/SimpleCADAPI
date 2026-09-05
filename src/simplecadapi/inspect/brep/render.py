@@ -732,7 +732,7 @@ def _write_window_supersampled(window, output: Path, factor: int) -> None:
 
 
 def _render_sdk_screenshot_rpath(
-    solids: Sequence[Any],
+    solids: Sequence[Any],  # SDK Solid or raw TopoDS_Shape
     output_path: str | Path,
     *,
     highlight_tags: Sequence[str] = (),
@@ -759,6 +759,10 @@ def _render_sdk_screenshot_rpath(
     leader-line labels, projected per panel). ``zoom`` only applies to the
     single-view path; the grid camera uses its standard fitting.
 
+    Raw ``TopoDS_Shape`` entries (the STEP inspection family) are accepted
+    alongside SDK solids and render through the same engine with the same
+    edge ink and supersampling; they simply carry no tag/callout features.
+
     ``supersample`` (default 2) renders at an integer multiple of the
     requested size and downsamples with LANCZOS — deterministic
     anti-aliasing so BRep edge ink stays crisp; pass 1 to render 1:1.
@@ -771,7 +775,7 @@ def _render_sdk_screenshot_rpath(
     the inspection tessellation; tighten them for high-resolution exports.
     """
     if not solids:
-        raise ValueError("At least one Solid is required")
+        raise ValueError("At least one Solid or TopoDS_Shape is required")
     if image_size[0] < 1 or image_size[1] < 1:
         raise ValueError("image_size values must be greater than zero")
     if zoom <= 0.0:
@@ -804,6 +808,12 @@ def _render_sdk_screenshot_rpath(
     label_points: dict[str, tuple[float, float, float]] = {}
     shapes: list[TopoDS_Shape] = []
     for solid in solids:
+        # Raw TopoDS_Shape entries (e.g. STEP inspection targets) render
+        # through the same engine but carry no tag/query features.
+        if isinstance(solid, TopoDS_Shape):
+            shapes.append(solid)
+            grouped_faces[None].append(solid)
+            continue
         shapes.append(solid.wrapped)
         solid_tag = next((tag for tag in tags if solid._has_tag(tag)), None)
         if solid_tag is not None and solid_tag not in label_points:
@@ -904,6 +914,8 @@ def _render_sdk_screenshot_rpath(
             legend_panel=len(legend_pairs) > 8,
             show_axes=show_axes,
             callouts=callout_triples or None,
+            edge_width_scale=edge_width_scale,
+            supersample=supersample,
         )
     options = {
         "image_size": image_size,
@@ -1291,6 +1303,8 @@ def _render_polydata_views_in_process(
         tuple[str, tuple[float, float, float], tuple[float, float, float]]
     ]
     | None = None,
+    edge_width_scale: float = 0.0019,
+    supersample: int = 1,
 ) -> Path:
     """Render smooth views; optionally multiple colored highlight groups.
 
@@ -1312,13 +1326,23 @@ def _render_polydata_views_in_process(
     if legend_columns < 1:
         raise ValueError("legend_columns must be at least one")
     vtk, _, _ = _vtk_modules()
-    width = max(1, int(round(image_size[0] * dpi)))
-    height = max(1, int(round(image_size[1] * dpi)))
+    # Integer-factor supersampling (see _render_sdk_polydata_in_process):
+    # render large, downsample with LANCZOS — deterministic crisp edges.
+    supersample = max(1, int(supersample))
+    width = max(1, int(round(image_size[0] * dpi))) * supersample
+    height = max(1, int(round(image_size[1] * dpi))) * supersample
     legend_panel_width = int(width * 0.30) if legend and legend_panel else 0
     render_width = width - legend_panel_width
     columns = min(2, len(views))
     rows = (len(views) + columns - 1) // columns
     window = _offscreen_window(width, height)
+    # Coincident faces (shared walls after booleans) z-fight without this.
+    vtk.vtkMapper.SetResolveCoincidentTopologyToPolygonOffset()
+    ink_radius = 0.0
+    if brep_edge_polydata is not None and edge_width_scale > 0.0:
+        ink_source = base_polydata if base_polydata is not None else brep_edge_polydata
+        b = ink_source.GetBounds()
+        ink_radius = max(b[1] - b[0], b[3] - b[2], b[5] - b[4], 1e-9) * float(edge_width_scale)
     callout_resources: list[tuple[Any, ...]] = []
     callout_renderers: list[tuple[Any, int]] = []
 
@@ -1334,7 +1358,7 @@ def _render_polydata_views_in_process(
         renderer.GradientBackgroundOn()
         renderer.SetBackground(0.94, 0.96, 0.98)
         renderer.SetBackground2(0.78, 0.84, 0.90)
-        renderer.SetUseFXAA(True)
+        renderer.SetUseFXAA(supersample == 1)
         if context_opacity < 1.0:
             renderer.SetUseDepthPeeling(True)
             renderer.SetMaximumNumberOfPeels(24)
@@ -1342,7 +1366,14 @@ def _render_polydata_views_in_process(
         if base_polydata is not None:
             renderer.AddActor(_surface_actor(base_polydata, (0.55, 0.64, 0.73), context_opacity))
         if brep_edge_polydata is not None:
-            renderer.AddActor(_line_actor(brep_edge_polydata, (0.16, 0.21, 0.27), 1.0))
+            # Same tubed-ink policy as the single-view path: LineWidth is
+            # capped ~3px on macOS, so crisp CAD ink needs geometry.
+            if ink_radius > 0.0:
+                renderer.AddActor(
+                    _tube_edge_actor(brep_edge_polydata, ink_radius, (0.16, 0.21, 0.27))
+                )
+            else:
+                renderer.AddActor(_line_actor(brep_edge_polydata, (0.16, 0.21, 0.27), 1.0))
         if highlighted_groups:
             for polydata, color, opacity in highlighted_groups:
                 renderer.AddActor(_surface_actor(polydata, color, opacity))
@@ -1364,7 +1395,7 @@ def _render_polydata_views_in_process(
             )
         label = vtk.vtkTextActor()
         label.SetInput(f"{title}\n{view_title}" if index == 0 else view_title)
-        label.SetPosition(16, 14)
+        label.SetPosition(16 * supersample, 14 * supersample)
         text = label.GetTextProperty()
         text.SetColor(0.08, 0.11, 0.15)
         text.SetFontSize(max(14, min(width // columns, height // rows) // 34))
@@ -1447,7 +1478,10 @@ def _render_polydata_views_in_process(
         window.Render()
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    _write_window(window, output)
+    if supersample > 1:
+        _write_window_supersampled(window, output, supersample)
+    else:
+        _write_window(window, output)
     return output
 
 
@@ -1476,6 +1510,8 @@ def _render_polydata_views(
     callouts: Sequence[
         tuple[str, tuple[float, float, float], tuple[float, float, float]]
     ] | None = None,
+    edge_width_scale: float = 0.0019,
+    supersample: int = 1,
 ) -> Path:
     if not views:
         raise ValueError("at least one render view is required")
@@ -1507,6 +1543,8 @@ def _render_polydata_views(
         "legend_panel": legend_panel,
         "show_axes": show_axes,
         "callouts": callouts,
+        "edge_width_scale": float(edge_width_scale),
+        "supersample": int(supersample),
     }
     if sys.platform != "darwin":
         return _render_in_process(
@@ -1538,6 +1576,8 @@ def _render_polydata_views(
         "surface_groups": [],
         "edge_groups": [],
         "point_groups": [],
+        "edge_width_scale": float(edge_width_scale),
+        "supersample": int(supersample),
     }
     for option_name, groups in (
         ("surface_groups", highlighted_groups or ()),
@@ -1573,7 +1613,7 @@ def render_shape_views_rpath(
     """
     base = _mesh_polydata([shape], linear_deflection, angular_deflection)
     edges = (
-        _edge_polydata([shape], deflection=linear_deflection)
+        _edge_polydata([shape], deflection=min(linear_deflection, _EDGE_DEFLECTION_CAP))
         if show_brep_edges
         else None
     )
@@ -1585,6 +1625,7 @@ def render_shape_views_rpath(
         image_size=image_size,
         dpi=dpi,
         brep_edge_polydata=edges,
+        supersample=2,
     )
 
 

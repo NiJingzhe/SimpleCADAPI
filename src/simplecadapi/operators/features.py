@@ -10,6 +10,8 @@ from .geometry import (
     make_helix_rwire,
 )
 
+from OCP.TopoDS import TopoDS_Shape
+
 def extrude_rsolid(
     profile: Union[Wire, Face],
     direction: Tuple[float, float, float],
@@ -234,7 +236,7 @@ def _normalize_shape_input(
 ) -> List[AnyShape]:
     """Normalize rendering input into a flat list of shapes."""
 
-    if isinstance(shapes, _EXPORTABLE_TYPES):
+    if isinstance(shapes, (_EXPORTABLE_TYPES, TopoDS_Shape)):
         return [shapes]
 
     if isinstance(shapes, Sequence) and not isinstance(shapes, (str, bytes)):
@@ -244,7 +246,8 @@ def _normalize_shape_input(
         return normalized
 
     raise ValueError(
-        "rendering accepts Compound, Solid, Shell, Face, Wire, Edge, Vertex, or nested sequences of those types"
+        "rendering accepts Compound, Solid, Shell, Face, Wire, Edge, Vertex, "
+        "raw TopoDS_Shape, or nested sequences of those types"
     )
 
 SCREENSHOT_VIEWS: Tuple[Tuple[float, float, str], ...] = (
@@ -257,7 +260,7 @@ SCREENSHOT_VIEWS: Tuple[Tuple[float, float, str], ...] = (
 
 
 def render_screenshot_rpath(
-    shapes: Union[Solid, Sequence[Solid]],
+    shapes: Union[Solid, Sequence[Solid], Any],
     output_path: str,
     highlight_tags: Optional[Sequence[str]] = None,
     tag_labels: Optional[Dict[str, str]] = None,
@@ -275,7 +278,12 @@ def render_screenshot_rpath(
     view_up: Optional[Sequence[float]] = None,
     supersample: int = 2,
 ) -> str:
-    """Render SDK solids through the shared OCCT/VTK BREP renderer.
+    """Render solids or raw TopoDS shapes through the shared OCCT/VTK renderer.
+
+    ``shapes`` accepts SDK ``Solid`` objects (with full tag highlight,
+    callout and legend support) or raw ``TopoDS_Shape`` entries from the
+    STEP inspection family (same engine, same edge ink and supersampling,
+    no tag features).
 
     By default every render is a multi-view grid (SCREENSHOT_VIEWS: isometric,
     top, front, side) carrying highlight-tag color groups, callout labels with
@@ -296,9 +304,13 @@ def render_screenshot_rpath(
         from ..inspect.brep.render import _render_sdk_screenshot_rpath
 
         shape_list = _normalize_shape_input(shapes)
-        solids = [shape for shape in shape_list if isinstance(shape, Solid)]
+        solids = [
+            shape for shape in shape_list if isinstance(shape, (Solid, TopoDS_Shape))
+        ]
         if len(solids) != len(shape_list) or not solids:
-            raise ValueError("render_screenshot_rpath only supports Solid inputs")
+            raise ValueError(
+                "render_screenshot_rpath supports Solid or raw TopoDS_Shape inputs"
+            )
         resolved_views = views
         if resolved_views is None and (view is None or view == "auto"):
             resolved_views = SCREENSHOT_VIEWS

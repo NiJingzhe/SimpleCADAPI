@@ -77,6 +77,8 @@ def _render_views(
         legend_columns=int(options["legend_columns"]),
         legend_panel=bool(options["legend_panel"]),
         show_axes=bool(options.get("show_axes", False)),
+        edge_width_scale=float(options.get("edge_width_scale", 0.0019)),
+        supersample=int(options.get("supersample", 1)),
         callouts=(
             tuple(
                 (str(label), tuple(anchor), tuple(color))

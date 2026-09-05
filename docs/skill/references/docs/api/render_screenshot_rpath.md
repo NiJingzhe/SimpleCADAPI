@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def render_screenshot_rpath(shapes: Union[Solid, Sequence[Solid]], output_path: str, highlight_tags: Optional[Sequence[str]] = None, tag_labels: Optional[Dict[str, str]] = None, image_size: Tuple[int, int] = (1400, 900), view: Union[Tuple[float, float], str] = 'auto', views: Optional[Sequence[Tuple[float, float, str]]] = None, show_axes: bool = True, show_legend: bool = True, zoom: float = 4.0, show_callouts: bool = True, linear_deflection: Optional[float] = None, angular_deflection: Optional[float] = None, style: str = 'standard', edge_width_scale: Optional[float] = None, view_up: Optional[Sequence[float]] = None, supersample: int = 2) -> str
+def render_screenshot_rpath(shapes: Union[Solid, Sequence[Solid], Any], output_path: str, highlight_tags: Optional[Sequence[str]] = None, tag_labels: Optional[Dict[str, str]] = None, image_size: Tuple[int, int] = (1400, 900), view: Union[Tuple[float, float], str] = 'auto', views: Optional[Sequence[Tuple[float, float, str]]] = None, show_axes: bool = True, show_legend: bool = True, zoom: float = 4.0, show_callouts: bool = True, linear_deflection: Optional[float] = None, angular_deflection: Optional[float] = None, style: str = 'standard', edge_width_scale: Optional[float] = None, view_up: Optional[Sequence[float]] = None, supersample: int = 2) -> str
 ```
 
 *Source: operators/features.py*
@@ -14,7 +14,12 @@ def render_screenshot_rpath(shapes: Union[Solid, Sequence[Solid]], output_path: 
 
 ## Description
 
-Render SDK solids through the shared OCCT/VTK BREP renderer.
+Render solids or raw TopoDS shapes through the shared OCCT/VTK renderer.
+
+``shapes`` accepts SDK ``Solid`` objects (with full tag highlight,
+callout and legend support) or raw ``TopoDS_Shape`` entries from the
+STEP inspection family (same engine, same edge ink and supersampling,
+no tag features).
 
 By default every render is a multi-view grid (SCREENSHOT_VIEWS: isometric,
 top, front, side) carrying highlight-tag color groups, callout labels with
