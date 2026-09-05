@@ -33,7 +33,7 @@ deterministic face tags that survive re-parameterization, and synchronized
 <td width="33%" align="center" valign="top">
 <img src="img/capability/flange_iso.png" alt="Parametric flange plate"><br/>
 <b>Parametric flange plate</b><br/>
-8-bolt re-parameterization with live guard<br/>
+6→8-bolt re-parameterization with live guard<br/>
 rejection (PCD 88 → 84.5 proven feasible)<br/>
 <a href="examples/flange_plate/demo/index.html">▶ Session replay demo</a>
 </td>

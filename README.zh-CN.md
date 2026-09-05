@@ -29,7 +29,7 @@ HTML，忠实回放完整录制的对话（用户输入、Agent 思考、每一�
 <td width="33%" align="center" valign="top">
 <img src="img/capability/flange_iso.png" alt="参数化法兰盘"><br/>
 <b>参数化法兰盘</b><br/>
-8 孔改参 + 守卫当场拒绝演示<br/>
+6→8 孔改参 + 守卫当场拒绝演示<br/>
 （PCD 88 被拒 → 实证可行 84.5 交付）<br/>
 <a href="examples/flange_plate/demo/index.html">▶ 会话回放 demo</a>
 </td>

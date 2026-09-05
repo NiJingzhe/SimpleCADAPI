@@ -26,10 +26,9 @@ build_case({
         "gl_cap": "ap242_gmsh_bracket · FEM 接口标签保留 · 会话自动导出（scadpkg / STEP / FCStd / STL）",
     },
     "imgs": [
-        {"key": "iso", "path": ROOT.parent / "out" / "ap242_gmsh_volume_mesh" / "render_iso.png", "cap": "等轴测视图"},
-        {"key": "front", "path": ROOT.parent / "out" / "ap242_gmsh_volume_mesh" / "render_front.png", "cap": "正视图"},
-        {"key": "top", "path": ROOT.parent / "out" / "ap242_gmsh_volume_mesh" / "render_top.png", "cap": "俯视图"},
-        {"key": "detail", "path": ROOT.parent / "out" / "ap242_gmsh_volume_mesh" / "render_detail.png", "cap": "筋板 + 安装孔区特写"},
+        {"key": "iso", "path": ROOT.parent / "out" / "ap242_gmsh_volume_mesh" / "view_iso.png", "cap": "等轴测视图 · L 形主体 + 双筋"},
+        {"key": "top", "path": ROOT.parent / "out" / "ap242_gmsh_volume_mesh" / "view_top.png", "cap": "俯视图 · 筋板对称布局"},
+        {"key": "detail", "path": ROOT.parent / "out" / "ap242_gmsh_volume_mesh" / "view_detail.png", "cap": "筋板 + 安装孔区特写"},
     ],
     "params": [
         ["bracket_width / height / depth", "40 / 36 / 28 mm", "外形包络（宽 / 高 / 深）"],
