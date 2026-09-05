@@ -495,6 +495,9 @@ def _mesh_polydata(
     return polydata
 
 
+_EDGE_DEFLECTION_CAP = 0.04  # mm chord error cap for BRep edge discretization
+
+
 def _sample_edge(
     edge: TopoDS_Edge,
     *,
@@ -619,15 +622,23 @@ def _render_sdk_polydata_in_process(
     vtk, _, _ = _vtk_modules()
     width, height = (int(value) for value in options["image_size"])
     studio = str(options.get("style", "standard")) == "studio"
+    # Integer-factor supersampling: render large, downsample with LANCZOS.
+    # Unlike driver MSAA this stays deterministic across machines, which the
+    # diagnostic diff workflows rely on.
+    supersample = max(1, int(options.get("supersample", 1)))
+    width, height = width * supersample, height * supersample
     renderer = vtk.vtkRenderer()
     window = _offscreen_window(width, height)
-    window.SetMultiSamples(8 if studio else 0)
+    window.SetMultiSamples(0)
     # studio = pure black stage; the bodies and edge ink carry the image
     if studio:
         renderer.SetBackground(0.0, 0.0, 0.0)
     else:
         renderer.SetBackground(0.067, 0.067, 0.067)
-    renderer.SetUseFXAA(True)
+    # Edge tubes are true geometry, but coincident faces (shared walls after
+    # booleans) still z-fight without the polygon offset.
+    vtk.vtkMapper.SetResolveCoincidentTopologyToPolygonOffset()
+    renderer.SetUseFXAA(supersample == 1)
     window.AddRenderer(renderer)
     base = datasets.get("base")
     if base is not None:
@@ -638,16 +649,17 @@ def _render_sdk_polydata_in_process(
             renderer.AddActor(_surface_actor(polydata, tuple(item["color"]), 1.0, studio=studio))
     edges = datasets.get("edges")
     if edges is not None:
-        if studio:
-            ink_source = base if base is not None else edges
-            b = ink_source.GetBounds()
-            span = max(b[1] - b[0], b[3] - b[2], b[5] - b[4], 1e-9)
-            # dark CAD ink; tube radius scales with the model, tunable via
-            # edge_width_scale — long exploded stacks need thinner tubes or
-            # the ink swamps small parts (gears, bearings)
-            edge_scale = float(options.get("edge_width_scale", 0.0026))
-            if edge_scale > 0.0:
-                renderer.AddActor(_tube_edge_actor(edges, span * edge_scale, (0.145, 0.165, 0.196)))
+        # LineWidth is capped around 3px on macOS, so crisp CAD ink needs
+        # geometry (tubes) in BOTH styles; edge_width_scale=0 falls back to
+        # the legacy thin line actor. Tube radius scales with the model;
+        # long exploded stacks need thinner tubes or the ink swamps small
+        # parts (gears, bearings).
+        ink_source = base if base is not None else edges
+        b = ink_source.GetBounds()
+        span = max(b[1] - b[0], b[3] - b[2], b[5] - b[4], 1e-9)
+        edge_scale = float(options.get("edge_width_scale", 0.0019))
+        if edge_scale > 0.0:
+            renderer.AddActor(_tube_edge_actor(edges, span * edge_scale, (0.145, 0.165, 0.196)))
         else:
             renderer.AddActor(_line_actor(edges, (0.78, 0.80, 0.84), 1.0))
 
@@ -666,10 +678,10 @@ def _render_sdk_polydata_in_process(
     for index, item in enumerate(options.get("legend_items", [])):
         actor = vtk.vtkTextActor()
         actor.SetInput(f"■ {item['label']}")
-        actor.SetPosition(18, height - 28 - index * 24)
+        actor.SetPosition(18 * supersample, height - (28 + index * 24) * supersample)
         prop = actor.GetTextProperty()
         prop.SetColor(*item["color"])
-        prop.SetFontSize(16)
+        prop.SetFontSize(16 * supersample)
         prop.SetBold(True)
         renderer.AddViewProp(actor)
     for item in options.get("callouts", []):
@@ -686,8 +698,37 @@ def _render_sdk_polydata_in_process(
     window.Render()
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    _write_window(window, output)
+    if supersample > 1:
+        _write_window_supersampled(window, output, supersample)
+    else:
+        _write_window(window, output)
     return output
+
+
+def _write_window_supersampled(window, output: Path, factor: int) -> None:
+    """Write through an integer-factor LANCZOS downsample.
+
+    vtkPNGWriter needs a real path, so the supersampled frame lands in a
+    temporary sibling file before PIL downsamples it onto ``output``.
+    """
+    import tempfile
+
+    from PIL import Image
+
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{output.stem}-ss{factor}x-", suffix=".png", dir=output.parent
+    ) as raw:
+        _write_window(window, Path(raw.name))
+        with Image.open(raw.name) as frame:
+            frame = frame.convert("RGB")
+            downsampled = frame.resize(
+                (frame.width // factor, frame.height // factor),
+                Image.Resampling.LANCZOS,
+            )
+            if output.suffix.lower() in (".jpg", ".jpeg"):
+                downsampled.save(output, quality=95)
+            else:
+                downsampled.save(output)
 
 
 def _render_sdk_screenshot_rpath(
@@ -708,6 +749,7 @@ def _render_sdk_screenshot_rpath(
     style: str = "standard",
     edge_width_scale: float | None = None,
     view_up: Sequence[float] | None = None,
+    supersample: int = 2,
 ) -> Path:
     """Render SDK solids in an isolated VTK worker on macOS.
 
@@ -716,6 +758,10 @@ def _render_sdk_screenshot_rpath(
     view, carrying the same tag highlight groups, legend and callouts (2-D
     leader-line labels, projected per panel). ``zoom`` only applies to the
     single-view path; the grid camera uses its standard fitting.
+
+    ``supersample`` (default 2) renders at an integer multiple of the
+    requested size and downsamples with LANCZOS — deterministic
+    anti-aliasing so BRep edge ink stays crisp; pass 1 to render 1:1.
 
     ``style="studio"`` renders the single-view path as a product shot:
     gradient backdrop, three-point lighting, glossy steel material and BRep
@@ -739,9 +785,11 @@ def _render_sdk_screenshot_rpath(
     if angular_deflection is None:
         angular_deflection = 0.22
     if edge_width_scale is None:
-        edge_width_scale = 0.0026
+        edge_width_scale = 0.0019
     if edge_width_scale < 0.0 or edge_width_scale > 0.02:
         raise ValueError("edge_width_scale must be within [0, 0.02] (fraction of model span)")
+    if int(supersample) not in (1, 2, 3):
+        raise ValueError("supersample must be 1, 2, or 3")
     tags = tuple(str(tag) for tag in highlight_tags)
     labels = dict(tag_labels or {})
     palette = (
@@ -783,7 +831,9 @@ def _render_sdk_screenshot_rpath(
             if grouped_faces.get(None)
             else None
         ),
-        "edges": _edge_polydata(shapes, deflection=linear_deflection),
+        # Edges carry the ink; give them a tighter deflection cap than the
+        # surface tessellation so curved edges stay smooth when tubed.
+        "edges": _edge_polydata(shapes, deflection=min(linear_deflection, _EDGE_DEFLECTION_CAP)),
     }
     surface_groups = []
     surface_group_refs: list[tuple[str, tuple[float, float, float]]] = []
@@ -865,6 +915,7 @@ def _render_sdk_screenshot_rpath(
         "style": style,
         "edge_width_scale": float(edge_width_scale),
         "view_up": None if view_up is None else [float(value) for value in view_up],
+        "supersample": int(supersample),
         "callouts": (
             [
                 {"label": labels.get(tag, tag), "point": point}
@@ -982,7 +1033,7 @@ def _tube_edge_actor(polydata, radius: float, color: tuple[float, float, float])
     tubes = vtk.vtkTubeFilter()
     tubes.SetInputData(polydata)
     tubes.SetRadius(radius)
-    tubes.SetNumberOfSides(10)
+    tubes.SetNumberOfSides(14)
     tubes.CappingOn()
     mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputConnection(tubes.GetOutputPort())

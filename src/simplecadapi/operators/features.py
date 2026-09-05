@@ -273,6 +273,7 @@ def render_screenshot_rpath(
     style: str = "standard",
     edge_width_scale: Optional[float] = None,
     view_up: Optional[Sequence[float]] = None,
+    supersample: int = 2,
 ) -> str:
     """Render SDK solids through the shared OCCT/VTK BREP renderer.
 
@@ -282,6 +283,8 @@ def render_screenshot_rpath(
     ``view`` (preset name or ``(elevation, azimuth)``) for the legacy
     single-view image, or ``views`` to choose a custom view set.
 
+    ``supersample`` (default 2) renders at an integer multiple and
+    downsamples with LANCZOS for deterministic crisp edges; 1 renders 1:1.
     ``style="studio"`` turns the single-view path into a product shot
     (gradient backdrop, three-point lighting, bold tubed BRep edges);
     ``linear_deflection``/``angular_deflection`` tighten the tessellation
@@ -317,6 +320,7 @@ def render_screenshot_rpath(
                 style=style,
                 edge_width_scale=edge_width_scale,
                 view_up=tuple(float(value) for value in view_up) if view_up is not None else None,
+                supersample=supersample,
             )
         )
     except Exception as e:

@@ -161,6 +161,35 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
                     edge_width_scale=0.5,
                 )
 
+    def test_supersample_writes_requested_image_size(self):
+        import struct
+
+        solid = self._tagged_solid()
+        with tempfile.TemporaryDirectory() as tmp:
+            for supersample, expected in ((1, 1), (2, 1), (3, 1)):
+                output = Path(tmp) / f"ss{supersample}.png"
+                scad.render_screenshot_rpath(
+                    solid,
+                    str(output),
+                    image_size=(640, 400),
+                    view=(30.0, 45.0),
+                    show_axes=False,
+                    supersample=supersample,
+                )
+                width, height = struct.unpack(">II", output.read_bytes()[16:24])
+                self.assertEqual((width, height), (640, 400))
+
+    def test_out_of_range_supersample_is_rejected(self):
+        solid = self._tagged_solid()
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(scad.SimpleCADError):
+                scad.render_screenshot_rpath(
+                    solid,
+                    str(Path(tmp) / "bad-ss.png"),
+                    view="iso",
+                    supersample=4,
+                )
+
     def test_studio_single_view_render_writes_image(self):
         solid = self._tagged_solid()
         with tempfile.TemporaryDirectory() as tmp:
