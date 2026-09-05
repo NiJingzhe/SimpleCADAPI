@@ -24,27 +24,29 @@ deterministic face tags that survive re-parameterization, and synchronized
 
 <table>
 <tr>
-<td width="33%" align="center" valign="top">
-<img src="img/capability/ulink_assembly.png" alt="u_link assembly"><br/>
-<b>Robotic-arm U-link + motor mount</b><br/>
-15 user turns · 601 tool calls · S1–S10 stages<br/>
-<a href="examples/u_link_motor_mount/demo/index.html">▶ Session replay demo</a>
-</td>
-<td width="33%" align="center" valign="top">
-<img src="img/capability/flange_iso.png" alt="Parametric flange plate"><br/>
-<b>Parametric flange plate</b><br/>
-6→8-bolt re-parameterization with live guard<br/>
-rejection (PCD 88 → 84.5 proven feasible)<br/>
-<a href="examples/flange_plate/demo/index.html">▶ Session replay demo</a>
-</td>
-<td width="33%" align="center" valign="top">
-<img src="img/capability/bracket_iso.png" alt="Ribbed L-bracket"><br/>
-<b>Ribbed L-bracket (FEM main model)</b><br/>
-legacy script re-built through the workflow,<br/>
-volume delta 0.00e+00, FEM tags preserved<br/>
-<a href="examples/12_ap242_gmsh_volume_mesh/demo/index.html">▶ Session replay demo</a>
-</td>
+<th width="18%">Case</th>
+<th width="40%">First-turn requirement (excerpt)</th>
+<th width="42%">Delivered model · BRep turntable</th>
 </tr>
+<tr>
+<td><b>Robotic-arm U-link + motor mount</b><br/>15 user turns · 601 tool calls<br/><a href="examples/u_link_motor_mount/demo/index.html">▶ Full session replay</a></td>
+<td>"Build a parametric robotic-arm link that adapts to length changes and mounts motors generically: sweep a circular profile down D → right L → up D into a U; cut motor sockets with spheres; the mounting face must carry a deterministic name indexable by the query language; split the bottom cylinder into a half cylinder; then fillet everything."</td>
+<td><img src="img/capability/ulink_turntable.gif" width="420" alt="u_link turntable"></td>
+</tr>
+<tr>
+<td><b>Parametric flange plate</b><br/>2 user turns · 66 tool calls<br/><a href="examples/flange_plate/demo/index.html">▶ Full session replay</a></td>
+<td>"Parametric flange: OD 100, thickness 10, hub ⌀55 top +30, bore ⌀30, 6×⌀11 bolt holes on PCD 78, hub-root R3 / rim R2 fillets; every dimension a named parameter; edge-selection cards printed before each fillet; parameter-feasibility guards; one feature per block."<br/><br/><i>GIF shows the final 8-hole @PCD 84.5 state: turn 2 re-parameterized 6→8 holes; PCD 88 was rejected live by the guards and 85 excluded for fillet tangency.</i></td>
+<td><img src="img/capability/flange_turntable.gif" width="420" alt="flange turntable"></td>
+</tr>
+<tr>
+<td><b>Ribbed L-bracket (FEM main model)</b><br/>2 user turns · 49 tool calls<br/><a href="examples/12_ap242_gmsh_volume_mesh/demo/index.html">▶ Full session replay</a></td>
+<td>"Formalize the existing legacy L-bracket script through the single-part workflow: rebuild with FTC feature blocks and named parameters; geometric equivalence to the legacy model (volume delta < 0.1%); the <code>interface.*</code> FEM boundary tags must survive untouched — the downstream Gmsh/CalculiX pipeline selects faces by them."</td>
+<td><img src="img/capability/bracket_turntable.gif" width="420" alt="bracket turntable"></td>
+</tr>
+Turntables are rendered by the in-repo [Scene Viewer](viewer/)'s BRep renderer
+(face shading + wide edges); one full turn = 48 deterministic azimuth steps
+driven through `viewer/gif-harness.html`.
+
 </table>
 
 ### 2 · Assembly Modeling

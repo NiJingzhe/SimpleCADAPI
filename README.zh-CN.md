@@ -20,27 +20,28 @@ HTML，忠实回放完整录制的对话（用户输入、Agent 思考、每一�
 
 <table>
 <tr>
-<td width="33%" align="center" valign="top">
-<img src="img/capability/ulink_assembly.png" alt="U 形连杆装配"><br/>
-<b>机械臂 U 形连杆 + 电机安装槽</b><br/>
-15 轮用户输入 · 601 次工具调用 · S1–S10 阶段<br/>
-<a href="examples/u_link_motor_mount/demo/index.html">▶ 会话回放 demo</a>
-</td>
-<td width="33%" align="center" valign="top">
-<img src="img/capability/flange_iso.png" alt="参数化法兰盘"><br/>
-<b>参数化法兰盘</b><br/>
-6→8 孔改参 + 守卫当场拒绝演示<br/>
-（PCD 88 被拒 → 实证可行 84.5 交付）<br/>
-<a href="examples/flange_plate/demo/index.html">▶ 会话回放 demo</a>
-</td>
-<td width="33%" align="center" valign="top">
-<img src="img/capability/bracket_iso.png" alt="筋板 L 形支架"><br/>
-<b>筋板 L 形支架（FEM 主模型）</b><br/>
-legacy 脚本按工作流重建，新旧体积<br/>
-相对偏差 0.00e+00、FEM 标签保真<br/>
-<a href="examples/12_ap242_gmsh_volume_mesh/demo/index.html">▶ 会话回放 demo</a>
-</td>
+<th width="18%">案例</th>
+<th width="40%">首轮需求（prompt 节选）</th>
+<th width="42%">交付模型 · BRep 旋转展示</th>
 </tr>
+<tr>
+<td><b>机械臂 U 形连杆 + 电机安装槽</b><br/>15 轮用户输入 · 601 次工具调用<br/><a href="examples/u_link_motor_mount/demo/index.html">▶ 完整会话回放</a></td>
+<td>“构建参数化的机械臂连杆，能适应长度变化、通用安装电机：圆形 profile 沿『下 D → 右 L → 上 D』扫掠成 U 形；两侧圆珠 boolean cut 切出电机安装槽，安装面必须有确定命名、可被查询语言索引；底部圆柱切成半圆柱；然后全局倒角平滑。”</td>
+<td><img src="img/capability/ulink_turntable.gif" width="420" alt="u_link 旋转展示"></td>
+</tr>
+<tr>
+<td><b>参数化法兰盘</b><br/>2 轮用户输入 · 66 次工具调用<br/><a href="examples/flange_plate/demo/index.html">▶ 完整会话回放</a></td>
+<td>“参数化法兰盘：外径 100、厚 10、凸台 ⌀55 顶高 30、中心孔 ⌀30、6×⌀11 螺栓孔 @PCD 78、根部 R3 / 外缘 R2 圆角；所有尺寸走命名参数；每次圆角前打印选边卡；参数可行性守卫；一个 feature 一个块。”<br/><br/><i>GIF 为终态 8 孔 @PCD 84.5：第 2 轮改参 6→8 孔，PCD 88 被守卫当场拒绝、85 因圆角相切排除。</i></td>
+<td><img src="img/capability/flange_turntable.gif" width="420" alt="法兰旋转展示"></td>
+</tr>
+<tr>
+<td><b>筋板 L 形支架（FEM 主模型）</b><br/>2 轮用户输入 · 49 次工具调用<br/><a href="examples/12_ap242_gmsh_volume_mesh/demo/index.html">▶ 完整会话回放</a></td>
+<td>“把已有的 L 形直角连接件 legacy 脚本按 single-part-modeling 工作流正式化：FTC 特征块 + 命名参数重建；与旧版几何等价（体积偏差 &lt; 0.1%）；<code>interface.*</code> FEM 边界标签必须原样保留——下游 Gmsh/CalculiX 按标签选面。”</td>
+<td><img src="img/capability/bracket_turntable.gif" width="420" alt="支架旋转展示"></td>
+</tr>
+旋转展示由仓库内 [Scene Viewer](viewer/) 的 BRep 渲染器渲染（面着色 + 宽棱边），
+一圈 = 48 个确定性方位角步进，经 `viewer/gif-harness.html` 驱动生成。
+
 </table>
 
 ### 2 · 装配体建模

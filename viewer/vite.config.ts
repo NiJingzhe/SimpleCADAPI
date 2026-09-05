@@ -12,6 +12,7 @@ export default defineConfig({
       input: {
         main: 'index.html',
         re: 're.html',
+        gif: 'gif-harness.html',
       },
     },
   },
