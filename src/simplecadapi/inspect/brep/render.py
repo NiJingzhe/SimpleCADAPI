@@ -2323,7 +2323,7 @@ def render_step_comparison_rpath(
             label.SetInput(f"{model_title}: {filename}\n{view_title}")
             label.SetPosition(14, 12)
             text = label.GetTextProperty()
-            text.SetColor((0.85, 0.89, 0.94) if style == "studio" else (0.08, 0.11, 0.15))
+            text.SetColor(0.08, 0.11, 0.15)
             text.SetFontSize(max(13, min(width // columns, height // rows) // 34))
             text.SetBold(True)
             renderer.AddViewProp(label)
