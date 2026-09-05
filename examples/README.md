@@ -23,6 +23,7 @@ run directly, one script per stage.
 - `10_part_assembly.py` — `out/hydraulic_rod_assembly/hydraulic_rod_assembly.scadpkg`
 - `11_external_reference_gear_train.py` — `out/external_reference_gear_train/nested_external_reference_gear_trains.scadpkg`
 - `12_ap242_gmsh_volume_mesh/model.py` — `out/ap242_gmsh_volume_mesh/ap242_gmsh_bracket.scadpkg`
+- `flange_plate/` — `out/flange_plate/flange_plate.scadpkg` (session replay: `flange_plate/demo/index.html`)
 - `7ep_caplcd_enclosure.py` — `out/7ep_caplcd_enclosure/caplcd_enclosure_7ep.scadpkg`
 - `16_compact_two_stage_planetary_reducer/` — `out/compact_two_stage_planetary_reducer/compact_two_stage_planetary_reducer.scadpkg`
 - `20_integrated_bldc_joint_actuator/` — `out/integrated_bldc_joint_actuator/integrated_bldc_joint_actuator.scadpkg`

@@ -6,6 +6,106 @@
 
 [中文说明](README.zh-CN.md)
 
+## What Can It Do
+
+Four capability pillars. Every case below is a **real, reproducible session**:
+the replay demos are single-file offline HTML pages that faithfully replay the
+full recorded conversation (user turns, agent thinking, every tool call and
+patch, role switches) next to the exported 3D model — open them directly in a
+browser.
+
+### 1 · Single-Part Modeling
+
+Parametric parts authored as readable [Feature Tree
+Convention](docs/skill/references/discipline/feature-tree-convention.md)
+feature blocks — named parameters with units, verifier-first staged modeling,
+deterministic face tags that survive re-parameterization, and synchronized
+`.scadpkg` / STEP AP242 / STL / editable FreeCAD exports.
+
+<table>
+<tr>
+<td width="33%" align="center" valign="top">
+<img src="img/capability/ulink_assembly.png" alt="u_link assembly"><br/>
+<b>Robotic-arm U-link + motor mount</b><br/>
+15 user turns · 601 tool calls · S1–S10 stages<br/>
+<a href="examples/u_link_motor_mount/demo/index.html">▶ Session replay demo</a>
+</td>
+<td width="33%" align="center" valign="top">
+<img src="img/capability/flange_iso.png" alt="Parametric flange plate"><br/>
+<b>Parametric flange plate</b><br/>
+8-bolt re-parameterization with live guard<br/>
+rejection (PCD 88 → 84.5 proven feasible)<br/>
+<a href="examples/flange_plate/demo/index.html">▶ Session replay demo</a>
+</td>
+<td width="33%" align="center" valign="top">
+<img src="img/capability/bracket_iso.png" alt="Ribbed L-bracket"><br/>
+<b>Ribbed L-bracket (FEM main model)</b><br/>
+legacy script re-built through the workflow,<br/>
+volume delta 0.00e+00, FEM tags preserved<br/>
+<a href="examples/12_ap242_gmsh_volume_mesh/demo/index.html">▶ Session replay demo</a>
+</td>
+</tr>
+</table>
+
+### 2 · Assembly Modeling
+
+Nested durable assemblies with explicit kinematics: gear meshes, revolute
+joints, and bearing interfaces are solved constraints, not eyeballed
+positions. Standard parts — involute gears, ball bearings (as subassemblies
+with individual balls), roller-chain sprockets, metric fasteners with real
+thread profiles — come from `scad.std.*` and compose into mechanisms that
+export to STEP, editable FreeCAD projects, and MJCF for physics engines.
+
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/bldc_assembly.png" alt="BLDC joint actuator assembled"><br/>
+<b>Integrated BLDC joint actuator</b> — assembled<br/>
+29 components · 51 constraints, all solved · 20:1 two-stage planetary
+</td>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/bldc_exploded.png" alt="BLDC joint actuator exploded"><br/>
+<b>Same model, exploded</b> — staged cylindrical explode<br/>
+stator, planets, carriers, bearings, housings all readable
+</td>
+</tr>
+</table>
+
+Reproduce it: `uv run python examples/20_integrated_bldc_joint_actuator/main.py`
+builds the package from scratch; `render_showcase.py` renders the views above;
+`export_all.py` emits STEP / editable FCStd / MJCF.
+
+### 3 · Reverse Engineering
+
+Import a STEP, inspect its BREP in the browser, circle and annotate regions,
+and let an agent reconstruct a parametric editable model from the annotations —
+the whole human-agent session is recorded and replayable. Showcase video ships
+separately with the release.
+
+### 4 · Simulation Plugins
+
+The same parametric package feeds downstream solvers without manual rework:
+AP242 STEP into Gmsh for volume meshing and CalculiX for static FEM (boundary
+faces are selected by preserved `interface.*` tags, so simulation survives
+model revisions), and MJCF into MuJoCo for mechanism dynamics.
+
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/ap242_gmsh_bracket_static_von_mises.png" alt="Bracket FEM von Mises"><br/>
+<b>L-bracket static FEM</b> — CalculiX von Mises<br/>
+meshed via Gmsh OpenCASCADE kernel from the AP242 export
+</td>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/ap242_gmsh_bracket_stl_views.png" alt="Bracket views"><br/>
+<b>Four-bar linkage + MuJoCo</b> — virtual collision<br/>
+MJCF export straight from the assembly (video ships separately)
+</td>
+</tr>
+</table>
+
+---
+
 ## Update Notes (2.0.4b3 development)
 
 > **Beta release:** Validate generated definitions, assembly constraints, and

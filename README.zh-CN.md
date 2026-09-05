@@ -6,6 +6,97 @@
 
 [English](README.md)
 
+## 它能做什么
+
+四块能力支柱。下面每个 case 都是**真实、可复现的会话**：回放 demo 是单文件离线
+HTML，忠实回放完整录制的对话（用户输入、Agent 思考、每一次工具调用与补丁、角色
+切换），旁边就是导出的 3D 模型 —— 浏览器直接打开即可。
+
+### 1 · 单零件建模
+
+以可读的[特征树规约](docs/skill/references/discipline/feature-tree-convention.md)
+特征块编写参数化零件 —— 带单位的命名参数、验证先行的分阶段建模、改参后仍然命中的
+确定性面标签，以及同步产出的 `.scadpkg` / STEP AP242 / STL / 可编辑 FreeCAD 工程。
+
+<table>
+<tr>
+<td width="33%" align="center" valign="top">
+<img src="img/capability/ulink_assembly.png" alt="U 形连杆装配"><br/>
+<b>机械臂 U 形连杆 + 电机安装槽</b><br/>
+15 轮用户输入 · 601 次工具调用 · S1–S10 阶段<br/>
+<a href="examples/u_link_motor_mount/demo/index.html">▶ 会话回放 demo</a>
+</td>
+<td width="33%" align="center" valign="top">
+<img src="img/capability/flange_iso.png" alt="参数化法兰盘"><br/>
+<b>参数化法兰盘</b><br/>
+8 孔改参 + 守卫当场拒绝演示<br/>
+（PCD 88 被拒 → 实证可行 84.5 交付）<br/>
+<a href="examples/flange_plate/demo/index.html">▶ 会话回放 demo</a>
+</td>
+<td width="33%" align="center" valign="top">
+<img src="img/capability/bracket_iso.png" alt="筋板 L 形支架"><br/>
+<b>筋板 L 形支架（FEM 主模型）</b><br/>
+legacy 脚本按工作流重建，新旧体积<br/>
+相对偏差 0.00e+00、FEM 标签保真<br/>
+<a href="examples/12_ap242_gmsh_volume_mesh/demo/index.html">▶ 会话回放 demo</a>
+</td>
+</tr>
+</table>
+
+### 2 · 装配体建模
+
+嵌套持久装配体 + 显式运动学：齿轮啮合、转动副、轴承接口都是被求解的约束，不是目测
+摆放。标准件 —— 渐开线齿轮、带滚珠的轴承子装配、滚子链轮、真实牙型公制紧固件 ——
+全部来自 `scad.std.*`，组合成机构后可导出 STEP、可编辑 FreeCAD 工程和面向物理引擎
+的 MJCF。
+
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/bldc_assembly.png" alt="BLDC 关节执行器装配态"><br/>
+<b>一体化 BLDC 关节执行器</b> —— 装配态<br/>
+29 个组件 · 51 条约束全部解算 · 两级行星减速 20:1
+</td>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/bldc_exploded.png" alt="BLDC 关节执行器爆炸图"><br/>
+<b>同一模型</b> —— 分级柱坐标爆炸图<br/>
+定子、行星轮、载架、轴承、壳体层次清晰可读
+</td>
+</tr>
+</table>
+
+复现方式：`uv run python examples/20_integrated_bldc_joint_actuator/main.py`
+从零构建装配包；`render_showcase.py` 渲染上述视图；`export_all.py` 导出
+STEP / 可编辑 FCStd / MJCF。
+
+### 3 · 逆向工程
+
+导入 STEP，在浏览器里检查 BREP、圈点标注区域，agent 依据标注重建参数化可编辑模型
+—— 人机协作全程录制、可回放。展示视频随发布另行提供。
+
+### 4 · 仿真插件
+
+同一份参数化包直接喂给下游求解器，无需人工返工：AP242 STEP 进 Gmsh 体网格 +
+CalculiX 静力 FEM（边界面按保真的 `interface.*` 标签选取，仿真链在模型改版后依然
+成立），MJCF 进 MuJoCo 做机构动力学。
+
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/ap242_gmsh_bracket_static_von_mises.png" alt="支架 FEM von Mises 云图"><br/>
+<b>L 形支架静力 FEM</b> —— CalculiX von Mises 云图<br/>
+经 Gmsh OpenCASCADE 内核从 AP242 导出体网格
+</td>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/ap242_gmsh_bracket_stl_views.png" alt="支架四视图"><br/>
+<b>四连杆 + MuJoCo</b> —— 虚拟碰撞<br/>
+装配体直出 MJCF（视频随发布另行提供）
+</td>
+</tr>
+</table>
+
+---
+
 ## 更新日志（2.0.4b3 开发中）
 
 > **Beta 版本：** 用于生产前，请验证生成的定义、装配约束和制造几何。
