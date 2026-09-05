@@ -60,15 +60,16 @@ export to STEP, editable FreeCAD projects, and MJCF for physics engines.
 
 <table>
 <tr>
-<td width="50%" align="center" valign="top">
+<td width="44%" align="center" valign="top">
 <img src="img/capability/bldc_assembly.png" alt="BLDC joint actuator assembled"><br/>
-<b>Integrated BLDC joint actuator</b> — assembled<br/>
+<b>Integrated BLDC joint actuator</b> — assembled, studio render<br/>
 29 components · 51 constraints, all solved · 20:1 two-stage planetary
 </td>
-<td width="50%" align="center" valign="top">
-<img src="img/capability/bldc_exploded.png" alt="BLDC joint actuator exploded"><br/>
-<b>Same model, exploded</b> — staged cylindrical explode<br/>
-stator, planets, carriers, bearings, housings all readable
+<td width="56%" align="center" valign="top">
+<img src="img/capability/bldc_exploded.gif" width="430" alt="BLDC joint actuator exploded turntable"><br/>
+<b>Same model, exploding turntable</b> — four modules (ESC · motor ·<br/>
+two-stage reducer · output shaft) separate along the axis while<br/>
+concentric parts peel into radius bands; camera circles on an inclined orbit
 </td>
 </tr>
 </table>

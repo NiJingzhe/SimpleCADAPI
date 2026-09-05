@@ -53,15 +53,16 @@ HTML，忠实回放完整录制的对话（用户输入、Agent 思考、每一�
 
 <table>
 <tr>
-<td width="50%" align="center" valign="top">
+<td width="44%" align="center" valign="top">
 <img src="img/capability/bldc_assembly.png" alt="BLDC 关节执行器装配态"><br/>
-<b>一体化 BLDC 关节执行器</b> —— 装配态<br/>
+<b>一体化 BLDC 关节执行器</b> —— 装配态（影棚渲染）<br/>
 29 个组件 · 51 条约束全部解算 · 两级行星减速 20:1
 </td>
-<td width="50%" align="center" valign="top">
-<img src="img/capability/bldc_exploded.png" alt="BLDC 关节执行器爆炸图"><br/>
-<b>同一模型</b> —— 分级柱坐标爆炸图<br/>
-定子、行星轮、载架、轴承、壳体层次清晰可读
+<td width="56%" align="center" valign="top">
+<img src="img/capability/bldc_exploded.gif" width="430" alt="BLDC 关节执行器爆炸旋转"><br/>
+<b>同一模型</b> —— 爆炸旋转展示：四个模块（电调 · 电机 ·<br/>
+双级减速器 · 输出轴）沿轴向分离，模块内同心零件按半径<br/>
+分层剥离；相机沿倾斜圆轨道环绕
 </td>
 </tr>
 </table>
