@@ -23,6 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 from viewer.server.runtime import (  # noqa: E402
     ReCase,
     compose_submission,
+    entity_neighborhood,
     resolve_region,
 )
 from viewer.server.scene_build import build_step_scene  # noqa: E402
@@ -89,6 +90,19 @@ def test_scene_files_decode_and_describe(scene) -> None:
     assert bore["adjacency"]["bodies"] == ["body:0"]
 
 
+def test_scene_marks_seam_and_degenerate_edges(scene) -> None:
+    sidecar_uri = scene.manifest["entity_assets"][0]["uri"]
+    sidecar = json.loads(scene.files[sidecar_uri])
+    edges = [entity for entity in sidecar["entities"] if entity["kind"] == "edge"]
+    # the bore cylinder wall carries exactly one seam (its doubled edge)
+    assert [e["topo_id"] for e in edges if e["properties"]["seam"]] == ["edge:14"]
+    assert all(not e["properties"]["degenerate"] for e in edges)
+    # the flag agrees with the topology: seam ⇔ fewer than 2 distinct faces
+    for edge in edges:
+        faces = len(scene.model.adjacency_details(edge["topo_id"])["faces"])
+        assert (faces < 2) == edge["properties"]["seam"]
+
+
 def test_region_resolve_projects_and_filters(scene) -> None:
     camera = {
         "position": [0.0, -0.06, 0.03],
@@ -148,20 +162,106 @@ def test_compose_submission_attaches_context_and_names_failures(scene, case: ReC
     assert case.read_submission_seq() == submission["submission_seq"]
 
 
+def test_compose_submission_injects_one_level_neighborhood(scene, case: ReCase) -> None:
+    """face → edges → adjacent faces and vertices, exactly one level deep."""
+
+    submission = compose_submission(
+        case,
+        scene.model.describe_entity,
+        scene.summary,
+        {
+            "annotations": [
+                {
+                    "annotation_id": "a1",
+                    "kind": "free",
+                    "intent": "free",
+                    "text": "bore wall",
+                    "entity_ids": ["face:6"],
+                }
+            ],
+            "note": "",
+        },
+        adjacency=scene.model.adjacency_details,
+    )
+    card = submission["annotations"][0]["context"]["face:6"]
+    assert card["level"] == 1
+    assert card["entity"]["geometry"]["type"] == "CYLINDER"
+
+    details = scene.model.adjacency_details("face:6")
+    assert card["edges"]["total"] == len(details["edges"])
+    assert card["edges"]["truncated"] is False
+    for edge in card["edges"]["items"]:
+        assert edge["curve_type"] and edge["length"] is not None
+        face_ids = {face["topo_id"] for face in edge["adjacent_faces"]["items"]}
+        assert "face:6" in face_ids  # the edge borders the selected face itself
+        for face in edge["adjacent_faces"]["items"]:
+            assert face["surface_type"] and face["area"] is not None
+
+    assert {vertex["topo_id"].split(":")[0] for vertex in card["vertices"]["items"]} == {"vertex"}
+    assert all(len(vertex["coordinates"]) == 3 for vertex in card["vertices"]["items"])
+    neighbor_ids = {face["topo_id"] for face in card["neighboring_faces"]["items"]}
+    assert neighbor_ids == set(details["neighboring_faces"])
+    assert "face:6" not in neighbor_ids
+
+
+def test_compose_submission_edge_and_vertex_neighborhood(scene, case: ReCase) -> None:
+    def edge_summary(edge_id: str) -> tuple[str, int]:
+        geometry = scene.model.describe_entity(edge_id)["geometry"]
+        faces = scene.model.adjacency_details(edge_id)["faces"]
+        return geometry["type"], len(faces)
+
+    # interior straight edge: two endpoints, exactly two bordering faces.
+    # (cylinder seam edges border one distinct face on both sides — correct.)
+    line_edge = next(
+        edge_id
+        for edge_id in (f"edge:{index}" for index in range(len(scene.model.edges)))
+        if edge_summary(edge_id) == ("LINE", 2)
+    )
+    edge_card = entity_neighborhood(
+        scene.model.describe_entity, scene.model.adjacency_details, line_edge
+    )
+    assert len(edge_card["vertices"]["items"]) == 2
+    assert len(edge_card["adjacent_faces"]["items"]) == 2
+    assert edge_card["adjacent_edges"]["items"]
+
+    vertex_id = edge_card["vertices"]["items"][0]["topo_id"]
+    vertex_card = entity_neighborhood(
+        scene.model.describe_entity, scene.model.adjacency_details, vertex_id
+    )
+    assert vertex_card["adjacent_edges"]["items"]
+    assert vertex_card["adjacent_faces"]["items"]
+
+
 def test_operations_registry_loads_from_markdown() -> None:
     from viewer.server import operation_tips
 
     payload = operation_tips.operation_payload()
     assert [category["id"] for category in payload["categories"]] == [
         "sketch",
+        "boolean",
         "solid",
+        "primitive",
         "modify",
         "surface",
         "pattern",
     ]
     assert payload["errors"] == []
     op_ids = {operation["op_id"] for operation in payload["operations"]}
-    assert {"sketch", "extrude", "boolean", "fillet", "surface_patch", "radial_pattern"} <= op_ids
+    assert {
+        "sketch",
+        "union",
+        "cut",
+        "intersect",
+        "extrude",
+        "box",
+        "cylinder",
+        "sphere",
+        "fillet",
+        "shell",
+        "surface_patch",
+        "linear_pattern",
+        "radial_pattern",
+    } <= op_ids
     for operation in payload["operations"]:
         assert operation["hint"].strip()
         assert operation["api"] and operation["reads"] and operation["doc_refs"]
@@ -281,7 +381,7 @@ def test_http_endpoints(case: ReCase) -> None:
         with urllib.request.urlopen(f"{base}/api/operations", timeout=3) as response:
             operations = json.loads(response.read())
         assert operations["errors"] == []
-        assert len(operations["categories"]) == 5
+        assert len(operations["categories"]) == 7
         assert any(operation["op_id"] == "extrude" for operation in operations["operations"])
         request = urllib.request.Request(
             f"{base}/api/annotate",

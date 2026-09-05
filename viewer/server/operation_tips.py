@@ -36,10 +36,12 @@ _LIST_FIELDS = ("api", "reads", "doc_refs")
 
 OPERATION_CATEGORIES: tuple[dict[str, str], ...] = (
     {"id": "sketch", "label": "SKETCH", "description": "constrained 2D profiles (sketch API)"},
-    {"id": "solid", "label": "SOLID", "description": "extrude / revolve / sweep / loft / booleans"},
-    {"id": "modify", "label": "MODIFY", "description": "fillet / chamfer edge blends"},
+    {"id": "boolean", "label": "BOOLEAN", "description": "union / cut / intersect"},
+    {"id": "solid", "label": "SOLID", "description": "extrude / revolve / sweep / loft body builds"},
+    {"id": "primitive", "label": "PRIMITIVE", "description": "box / cylinder / cone / sphere stock bodies"},
+    {"id": "modify", "label": "MODIFY", "description": "fillet / chamfer / shell edge & face treatments"},
     {"id": "surface", "label": "SURFACE", "description": "patch / fill / freeform surface construction"},
-    {"id": "pattern", "label": "PATTERN", "description": "linear and radial (circular) arrays"},
+    {"id": "pattern", "label": "PATTERN", "description": "linear / radial (circular) arrays and mirrors"},
 )
 _CATEGORY_ORDER = {category["id"]: index for index, category in enumerate(OPERATION_CATEGORIES)}
 

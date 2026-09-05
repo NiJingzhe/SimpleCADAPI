@@ -346,6 +346,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                     state.scene.model.describe_entity,
                     state.scene.summary,
                     payload,
+                    adjacency=state.scene.model.adjacency_details,
                 )
             except Exception as exc:
                 self._send_json(500, {"error": str(exc)})
