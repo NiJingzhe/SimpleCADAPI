@@ -513,6 +513,7 @@ def _sample_edge(
     if sample_count is not None:
         parameters = np.linspace(first, last, sample_count).tolist()
     else:
+        assert deflection is not None  # narrowed by the caller-side validation
         sampler = GCPnts_QuasiUniformDeflection(adaptor, float(deflection))
         if sampler.IsDone() and sampler.NbPoints() >= 2:
             return np.asarray(
@@ -584,6 +585,22 @@ def _hex_rgb(value: str) -> tuple[float, float, float]:
     return tuple(int(token[index : index + 2], 16) / 255.0 for index in (0, 2, 4))
 
 
+_VIEW_PRESETS = {
+    "iso": (25.0, 35.0),
+    "isometric": (25.0, 35.0),
+    "top": (90.0, 0.0),
+    "bottom": (-90.0, 0.0),
+    "front": (0.0, -90.0),
+    "back": (0.0, 90.0),
+    "left": (0.0, 180.0),
+    "right": (0.0, 0.0),
+    "front_right": (20.0, -45.0),
+    "front_left": (20.0, 135.0),
+    "rear_right": (20.0, 45.0),
+    "rear_left": (20.0, -135.0),
+}
+
+
 def _screenshot_view_angles(
     view: str | Sequence[float],
     spans: Sequence[float],
@@ -592,117 +609,13 @@ def _screenshot_view_angles(
         token = view.strip().lower()
         if token == "auto":
             return (22.0 if spans[2] <= max(spans[0], spans[1]) else 35.0, 35.0 if spans[0] >= spans[1] else 125.0)
-        presets = {
-            "iso": (25.0, 35.0),
-            "isometric": (25.0, 35.0),
-            "top": (90.0, 0.0),
-            "bottom": (-90.0, 0.0),
-            "front": (0.0, -90.0),
-            "back": (0.0, 90.0),
-            "left": (0.0, 180.0),
-            "right": (0.0, 0.0),
-            "front_right": (20.0, -45.0),
-            "front_left": (20.0, 135.0),
-            "rear_right": (20.0, 45.0),
-            "rear_left": (20.0, -135.0),
-        }
+        presets = _VIEW_PRESETS
         if token not in presets:
             raise ValueError(f"Unsupported view preset: {view}")
         return presets[token]
     if len(view) != 2:
         raise ValueError("view must be an (elevation, azimuth) pair")
     return float(view[0]), float(view[1])
-
-
-def _render_sdk_polydata_in_process(
-    datasets: Mapping[str, Any],
-    output_path: str | Path,
-    options: Mapping[str, Any],
-) -> Path:
-    vtk, _, _ = _vtk_modules()
-    width, height = (int(value) for value in options["image_size"])
-    studio = str(options.get("style", "standard")) == "studio"
-    # Integer-factor supersampling: render large, downsample with LANCZOS.
-    # Unlike driver MSAA this stays deterministic across machines, which the
-    # diagnostic diff workflows rely on.
-    supersample = max(1, int(options.get("supersample", 1)))
-    width, height = width * supersample, height * supersample
-    renderer = vtk.vtkRenderer()
-    window = _offscreen_window(width, height)
-    window.SetMultiSamples(0)
-    # studio = pure black stage; the bodies and edge ink carry the image
-    if studio:
-        renderer.SetBackground(0.0, 0.0, 0.0)
-    else:
-        renderer.SetBackground(0.067, 0.067, 0.067)
-    # Edge tubes are true geometry, but coincident faces (shared walls after
-    # booleans) still z-fight without the polygon offset.
-    vtk.vtkMapper.SetResolveCoincidentTopologyToPolygonOffset()
-    renderer.SetUseFXAA(supersample == 1)
-    window.AddRenderer(renderer)
-    base = datasets.get("base")
-    if base is not None:
-        renderer.AddActor(_surface_actor(base, (0.66, 0.68, 0.72) if studio else (0.6, 0.62, 0.64), 1.0, studio=studio))
-    for item in options.get("surface_groups", []):
-        polydata = datasets.get(str(item["dataset"]))
-        if polydata is not None:
-            renderer.AddActor(_surface_actor(polydata, tuple(item["color"]), 1.0, studio=studio))
-    edges = datasets.get("edges")
-    if edges is not None:
-        # LineWidth is capped around 3px on macOS, so crisp CAD ink needs
-        # geometry (tubes) in BOTH styles; edge_width_scale=0 falls back to
-        # the legacy thin line actor. Tube radius scales with the model;
-        # long exploded stacks need thinner tubes or the ink swamps small
-        # parts (gears, bearings).
-        ink_source = base if base is not None else edges
-        b = ink_source.GetBounds()
-        span = max(b[1] - b[0], b[3] - b[2], b[5] - b[4], 1e-9)
-        edge_scale = float(options.get("edge_width_scale", 0.0019))
-        if edge_scale > 0.0:
-            renderer.AddActor(_tube_edge_actor(edges, span * edge_scale, (0.145, 0.165, 0.196)))
-        else:
-            renderer.AddActor(_line_actor(edges, (0.78, 0.80, 0.84), 1.0))
-
-    bounds = renderer.ComputeVisiblePropBounds()
-    spans = (bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
-    elevation, azimuth = _screenshot_view_angles(options["view"], spans)
-    _set_camera(renderer, elevation, azimuth, view_up=options.get("view_up"))
-    renderer.GetActiveCamera().Zoom(float(options["zoom"]) / 4.0)
-    renderer.ResetCameraClippingRange()
-    if studio:
-        # key/fill/rim derive from the camera pose, so set them after the camera
-        _studio_lights(renderer)
-
-    if options.get("show_axes"):
-        _add_corner_axes(window, renderer, (0.0, 0.0, 1.0, 1.0), corner="bottom-right")
-    for index, item in enumerate(options.get("legend_items", [])):
-        actor = vtk.vtkTextActor()
-        actor.SetInput(f"■ {item['label']}")
-        actor.SetPosition(18 * supersample, height - (28 + index * 24) * supersample)
-        prop = actor.GetTextProperty()
-        prop.SetColor(*item["color"])
-        prop.SetFontSize(16 * supersample)
-        prop.SetBold(True)
-        renderer.AddViewProp(actor)
-    for item in options.get("callouts", []):
-        callout = vtk.vtkBillboardTextActor3D()
-        callout.SetInput(str(item["label"]))
-        callout.SetPosition(*item["point"])
-        prop = callout.GetTextProperty()
-        prop.SetColor(1.0, 0.82, 0.48)
-        prop.SetBackgroundColor(0.067, 0.067, 0.067)
-        prop.SetBackgroundOpacity(0.9)
-        prop.SetFontSize(18)
-        renderer.AddViewProp(callout)
-
-    window.Render()
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    if supersample > 1:
-        _write_window_supersampled(window, output, supersample)
-    else:
-        _write_window(window, output)
-    return output
 
 
 def _write_window_supersampled(window, output: Path, factor: int) -> None:
@@ -782,8 +695,6 @@ def _render_sdk_screenshot_rpath(
         raise ValueError("zoom must be greater than zero")
     if style not in ("standard", "studio"):
         raise ValueError(f"unknown render style: {style!r} (expected 'standard' or 'studio')")
-    if style == "studio" and views is not None:
-        raise ValueError("style='studio' applies to the single-view path; pass view= instead of views=")
     if linear_deflection is None:
         linear_deflection = 0.35
     if angular_deflection is None:
@@ -879,70 +790,55 @@ def _render_sdk_screenshot_rpath(
             raise ValueError("views must contain at least one (elevation, azimuth, label)")
         if any(len(entry) != 3 for entry in views):
             raise ValueError("each view must be an (elevation, azimuth, label) triple")
-        legend_pairs = [
+        if len(normalized_views) > 4:
+            raise ValueError("views accepts at most four (elevation, azimuth, label) entries")
+    elif isinstance(view, str) and view.strip().lower() == "auto":
+        normalized_views = tuple(SCREENSHOT_VIEWS)
+    else:
+        # 一个显式 view（预设名或 (elev, azim)）= 单格网格
+        elevation, azimuth = _screenshot_view_angles(view, (1.0, 1.0, 1.0))
+        label = view.strip().lower() if isinstance(view, str) else "view"
+        normalized_views = ((elevation, azimuth, label),)
+    legend_pairs = [
+        (
+            str(item["label"]),
             (
-                str(item["label"]),
-                (
-                    float(item["color"][0]),
-                    float(item["color"][1]),
-                    float(item["color"][2]),
-                ),
-            )
-            for item in legend_items
-        ]
-        callout_triples = [
-            (
-                labels.get(tag, tag),
-                point,
-                tag_colors.get(tag, (0.95, 0.55, 0.2)),
-            )
-            for tag, point in label_points.items()
-        ] if show_callouts else []
-        group_polydata = [
-            (datasets[name], color, 1.0) for name, color in surface_group_refs
-        ]
-        return _render_polydata_views(
-            datasets["base"],
-            output_path,
-            title="SDK screenshot",
-            views=normalized_views,
-            image_size=(image_size[0] / 100.0, image_size[1] / 100.0),
-            dpi=100,
-            brep_edge_polydata=datasets["edges"],
-            highlighted_groups=group_polydata,
-            legend=legend_pairs or None,
-            legend_panel=len(legend_pairs) > 8,
-            show_axes=show_axes,
-            callouts=callout_triples or None,
-            edge_width_scale=edge_width_scale,
-            supersample=supersample,
+                float(item["color"][0]),
+                float(item["color"][1]),
+                float(item["color"][2]),
+            ),
         )
-    options = {
-        "image_size": image_size,
-        "view": view,
-        "zoom": zoom,
-        "show_axes": show_axes,
-        "surface_groups": surface_groups,
-        "legend_items": legend_items,
-        "style": style,
-        "edge_width_scale": float(edge_width_scale),
-        "view_up": None if view_up is None else [float(value) for value in view_up],
-        "supersample": int(supersample),
-        "callouts": (
-            [
-                {"label": labels.get(tag, tag), "point": point}
-                for tag, point in label_points.items()
-            ]
-            if show_callouts
-            else []
-        ),
-    }
-    if sys.platform == "darwin":
-        return _run_render_worker(
-            mode="sdk", output_path=output_path, datasets=datasets, options=options
+        for item in legend_items
+    ]
+    callout_triples = [
+        (
+            labels.get(tag, tag),
+            point,
+            tag_colors.get(tag, (0.95, 0.55, 0.2)),
         )
-    return _render_in_process(
-        _render_sdk_polydata_in_process, datasets, output_path, options
+        for tag, point in label_points.items()
+    ] if show_callouts else []
+    group_polydata = [
+        (datasets[name], color, 1.0) for name, color in surface_group_refs
+    ]
+    return _render_polydata_views(
+        datasets["base"],
+        output_path,
+        title="SDK screenshot",
+        views=normalized_views,
+        image_size=(image_size[0] / 100.0, image_size[1] / 100.0),
+        dpi=100,
+        brep_edge_polydata=datasets["edges"],
+        highlighted_groups=group_polydata,
+        legend=legend_pairs or None,
+        legend_panel=len(legend_pairs) > 8,
+        show_axes=show_axes,
+        callouts=callout_triples or None,
+        edge_width_scale=edge_width_scale,
+        supersample=supersample,
+        style=style,
+        zoom=zoom if len(normalized_views) == 1 else None,
+        view_up=view_up,
     )
 def _add_corner_axes(window, source_renderer, rect, *, corner="bottom-left") -> None:
     """Overlay a small orientation triad in a corner of one panel's viewport.
@@ -1305,6 +1201,9 @@ def _render_polydata_views_in_process(
     | None = None,
     edge_width_scale: float = 0.0019,
     supersample: int = 1,
+    style: str = "standard",
+    zoom: float | None = None,
+    view_up: Sequence[float] | None = None,
 ) -> Path:
     """Render smooth views; optionally multiple colored highlight groups.
 
@@ -1326,7 +1225,7 @@ def _render_polydata_views_in_process(
     if legend_columns < 1:
         raise ValueError("legend_columns must be at least one")
     vtk, _, _ = _vtk_modules()
-    # Integer-factor supersampling (see _render_sdk_polydata_in_process):
+    # Integer-factor supersampling:
     # render large, downsample with LANCZOS — deterministic crisp edges.
     supersample = max(1, int(supersample))
     width = max(1, int(round(image_size[0] * dpi))) * supersample
@@ -1355,16 +1254,25 @@ def _render_polydata_views_in_process(
         bottom = 1.0 - (row + 1) / rows
         renderer = vtk.vtkRenderer()
         renderer.SetViewport(left, bottom, right, top)
-        renderer.GradientBackgroundOn()
-        renderer.SetBackground(0.94, 0.96, 0.98)
-        renderer.SetBackground2(0.78, 0.84, 0.90)
+        if style == "studio":
+            renderer.GradientBackgroundOff()
+            renderer.SetBackground(0.0, 0.0, 0.0)
+        else:
+            renderer.GradientBackgroundOn()
+            renderer.SetBackground(0.94, 0.96, 0.98)
+            renderer.SetBackground2(0.78, 0.84, 0.90)
         renderer.SetUseFXAA(supersample == 1)
         if context_opacity < 1.0:
             renderer.SetUseDepthPeeling(True)
             renderer.SetMaximumNumberOfPeels(24)
             renderer.SetOcclusionRatio(0.05)
         if base_polydata is not None:
-            renderer.AddActor(_surface_actor(base_polydata, (0.55, 0.64, 0.73), context_opacity))
+            renderer.AddActor(_surface_actor(
+                base_polydata,
+                (0.66, 0.68, 0.72) if style == "studio" else (0.55, 0.64, 0.73),
+                context_opacity,
+                studio=style == "studio",
+            ))
         if brep_edge_polydata is not None:
             # Same tubed-ink policy as the single-view path: LineWidth is
             # capped ~3px on macOS, so crisp CAD ink needs geometry.
@@ -1397,7 +1305,7 @@ def _render_polydata_views_in_process(
         label.SetInput(f"{title}\n{view_title}" if index == 0 else view_title)
         label.SetPosition(16 * supersample, 14 * supersample)
         text = label.GetTextProperty()
-        text.SetColor(0.08, 0.11, 0.15)
+        text.SetColor((0.85, 0.89, 0.94) if style == "studio" else (0.08, 0.11, 0.15))
         text.SetFontSize(max(14, min(width // columns, height // rows) // 34))
         text.SetBold(True)
         renderer.AddViewProp(label)
@@ -1424,13 +1332,23 @@ def _render_polydata_views_in_process(
                 )
                 entry_prop = entry.GetTextProperty()
                 entry_prop.SetColor(float(entry_rgb[0]), float(entry_rgb[1]), float(entry_rgb[2]))
-                entry_prop.SetBackgroundColor(0.94, 0.96, 0.98)
-                entry_prop.SetBackgroundOpacity(0.82)
+                if style == "studio":
+                    entry_prop.SetBackgroundColor(0.02, 0.02, 0.04)
+                    entry_prop.SetBackgroundOpacity(0.72)
+                else:
+                    entry_prop.SetBackgroundColor(0.94, 0.96, 0.98)
+                    entry_prop.SetBackgroundOpacity(0.82)
                 entry_prop.SetFontSize(legend_font)
                 entry_prop.SetBold(True)
                 renderer.AddViewProp(entry)
         window.AddRenderer(renderer)
-        _set_camera(renderer, elevation, azimuth)
+        _set_camera(renderer, elevation, azimuth, view_up=view_up)
+        if style == "studio":
+            # key/fill/rim derive from each panel's camera pose
+            _studio_lights(renderer)
+        if len(views) == 1 and zoom is not None:
+            renderer.GetActiveCamera().Zoom(float(zoom) / 4.0)
+            renderer.ResetCameraClippingRange()
         if show_axes:
             _add_corner_axes(window, renderer, (left, bottom, right, top), corner="bottom-right")
         if callouts:
@@ -1438,7 +1356,7 @@ def _render_polydata_views_in_process(
     if legend and legend_panel:
         panel = vtk.vtkRenderer()
         panel.SetViewport(render_width / width, 0.0, 1.0, 1.0)
-        panel.SetBackground(0.94, 0.96, 0.98)
+        panel.SetBackground(0.0, 0.0, 0.0) if style == "studio" else panel.SetBackground(0.94, 0.96, 0.98)
         panel.SetInteractive(False)
         panel_font = max(10, min(16, height // 78))
         panel_spacing = int(panel_font * 1.55)
@@ -1512,6 +1430,9 @@ def _render_polydata_views(
     ] | None = None,
     edge_width_scale: float = 0.0019,
     supersample: int = 1,
+    style: str = "standard",
+    zoom: float | None = None,
+    view_up: Sequence[float] | None = None,
 ) -> Path:
     if not views:
         raise ValueError("at least one render view is required")
@@ -1545,6 +1466,9 @@ def _render_polydata_views(
         "callouts": callouts,
         "edge_width_scale": float(edge_width_scale),
         "supersample": int(supersample),
+        "style": str(style),
+        "zoom": None if zoom is None else float(zoom),
+        "view_up": None if view_up is None else [float(value) for value in view_up],
     }
     if sys.platform != "darwin":
         return _render_in_process(
@@ -1578,6 +1502,9 @@ def _render_polydata_views(
         "point_groups": [],
         "edge_width_scale": float(edge_width_scale),
         "supersample": int(supersample),
+        "style": str(style),
+        "zoom": None if zoom is None else float(zoom),
+        "view_up": None if view_up is None else [float(value) for value in view_up],
     }
     for option_name, groups in (
         ("surface_groups", highlighted_groups or ()),
@@ -1626,6 +1553,7 @@ def render_shape_views_rpath(
         dpi=dpi,
         brep_edge_polydata=edges,
         supersample=2,
+        style="standard",
     )
 
 
@@ -2257,7 +2185,7 @@ def render_step_comparison_rpath(
             label.SetInput(f"{model_title}: {filename}\n{view_title}")
             label.SetPosition(14, 12)
             text = label.GetTextProperty()
-            text.SetColor(0.08, 0.11, 0.15)
+            text.SetColor((0.85, 0.89, 0.94) if style == "studio" else (0.08, 0.11, 0.15))
             text.SetFontSize(max(13, min(width // columns, height // rows) // 34))
             text.SetBold(True)
             renderer.AddViewProp(label)

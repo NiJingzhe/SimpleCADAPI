@@ -273,17 +273,25 @@ def render_screenshot_rpath(
     show_callouts: bool = True,
     linear_deflection: Optional[float] = None,
     angular_deflection: Optional[float] = None,
-    style: str = "standard",
+    style: str = "studio",
     edge_width_scale: Optional[float] = None,
     view_up: Optional[Sequence[float]] = None,
     supersample: int = 2,
 ) -> str:
-    """Render solids or raw TopoDS shapes through the shared OCCT/VTK renderer.
+    """Render solids or raw TopoDS shapes through the one OCCT/VTK pipeline.
 
     ``shapes`` accepts SDK ``Solid`` objects (with full tag highlight,
     callout and legend support) or raw ``TopoDS_Shape`` entries from the
     STEP inspection family (same engine, same edge ink and supersampling,
     no tag features).
+
+    There is exactly one output form: a multi-view grid of one to four
+    panels, each carrying annotations. ``view="auto"`` (default) uses the
+    standard four-view set; an explicit preset name or ``(elevation,
+    azimuth)`` pair renders a single full-frame panel; ``views`` accepts
+    up to four explicit ``(elevation, azimuth, label)`` triples.
+    ``zoom`` applies to single-panel renders only.
+
 
     By default every render is a multi-view grid (SCREENSHOT_VIEWS: isometric,
     top, front, side) carrying highlight-tag color groups, callout labels with

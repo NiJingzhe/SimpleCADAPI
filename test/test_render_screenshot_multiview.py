@@ -69,7 +69,7 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
         grid.assert_called_once()
         self.assertEqual(tuple(kwargs_views := grid.call_args.kwargs["views"]), tuple(custom))
 
-    def test_explicit_view_keeps_legacy_single_view_path(self):
+    def test_explicit_view_routes_through_the_grid_engine(self):
         solid = self._tagged_solid()
         with mock.patch.object(
             brep_render, "_render_polydata_views", wraps=brep_render._render_polydata_views
@@ -84,7 +84,9 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
                     view="iso",
                 )
                 self.assertTrue(output.is_file())
-        grid.assert_not_called()
+        grid.assert_called_once()
+        # 单格：views 参数恰好一条
+        self.assertEqual(len(grid.call_args.kwargs["views"]), 1)
 
     def test_real_multiview_render_writes_grid_image(self):
         solid = self._tagged_solid()
@@ -98,9 +100,14 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
             )
             self.assertEqual(result, str(output))
             self.assertTrue(output.is_file())
-            # a 4-panel shaded grid renders substantially more content than a
-            # single small view; single-view renders at this size stay < 40 KiB
-            self.assertGreater(output.stat().st_size, 40_000)
+            # the default is a 4-panel studio grid; rendering the same solid
+            # as a single explicit panel must produce a different (non-grid)
+            # image at the same size
+            single = Path(tmp) / "single.png"
+            scad.render_screenshot_rpath(
+                solid, str(single), image_size=(800, 600), view="iso"
+            )
+            self.assertNotEqual(output.read_bytes(), single.read_bytes())
 
     def test_real_custom_views_render_writes_image(self):
         solid = self._tagged_solid()
@@ -126,16 +133,20 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
                     views=[],
                 )
 
-    def test_studio_style_is_rejected_for_the_views_grid(self):
+    def test_more_than_four_views_are_rejected(self):
         solid = self._tagged_solid()
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(scad.SimpleCADError):
                 scad.render_screenshot_rpath(
                     solid,
-                    str(Path(tmp) / "studio-grid.png"),
-                    view="iso",
-                    views=[(30.0, 45.0, "iso")],
-                    style="studio",
+                    str(Path(tmp) / "five-views.png"),
+                    views=[
+                        (30.0, 45.0, "a"),
+                        (0.0, 0.0, "b"),
+                        (90.0, 0.0, "c"),
+                        (0.0, -90.0, "d"),
+                        (20.0, 45.0, "e"),
+                    ],
                 )
 
     def test_unknown_style_is_rejected(self):
@@ -190,6 +201,18 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
                     supersample=4,
                 )
 
+    def test_default_style_is_studio(self):
+        solid = self._tagged_solid()
+        with tempfile.TemporaryDirectory() as tmp:
+            default = Path(tmp) / "default.png"
+            standard = Path(tmp) / "standard.png"
+            common = dict(image_size=(320, 240), view="iso")
+            scad.render_screenshot_rpath(solid, str(default), **common)
+            scad.render_screenshot_rpath(solid, str(standard), style="standard", **common)
+            self.assertTrue(default.is_file())
+            # 默认（studio）与显式诊断风格必须不同张图
+            self.assertNotEqual(default.read_bytes(), standard.read_bytes())
+
     def test_studio_single_view_render_writes_image(self):
         solid = self._tagged_solid()
         with tempfile.TemporaryDirectory() as tmp:
@@ -200,6 +223,7 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
                 str(standard),
                 image_size=(640, 400),
                 view=(30.0, 45.0),
+                style="standard",
                 show_axes=False,
             )
             scad.render_screenshot_rpath(

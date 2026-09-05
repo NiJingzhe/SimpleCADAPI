@@ -79,6 +79,13 @@ def _render_views(
         show_axes=bool(options.get("show_axes", False)),
         edge_width_scale=float(options.get("edge_width_scale", 0.0019)),
         supersample=int(options.get("supersample", 1)),
+        style=str(options.get("style", "standard")),
+        zoom=None if options.get("zoom") is None else float(options["zoom"]),
+        view_up=(
+            None
+            if options.get("view_up") is None
+            else tuple(float(value) for value in options["view_up"])
+        ),
         callouts=(
             tuple(
                 (str(label), tuple(anchor), tuple(color))
@@ -89,13 +96,6 @@ def _render_views(
         ),
     )
 
-
-def _render_sdk(
-    datasets: Mapping[str, Any], output_path: Path, options: Mapping[str, Any]
-) -> None:
-    from .render import _render_sdk_polydata_in_process
-
-    _render_sdk_polydata_in_process(datasets, output_path, options)
 
 
 def _main(manifest_path: Path) -> None:
@@ -116,8 +116,6 @@ def _main(manifest_path: Path) -> None:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         if mode == "views":
             _render_views(datasets, output_path, options)
-        elif mode == "sdk":
-            _render_sdk(datasets, output_path, options)
         else:
             raise ValueError(f"unsupported render worker mode: {mode}")
         Path(payload["completion_path"]).touch()
