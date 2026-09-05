@@ -31,6 +31,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from .operation_tips import operation_payload
 from .runtime import (
     ARTIFACT_NAMES,
     ReCase,
@@ -135,6 +136,8 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "pid": os.getpid()})
         elif path == "/api/session":
             self._send_session()
+        elif path == "/api/operations":
+            self._send_json(200, operation_payload())
         elif path == "/api/scene/original":
             self._send_scene()
         elif path.startswith("/api/entity"):
@@ -343,6 +346,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                     state.scene.model.describe_entity,
                     state.scene.summary,
                     payload,
+                    adjacency=state.scene.model.adjacency_details,
                 )
             except Exception as exc:
                 self._send_json(500, {"error": str(exc)})

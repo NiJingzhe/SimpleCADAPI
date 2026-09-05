@@ -48,12 +48,50 @@ face/edge/vertex picking works identically on both sides. The rebuilt side
 loads the agent's captured v3 `rebuilt.scadpkg` through the normal package
 loader. During development, `npm run dev` proxies `/api` to the server port.
 
+Annotation happens in a free-form composer: picked entities and operations land
+as inline color-coded chips (serialized as `[face:12](face:12)` /
+`[fillet](op:fillet)`) alongside plain text; type `/` for an operation
+autocomplete. The operation registry is markdown — one file per tip in
+`viewer/server/operations/` (frontmatter `label/category/api/reads/doc_refs` +
+hint body), editable without code changes; referenced tips travel inside the
+submission as `operation_context`. The rebuilt panel shows the package's feature
+DAG and the syntax-highlighted, self-contained rebuild source with
+feature-to-source line reveal.
+
 Governance: the studio UI only selects and describes — it never edits geometry.
 Only the browser writes `re_work/submission.json`; the agent waits on it via
 `uv run python -m viewer.server <case_dir> --wait-only` and writes artifacts
 (`rebuild.py`, `rebuilt.step`, `rebuilt.scadpkg`, `comparison.png`,
 `evaluation.json`) that the UI polls. Every event lands in
 `re_work/session.ndjson` as the training record.
+
+## BRep Renderer Component (`src/renderer/`)
+
+The presentation layer is a standalone component: `BRepRenderer` renders a
+scene-2.0 package (the GLB faces + line edges + entity sidecars that both the
+original STEP side and captured `.scadpkg` packages carry) with no dependency
+on any host page. It provides image-based studio lighting (PMREM
+`RoomEnvironment` + one key light), GTAO ambient occlusion (tuned to the
+model's world scale on every fit), a free trackball camera (no rotational
+poles, `FIT` restores the canonical Z-up and kills inertia), and CAD-style
+edge display — edges tessellate tighter than faces, and seam/degenerate edges
+are split into their own visuals and hidden by default.
+
+```ts
+import { BRepRenderer } from './renderer';
+
+const viewer = new BRepRenderer(hostElement, { ssao: true, seams: false });
+await viewer.loadScene(files);     // scene-2.0 files from a .scadpkg or the re-studio server
+viewer.setSeamsVisible(false);     // toggle seam/degenerate edges
+viewer.setEdgesVisible(true);
+viewer.setSSAO(true);
+viewer.frame();                    // canonical fit
+```
+
+Selection and annotation are deliberately out of scope: `src/scene-view.ts`
+composes `BRepRenderer` and adds raycast picking (face/edge/vertex), selection
+modes, and annotation marks. Embed `BRepRenderer` alone for read-only display;
+build interaction layers on top of it.
 
 ## Inspecting A Product
 
