@@ -13,12 +13,28 @@
 
 import '../style.css';
 import './remode.css';
+import { Box, ClipboardCheck, Columns2, Dot, Eraser, Eye, Inbox, Lasso, Maximize2, MousePointer2, Plus, Send, Slash, Square, SquareCode, Workflow, createIcons } from 'lucide';
 import { PythonEditor } from '../components/source-dock';
 import { openCadPackage, type PackageFiles } from '../product-package';
 import { buildFederatedFeatureModel, type ModelDocument, type SceneManifest } from '../scene2';
 import { MARK_COLORS, SceneView, type CameraState, type PickResult, type SelectionMode } from '../scene-view';
 import { TokenComposer, type ComposerTokenKind } from './composer';
+import { reStudioEditorTheme } from './code-theme';
 import { FeatureTreeView } from './feature-tree';
+import { OpSuggest, type SuggestOperation } from './op-suggest';
+import { opCategoryResolver, renderMarkup } from './markup';
+
+const lucideIcons = { Box, ClipboardCheck, Columns2, Dot, Eraser, Eye, Inbox, Lasso, Maximize2, MousePointer2, Plus, Send, Slash, Square, SquareCode, Workflow };
+
+function iconMarkup(name: keyof typeof lucideIcons, className = 'ui-icon'): string {
+  const iconName = name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+  return `<i data-lucide="${iconName}" class="${className}" aria-hidden="true"></i>`;
+}
+
+/** Transient (pre-ADD) viewport highlight + live lasso stroke; must read
+ *  against both pale models and the dark chrome, and stay clear of the
+ *  committed-annotation MARK_COLORS palette. */
+const DRAFT_COLOR = '#00c8ff';
 
 type DraftEntry = { nodeId: string; entityId: string; canonical: string; kind: string };
 
@@ -70,50 +86,44 @@ app.innerHTML = `
       <div class="re-top-stats" id="re-top-stats"></div>
       <div class="re-top-actions">
         <span id="re-agent-state" class="re-agent-state">connecting</span>
-        <button id="re-fit-button" class="re-quiet-button" type="button">FIT</button>
-        <button id="re-submit-button" class="re-submit-button" type="button" disabled>SUBMIT</button>
+        <button id="re-fit-button" class="re-quiet-button" type="button" title="fit both viewports">${iconMarkup('Maximize2')}<span>FIT</span></button>
+        <button id="re-submit-button" class="re-submit-button" type="button" disabled>${iconMarkup('Send')}<span>SUBMIT</span></button>
       </div>
     </header>
-    <section class="re-workspace">
-      <section class="re-left">
+    <section class="re-workspace" id="re-workspace">
+      <section class="re-left" id="re-left">
         <div class="re-toolbar">
           <div class="re-tool-group"><span class="re-tool-label">SELECT</span>
-            <button class="re-mode-button active" data-selection-mode="face" type="button">FACE</button>
-            <button class="re-mode-button" data-selection-mode="edge" type="button">EDGE</button>
-            <button class="re-mode-button" data-selection-mode="vertex" type="button">VERTEX</button>
-            <button class="re-mode-button" data-selection-mode="component" type="button">BODY</button>
+            <button class="re-mode-button active" data-selection-mode="face" type="button">${iconMarkup('Square')}FACE</button>
+            <button class="re-mode-button" data-selection-mode="edge" type="button">${iconMarkup('Slash')}EDGE</button>
+            <button class="re-mode-button" data-selection-mode="vertex" type="button">${iconMarkup('Dot')}VERTEX</button>
           </div>
           <div class="re-tool-group"><span class="re-tool-label">DRAW</span>
-            <button class="re-mode-button active" data-draw-mode="off" type="button">OFF</button>
-            <button class="re-mode-button" data-draw-mode="circle" type="button">◯ CIRCLE</button>
-            <button class="re-mode-button" data-draw-mode="lasso" type="button">～ LASSO</button>
+            <button class="re-mode-button active" data-draw-mode="off" type="button">${iconMarkup('MousePointer2')}OFF</button>
+            <button class="re-mode-button" data-draw-mode="lasso" type="button">${iconMarkup('Lasso')}LASSO</button>
           </div>
           <div class="re-tool-group">
-            <button id="re-clear-selection" class="re-mode-button" type="button">CLEAR DRAFT</button>
+            <button id="re-clear-selection" class="re-mode-button" type="button" title="clear draft picks">${iconMarkup('Eraser')}CLEAR</button>
           </div>
         </div>
         <div class="re-viewport" id="re-original-viewport">
           <canvas id="re-annotate-canvas"></canvas>
           <div id="re-original-loading" class="re-loading"><span class="spinner"></span><span id="re-original-status">loading scene</span></div>
         </div>
-        <div class="re-selection-info" id="re-selection-info"><span class="re-muted">click faces / draw a region to select</span></div>
+        <div class="re-selection-info" id="re-selection-info"><span class="re-muted">click faces / draw a lasso to select</span></div>
         <div class="re-composer">
-          <div class="re-op-palette" id="re-op-palette"><span class="re-muted">loading operations…</span></div>
-          <div class="re-composer-row">
-            <div id="re-composer-host" class="re-composer-host"></div>
-            <button id="re-add-annotation" class="re-add-button" type="button" disabled>ADD</button>
+          <div class="re-capsule-list" id="re-capsule-list"></div>
+          <div class="re-composer-box" id="re-composer-box">
+            <button id="re-add-annotation" class="re-add-button" type="button" disabled title="add annotation">${iconMarkup('Plus')}</button>
           </div>
-          <div class="re-round-row">
-            <input id="re-round-note" class="re-input re-round-note" placeholder="round note for the agent (optional)" />
-          </div>
-          <div class="re-chip-list" id="re-chip-list"></div>
         </div>
       </section>
-      <section class="re-right">
-        <section class="re-rebuilt">
+      <div class="re-col-resizer" id="re-col-resizer" title="drag to resize"></div>
+      <section class="re-right" id="re-right">
+        <section class="re-rebuilt" id="re-rebuilt">
           <div class="re-tabbar">
-            <button class="re-tab active" data-rebuilt-tab="model" type="button">REBUILT MODEL</button>
-            <button class="re-tab" data-rebuilt-tab="comparison" type="button">COMPARISON</button>
+            <button class="re-tab active" data-rebuilt-tab="model" type="button">${iconMarkup('Box')}REBUILT MODEL</button>
+            <button class="re-tab" data-rebuilt-tab="comparison" type="button">${iconMarkup('Columns2')}COMPARISON</button>
             <span id="re-rebuilt-state" class="re-muted re-tab-state">waiting for agent</span>
           </div>
           <div class="re-rebuilt-body">
@@ -121,13 +131,14 @@ app.innerHTML = `
             <img id="re-comparison-img" alt="comparison" hidden />
           </div>
         </section>
-        <section class="re-bottom">
+        <div class="re-row-resizer" id="re-row-resizer" title="drag to resize"></div>
+        <section class="re-bottom" id="re-bottom">
           <div class="re-tabbar">
-            <button class="re-tab active" data-bottom-tab="source" type="button">SOURCE</button>
-            <button class="re-tab" data-bottom-tab="features" type="button">FEATURE TREE</button>
-            <button class="re-tab" data-bottom-tab="evaluation" type="button">EVALUATION</button>
-            <button class="re-tab" data-bottom-tab="submission" type="button">SUBMISSION</button>
-            <button class="re-tab" data-bottom-tab="context" type="button">CONTEXT PREVIEW</button>
+            <button class="re-tab active" data-bottom-tab="source" type="button">${iconMarkup('SquareCode')}SOURCE</button>
+            <button class="re-tab" data-bottom-tab="features" type="button">${iconMarkup('Workflow')}FEATURE</button>
+            <button class="re-tab" data-bottom-tab="evaluation" type="button">${iconMarkup('ClipboardCheck')}EVALUATION</button>
+            <button class="re-tab" data-bottom-tab="submission" type="button">${iconMarkup('Inbox')}SUBMISSION</button>
+            <button class="re-tab" data-bottom-tab="context" type="button">${iconMarkup('Eye')}CONTEXT PREVIEW</button>
           </div>
           <div class="re-bottom-body">
             <div class="re-source-panel" id="re-source-panel">
@@ -143,8 +154,13 @@ app.innerHTML = `
         </section>
       </section>
     </section>
-    <footer class="re-footer"><span id="re-status">starting</span><span class="re-muted">UI selects and describes · code is the single source of truth</span></footer>
+    <footer class="re-footer"><span id="re-status">starting</span><span>UI selects and describes · code is the single source of truth</span></footer>
   </main>`;
+
+renderMarkupIcons();
+function renderMarkupIcons(): void {
+  createIcons({ icons: lucideIcons, attrs: { 'stroke-width': 1.8 }, root: app! });
+}
 
 const $ = <T extends HTMLElement>(selector: string): T => app!.querySelector<T>(selector)!;
 
@@ -155,15 +171,19 @@ const originalStatus = $<HTMLSpanElement>('span#re-original-status');
 const rebuiltHost = $<HTMLDivElement>('div#re-rebuilt-viewport');
 const comparisonImg = $<HTMLImageElement>('img#re-comparison-img');
 const selectionInfo = $<HTMLDivElement>('div#re-selection-info');
-const chipList = $<HTMLDivElement>('div#re-chip-list');
-const opPalette = $<HTMLDivElement>('div#re-op-palette');
-const composerHost = $<HTMLDivElement>('div#re-composer-host');
-const roundNoteInput = $<HTMLInputElement>('input#re-round-note');
+const capsuleList = $<HTMLDivElement>('div#re-capsule-list');
+const composerBox = $<HTMLDivElement>('div#re-composer-box');
 const addAnnotationButton = $<HTMLButtonElement>('button#re-add-annotation');
 const submitButton = $<HTMLButtonElement>('button#re-submit-button');
 const agentState = $('span#re-agent-state');
 const topStats = $('div#re-top-stats');
 const statusLine = $('span#re-status');
+const workspaceEl = $<HTMLDivElement>('section#re-workspace');
+const leftSection = $<HTMLElement>('section#re-left');
+const rebuiltSection = $<HTMLElement>('section#re-rebuilt');
+const rightSection = $<HTMLElement>('section#re-right');
+const colResizer = $<HTMLDivElement>('div#re-col-resizer');
+const rowResizer = $<HTMLDivElement>('div#re-row-resizer');
 const sourcePanel = $<HTMLDivElement>('div#re-source-panel');
 const sourceTabs = $<HTMLDivElement>('div#re-source-tabs');
 const sourceEditorHost = $<HTMLDivElement>('div#re-source-editor');
@@ -213,8 +233,8 @@ function setStatus(message: string): void {
 }
 
 function composerKind(kind: string): ComposerTokenKind {
-  if (kind === 'edge' || kind === 'vertex' || kind === 'body' || kind === 'face') return kind;
-  return 'body';
+  if (kind === 'edge' || kind === 'vertex' || kind === 'face') return kind;
+  return 'face';
 }
 
 function postSelectEvent(): void {
@@ -229,7 +249,7 @@ function addSelectionEntry(nodeId: string, entityId: string, kind: string, quiet
   const canonical = canonicalBySceneId.get(entityId);
   if (!canonical || draft.has(canonical)) return;
   draft.set(canonical, { nodeId, entityId, canonical, kind });
-  originalView.addMark(nodeId, entityId, '#fff04d');
+  originalView.addMark(nodeId, entityId, DRAFT_COLOR);
   composer.insertToken({ token: canonical, label: canonical, kind: composerKind(kind) });
   if (!quiet) void postSelectEvent();
   refreshSelectionInfo();
@@ -251,7 +271,7 @@ function refreshSelectionInfo(): void {
   const entries = [...draft.values()];
   addAnnotationButton.disabled = composer.isEmpty();
   if (!entries.length) {
-    selectionInfo.innerHTML = '<span class="re-muted">click faces / draw a region to select — picks become tags in the composer</span>';
+    selectionInfo.innerHTML = '<span class="re-muted">click faces / draw a lasso to select — picks become tags in the composer</span>';
     return;
   }
   const kinds = new Map<string, number>();
@@ -259,18 +279,21 @@ function refreshSelectionInfo(): void {
   selectionInfo.innerHTML = `<strong>${entries.length} tagged</strong> <span class="re-muted">${[...kinds].map(([kind, count]) => `${count} ${kind}`).join(' · ')}</span> <span class="re-id-list" title="${entries.map((entry) => entry.canonical).join(', ')}">${entries.slice(0, 6).map((entry) => entry.canonical).join(', ')}${entries.length > 6 ? ' …' : ''}</span>`;
 }
 
-const composer = new TokenComposer({
-  placeholder: 'annotation text — clicked entities and operation tips land here as tags; Enter commits, Shift+Enter newline',
+const composer: TokenComposer = new TokenComposer({
+  placeholder: 'whats your idea to rebuild ?',
   onChange: () => refreshSelectionInfo(),
   onCommit: () => addAnnotation(),
+  onKeydown: (event): boolean => opSuggest.handleKeydown(event),
 });
-composerHost.append(composer.host);
+composerBox.append(composer.host);
+const opSuggest: OpSuggest = new OpSuggest(composer);
+composerBox.prepend(opSuggest.popup);
 
 // -- annotations ---------------------------------------------------------------
 
 const annotations: Annotation[] = [];
 let annotationCounter = 0;
-let drawMode: 'off' | 'circle' | 'lasso' = 'off';
+let drawMode: 'off' | 'lasso' = 'off';
 let drawPoints: Array<[number, number]> = [];
 let drawing = false;
 let currentPolygon: Array<[number, number]> | null = null;
@@ -305,7 +328,7 @@ function addAnnotation(): void {
   composer.clear();
   currentPolygon = null;
   void postAnnotation('add', annotation);
-  renderChips();
+  renderCapsules();
   renderAnnotationsCanvas();
   renderContextPreview();
 }
@@ -319,7 +342,7 @@ function removeAnnotation(annotationId: string): void {
   }
   annotations.splice(index, 1);
   void postAnnotation('remove', annotation);
-  renderChips();
+  renderCapsules();
   renderAnnotationsCanvas();
   renderContextPreview();
 }
@@ -350,30 +373,46 @@ function serializeAnnotation(annotation: Annotation): Record<string, unknown> {
   };
 }
 
-function renderChips(): void {
-  chipList.replaceChildren();
+function renderCapsules(): void {
+  capsuleList.replaceChildren();
   annotations.forEach((annotation) => {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 're-chip';
-    chip.style.setProperty('--chip-color', annotation.color);
-    chip.innerHTML = `<span class="re-chip-dot"></span><strong>${annotation.intent}</strong><span class="re-chip-count">${annotation.entries.length}</span>${annotation.operations.length ? `<span class="re-chip-count">${annotation.operations.length} op</span>` : ''}${annotation.text ? `<span class="re-chip-text">${escapeHtml(annotation.text)}</span>` : ''}<span class="re-chip-remove" title="remove">×</span>`;
-    chip.addEventListener('click', (event) => {
-      if ((event.target as HTMLElement).classList.contains('re-chip-remove')) {
-        removeAnnotation(annotation.annotation_id);
-        return;
-      }
+    const capsule = document.createElement('div');
+    capsule.className = 're-capsule';
+    capsule.style.setProperty('--chip-color', annotation.color);
+    const content = document.createElement('span');
+    content.className = 're-capsule-content';
+    content.append(renderMarkup(annotation.text, opCategory()));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 're-capsule-remove';
+    remove.title = 'remove annotation';
+    remove.textContent = '×';
+    remove.addEventListener('click', (event) => {
+      event.stopPropagation();
+      removeAnnotation(annotation.annotation_id);
+    });
+    const bubble = document.createElement('div');
+    bubble.className = 're-capsule-bubble';
+    bubble.append(renderMarkup(annotation.text, opCategory()));
+    capsule.addEventListener('click', () => {
+      // re-highlight this annotation's entities in the viewport
       for (const entry of annotation.entries) originalView.addMark(entry.nodeId, entry.entityId, annotation.color);
     });
-    chipList.append(chip);
+    capsule.append(content, remove, bubble);
+    capsuleList.append(capsule);
   });
+}
+
+let operationsPayload: OperationsPayload | null = null;
+
+function opCategory(): (opId: string) => string | undefined {
+  return opCategoryResolver(operationsPayload?.operations ?? []);
 }
 
 function renderContextPreview(): void {
   const payload = {
-    note: roundNoteInput.value,
     annotations: annotations.map(serializeAnnotation),
-    _server_adds: 'per-entity describe_entity context (geometry, bounds, adjacency), operation tips (api, reads, doc_refs, hint), target summary, viewport snapshot',
+    _server_adds: 'per-entity one-level neighborhood cards (entity geometry, edges with adjacent faces, vertices), operation tips (api, reads, doc_refs, hint), target summary, viewport snapshot',
   };
   contextDiv.innerHTML = `<pre class="re-code">${escapeHtml(JSON.stringify(payload, null, 2))}</pre>`;
 }
@@ -382,63 +421,25 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character] || character);
 }
 
-// -- operation tips palette (server registry, content lives in md files) -------
+// -- slash operation suggest (server registry, content lives in md files) ------
 
 async function loadOperations(): Promise<void> {
   try {
     const response = await fetch('/api/operations');
     if (!response.ok) {
-      opPalette.innerHTML = '<span class="re-muted">operation registry unavailable</span>';
+      setStatus('operation registry unavailable — slash suggest offline');
       return;
     }
     const payload = (await response.json()) as OperationsPayload;
-    renderOperationPalette(payload);
+    operationsPayload = payload;
+    opSuggest.setOperations(payload.operations as SuggestOperation[]);
     if (payload.errors.length) setStatus(`operation registry: ${payload.errors.join('; ')}`);
   } catch {
-    opPalette.innerHTML = '<span class="re-muted">operation registry unreachable</span>';
+    setStatus('operation registry unreachable — slash suggest offline');
   }
 }
 
-function renderOperationPalette(payload: OperationsPayload): void {
-  opPalette.replaceChildren();
-  const byCategory = new Map<string, OperationTip[]>();
-  for (const op of payload.operations) {
-    const list = byCategory.get(op.category) ?? [];
-    list.push(op);
-    byCategory.set(op.category, list);
-  }
-  for (const category of payload.categories) {
-    const ops = byCategory.get(category.id);
-    if (!ops?.length) continue;
-    const group = document.createElement('div');
-    group.className = 're-op-group';
-    const label = document.createElement('span');
-    label.className = 're-tool-label';
-    label.textContent = category.label;
-    label.title = category.description;
-    group.append(label);
-    for (const op of ops) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = `re-op-button re-opcat-${category.id}`;
-      button.textContent = op.label;
-      button.title = `${op.api.join(', ')}\n\n${op.hint}`;
-      button.addEventListener('click', () => {
-        composer.insertToken({ token: `op:${op.op_id}`, label: op.label, kind: 'op', category: category.id });
-        composer.focus();
-        void fetch('/api/event', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'op_chip', op_id: op.op_id }),
-        });
-      });
-      group.append(button);
-    }
-    opPalette.append(group);
-  }
-}
-
-// -- annotation canvas (circle / lasso) -------------------------------------------
+// -- annotation canvas (lasso) -----------------------------------------------------
 
 type CanvasContext = CanvasRenderingContext2D | null;
 
@@ -457,15 +458,6 @@ function sizeAnnotateCanvas(): void {
   renderAnnotationsCanvas();
 }
 
-function ellipsePolygon(center: [number, number], radiusX: number, radiusY: number, samples = 28): Array<[number, number]> {
-  const points: Array<[number, number]> = [];
-  for (let index = 0; index < samples; index += 1) {
-    const angle = (index / samples) * Math.PI * 2;
-    points.push([center[0] + radiusX * Math.cos(angle), center[1] + radiusY * Math.sin(angle)]);
-  }
-  return points;
-}
-
 function renderAnnotationsCanvas(): void {
   const context = canvasContext();
   if (!context) return;
@@ -479,10 +471,10 @@ function renderAnnotationsCanvas(): void {
     strokePolygon(context, annotation.screen_polygon);
   }
   if (drawMode !== 'off' && drawPoints.length > 1) {
-    context.strokeStyle = '#fff04d';
+    context.strokeStyle = DRAFT_COLOR;
     context.lineWidth = 2;
     context.setLineDash([6, 4]);
-    strokePolygon(context, drawMode === 'circle' ? circleFromPoints(drawPoints) : drawPoints, drawMode === 'lasso');
+    strokePolygon(context, drawPoints, true);
     context.setLineDash([]);
   }
 }
@@ -492,13 +484,6 @@ function strokePolygon(context: CanvasRenderingContext2D, polygon: Array<[number
   polygon.forEach(([x, y], index) => (index ? context.lineTo(x, y) : context.moveTo(x, y)));
   if (!open) context.closePath();
   context.stroke();
-}
-
-function circleFromPoints(points: Array<[number, number]>): Array<[number, number]> {
-  const start = points[0];
-  const end = points[points.length - 1];
-  const radius = Math.max(Math.hypot(end[0] - start[0], end[1] - start[1]), 8);
-  return ellipsePolygon(start, radius, radius);
 }
 
 annotateCanvas.addEventListener('pointerdown', (event) => {
@@ -521,7 +506,7 @@ annotateCanvas.addEventListener('pointermove', (event) => {
 annotateCanvas.addEventListener('pointerup', async () => {
   if (!drawing) return;
   drawing = false;
-  const polygon = drawMode === 'circle' ? circleFromPoints(drawPoints) : drawPoints;
+  const polygon = drawPoints;
   drawPoints = [];
   if (polygon.length < 3) {
     renderAnnotationsCanvas();
@@ -573,7 +558,7 @@ function canvasPoint(event: PointerEvent): [number, number] {
 
 originalView.onPick = (result: PickResult) => {
   if (drawMode !== 'off' || !result.entityId) return;
-  const kind = result.mode === 'component' ? 'body' : result.mode === 'solid' ? 'body' : result.mode;
+  const kind = result.mode;
   toggleSelectionEntry(result.nodeId, result.entityId, kind);
   if (result.entityId && draft.has(canonicalBySceneId.get(result.entityId) ?? '')) void inspectEntity(result);
 };
@@ -606,7 +591,7 @@ for (const button of Array.from(document.querySelectorAll<HTMLButtonElement>('.r
 
 for (const button of Array.from(document.querySelectorAll<HTMLButtonElement>('.re-mode-button[data-draw-mode]'))) {
   button.addEventListener('click', () => {
-    drawMode = (button.dataset.drawMode as 'off' | 'circle' | 'lasso');
+    drawMode = (button.dataset.drawMode as 'off' | 'lasso');
     document.querySelectorAll<HTMLButtonElement>('.re-mode-button[data-draw-mode]').forEach((item) => item.classList.toggle('active', item === button));
     annotateCanvas.classList.toggle('re-draw-active', drawMode !== 'off');
     originalHost.classList.toggle('re-draw-cursor', drawMode !== 'off');
@@ -631,8 +616,60 @@ $('button#re-fit-button').addEventListener('click', () => {
   rebuiltView.frame();
 });
 
+// -- drag resizers (left/right columns, rebuilt/dock split) --------------------
+
+function bindResizerDrag(
+  handle: HTMLElement,
+  bodyClass: string,
+  onMove: (event: PointerEvent) => void,
+): void {
+  handle.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    handle.classList.add('dragging');
+    document.body.classList.add(bodyClass);
+    handle.setPointerCapture(event.pointerId);
+    const move = (moveEvent: PointerEvent): void => onMove(moveEvent);
+    const finish = (): void => {
+      handle.classList.remove('dragging');
+      document.body.classList.remove(bodyClass);
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', finish);
+      handle.removeEventListener('pointercancel', finish);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', finish);
+    handle.addEventListener('pointercancel', finish);
+  });
+}
+
+const LEFT_MIN_WIDTH = 340;
+const REBUILT_MIN_HEIGHT = 140;
+
+bindResizerDrag(colResizer, 'resizing-panels', (event) => {
+  const startX = Number(colResizer.dataset.startX ?? event.clientX);
+  const startWidth = Number(colResizer.dataset.startWidth ?? leftSection.getBoundingClientRect().width);
+  const maxWidth = workspaceEl.clientWidth - 380;
+  const width = Math.round(Math.min(Math.max(startWidth + (event.clientX - startX), LEFT_MIN_WIDTH), Math.max(maxWidth, LEFT_MIN_WIDTH)));
+  workspaceEl.style.setProperty('--re-left-width', `${width}px`);
+});
+colResizer.addEventListener('pointerdown', (event) => {
+  colResizer.dataset.startX = String(event.clientX);
+  colResizer.dataset.startWidth = String(leftSection.getBoundingClientRect().width);
+});
+
+bindResizerDrag(rowResizer, 'resizing-dock', (event) => {
+  const startY = Number(rowResizer.dataset.startY ?? event.clientY);
+  const startHeight = Number(rowResizer.dataset.startHeight ?? rebuiltSection.getBoundingClientRect().height);
+  const maxHeight = rightSection.clientHeight - 220;
+  const height = Math.round(Math.min(Math.max(startHeight + (event.clientY - startY), REBUILT_MIN_HEIGHT), Math.max(maxHeight, REBUILT_MIN_HEIGHT)));
+  rightSection.style.setProperty('--re-rebuilt-height', `${height}px`);
+});
+rowResizer.addEventListener('pointerdown', (event) => {
+  rowResizer.dataset.startY = String(event.clientY);
+  rowResizer.dataset.startHeight = String(rebuiltSection.getBoundingClientRect().height);
+});
+
 addAnnotationButton.addEventListener('click', addAnnotation);
-roundNoteInput.addEventListener('input', renderContextPreview);
 
 submitButton.addEventListener('click', async () => {
   submitButton.disabled = true;
@@ -643,7 +680,7 @@ submitButton.addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         annotations: annotations.map(serializeAnnotation),
-        note: roundNoteInput.value,
+        note: '',
         snapshot_png: snapshot,
       }),
     });
@@ -674,20 +711,12 @@ for (const button of Array.from(document.querySelectorAll<HTMLButtonElement>('.r
 
 // -- source panel (CodeMirror) + feature DAG tree ------------------------------
 
-const sourceEditor = new PythonEditor({ parent: sourceEditorHost });
+const sourceEditor = new PythonEditor({ parent: sourceEditorHost, theme: reStudioEditorTheme });
 const sourceFiles = new Map<string, string>();
 let currentSourcePath: string | null = null;
 let packageModel: ModelDocument | null = null;
 
-const featureTree = new FeatureTreeView(featureList, {
-  onSelectFeature: (feature) => {
-    selectBottomTab('source');
-    const span = feature.sources[0];
-    if (span?.path && sourceFiles.has(span.path)) {
-      showSourceFile(span.path, { line: span.line, endLine: span.end_line });
-    }
-  },
-});
+const featureTree = new FeatureTreeView(featureList, {});
 
 function showSourceFile(path: string, reveal?: { line: number; endLine: number }): void {
   const content = sourceFiles.get(path);
@@ -736,15 +765,9 @@ function renderFallbackFeatureTree(source: string): void {
   let found = false;
   while ((match = headerPattern.exec(source))) {
     found = true;
-    const line = source.slice(0, match.index).split('\n').length;
-    const row = document.createElement('button');
-    row.type = 'button';
+    const row = document.createElement('div');
     row.className = 're-feature-row';
     row.innerHTML = `<span class="re-feature-op">${escapeHtml(match[2])}</span><span class="re-feature-label">${escapeHtml(match[1])}</span>`;
-    row.addEventListener('click', () => {
-      selectBottomTab('source');
-      showSourceFile('rebuild.py', { line, endLine: line + 12 });
-    });
     featureListFallback.append(row);
   }
   if (!found) featureListFallback.innerHTML = '<div class="re-muted" style="padding:8px">no feature headers found in rebuild.py</div>';

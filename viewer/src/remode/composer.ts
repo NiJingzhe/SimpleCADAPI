@@ -22,6 +22,8 @@ export type TokenComposerOptions = {
   placeholder?: string;
   onChange?: () => void;
   onCommit?: () => void;
+  /** Runs before built-in key handling; return true to consume the key. */
+  onKeydown?: (event: KeyboardEvent) => boolean;
 };
 
 const KIND_GLYPH: Record<ComposerTokenKind, string> = {
@@ -171,6 +173,7 @@ export class TokenComposer {
   }
 
   private handleKeydown(event: KeyboardEvent): void {
+    if (this.options.onKeydown?.(event)) return;
     if (this.composing || event.isComposing || event.keyCode === 229) return;
     if (event.key === 'Enter') {
       event.preventDefault();

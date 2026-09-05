@@ -57,13 +57,10 @@ const highlightField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field),
 });
 
-const editorExtensions: Extension[] = [
+const sharedExtensions: Extension[] = [
   lineNumbers(),
   keymap.of(defaultKeymap),
   python(),
-  syntaxHighlighting(defaultHighlightStyle),
-  syntaxHighlighting(oneDarkHighlightStyle),
-  oneDark,
   highlightField,
   EditorState.readOnly.of(true),
   EditorView.editable.of(false),
@@ -74,9 +71,17 @@ const editorExtensions: Extension[] = [
   }),
 ];
 
+const defaultTheme: Extension[] = [
+  syntaxHighlighting(defaultHighlightStyle),
+  syntaxHighlighting(oneDarkHighlightStyle),
+  oneDark,
+];
+
 export type PythonEditorOptions = {
   parent: HTMLElement;
   content?: string;
+  /** Replaces the default oneDark pairing; used by the re-studio dock. */
+  theme?: Extension[];
 };
 
 /** Read-only CodeMirror 6 Python view with line-range highlighting. */
@@ -85,7 +90,10 @@ export class PythonEditor {
 
   constructor(options: PythonEditorOptions) {
     this.view = new EditorView({
-      state: EditorState.create({ doc: options.content ?? '', extensions: editorExtensions }),
+      state: EditorState.create({
+        doc: options.content ?? '',
+        extensions: [...sharedExtensions, ...(options.theme ?? defaultTheme)],
+      }),
       parent: options.parent,
     });
   }
