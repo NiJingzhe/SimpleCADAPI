@@ -7,6 +7,10 @@ import importlib
 from pathlib import Path
 import sys
 
+import pytest
+
+from simplecadapi.product.placement import placement_frame_mm
+
 from test_product_exporter import _build_nested_package
 
 
@@ -76,11 +80,9 @@ def test_product_payload_resolves_references_and_keeps_solved_placements(
         for record in evaluations[0]["component_placements"]
         if record["instance_id"] == "inner_b"
     )
-    assert inner_b["placement"]["origin"] == [
-        0,
-        -0.3882285676537811,
-        0.051111260566397476,
-    ]
+    assert placement_frame_mm(inner_b["placement"])["origin"] == pytest.approx(
+        [0.0, -0.3882285676537811, 0.051111260566397476]
+    )
 
 
 def test_runtime_uses_shared_nested_product_definitions(tmp_path: Path) -> None:

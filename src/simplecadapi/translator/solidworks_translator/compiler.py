@@ -28,6 +28,7 @@ from OCP.TopAbs import TopAbs_SOLID
 from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
 
 from ...operators import _make_geo_selector
+from ...product.placement import placement_frame_mm
 from ...recording.serializer import _execute_graph, _resolve_shape_from_geo_selector
 from ...topology import OperationGraph
 
@@ -5021,7 +5022,7 @@ class SimpleCADSolidWorksRuntime:
                 if component_id in solved_placements:
                     component['placement'] = {
                         'kind': 'placement',
-                        'params': dict(solved_placements[component_id]),
+                        'params': placement_frame_mm(solved_placements[component_id]),
                     }
                 components.append(component)
             assembly['components'] = components
@@ -5032,7 +5033,7 @@ class SimpleCADSolidWorksRuntime:
             placements = {
                 str(record.get('instance_id') or ''): {
                     'kind': 'placement',
-                    'params': dict(record.get('placement') or {}),
+                    'params': placement_frame_mm(record.get('placement') or {}),
                 }
                 for record in (params.get('component_placements') or [])
                 if isinstance(record, dict)

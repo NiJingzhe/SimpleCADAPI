@@ -28,7 +28,7 @@ from ..product.solver import (
     solve_assembly_constraints,
 )
 from ..product.constraint import ConstraintReport
-from ..product.placement import Placement
+from ..product.placement import Placement, placement_from_canonical, placement_ticks
 from .assembly_state import AssemblyInterfaceSnapshot, effective_interface_hashes
 from .dependency_graph import (
     AssemblyDependencyGraph,
@@ -172,7 +172,7 @@ def propagate_assembly_dirty_state(
     current_instances = {
         component.component_id: {
             "definition_id": definition_by_instance[component.component_id],
-            "placement": component.placement.to_dict(),
+            "placement": placement_ticks(component.placement),
         }
         for component in assembly.components
     }
@@ -318,17 +318,20 @@ def _authored_assembly(
             "authored component placements do not match assembly instances",
         )
     authored = {
-        str(component_id): Placement(**dict(placement)).to_dict()
+        str(component_id): placement_from_canonical(placement)
         for component_id, placement in raw.items()
     }
     restored = assembly
     for component_id, placement in authored.items():
         restored = restored.with_component_placement(
             component_id,
-            Placement(**placement),
+            placement,
         )
-    restored._set_runtime(_AUTHORED_PLACEMENTS_RUNTIME_KEY, authored)
-    return restored, authored
+    restored._set_runtime(
+        _AUTHORED_PLACEMENTS_RUNTIME_KEY,
+        {key: value.to_dict() for key, value in authored.items()},
+    )
+    return restored, {key: value.to_dict() for key, value in authored.items()}
 
 
 def assembly_component_solve_key(
@@ -374,7 +377,7 @@ def assembly_component_solve_key(
             {
                 "instance_id": instance_id,
                 "definition_id": by_id[instance_id],
-                "authored_placement": instance_by_id[instance_id].placement.to_dict(),
+                "authored_placement": placement_ticks(instance_by_id[instance_id].placement),
             }
             for instance_id in component.instance_ids
         ],
@@ -405,7 +408,7 @@ def _encode_component_result(
         "placements": [
             {
                 "instance_id": instance_id,
-                "placement": solved.get_component(instance_id).placement.to_dict(),
+                "placement": placement_ticks(solved.get_component(instance_id).placement),
             }
             for instance_id in component.instance_ids
         ],
@@ -518,11 +521,11 @@ def _apply_component_payload(
             for instance_id in component.instance_ids:
                 candidate = candidate.with_component_placement(
                     instance_id,
-                    Placement(**dict(by_id[instance_id])),
+                    placement_from_canonical(by_id[instance_id]),
                 )
         if any(
-            candidate.get_component(instance_id).placement.to_dict()
-            != dict(by_id[instance_id])
+            placement_ticks(candidate.get_component(instance_id).placement)
+            != placement_ticks(by_id[instance_id])
             for instance_id in component.instance_ids
         ):
             raise ValueError("top-level and occurrence placements differ")
@@ -654,7 +657,7 @@ def solve_assembly_incrementally(
             result = _with_component_path_placement(
                 result,
                 tuple(record["component_path"]),
-                Placement(**dict(record["placement"])),
+                placement_from_canonical(record["placement"]),
             )
         component_results.append(
             ComponentSolveResult(

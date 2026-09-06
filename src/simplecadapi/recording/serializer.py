@@ -54,7 +54,7 @@ from ..product.connector import Connector, ConnectorRef, GeometryRef
 from ..product.constraint import ScalarLimit
 from ..product.material import Material
 from ..product.part import Part
-from ..product.placement import Placement
+from ..product.placement import Placement, placement_ticks
 from ..topology.model import (
     GRAPH_SCHEMA_VERSION,
     OperationGraph,
@@ -2596,10 +2596,10 @@ def _execute_graph(
                                     occurrence_placements,
                                 )
                                 if any(
-                                    result.get_component(
-                                        component_id
-                                    ).placement.to_dict()
-                                    != dict(by_id[component_id])
+                                    placement_ticks(
+                                        result.get_component(component_id).placement
+                                    )
+                                    != placement_ticks(by_id[component_id])
                                     for component_id in authored.component_ids()
                                 ):
                                     ctx.fail(

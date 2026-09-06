@@ -16,6 +16,7 @@ import tempfile
 import zlib
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from ...product.placement import placement_frame_mm
 from ...recording.serializer import _execute_graph
 from ...topology import OperationGraph, OperationNode
 
@@ -2957,7 +2958,16 @@ class SimpleCADFusionRuntime:
             return self._set_output(node, assembly)
         if op == 'make_solve_assembly_constraints_rassembly':
             assembly = dict(self._first_output(inputs[0]))
-            placements = dict(params.get('component_placements') or {})
+            placements = {
+                str(component_id): {
+                    'kind': 'placement',
+                    'params': placement_frame_mm(frame),
+                }
+                for component_id, frame in (
+                    (str(key), value)
+                    for key, value in dict(params.get('component_placements') or {}).items()
+                )
+            }
             components = []
             for component in assembly.get('components') or []:
                 component = dict(component)
@@ -2973,7 +2983,7 @@ class SimpleCADFusionRuntime:
             placements = {
                 str(record.get('instance_id') or ''): {
                     'kind': 'placement',
-                    'params': dict(record.get('placement') or {}),
+                    'params': placement_frame_mm(record.get('placement') or {}),
                 }
                 for record in (params.get('component_placements') or [])
                 if isinstance(record, dict)

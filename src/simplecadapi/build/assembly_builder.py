@@ -41,8 +41,8 @@ from ..recording.graph import GraphSession, get_active_session, record_operation
 from ..product.assembly import Assembly, _component_occurrence_placements
 from ..product.solver import inspect_assembly_constraints
 from ..product.connector import ConnectorRef, resolve_connector_ref_placement
+from ..product.placement import canonical_frame, placement_ticks
 from ..product.part import Part
-from ..product.placement import Placement
 from .assembly_state import (
     AssemblyInterfaceSnapshot,
     load_latest_assembly_state,
@@ -167,7 +167,7 @@ def _solved_snapshot(assembly: Assembly) -> Mapping[str, Any]:
         "component_placements": [
             {
                 "instance_id": component.component_id,
-                "placement": component.placement.to_dict(),
+                "placement": placement_ticks(component.placement),
             }
             for component in sorted(
                 assembly.components,
@@ -183,7 +183,7 @@ def _authored_component_placements(
     assembly: Assembly,
 ) -> Mapping[str, Mapping[str, Any]]:
     current = {
-        component.component_id: component.placement.to_dict()
+        component.component_id: placement_ticks(component.placement)
         for component in assembly.components
     }
     authored = assembly._get_runtime(_AUTHORED_PLACEMENTS_RUNTIME_KEY)
@@ -204,7 +204,7 @@ def _authored_component_placements(
                 "authored component placement must be a frame object",
             )
         try:
-            normalized[str(component_id)] = Placement(**dict(placement)).to_dict()
+            normalized[str(component_id)] = canonical_frame(placement)
         except (TypeError, ValueError) as exc:
             raise ArtifactValidationError(
                 "assembly_provenance_invalid",

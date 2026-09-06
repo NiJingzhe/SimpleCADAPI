@@ -138,6 +138,39 @@ def test_connector_interface_hash_includes_public_name() -> None:
     assert named.interface_hash != unnamed.interface_hash
 
 
+def test_connector_interface_hash_uses_normalized_frame() -> None:
+    raw_frame = {
+        "origin": [41.7193000900063, -14.849242404917511, 0.0],
+        "x_axis": [0.7071067811865474, -0.7071067811865477, 0.0],
+        "y_axis": [0.5000000000000001, 0.49999999999999983, -0.7071067811865475],
+        "z_axis": [0.5000000000000002, 0.4999999999999999, 0.7071067811865476],
+    }
+    connector = ConnectorInterface(
+        connector_id="roller_axis",
+        name=None,
+        anchor_kind="placement",
+        local_frame=raw_frame,
+        binding=None,
+    )
+    payload = canonical_bytes(connector.to_dict())
+    for _ in range(10):
+        connector = ConnectorInterface.from_dict(json.loads(payload))
+        assert canonical_bytes(connector.to_dict()) == payload
+    nearby = deepcopy(raw_frame)
+    nearby["origin"][0] += 1e-10
+    nearby["y_axis"][0] += 1e-15
+    same_chunk = ConnectorInterface(
+        connector_id="roller_axis", name=None, anchor_kind="placement",
+        local_frame=nearby, binding=None,
+    )
+    assert same_chunk.interface_hash == connector.interface_hash
+    changed = json.loads(payload)
+    changed["local_frame"]["origin"][0] += 2_000_000  # 0.002 mm in 1e-9 mm ticks
+    with pytest.raises(ArtifactValidationError) as caught:
+        ConnectorInterface.from_dict(changed)
+    assert caught.value.reason == "hash_invalid"
+
+
 def test_part_definition_canonical_roundtrip_and_blob_validation():
     definition = _part_definition()
     parsed = parse_artifact_json(definition.canonical_bytes, kind="part_definition")

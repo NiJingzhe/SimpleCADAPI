@@ -2,7 +2,32 @@ def _vec(v):
     return App.Vector(float(v[0]), float(v[1]), float(v[2]))
 
 
+_TICK_CHUNK = 1e-9
+
+
+def _is_tick_vector(values):
+    return (
+        isinstance(values, (list, tuple))
+        and len(values) == 3
+        and all(isinstance(item, int) and not isinstance(item, bool) for item in values)
+    )
+
+
+def _frame_mm(payload):
+    origin = payload.get("origin")
+    if origin is not None and all(
+        _is_tick_vector(payload.get(key))
+        for key in ("origin", "x_axis", "y_axis", "z_axis")
+    ):
+        return {
+            key: [component * _TICK_CHUNK for component in payload[key]]
+            for key in ("origin", "x_axis", "y_axis", "z_axis")
+        }
+    return payload
+
+
 def _placement_from_axes_payload(payload):
+    payload = _frame_mm(dict(payload or {}))
     origin = payload.get("origin", (0.0, 0.0, 0.0))
     x_axis = payload.get("x_axis", (1.0, 0.0, 0.0))
     y_axis = payload.get("y_axis", (0.0, 1.0, 0.0))
