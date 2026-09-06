@@ -1,4 +1,10 @@
-/* Reverse-engineering studio layout (re.html entry). */
+/* Reverse-engineering studio layout (re.html entry).
+   Visual language mirrors the .scadpkg viewer (style.css): flat panels,
+   square corners, #202832 hairlines, lime #b3e36b accent, DM Mono labels. */
+
+/* Panels toggle via the hidden attribute; author display rules below must
+   never override it (the source panel is display:flex and would stay visible). */
+[hidden] { display: none !important; }
 
 .re-shell {
   display: flex;
@@ -6,64 +12,89 @@
   height: 100vh;
   background: #0b0e12;
   color: #dfe7f1;
-  font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font: 13px/1.45 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
 .re-topbar {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 10px 16px;
-  border-bottom: 1px solid #1b2129;
-  background: #0d1117;
+  padding: 0 16px;
+  min-height: 48px;
+  border-bottom: 1px solid #202832;
+  background: #10141a;
 }
 
 .re-brand { display: flex; align-items: center; gap: 10px; }
 .re-brand-mark {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border-radius: 7px;
-  background: linear-gradient(135deg, #e5484d, #d6409f);
-  font-weight: 700; font-size: 12px; color: #fff;
+  display: grid; place-items: center;
+  width: 26px; height: 26px; border: 1px solid #b3e36b; color: #b3e36b;
+  font: 500 10px 'DM Mono', ui-monospace, monospace; transform: rotate(-7deg);
 }
-.re-brand strong { display: block; font-size: 13px; letter-spacing: 0.02em; }
-.re-brand span { display: block; color: #8b98a9; font-size: 11px; }
+.re-brand strong { display: block; font-size: 13px; letter-spacing: -0.02em; }
+.re-brand span { display: block; color: #758397; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
 
-.re-top-stats { flex: 1; color: #8b98a9; font-size: 12px; }
+.re-top-stats { flex: 1; color: #738093; font: 500 10px 'DM Mono', ui-monospace, monospace; letter-spacing: 0.04em; }
 .re-top-actions { display: flex; align-items: center; gap: 10px; }
 
-.re-agent-state { font-size: 12px; color: #8b98a9; }
+.re-agent-state { font: 10px 'DM Mono', ui-monospace, monospace; color: #738093; letter-spacing: 0.04em; }
 .re-agent-state.re-agent-waiting { color: #ffd23f; }
 
-.re-quiet-button, .re-submit-button, .re-add-button, .re-mode-button {
-  border: 1px solid #262d37; background: #131920; color: #dfe7f1;
-  border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+.re-quiet-button, .re-submit-button, .re-mode-button, .re-add-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid #303b48; border-radius: 0; background: #151b22; color: #aebdcd;
+  cursor: pointer; font: 500 10px 'DM Mono', ui-monospace, monospace;
+  letter-spacing: 0.06em; text-transform: uppercase;
 }
-.re-mode-button { padding: 5px 9px; font-size: 11px; letter-spacing: 0.03em; }
-.re-mode-button.active { background: #1d2f3f; border-color: #3b82c4; color: #bfdcff; }
-.re-submit-button { background: #14311f; border-color: #2f6f47; color: #9fe6bb; font-weight: 600; }
-.re-submit-button:disabled { opacity: 0.45; cursor: not-allowed; }
-.re-add-button { background: #2b2413; border-color: #6f5c2f; color: #ffe9a8; }
-.re-add-button:disabled { opacity: 0.45; cursor: not-allowed; }
+.re-quiet-button, .re-submit-button { padding: 7px 11px; }
+.re-quiet-button:hover, .re-submit-button:hover:not(:disabled), .re-mode-button:hover, .re-add-button:hover:not(:disabled) {
+  border-color: #b3e36b; color: #b3e36b;
+}
+.re-mode-button { padding: 5px 8px; }
+.re-mode-button.active { border-color: #526d40; background: #18221c; color: #b3e36b; }
+.re-submit-button { border-color: #3d5c43; background: #16211a; color: #9fd8a8; font-weight: 600; }
+.re-submit-button:disabled, .re-add-button:disabled { opacity: 0.4; cursor: not-allowed; }
+.re-add-button { width: 28px; height: 28px; padding: 0; }
 
 .re-workspace {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(480px, 1fr) minmax(480px, 1fr);
+  grid-template-columns: var(--re-left-width, 50%) 7px minmax(360px, 1fr);
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .re-left, .re-right { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.re-left { border-right: 1px solid #1b2129; }
+.re-left { border-right: 0; }
+
+/* -- drag resizers (same interaction as the .scadpkg viewer panels) ---------- */
+
+.re-col-resizer, .re-row-resizer { position: relative; z-index: 4; touch-action: none; background: #10141a; }
+.re-col-resizer { cursor: col-resize; min-width: 0; }
+.re-row-resizer { cursor: row-resize; min-height: 0; }
+.re-col-resizer::before {
+  position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; content: '';
+  background: #202832; transition: background 0.15s, box-shadow 0.15s;
+}
+.re-row-resizer::before {
+  position: absolute; top: 3px; right: 0; left: 0; height: 1px; content: '';
+  background: #202832; transition: background 0.15s, box-shadow 0.15s;
+}
+.re-col-resizer:hover::before, .re-col-resizer.dragging::before,
+.re-row-resizer:hover::before, .re-row-resizer.dragging::before {
+  background: #b3e36b; box-shadow: 0 0 8px rgba(179, 227, 107, 0.5);
+}
 
 .re-toolbar {
-  display: flex; gap: 18px; align-items: center;
-  padding: 8px 12px; border-bottom: 1px solid #1b2129; background: #0d1117;
+  display: flex; gap: 16px; align-items: center;
+  padding: 8px 12px; border-bottom: 1px solid #202832; background: #10141a;
   flex-wrap: wrap;
 }
-.re-tool-group { display: flex; align-items: center; gap: 4px; }
-.re-tool-label { color: #61708555; font-size: 10px; letter-spacing: 0.14em; margin-right: 4px; color: #61708b; }
+.re-tool-group { display: flex; align-items: center; gap: 3px; }
+.re-tool-label { color: #718096; font: 500 9px 'DM Mono', ui-monospace, monospace; letter-spacing: 0.14em; margin-right: 5px; }
 
-.re-viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.re-viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #0b0e12; }
 .re-viewport canvas { display: block; width: 100%; height: 100%; }
 .re-viewport.re-draw-cursor { cursor: crosshair; }
 
@@ -76,90 +107,220 @@
 .re-loading {
   position: absolute; inset: 0; z-index: 6;
   display: flex; align-items: center; justify-content: center; gap: 10px;
-  background: rgba(11, 14, 18, 0.82); color: #8b98a9; font-size: 13px;
+  background: rgba(11, 14, 18, 0.82); color: #8b98a9; font-size: 12px;
 }
 .re-loading.hidden { display: none; }
 .spinner {
-  width: 14px; height: 14px; border-radius: 50%;
-  border: 2px solid #2a323d; border-top-color: #7fa8d4; animation: re-spin 0.9s linear infinite;
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 1px solid #364352; border-top-color: #b3e36b; animation: re-spin 0.7s linear infinite;
 }
 @keyframes re-spin { to { transform: rotate(360deg); } }
 
 .re-selection-info {
-  padding: 7px 12px; border-top: 1px solid #1b2129; border-bottom: 1px solid #1b2129;
-  background: #0d1117; font-size: 12px; min-height: 32px;
+  padding: 7px 12px; border-top: 1px solid #202832; border-bottom: 1px solid #202832;
+  background: #10141a; font-size: 12px; min-height: 32px;
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
-.re-id-list { color: #7fa8d4; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; }
+.re-id-list { color: #7fa8d4; font-family: 'DM Mono', ui-monospace, Menlo, monospace; font-size: 10px; }
 .re-muted { color: #6f7d8e; }
 .re-warn { color: #ffb224; font-size: 11px; }
 
 .re-details summary { cursor: pointer; color: #7fa8d4; font-size: 11px; }
 .re-mini-json {
-  margin: 6px 0 0; padding: 8px; background: #0b0e12; border: 1px solid #1b2129;
-  border-radius: 6px; font-size: 11px; max-height: 220px; overflow: auto; color: #b8c4d4;
+  margin: 6px 0 0; padding: 8px; background: #0b0e12; border: 1px solid #202832;
+  font-size: 11px; max-height: 220px; overflow: auto; color: #b8c4d4;
 }
 
-.re-composer { border-top: 1px solid #1b2129; background: #0d1117; padding: 8px 12px; }
-.re-composer-row, .re-round-row { display: flex; gap: 8px; margin-bottom: 8px; }
-.re-input {
-  background: #10151c; border: 1px solid #262d37; color: #dfe7f1;
-  border-radius: 6px; padding: 6px 10px; font-size: 12px;
-}
-.re-note-input { flex: 1; }
-.re-round-note { flex: 1; }
-.re-chip-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 96px; overflow: auto; }
+.re-composer { border-top: 1px solid #202832; background: #10141a; padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 8px; }
 
-.re-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid #262d37; background: #131920; color: #dfe7f1;
-  border-radius: 999px; padding: 3px 10px; font-size: 11px; cursor: pointer;
-}
+/* -- capsule list (added annotations, colored by their viewport marks) --------- */
+
+.re-capsule-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 132px; overflow-y: auto; }
+.re-capsule-list:empty { display: none; }
 .re-chip-dot {
-  width: 9px; height: 9px; border-radius: 50%;
+  width: 8px; height: 8px; border-radius: 0;
   background: var(--chip-color, #888);
 }
-.re-chip-count {
-  background: #1c2430; border-radius: 8px; padding: 0 6px; color: #9fb2c8; font-size: 10px;
+.re-capsule {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 100%;
+  border: 1px solid var(--chip-color, #888);
+  border-left: 4px solid var(--chip-color, #888);
+  background: #151b22; color: #dfe7f1;
+  border-radius: 0; padding: 3px 8px 3px 8px;
+  font-size: 11px; cursor: pointer;
 }
-.re-chip-text { color: #8b98a9; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.re-chip-remove { color: #6f7d8e; font-weight: 700; padding: 0 2px; }
-.re-chip-remove:hover { color: #ff5c5c; }
+.re-capsule-content {
+  display: block; min-width: 0; max-width: 460px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.re-capsule-remove {
+  border: none; background: none; color: #6f7d8e; font-size: 13px; font-weight: 700;
+  padding: 0 2px; cursor: pointer; line-height: 1;
+}
+.re-capsule-remove:hover { color: #ff5c5c; }
+.re-capsule-bubble {
+  display: none;
+  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 30;
+  width: min(560px, 72vw);
+  background: #10141a; border: 1px solid #2a3440; border-radius: 0;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  padding: 10px 12px; font-size: 12px; line-height: 1.8; color: #dfe7f1;
+  white-space: normal; overflow-wrap: break-word; cursor: default;
+}
+.re-capsule-bubble::after {
+  content: ''; position: absolute; top: 100%; left: 18px;
+  border: 6px solid transparent; border-top-color: #2a3440;
+}
+.re-capsule:hover .re-capsule-bubble { display: block; }
 
-.re-right { display: flex; flex-direction: column; min-height: 0; }
-.re-rebuilt { flex: 1.2; display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid #1b2129; }
+.re-composer-box { position: relative; display: flex; }
+.re-composer-input {
+  flex: 1;
+  background: #0d1218; border: 1px solid #2a3440; color: #dfe7f1;
+  border-radius: 0; padding: 9px 44px 30px 12px; font-size: 12px; line-height: 1.7;
+  min-height: 84px; max-height: 180px; overflow-y: auto; outline: none;
+  white-space: pre-wrap; overflow-wrap: break-word; cursor: text;
+  font-family: inherit;
+}
+.re-composer-input:focus { border-color: #b3e36b; box-shadow: none; }
+.re-composer-input[data-empty='true']::before {
+  content: attr(data-placeholder);
+  color: #56657a; pointer-events: none;
+}
+.re-composer-box .re-add-button {
+  position: absolute; right: 8px; bottom: 8px;
+}
+
+.re-token {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid; border-radius: 0; padding: 0 5px; margin: 0 1px;
+  font-size: 11px; line-height: 1.6; vertical-align: baseline;
+  user-select: all; white-space: nowrap;
+}
+.re-token-glyph {
+  font: 700 8px/1 'DM Mono', ui-monospace, Menlo, monospace;
+  letter-spacing: 0.04em; opacity: 0.9;
+}
+.re-token-label { font-family: 'DM Mono', ui-monospace, Menlo, monospace; }
+
+/* entity kinds: four colors */
+.re-token-face   { color: #a8cdf5; border-color: #33587e; background: rgba(79, 156, 240, 0.13); }
+.re-token-edge   { color: #a9e2bd; border-color: #2f5c42; background: rgba(79, 197, 122, 0.13); }
+.re-token-vertex { color: #f2c4a3; border-color: #7c5232; background: rgba(224, 129, 79, 0.13); }
+.re-token-body   { color: #e7d5a8; border-color: #79622f; background: rgba(201, 162, 79, 0.13); }
+
+/* operation tips: one color per category */
+.re-token-op.re-opcat-sketch    { color: #a8e0da; border-color: #2f5c57; background: rgba(69, 184, 173, 0.12); }
+.re-token-op.re-opcat-boolean   { color: #cdd3dd; border-color: #4a5462; background: rgba(148, 163, 184, 0.13); }
+.re-token-op.re-opcat-solid     { color: #b9c8ee; border-color: #3c4d7e; background: rgba(122, 148, 212, 0.12); }
+.re-token-op.re-opcat-primitive { color: #e6d3ab; border-color: #6f5c33; background: rgba(206, 170, 96, 0.13); }
+.re-token-op.re-opcat-modify    { color: #eeb9c3; border-color: #7e3c4a; background: rgba(212, 122, 138, 0.12); }
+.re-token-op.re-opcat-surface   { color: #d3c4ee; border-color: #4c3a7e; background: rgba(157, 122, 212, 0.12); }
+.re-token-op.re-opcat-pattern   { color: #e6bce6; border-color: #6b3a6b; background: rgba(196, 111, 196, 0.12); }
+
+/* -- slash operation suggest (upward dropdown) -------------------------------- */
+
+.re-op-suggest {
+  position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; z-index: 40;
+  max-height: 300px; overflow-y: auto;
+  background: #10141a; border: 1px solid #2a3440; border-radius: 0;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.55);
+  padding: 4px;
+}
+.re-op-suggest-group {
+  padding: 6px 8px 2px; color: #718096; font: 500 9px 'DM Mono', ui-monospace, monospace; letter-spacing: 0.14em;
+}
+.re-op-suggest-row {
+  display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left;
+  border: none; background: none; color: #dfe7f1;
+  border-radius: 0; padding: 5px 8px; font-size: 12px; cursor: pointer;
+}
+.re-op-suggest-row.active { background: #18221c; }
+.re-op-suggest-name { font-family: 'DM Mono', ui-monospace, Menlo, monospace; font-size: 12px; }
+.re-op-suggest-hint {
+  flex: 1; min-width: 0; color: #8b98a9; font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.re-op-suggest-empty { padding: 8px 10px; color: #6f7d8e; font-size: 12px; }
+
+.re-op-suggest-row.re-opcat-sketch    .re-op-suggest-name { color: #a8e0da; }
+.re-op-suggest-row.re-opcat-boolean   .re-op-suggest-name { color: #cdd3dd; }
+.re-op-suggest-row.re-opcat-solid     .re-op-suggest-name { color: #b9c8ee; }
+.re-op-suggest-row.re-opcat-primitive .re-op-suggest-name { color: #e6d3ab; }
+.re-op-suggest-row.re-opcat-modify    .re-op-suggest-name { color: #eeb9c3; }
+.re-op-suggest-row.re-opcat-surface   .re-op-suggest-name { color: #d3c4ee; }
+.re-op-suggest-row.re-opcat-pattern   .re-op-suggest-name { color: #e6bce6; }
+
+/* -- right column: rebuilt viewport over the dock area, drag-split ------------ */
+
+/* minmax(0, 1fr): without an explicit column the implicit auto track sizes
+   to content, so one long unbreakable line in a code panel widens the whole
+   right column and stretches the rebuilt viewport above it. */
+.re-right { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--re-rebuilt-height, 1.2fr) 7px minmax(140px, 1fr); }
+
+.re-rebuilt { display: flex; flex-direction: column; min-height: 0; }
 .re-rebuilt-body { flex: 1; position: relative; min-height: 0; display: flex; }
 .re-rebuilt-body .re-viewport { flex: 1; }
-#re-comparison-img { flex: 1; object-fit: contain; background: #0b0e12; padding: 8px; }
-.re-tab-state { margin-left: auto; font-size: 11px; padding-right: 10px; }
+#re-comparison-img { flex: 1; object-fit: contain; background: #0b0e12; padding: 8px; min-width: 0; }
+.re-tab-state { margin-left: auto; font-size: 10px; padding-right: 10px; }
 
-.re-bottom { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.re-bottom { display: flex; flex-direction: column; min-height: 0; }
 .re-bottom-body { flex: 1; min-height: 0; overflow: auto; position: relative; }
 
 .re-tabbar {
-  display: flex; align-items: center; gap: 2px;
-  border-bottom: 1px solid #1b2129; background: #0d1117; padding: 0 8px;
+  display: flex; align-items: center; gap: 0;
+  border-bottom: 1px solid #202832; background: #10141a; padding: 0 8px;
 }
 .re-tab {
-  border: none; background: none; color: #6f7d8e; font-size: 11px; letter-spacing: 0.05em;
-  padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent;
+  display: inline-flex; align-items: center; gap: 6px;
+  border: none; border-bottom: 2px solid transparent; background: none;
+  color: #718094; font: 500 10px 'DM Mono', ui-monospace, monospace;
+  letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap;
+  padding: 9px 11px; cursor: pointer;
 }
-.re-tab.active { color: #bfdcff; border-bottom-color: #3b82c4; }
+.re-tab:hover { color: #dce5ee; background: #151b22; }
+.re-tab.active { color: #b3e36b; border-bottom-color: #b3e36b; background: #151d1b; }
+.re-tab .ui-icon, .re-quiet-button .ui-icon, .re-submit-button .ui-icon,
+.re-mode-button .ui-icon, .re-add-button .ui-icon { width: 12px; height: 12px; }
 
 .re-code {
-  margin: 0; padding: 12px; font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  margin: 0; padding: 12px; font-family: 'DM Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   font-size: 12px; line-height: 1.5; color: #c7d3e2; white-space: pre; overflow: auto;
   height: 100%; box-sizing: border-box;
 }
 
+/* -- source panel: file tabs + read-only CodeMirror -------------------------- */
+
+.re-source-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.re-source-tabs {
+  display: flex; gap: 2px; padding: 4px 8px 0;
+  border-bottom: 1px solid #202832; background: #10141a;
+}
+.re-source-tab {
+  border: 1px solid #2a3440; border-bottom: none; background: #0d1218; color: #738093;
+  border-radius: 0; padding: 4px 10px; font-size: 11px; cursor: pointer;
+  font-family: 'DM Mono', ui-monospace, monospace;
+}
+.re-source-tab.active { color: #dce5ee; border-color: #3d4a58; background: #151b22; }
+.re-source-editor { flex: 1; min-height: 0; overflow: hidden; }
+.re-source-editor .cm-editor { font-size: 11px; }
+
+/* -- feature tree (shared tree-row styles come from style.css) ---------------- */
+
+.re-feature-tree { height: 100%; overflow: auto; padding: 4px 0; }
 .re-feature-list { padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .re-feature-row {
   display: flex; gap: 10px; align-items: baseline; text-align: left;
-  border: 1px solid #1b2129; background: #10151c; color: #dfe7f1;
-  border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px;
+  border: 1px solid #202832; background: #0d1218; color: #dfe7f1;
+  border-radius: 0; padding: 6px 10px; font-size: 12px;
 }
-.re-feature-op { color: #ffb224; font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+.re-feature-row:hover { border-color: #3d4a58; }
+.re-feature-op { color: #91b8ed; font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; }
 .re-feature-label { color: #b8c4d4; }
+/* rows are informational only — no click-to-code navigation */
+.re-feature-tree .tree-row, .re-feature-tree .tree-row:hover { cursor: default; }
 
 .re-submission { padding: 10px 12px; font-size: 12px; display: flex; flex-direction: column; gap: 6px; }
 .re-submission-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
@@ -167,6 +328,29 @@
 
 .re-footer {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 6px 16px; border-top: 1px solid #1b2129; background: #0d1117;
-  color: #8b98a9; font-size: 11px;
+  padding: 0 16px; min-height: 26px; border-top: 1px solid #202832; background: #10141a;
+  color: #657487; font: 9px 'DM Mono', ui-monospace, monospace; letter-spacing: 0.04em;
+}
+
+/* -- code areas scroll horizontally with a visible bar (global chrome hides
+   scrollbars; these panels need an obvious horizontal affordance) ------------- */
+
+.re-bottom-body, .re-code, .re-source-editor .cm-scroller, .re-feature-tree {
+  scrollbar-width: auto;
+}
+.re-bottom-body::-webkit-scrollbar, .re-code::-webkit-scrollbar,
+.re-source-editor .cm-scroller::-webkit-scrollbar, .re-feature-tree::-webkit-scrollbar {
+  display: block; width: 8px; height: 8px;
+}
+.re-bottom-body::-webkit-scrollbar-track, .re-code::-webkit-scrollbar-track,
+.re-source-editor .cm-scroller::-webkit-scrollbar-track, .re-feature-tree::-webkit-scrollbar-track {
+  background: #0d1218;
+}
+.re-bottom-body::-webkit-scrollbar-thumb, .re-code::-webkit-scrollbar-thumb,
+.re-source-editor .cm-scroller::-webkit-scrollbar-thumb, .re-feature-tree::-webkit-scrollbar-thumb {
+  border-radius: 0; background: #344353;
+}
+.re-bottom-body::-webkit-scrollbar-thumb:hover, .re-code::-webkit-scrollbar-thumb:hover,
+.re-source-editor .cm-scroller::-webkit-scrollbar-thumb:hover, .re-feature-tree::-webkit-scrollbar-thumb:hover {
+  background: #52677c;
 }

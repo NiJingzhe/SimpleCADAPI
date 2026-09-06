@@ -6,6 +6,120 @@
 
 [English](README.md)
 
+## 它能做什么
+
+四块能力支柱。下面每个 case 都是**真实、可复现的会话**：回放 demo 是单文件离线
+HTML，忠实回放完整录制的对话（用户输入、Agent 思考、每一次工具调用与补丁、角色
+切换），旁边就是导出的 3D 模型 —— 浏览器直接打开即可。
+
+### 1 · 单零件建模
+
+以可读的[特征树规约](docs/skill/references/discipline/feature-tree-convention.md)
+特征块编写参数化零件 —— 带单位的命名参数、验证先行的分阶段建模、改参后仍然命中的
+确定性面标签，以及同步产出的 `.scadpkg` / STEP AP242 / STL / 可编辑 FreeCAD 工程。
+
+<table>
+<tr>
+<th width="18%">案例</th>
+<th width="40%">首轮需求（prompt 节选）</th>
+<th width="42%">交付模型 · BRep 旋转展示</th>
+</tr>
+<tr>
+<td><b>机械臂 U 形连杆 + 电机安装槽</b><br/>15 轮用户输入 · 601 次工具调用<br/><a href="examples/u_link_motor_mount/demo/index.html">▶ 完整会话回放</a></td>
+<td>“构建参数化的机械臂连杆，能适应长度变化、通用安装电机：圆形 profile 沿『下 D → 右 L → 上 D』扫掠成 U 形；两侧圆珠 boolean cut 切出电机安装槽，安装面必须有确定命名、可被查询语言索引；底部圆柱切成半圆柱；然后全局倒角平滑。”</td>
+<td><img src="img/capability/ulink_turntable.gif" width="420" alt="u_link 旋转展示"></td>
+</tr>
+<tr>
+<td><b>参数化法兰盘</b><br/>2 轮用户输入 · 66 次工具调用<br/><a href="examples/flange_plate/demo/index.html">▶ 完整会话回放</a></td>
+<td>“参数化法兰盘：外径 100、厚 10、凸台 ⌀55 顶高 30、中心孔 ⌀30、6×⌀11 螺栓孔 @PCD 78、根部 R3 / 外缘 R2 圆角；所有尺寸走命名参数；每次圆角前打印选边卡；参数可行性守卫；一个 feature 一个块。”<br/><br/><i>GIF 为终态 8 孔 @PCD 84.5：第 2 轮改参 6→8 孔，PCD 88 被守卫当场拒绝、85 因圆角相切排除。</i></td>
+<td><img src="img/capability/flange_turntable.gif" width="420" alt="法兰旋转展示"></td>
+</tr>
+<tr>
+<td><b>筋板 L 形支架（FEM 主模型）</b><br/>2 轮用户输入 · 49 次工具调用<br/><a href="examples/12_ap242_gmsh_volume_mesh/demo/index.html">▶ 完整会话回放</a></td>
+<td>“把已有的 L 形直角连接件 legacy 脚本按 single-part-modeling 工作流正式化：FTC 特征块 + 命名参数重建；与旧版几何等价（体积偏差 &lt; 0.1%）；<code>interface.*</code> FEM 边界标签必须原样保留——下游 Gmsh/CalculiX 按标签选面。”</td>
+<td><img src="img/capability/bracket_turntable.gif" width="420" alt="支架旋转展示"></td>
+</tr>
+旋转展示由仓库内 [Scene Viewer](viewer/) 的 BRep 渲染器渲染（面着色 + 宽棱边），
+一圈 = 48 个确定性方位角步进，经 `viewer/gif-harness.html` 驱动生成。
+
+</table>
+
+### 2 · 装配体建模
+
+嵌套持久装配体 + 显式运动学：齿轮啮合、转动副、轴承接口都是被求解的约束，不是目测
+摆放。标准件 —— 渐开线齿轮、带滚珠的轴承子装配、滚子链轮、真实牙型公制紧固件 ——
+全部来自 `scad.std.*`，组合成机构后可导出 STEP、可编辑 FreeCAD 工程和面向物理引擎
+的 MJCF。
+
+<table>
+<tr>
+<td width="44%" align="center" valign="top">
+<img src="img/capability/bldc_assembly.png" alt="BLDC 关节执行器装配态"><br/>
+<b>一体化 BLDC 关节执行器</b> —— 装配态（影棚渲染）<br/>
+29 个组件 · 51 条约束全部解算 · 两级行星减速 20:1
+</td>
+<td width="56%" align="center" valign="top">
+<img src="img/capability/bldc_exploded.gif" width="430" alt="BLDC 关节执行器爆炸旋转"><br/>
+<b>同一模型</b> —— 爆炸旋转展示：四个模块（电调 · 电机 ·<br/>
+双级减速器 · 输出轴）沿轴向分离，模块内同心零件按半径<br/>
+分层剥离；相机沿倾斜圆轨道环绕
+</td>
+</tr>
+</table>
+
+复现方式：`uv run python examples/20_integrated_bldc_joint_actuator/main.py`
+从零构建装配包；`render_showcase.py` 渲染上述视图；`export_all.py` 导出
+STEP / 可编辑 FCStd / MJCF。
+
+### 3 · 逆向工程
+
+导入 STEP，在浏览器里检查 BREP，直接点选你关注的几何对象——每次点选都会以标签
+形式落进标注输入框，旁边配上操作意图（sketch · boolean · fillet · 阵列…）和自由
+备注。你的逆向思路挂在具体的面标签上，agent 收到的是被收窄的搜索空间，而不是从
+零盲猜——人机协作全程录制、可回放。
+
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/reverse_studio_mvp.gif" alt="re-studio：点选面、标注意图，agent 重建"><br/>
+<b>re-studio MVP</b> —— 在 STEP 目标上点选面、逐条叠加操作意图与备注后提交；
+agent 据此对连杆全部 37 个面做分类，从你的上下文出发开始重建 ·
+<a href="img/capability/reverse_studio_mvp.mp4">▶ 完整视频</a>
+</td>
+</tr>
+</table>
+
+### 4 · 仿真插件
+
+同一份参数化包直接喂给下游求解器，无需人工返工：AP242 STEP 进 Gmsh 体网格 +
+CalculiX 静力 FEM（边界面按保真的 `interface.*` 标签选取，仿真链在模型改版后依然
+成立），MJCF 进 MuJoCo 做机构动力学——仿真环境里的虚拟碰撞检查会暴露装配干涉，
+驱动修正，直到机构全程干净运动。
+
+<table>
+<tr>
+<td width="34%" align="center" valign="top" rowspan="2">
+<img src="img/capability/ap242_gmsh_bracket_static_von_mises.png" alt="支架 FEM von Mises 云图"><br/>
+<b>L 形支架静力 FEM</b> —— CalculiX von Mises 云图<br/>
+经 Gmsh OpenCASCADE 内核从 AP242 导出体网格
+</td>
+<td width="33%" align="center" valign="top">
+<img src="img/capability/fourbar_collision_before.gif" alt="MuJoCo 中四连杆相互碰撞贯穿"><br/>
+<b>四连杆 + MuJoCo</b> —— 首次装配：连杆在运动中撞在一起，装配不对 ·
+<a href="img/capability/fourbar_collision_before.mp4">▶ 完整视频</a>
+</td>
+</tr>
+<tr>
+<td width="33%" align="center" valign="top">
+<img src="img/capability/fourbar_collision_after.gif" alt="修正后的四连杆在 MuJoCo 中全程干净运动"><br/>
+<b>虚拟碰撞修正后</b> —— 同一仿真环境，修正后的装配全程干净运动 ·
+<a href="img/capability/fourbar_collision_after.mp4">▶ 完整视频</a>
+</td>
+</tr>
+</table>
+
+---
+
 ## 更新日志（2.0.4b3 开发中）
 
 > **Beta 版本：** 用于生产前，请验证生成的定义、装配约束和制造几何。

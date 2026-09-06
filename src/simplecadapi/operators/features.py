@@ -10,6 +10,8 @@ from .geometry import (
     make_helix_rwire,
 )
 
+from OCP.TopoDS import TopoDS_Shape
+
 def extrude_rsolid(
     profile: Union[Wire, Face],
     direction: Tuple[float, float, float],
@@ -234,7 +236,7 @@ def _normalize_shape_input(
 ) -> List[AnyShape]:
     """Normalize rendering input into a flat list of shapes."""
 
-    if isinstance(shapes, _EXPORTABLE_TYPES):
+    if isinstance(shapes, (_EXPORTABLE_TYPES, TopoDS_Shape)):
         return [shapes]
 
     if isinstance(shapes, Sequence) and not isinstance(shapes, (str, bytes)):
@@ -244,20 +246,26 @@ def _normalize_shape_input(
         return normalized
 
     raise ValueError(
-        "rendering accepts Compound, Solid, Shell, Face, Wire, Edge, Vertex, or nested sequences of those types"
+        "rendering accepts Compound, Solid, Shell, Face, Wire, Edge, Vertex, "
+        "raw TopoDS_Shape, or nested sequences of those types"
     )
 
-SCREENSHOT_VIEWS: Tuple[Tuple[float, float, str], ...] = (
-    (28.0, -45.0, "isometric"),
-    (90.0, -90.0, "top / X-Y"),
-    (0.0, -90.0, "front / X-Z"),
-    (0.0, 0.0, "side / Y-Z"),
-)
-"""Default multi-view set used by render_screenshot_rpath."""
+def _screenshot_views() -> Tuple[Tuple[float, float, str], ...]:
+    """Default multi-view set used by render_screenshot_rpath (engine-owned)."""
+    from ..inspect.brep.render import SCREENSHOT_VIEWS
+
+    return SCREENSHOT_VIEWS
+
+
+def __getattr__(name: str):
+    # 保持 SCREENSHOT_VIEWS 的模块属性兼容（PEP 562，懒加载避免 VTK 导入开销）
+    if name == "SCREENSHOT_VIEWS":
+        return _screenshot_views()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def render_screenshot_rpath(
-    shapes: Union[Solid, Sequence[Solid]],
+    shapes: Union[Solid, Sequence[Solid], Any],
     output_path: str,
     highlight_tags: Optional[Sequence[str]] = None,
     tag_labels: Optional[Dict[str, str]] = None,
@@ -268,25 +276,71 @@ def render_screenshot_rpath(
     show_legend: bool = True,
     zoom: float = 4.0,
     show_callouts: bool = True,
+    linear_deflection: Optional[float] = None,
+    angular_deflection: Optional[float] = None,
+    style: str = "studio",
+    edge_width_scale: Optional[float] = None,
+    view_up: Optional[Sequence[float]] = None,
+    supersample: int = 2,
 ) -> str:
-    """Render SDK solids through the shared OCCT/VTK BREP renderer.
+    """Render solids or raw TopoDS shapes through the one OCCT/VTK pipeline.
 
-    By default every render is a multi-view grid (SCREENSHOT_VIEWS: isometric,
-    top, front, side) carrying highlight-tag color groups, callout labels with
-    leader lines, a legend and per-panel axis triads. Pass an explicit
-    ``view`` (preset name or ``(elevation, azimuth)``) for the legacy
-    single-view image, or ``views`` to choose a custom view set.
+    ``shapes`` accepts SDK ``Solid`` objects (with full tag highlight,
+    callout and legend support) or raw ``TopoDS_Shape`` entries from the
+    STEP inspection family (same engine, same edge ink and supersampling,
+    no tag features).
+
+    There is exactly one output form: a multi-view grid of one to four
+    panels, each carrying annotations. ``view="auto"`` (default) uses the
+    standard four-view set; an explicit preset name or ``(elevation,
+    azimuth)`` pair renders a single full-frame panel; ``views`` accepts
+    up to four explicit ``(elevation, azimuth, label)`` triples.
+    ``zoom`` applies to single-panel renders only.
+
+    ``supersample (default 2) renders at an integer multiple and
+    downsamples with LANCZOS for deterministic crisp edges; 1 renders 1:1.
+    ``style="studio"`` turns the single-view path into a product shot
+    (gradient backdrop, three-point lighting, bold tubed BRep edges);
+    ``linear_deflection``/``angular_deflection`` tighten the tessellation
+    for high-resolution exports. ``edge_width_scale`` tunes the studio edge
+    tube radius as a fraction of model span (default 0.0026; use ~0.001 for
+    exploded stacks so the ink does not swamp small parts).
     """
     try:
         from ..inspect.brep.render import _render_sdk_screenshot_rpath
 
         shape_list = _normalize_shape_input(shapes)
-        solids = [shape for shape in shape_list if isinstance(shape, Solid)]
+        solids = [
+            shape for shape in shape_list if isinstance(shape, (Solid, TopoDS_Shape))
+        ]
         if len(solids) != len(shape_list) or not solids:
-            raise ValueError("render_screenshot_rpath only supports Solid inputs")
+            raise ValueError(
+                "render_screenshot_rpath supports Solid or raw TopoDS_Shape inputs"
+            )
         resolved_views = views
         if resolved_views is None and (view is None or view == "auto"):
-            resolved_views = SCREENSHOT_VIEWS
+            resolved_views = _screenshot_views()
+        # Agent-facing contract: a requested tag that matches nothing is
+        # almost certainly a typo or a tag from a different build stage —
+        # fail loudly instead of silently labelling empty air.
+        missing = sorted(
+            tag
+            for tag in (str(item) for item in (highlight_tags or ()))
+            if not any(
+                isinstance(shape, Solid) and shape._has_tag(tag)
+                or (
+                    isinstance(shape, Solid)
+                    and any(face._has_tag(tag) for face in shape._iter_faces())
+                )
+                for shape in solids
+            )
+        )
+        if missing:
+            raise ValueError(
+                "highlight_tags matched no geometry: "
+                + ", ".join(missing)
+                + " — check tag names and the build stage that produced them"
+            )
         return str(
             _render_sdk_screenshot_rpath(
                 solids,
@@ -299,7 +353,13 @@ def render_screenshot_rpath(
                 show_legend=show_legend,
                 zoom=zoom,
                 show_callouts=show_callouts,
+                linear_deflection=linear_deflection,
+                angular_deflection=angular_deflection,
                 views=resolved_views,
+                style=style,
+                edge_width_scale=edge_width_scale,
+                view_up=tuple(float(value) for value in view_up) if view_up is not None else None,
+                supersample=supersample,
             )
         )
     except Exception as e:

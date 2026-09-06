@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from OCP.BRep import BRep_Tool
+
 from simplecadapi._internal.mesh import (
     DEFAULT_ANGULAR_TOLERANCE,
     DEFAULT_LINEAR_TOLERANCE,
@@ -28,6 +30,11 @@ from simplecadapi.scene.canonical import canonical_json_bytes
 from simplecadapi.scene.compiler import _curve_geometry, _surface_geometry
 from simplecadapi.scene.glb_writer import write_line_glb, write_triangle_glb
 from simplecadapi.scene.render_mesh import build_edge_mesh, build_render_mesh
+
+# Edges are cheap lines but carry the perceived curvature of the model, so they
+# tessellate tighter than faces (defaults: 0.35 mm / 0.22 rad).
+EDGE_LINEAR_TOLERANCE = 0.1
+EDGE_ANGULAR_TOLERANCE = 0.1
 
 _IDENTITY_TRANSFORM: dict[str, Any] = {
     "origin": [0.0, 0.0, 0.0],
@@ -141,8 +148,8 @@ def build_step_scene(step_path: str | Path) -> StepScene:
         edge_mesh = build_edge_mesh(
             solid,
             edge_entity_ids=scene_edge_ids,
-            linear_tolerance=DEFAULT_LINEAR_TOLERANCE,
-            angular_tolerance=DEFAULT_ANGULAR_TOLERANCE,
+            linear_tolerance=EDGE_LINEAR_TOLERANCE,
+            angular_tolerance=EDGE_ANGULAR_TOLERANCE,
         )
         triangle_glb = write_triangle_glb(render_mesh)
         line_glb = write_line_glb(edge_mesh)
@@ -196,6 +203,10 @@ def build_step_scene(step_path: str | Path) -> StepScene:
                 }
             )
         for edge, canonical_id, scene_id in zip(edges, edge_ids, scene_edge_ids):
+            # On a solid every edge touches >= 2 distinct faces; fewer means a
+            # seam (the doubled edge of a closed surface, e.g. a cylinder wall).
+            # Pro CAD viewers hide both seams and degenerate edges by default.
+            incident_faces = {face.topo_id for face in edge.get_incident_faces()}
             entities.append(
                 {
                     "entity_id": scene_id,
@@ -208,6 +219,8 @@ def build_step_scene(step_path: str | Path) -> StepScene:
                     "properties": {
                         "length": edge.get_length(),
                         "centroid": _vec3(edge.get_center()),
+                        "seam": len(incident_faces) < 2,
+                        "degenerate": BRep_Tool.Degenerated_s(edge.wrapped),
                     },
                     "tags": [],
                 }
