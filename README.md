@@ -580,7 +580,7 @@ python3 -m compileall src/simplecadapi
 
 ## License
 
-AGPL-3.0, see [`LICENSE`](LICENSE).
+Apache-2.0, see [`LICENSE`](LICENSE).
 
 ## Community
 

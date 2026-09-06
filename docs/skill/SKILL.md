@@ -1,7 +1,7 @@
 ---
 name: simplecadapi
 description: Build, assemble, inspect, reconstruct, and export parametric CAD models with the SimpleCADAPI Python SDK. Use for SimpleCAD geometry modeling, constrained sketches, parts and assemblies, standard gears and bearings, STEP/BREP inspection and reconstruction, durable product packages, model JSON replay, and CAD backend translation.
-license: AGPL-3.0
+license: Apache-2.0
 metadata:
   project: simplecadapi
   version: 2.0.4b3
