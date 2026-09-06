@@ -105,8 +105,8 @@ Index getters are for intentional picks you can name in this step —
 never for discovering which edges to blend.
 
 Predicate vocabulary, lineage routes, copy-paste recipes, and
-shared-boundary failure signatures (tangency, overhang):
-`docs/guides/ql-selection-playbook.md`.
+shared-boundary failure signatures (tangency, overhang): `ql-playbook.md`
+in the skill references root.
 
 ## Replay as a gate
 
