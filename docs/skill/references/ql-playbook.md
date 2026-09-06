@@ -34,15 +34,24 @@ around it as shown.
    face (different cache). `apply_tag_rselection` returns a clone — always
    reassign the returned view. Pass `targets` as a **resolved list**; an
    unresolved selector as `targets` yields a clone foreign to the active
-   session (the next operation rejects it with "graph node not owned by
-   active graph"). Tag a shape **before** the next operation consumes it:
-   retagging a consumed shape fails the same way — re-derive the selectors
-   from the newest result instead.
+   session, and the next operation rejects it with "graph node not owned by
+   active graph" (same surface message as the timing defect in rule 3).
 
-3. **Enumerate with QL, not plural getters.** `ql.edges().resolve(shape)`,
+3. **Tag in time — the tag lands in the step right after the operation
+   that produced the targets.** Projections into later outputs are
+   computed when each operation runs, so a tag that arrives after a
+   later operation has already consumed the shape can never reach
+   anything. Tagging there is rejected with "graph node not owned by
+   active graph" — the message names ownership, but the real defect is
+   timing. When targets only become addressable later, re-derive the
+   selectors from the newest result and tag immediately, before the
+   next operation consumes it (Pattern B tags the seam directly after
+   the union; the bore recipe below tags right after the cut).
+
+4. **Enumerate with QL, not plural getters.** `ql.edges().resolve(shape)`,
    never bare `get_edges()` (raises by design; enumeration is QL-exclusive).
 
-4. **Pick the naming channel by the reach you need:**
+5. **Pick the naming channel by the reach you need:**
 
    | Channel | Example | Survives boolean | Survives fillet/chamfer |
    | --- | --- | --- | --- |
@@ -270,8 +279,8 @@ envelopes, `discipline/mechanical-modeling.md`).
 
 ## Recipe: tagged bore -> rim chamfer
 
-Tag the bore wall right after the cut (Ground rule 2: tag before the next
-operation consumes the shape), then chamfer its top rim:
+Tag the bore wall right after the cut (Ground rule 3: tag in time),
+then chamfer its top rim:
 
 ```python
 bore_faces = bore.resolve(solid)              # resolve first — see Ground rule 2
@@ -295,7 +304,8 @@ Gotchas this recipe absorbs:
   list) produces a clone foreign to the active session; the next
   operation rejects it with "graph node not owned by active graph".
   Tagging a shape that a later operation has already consumed fails
-  the same way — tag immediately after the op that produced the faces.
+  the same way — tag immediately after the op that produced the
+  faces (Ground rule 3).
 - Objects live in one `GraphSession`; passing a solid into operations
   under another session fails loudly. Keep the whole build in one.
 
