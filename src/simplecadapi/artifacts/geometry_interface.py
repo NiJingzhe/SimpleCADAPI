@@ -30,6 +30,7 @@ from .canonical import canonical_bytes, content_hash
 
 _GEOMETRY_INTERFACE_PROFILE = "simplecad-geometry-interface-1"
 _DEFAULT_TOLERANCE = 1.0e-7
+_BOUNDS_QUANTUM = 1.0e-4
 _TOLERANCE_PROFILES = {
     "simplecad-default": _DEFAULT_TOLERANCE,
     "simplecad-strict": 1.0e-9,
@@ -121,13 +122,19 @@ def _mass(shape: TopoDS_Shape, kind: str) -> tuple[float, tuple[float, float, fl
 
 
 def _bounds(shape: TopoDS_Shape, tolerance: float) -> tuple[Any, ...]:
+    # Bounds are extents, not dimensional definitions: AddOptimal's result
+    # wobbles by up to one shape-tolerance quantum between a freshly built
+    # shape and the same shape read back from BRep bytes, so the quantization
+    # grid must be far coarser than that wobble or the fingerprint flips on
+    # every round-trip (observed as whole-graph refined-hash cascades).
+    del tolerance
     box = Bnd_Box()
     box.SetGap(0.0)
     BRepBndLib.AddOptimal_s(shape, box, False, False)
     xmin, ymin, zmin, xmax, ymax, zmax = (float(value) for value in box.Get())
     return (
-        _qvec((xmin, ymin, zmin), tolerance),
-        _qvec((xmax, ymax, zmax), tolerance),
+        _qvec((xmin, ymin, zmin), _BOUNDS_QUANTUM),
+        _qvec((xmax, ymax, zmax), _BOUNDS_QUANTUM),
     )
 
 

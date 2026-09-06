@@ -10,7 +10,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE_DIR = ROOT / "examples" / "12_ap242_gmsh_volume_mesh"
+EXAMPLE_DIR = ROOT / "examples" / "ap242_gmsh_volume_mesh"
 MODEL_EXAMPLE = EXAMPLE_DIR / "model.py"
 DOWNSTREAM_EXAMPLES = {
     "fcstd": EXAMPLE_DIR / "export_fcstd.py",
@@ -218,7 +218,7 @@ class TestAP242GmshExample(unittest.TestCase):
                 mesh.OUT_DIR,
                 *(module.OUT_DIR for module in downstream.values()),
             },
-            {ROOT / "examples" / "out" / "ap242_gmsh_volume_mesh"},
+            {EXAMPLE_DIR / "out"},
         )
 
     def test_example_covers_every_package_exporter_and_translator(self):

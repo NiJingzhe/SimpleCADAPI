@@ -1,24 +1,20 @@
-"""Render the 4-view demo set for flange_plate (8-hole, PCD 84.5).
+"""Render the demo gallery views for ap242_gmsh_volume_mesh.
 
-Views (BUILD_PLAN S3 visual contract):
-  render_iso.png    (30, 45)   isometric
-  render_front.png  (0, 0)     front (+X toward viewer)
-  render_top.png    (90, 0)    top down +Z
-  render_detail.png (25, 20) zoom 9 — bolt hole + boss root fillet close-up
+Views (demo/build.py gallery): isometric, top, and the mount-hole detail.
 """
 from pathlib import Path
 
-import flange_plate as fp
 import simplecadapi as scad
+
+import model
 
 OUT = Path(__file__).resolve().parent / "out"
 OUT.mkdir(parents=True, exist_ok=True)
 
-body = fp.build_solid()
+body = model.build_bracket().part.body
 
 views = {
     "render_iso.png": dict(view=(30.0, 45.0), zoom=4.0),
-    "render_front.png": dict(view=(0.0, 0.0), zoom=4.0),
     "render_top.png": dict(view=(90.0, 0.0), zoom=4.0),
     "render_detail.png": dict(view=(25.0, 20.0), zoom=9.0),
 }

@@ -20,38 +20,14 @@ def _source_files() -> tuple[Path, ...]:
     )
 
 
-FORMAL_EXAMPLE_PACKAGES = {
-    "examples/04_dimension_tolerance_chain.py": (
-        "examples/out/dimension_tolerance_chain/dimension_tolerance_chain.scadpkg"
-    ),
-    "examples/08_constrained_sketch.py": (
-        "examples/out/constrained_sketch/constrained_sketch.scadpkg"
-    ),
-    "examples/10_part_assembly.py": (
-        "examples/out/hydraulic_rod_assembly/hydraulic_rod_assembly.scadpkg"
-    ),
-    "examples/11_external_reference_gear_train.py": (
-        "examples/out/external_reference_gear_train/"
-        "nested_external_reference_gear_trains.scadpkg"
-    ),
-    "examples/7ep_caplcd_enclosure.py": (
-        "examples/out/7ep_caplcd_enclosure/caplcd_enclosure_7ep.scadpkg"
-    ),
-    "examples/16_compact_two_stage_planetary_reducer/main.py": (
-        "examples/out/compact_two_stage_planetary_reducer/"
-        "compact_two_stage_planetary_reducer.scadpkg"
-    ),
-    "examples/20_integrated_bldc_joint_actuator/main.py": (
-        "examples/out/integrated_bldc_joint_actuator/"
-        "integrated_bldc_joint_actuator.scadpkg"
-    ),
-}
 
 
 class TestExampleModelContract(unittest.TestCase):
-    def test_example_10_output_dir_is_anchored_to_the_example_file(self):
-        path = EXAMPLES / "10_part_assembly.py"
-        spec = importlib.util.spec_from_file_location("example_10_path_contract", path)
+    def test_hydraulic_rod_assembly_output_dir_is_anchored_to_the_example_file(self):
+        path = EXAMPLES / "hydraulic_rod_assembly" / "model.py"
+        spec = importlib.util.spec_from_file_location(
+            "hydraulic_rod_assembly_path_contract", path
+        )
         self.assertIsNotNone(spec)
         assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)
@@ -60,7 +36,7 @@ class TestExampleModelContract(unittest.TestCase):
         self.assertTrue(module.OUT_DIR.is_absolute())
         self.assertEqual(
             module.OUT_DIR,
-            EXAMPLES / "out" / "hydraulic_rod_assembly",
+            EXAMPLES / "hydraulic_rod_assembly" / "out",
         )
 
 
@@ -72,7 +48,7 @@ class TestExampleModelContract(unittest.TestCase):
             self.assertNotIn("scad.capture_result", source, path)
 
     def test_bldc_bearing_decorative_balls_are_part_of_outer_ring(self):
-        example_dir = EXAMPLES / "20_integrated_bldc_joint_actuator"
+        example_dir = EXAMPLES / "integrated_bldc_joint_actuator"
         sys.path.insert(0, str(example_dir))
         try:
             path = example_dir / "bearings.py"

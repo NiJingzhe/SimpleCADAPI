@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import simplecadapi as scad  # noqa: E402
 import flange_plate as fp  # noqa: E402
 
-OUT = Path(__file__).resolve().parents[1] / "out" / "flange_plate"
+OUT = Path(__file__).resolve().parent / "out"
 PKG = OUT / "flange_plate.scadpkg"
 
 

@@ -12,7 +12,7 @@ from typing import Any, cast
 import simplecadapi as scad
 from simplecadapi import ql
 
-OUTPUT_DIR = Path(__file__).resolve().parents[1] / "out" / "arc_handle"
+OUTPUT_DIR = Path(__file__).resolve().parent / "out"
 PACKAGE_PATH = OUTPUT_DIR / "arc_handle.scadpkg"
 RENDER_PATH = OUTPUT_DIR / "arc_handle.png"
 
@@ -109,12 +109,10 @@ def _root_blend_edges(*, body: scad.Solid, label: str) -> list[scad.Edge]:
             ql.prop("geom.center.x", side, 0.0),
         )
     ).exactly(1)
-    rod_face = ql.faces().where(
-        ql.and_(
-            ql.tag("arc_handle.rod.side"),
-            ql.prop("geom.center.x", side, 0.0),
-        )
-    ).exactly(1)
+    # The fused rod's side faces may merge into one face spanning the whole
+    # arc, so the end is discriminated by the pad face alone; the rod side is
+    # matched without a centroid-side constraint.
+    rod_face = ql.faces().where(ql.tag("arc_handle.rod.side")).at_least(1)
     shared = pad_face.shared_boundary(rod_face, to_kind="edge").exactly(1)
     edges = shared.resolve(body)
     print(f"ql_{label}_root_shared_edges={len(edges)}")

@@ -57,3 +57,9 @@ tools/research/histjson/out/
 # Source screen recordings stay local; compressed MP4/GIF derivatives are tracked
 img/capability/*.mov
 img/capability/逆向工具mvp.mp4
+
+# Per-example generated artifacts (each example exports to its own out/)
+examples/*/out/
+examples/bowl_connector/re_work/
+examples/bowl_connector/__pycache__/
+examples/bowl_connector/.re_server.lock

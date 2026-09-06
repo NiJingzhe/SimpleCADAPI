@@ -199,5 +199,5 @@ For tetrahedral meshing, run the split example directly in dependency order:
 stage rejects imports with no 3D volumes, generates a dimension-3 mesh, writes
 `.msh`, and always finalizes Gmsh. Install and invoke the optional dependency
 with `uv run --extra gmsh python
-examples/12_ap242_gmsh_volume_mesh/export_fem_mesh.py`; Gmsh is never imported
+examples/ap242_gmsh_volume_mesh/export_fem_mesh.py`; Gmsh is never imported
 by the core SDK or product exporters.
