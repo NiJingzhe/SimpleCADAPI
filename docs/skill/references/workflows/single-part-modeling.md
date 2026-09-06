@@ -255,6 +255,109 @@ detail owned by a later role; ask only for the requirement that changes the
 model or its acceptance criteria.
 
 <!-- skill:endif -->
+
+<!-- skill:if zcode,claudecode -->
+
+### Host binding: designing the Role 1 `AskUserQuestion` payload (Claude Code / ZCode)
+
+The host provides and executes the `AskUserQuestion` tool. This block defines
+only how to design its input for the Requirement Confirmer. After writing the
+region-by-region interpretation and the Ask-or-Record ledger, make one batched
+call for all unresolved items that can block `REQUIREMENTS.md`.
+
+The schema differs from a generic ask; design around the differences:
+
+- At most 4 questions per call. If more blocking rows remain, send the
+  remaining rows as further batched calls in the same turn and say why.
+- `header` (max 12 characters, shown as a chip) is the ledger key: derive it
+  from the stable identifier you would otherwise use as an id, e.g.
+  `C flange`, `thread`.
+- There is no `recommended` index. Put the conservative, clearly labeled
+  option first and suffix its label with `(Recommended)`; this is a
+  recommendation, never consent.
+- 2–4 options per question; each option is a short `label` plus an
+  operational `description` saying what will be recorded and what modeling
+  follows. A free-text "Other" choice is offered automatically; do not add
+  your own catch-all option. Answers return as the selected labels plus any
+  typed notes.
+- `multiSelect: true` only when the user may independently select several
+  items from the same set.
+
+The shared design rules still apply: one decision per question, shape-level
+interpretation asked explicitly, independent decisions separated into their
+own questions, mutually exclusive and operational options, a concrete
+correction path in the options, and only blocking decisions in this round.
+Example payload shape (the actual labels and questions must be derived from
+the current part, not copied literally):
+
+```ts
+AskUserQuestion({
+  questions: [
+    {
+      question: "The drawing leaves the C-view flange location ambiguous. Which region is the C flange?",
+      header: "C flange",
+      multiSelect: false,
+      options: [
+        { label: "-Y port end (Recommended)", description: "Record C as the long rounded flange on the -Y end; model its axis along Y." },
+        { label: "Top bore end", description: "Record C as the flange around the top vertical bore; revise the region map before modeling." }
+      ]
+    }
+  ]
+})
+```
+
+After the call, copy the selected labels, any typed custom answers, and notes
+into `REQUIREMENTS.md` keyed by header; preserve the user's wording for
+corrections. A skipped question or an empty answer is an unanswered blocking
+row: keep the gate blocked and stop; never continue by silently selecting the
+recommended option. The gate closes only when every blocking row has an
+explicit answer or an explicitly recorded assumption permitted by the
+requirement discipline.
+
+<!-- skill:endif -->
+
+<!-- skill:if codex -->
+
+### Host binding: Role 1 blocking questions without a native ask tool (codex)
+
+codex provides no structured interactive-question tool. Keep the ledger
+discipline in plain conversation: after writing the region-by-region
+interpretation and the Ask-or-Record ledger, send ONE message listing every
+unresolved item that can block `REQUIREMENTS.md` — one numbered question per
+decision, lettered mutually exclusive options each stating the operational
+consequence, the conservative interpretation first and marked
+`(recommended)`, and an explicit invitation to correct or type a different
+answer. Then stop: make no further tool call until the user replies. Record
+the reply verbatim in `REQUIREMENTS.md` under the same ledger keys, preserving
+the user's wording for corrections. A partial answer or a general "sounds
+good" does not answer the open rows: re-ask exactly those rows and keep the
+gate blocked; never continue by silently selecting the recommended option.
+The gate closes only when every blocking row has an explicit answer or an
+explicitly recorded assumption permitted by the requirement discipline.
+
+<!-- skill:endif -->
+
+<!-- skill:if dsh,kimicode -->
+
+### Host binding: Role 1 blocking questions, conservative fallback (dsh / kimicode)
+
+No native interactive-question tool is assumed for this host, so use the
+plain-text ledger discipline: after writing the region-by-region
+interpretation and the Ask-or-Record ledger, send ONE message listing every
+unresolved item that can block `REQUIREMENTS.md` — one numbered question per
+decision, lettered mutually exclusive options each stating the operational
+consequence, the conservative interpretation first and marked
+`(recommended)`, and an explicit invitation to correct or type a different
+answer. Then stop and wait for the user's reply; record it verbatim in
+`REQUIREMENTS.md` under the same ledger keys. A partial answer does not
+answer the open rows: re-ask them and keep the gate blocked; never continue
+by silently selecting the recommended option. If this host does provide a
+native ask/question tool, map this block onto it and keep the same gate
+semantics: one batched round, blocking decisions only, and a recommendation
+that is never consent.
+
+<!-- skill:endif -->
+
 3. Fastened or load-bearing parts: the requirements contain the envelope
    arithmetic, not just values — head diameter + shaft + wall/clearance →
    minimum land diameter, boss thickness, edge distance, and lateral
@@ -337,6 +440,71 @@ never speculatively. There is no `blocked` status: a blocked item stays
 stage's `model` item pending until its `plan verifier` artifact exists. A
 failed `run verifier` reopens the owning verifier or model through a
 `repair:` item; never advance the stage while either owner is open.
+
+<!-- skill:endif -->
+
+<!-- skill:if zcode,claudecode -->
+
+### Host binding: TODO tool (Claude Code / ZCode)
+
+Tool name: `TodoWrite`. There is a single operation: submit the whole list as
+`todos=[{content, status, priority}]` with statuses
+`pending / in_progress / completed` and priorities `high / medium / low`.
+Every call replaces the full list, so start, done, drop, and append are all
+expressed by including every current item with its updated status in the next
+call. Contract: batch the rewrite with real work in the same turn; `content`
+strings are the stable identifiers — quote them exactly when completing
+(`S1 plan verifier`, `repair: S1 verifier collision check`); keep exactly one
+item `in_progress` at a time; mark an item `completed` only at its actual
+gate, never speculatively. There is no `blocked` status: a blocked item stays
+`pending` or `in_progress` and a follow-up `repair:` item records the
+blocker. Keep the current stage's `model` item pending until its
+`plan verifier` artifact exists. A failed `run verifier` reopens the owning
+verifier or model through a `repair:` item; never advance the stage while
+either owner is open.
+
+<!-- skill:endif -->
+
+<!-- skill:if codex -->
+
+### Host binding: TODO tool (codex)
+
+Tool name: `update_plan`. One operation: submit the whole plan as
+`plan=[{step, status}]` with statuses `pending / in_progress / completed`.
+Every call rewrites the full plan, so start, done, drop, and append are all
+expressed by including every current step with its updated status in the next
+call. Contract: batch the rewrite with real work in the same turn; `step`
+strings are the stable identifiers — quote them exactly (`S1 plan verifier`,
+`repair: S1 verifier collision check`); keep exactly one step `in_progress`
+at a time; mark a step `completed` only at its actual gate, never
+speculatively. There is no `blocked` status: a blocked step stays `pending`
+or `in_progress` and a follow-up `repair:` step records the blocker. Keep the
+current stage's `model` step pending until its `plan verifier` artifact
+exists. A failed `run verifier` reopens the owning verifier or model through
+a `repair:` step; never advance the stage while either owner is open. If
+`update_plan` is unavailable in the current session, keep the same list as a
+checklist section in `BUILD_PLAN.md`, update it in the same turn as the work
+it gates, and quote the current checklist state when reporting a gate
+decision.
+
+<!-- skill:endif -->
+
+<!-- skill:if dsh,kimicode -->
+
+### Host binding: TODO tool, conservative fallback (dsh / kimicode)
+
+No native TODO tool is assumed for this host. Keep the stage checklist as a
+fenced checklist section in `BUILD_PLAN.md` and treat the file as the gate
+ledger: update it in the same turn as the work it gates; quote the exact item
+strings (`S1 plan verifier`, `repair: S1 verifier collision check`); keep
+exactly one item marked in-progress; mark an item done only at its actual
+gate, never speculatively; record blockers as `repair:` items instead of a
+blocked status. Keep the current stage's `model` item pending until its
+`plan verifier` artifact exists. A failed `run verifier` reopens the owning
+verifier or model through a `repair:` item; never advance the stage while
+either owner is open. When claiming a gate decision, quote the current
+checklist state. If this host does provide a native TODO tool, map this block
+onto it and keep the same gate semantics.
 
 <!-- skill:endif -->
 
@@ -523,6 +691,138 @@ file, or verification work in the same turn.
 
 <!-- skill:endif -->
 
+<!-- skill:if zcode,claudecode -->
+
+### Host binding: file-based hypothesis loop and TODO state machine for Verifier Planner (Claude Code / ZCode)
+
+This host has no persistent REPL. Python runs through the `Bash` tool and
+every invocation is a fresh process: names do not survive between calls.
+Keep each hypothesis snippet, known-bad probe, and final check as a numbered
+script file under the part directory (e.g.
+`<part-dir>/verify/s1_hypothesis.py`, `s1_known_bad.py`, `s1_verify.py`) and
+run it with `python` via `Bash`; persist intermediate state in files (JSON,
+pickle, or a captured package) and reload it in the next script. The script
+file is the evidence: do not hide an unproven check in a throwaway one-shot
+command whose text is lost. Use `TodoWrite` to make the current stage's
+verification contract a real gate, not a note.
+
+Role 2 creates the stable stage tasks in the `Build & Verify` phase. For each
+stage, the initial task order is:
+
+```text
+S1 plan verifier
+S1 model
+S1 run verifier
+S2 plan verifier
+S2 model
+S2 run verifier
+...
+```
+
+Use the exact task strings as `content` values in every `TodoWrite` call.
+When Role 3 enters a stage, submit the full list with that item as the only
+`in_progress` entry. If a stage is added after the original initialization,
+add its three tasks as one ordered batch in the next rewrite before starting
+the first one; do not add a later stage's tasks while the current stage is
+still open. A `repair:` item for the current stage is the exception: add it
+next to the owning task and keep the stage open.
+
+After the verifier contract, executable check, hypothesis evidence, and
+known-bad proof are recorded in `BUILD_PLAN.md`, close the planning gate and
+open the modeling gate in one rewrite: `S1 plan verifier` -> `completed`,
+`S1 model` -> `in_progress`. Role 4 owns the model task; it must not be
+`in_progress` while `S1 plan verifier` is unfinished. After Role 4's source
+run completes, mark `S1 model` completed, set `S1 run verifier`
+`in_progress`, and execute the exact prepared script named in that task.
+
+On a passing verification, record the output/evidence and mark `S1 run
+verifier` completed; only then may `S2 plan verifier` become `in_progress`.
+On a failed check, do not flip statuses merely to clear the list: identify
+the owner, add a stable `repair:` item (e.g. `repair: S1 verifier collision
+check`), make it the `in_progress` item, and after the repair return to the
+current stage's `run verifier`; never advance to `S2`. The `TodoWrite` result
+echoes the current list — use it to re-ground task strings and status after a
+repair or an interruption. Batch each rewrite with the real `Bash`, file, or
+verification work in the same turn.
+
+<!-- skill:endif -->
+
+<!-- skill:if codex -->
+
+### Host binding: file-based hypothesis loop and plan state machine for Verifier Planner (codex)
+
+codex has no persistent REPL. Python runs through the shell tool and every
+invocation is a fresh process: names do not survive between calls. Keep each
+hypothesis snippet, known-bad probe, and final check as a numbered script
+file under the part directory (e.g. `<part-dir>/verify/s1_hypothesis.py`,
+`s1_known_bad.py`, `s1_verify.py`), run it with `python` through the shell,
+and persist intermediate state in files (JSON, pickle, or a captured package)
+reloaded by the next script. The script file is the evidence: do not hide an
+unproven check in a throwaway one-shot command whose text is lost. Use
+`update_plan` to make the current stage's verification contract a real gate,
+not a note.
+
+Role 2 creates the stable stage steps in the `Build & Verify` phase in the
+order `S1 plan verifier`, `S1 model`, `S1 run verifier`, then `S2 ...`, and
+so on. Use the exact step strings in every `update_plan` call. When Role 3
+enters a stage, submit the full plan with that step as the only `in_progress`
+entry. If a stage is added after the original initialization, add its three
+steps as one ordered batch in the next rewrite before starting the first one;
+do not add a later stage's steps while the current stage is still open. A
+`repair:` step for the current stage is the exception: add it next to the
+owning step and keep the stage open.
+
+After the verifier contract, executable check, hypothesis evidence, and
+known-bad proof are recorded in `BUILD_PLAN.md`, close the planning gate and
+open the modeling gate in one rewrite: `S1 plan verifier` -> `completed`,
+`S1 model` -> `in_progress`. Role 4 owns the model step; it must not be
+`in_progress` while `S1 plan verifier` is unfinished. After Role 4's source
+run completes, mark `S1 model` completed, set `S1 run verifier`
+`in_progress`, and execute the exact prepared script named in that step.
+
+On a passing verification, record the output/evidence and mark `S1 run
+verifier` completed; only then may `S2 plan verifier` become `in_progress`.
+On a failed check, do not flip statuses merely to clear the list: identify
+the owner, add a stable `repair:` step, make it the `in_progress` step, and
+after the repair return to the current stage's `run verifier`; never advance
+to `S2`. Batch each rewrite with the real shell, file, or verification work
+in the same turn.
+
+<!-- skill:endif -->
+
+<!-- skill:if dsh,kimicode -->
+
+### Host binding: file-based hypothesis loop and checklist state machine for Verifier Planner (dsh / kimicode)
+
+No persistent REPL or native TODO tool is assumed for this host. Python runs
+through the shell and every invocation is a fresh process: names do not
+survive between calls. Keep each hypothesis snippet, known-bad probe, and
+final check as a numbered script file under the part directory (e.g.
+`<part-dir>/verify/s1_hypothesis.py`, `s1_known_bad.py`, `s1_verify.py`),
+run it with `python` through the shell, and persist intermediate state in
+files (JSON, pickle, or a captured package) reloaded by the next script. The
+script file is the evidence: do not hide an unproven check in a throwaway
+one-shot command whose text is lost.
+
+Keep the stage checklist (`S1 plan verifier`, `S1 model`, `S1 run verifier`,
+then `S2 ...`) as a fenced checklist section in `BUILD_PLAN.md` and treat it
+as the gate ledger: when Role 3 enters a stage, mark that stage's
+`plan verifier` item in-progress in the same turn; when the verifier
+contract, executable check, hypothesis evidence, and known-bad proof are
+recorded, mark `S1 plan verifier` done and `S1 model` in-progress in one
+edit. Role 4 owns the model item and must not start while `S1 plan verifier`
+is unfinished. After Role 4's source run completes, mark `S1 model` done, set
+`S1 run verifier` in-progress, and execute the exact prepared script named in
+that item. On a passing verification, record the output/evidence and mark
+`S1 run verifier` done; only then may `S2 plan verifier` start. On a failed
+check, do not edit statuses merely to clear the list: identify the owner, add
+a stable `repair:` item next to the owning item, and after the repair return
+to the current stage's `run verifier`; never advance to `S2`. Quote the
+current checklist state when reporting a gate decision. Batch each checklist
+edit with the real shell, file, or verification work in the same turn.
+
+<!-- skill:endif -->
+
 ## Role 4 — Detail Modeling Planner & Builder
 
 Role 4 starts only after Role 3's current-stage verifier contract and
@@ -629,6 +929,52 @@ evidence.
 
 <!-- skill:endif -->
 
+<!-- skill:if zcode,claudecode -->
+
+### Host binding: file-based hypothesis loop for Detail Modeling Planner & Builder (Claude Code / ZCode)
+
+This host has no persistent REPL; run incremental construction hypotheses as
+numbered scripts under the part directory (e.g.
+`<part-dir>/hypotheses/s1_base_probe.py`) through the `Bash` tool. Names do
+not survive between runs: carry intermediate geometry between probes by
+writing it to a file (pickle, JSON, or a captured package) and reloading, or
+by re-materializing from the part source. Keep the real source run in `Bash`
+too. Never use a modeling success message as the verification result: invoke
+the prepared verifier script and record its output in the stage evidence.
+
+<!-- skill:endif -->
+
+<!-- skill:if codex -->
+
+### Host binding: file-based hypothesis loop for Detail Modeling Planner & Builder (codex)
+
+codex has no persistent REPL; run incremental construction hypotheses as
+numbered scripts under the part directory (e.g.
+`<part-dir>/hypotheses/s1_base_probe.py`) through the shell tool. Names do
+not survive between runs: carry intermediate geometry between probes by
+writing it to a file (pickle, JSON, or a captured package) and reloading, or
+by re-materializing from the part source. Keep the real source run in the
+shell too. Never use a modeling success message as the verification result:
+invoke the prepared verifier script and record its output in the stage
+evidence.
+
+<!-- skill:endif -->
+
+<!-- skill:if dsh,kimicode -->
+
+### Host binding: file-based hypothesis loop for Detail Modeling Planner & Builder (dsh / kimicode)
+
+No persistent REPL is assumed for this host; run incremental construction
+hypotheses as numbered scripts under the part directory (e.g.
+`<part-dir>/hypotheses/s1_base_probe.py`) through the shell. Names do not
+survive between runs: carry intermediate geometry between probes by writing
+it to a file (pickle, JSON, or a captured package) and reloading, or by
+re-materializing from the part source. Keep the real source run in the shell
+too. Never use a modeling success message as the verification result: invoke
+the prepared verifier script and record its output in the stage evidence.
+
+<!-- skill:endif -->
+
 ## Verifier contract patterns
 
 Role 3 selects the applicable checks per stage; it does not mechanically run
@@ -694,6 +1040,83 @@ verdict fields, and the reviewer input description.
   open and the stage cannot pass.
 - A mismatch cannot be overridden by the main context. Repair the owning
   model, render again, and repeat the isolated review.
+
+<!-- skill:endif -->
+
+<!-- skill:if zcode,claudecode -->
+
+### Host binding: mandatory isolated image review (Claude Code / ZCode)
+
+When Role 3 selects visual verification, any image-based acceptance judgment
+must be executed by a subagent with a clean context. The context that
+produced a render cannot certify it. Role 3 defines the visual contract
+before Role 4 builds: reference/render paths, named views, regions, required
+verdict fields, and the reviewer input description.
+
+- Default and only mechanism: spawn one isolated reviewer subagent (ZCode
+  `Agent` tool / Claude Code `Task` tool, `subagent_type: "general-purpose"`
+  — fresh context, able to read image files). Pass the render/reference file
+  paths and the written shape description from `REQUIREMENTS.md`; require
+  structured per-region `match` / `mismatch` / `unreviewable` verdicts with
+  reasons in the reviewer's final report, and quote that report verbatim in
+  the stage evidence. The subagent's final message is the review record.
+- Spawn a fresh reviewer for every re-review; do not resume a previous
+  reviewer session or reuse a task id (its context carries the earlier
+  render it already judged, so it can no longer certify a new one).
+- This host has no standing-reviewer-peer mechanism; the hub option cannot
+  be mapped. If the subagent spawn tool is unavailable, the visual gate
+  remains open and the stage cannot pass.
+- A mismatch cannot be overridden by the main context. Repair the owning
+  model, render again, and repeat the isolated review.
+
+<!-- skill:endif -->
+
+<!-- skill:if codex -->
+
+### Host binding: mandatory isolated image review (codex)
+
+When Role 3 selects visual verification, any image-based acceptance judgment
+must come from a context that did not produce the render; the modeling
+context cannot certify it. Role 3 defines the visual contract before Role 4
+builds: reference/render paths, named views, regions, required verdict
+fields, and the reviewer input description.
+
+- codex has no subagent spawn mechanism. The fallback reviewer is the user:
+  present the render together with the written visual contract (views,
+  regions, and the verdict fields you need) in one message, then stop and
+  wait. Record the user's verdict verbatim in the stage evidence as the
+  review record; a partial verdict is `unreviewable` for the uncovered
+  regions.
+- If the user cannot review in this round, the visual gate remains open and
+  the stage cannot pass; do not substitute the modeling context's own
+  judgment for the review.
+- A mismatch cannot be overridden by the modeling context. Repair the owning
+  model, render again, and repeat the review.
+
+<!-- skill:endif -->
+
+<!-- skill:if dsh,kimicode -->
+
+### Host binding: mandatory isolated image review, conservative fallback (dsh / kimicode)
+
+When Role 3 selects visual verification, any image-based acceptance judgment
+must come from a context that did not produce the render; the modeling
+context cannot certify it. Role 3 defines the visual contract before Role 4
+builds: reference/render paths, named views, regions, required verdict
+fields, and the reviewer input description.
+
+- No subagent mechanism is assumed for this host. If the host provides one,
+  spawn an isolated reviewer subagent with fresh context per re-review, pass
+  the render/reference paths and the written shape description, require
+  structured per-region `match` / `mismatch` / `unreviewable` verdicts with
+  reasons, and quote its report verbatim in the stage evidence.
+- Without a subagent mechanism, the fallback reviewer is the user: present
+  the render together with the written visual contract in one message, then
+  stop and wait; record the user's verdict verbatim as the review record. If
+  the user cannot review in this round, the visual gate remains open and the
+  stage cannot pass.
+- A mismatch cannot be overridden by the modeling context. Repair the owning
+  model, render again, and repeat the review.
 
 <!-- skill:endif -->
 
