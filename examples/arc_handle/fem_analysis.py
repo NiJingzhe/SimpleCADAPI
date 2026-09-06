@@ -26,8 +26,8 @@ import simplecadapi as scad
 
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
-OUTPUT_DIR = EXAMPLE_DIR.parent / "out" / "arc_handle" / "fem"
-PACKAGE_PATH = EXAMPLE_DIR.parent / "out" / "arc_handle" / "arc_handle.scadpkg"
+OUTPUT_DIR = EXAMPLE_DIR / "out" / "fem"
+PACKAGE_PATH = EXAMPLE_DIR / "out" / "arc_handle.scadpkg"
 STEP_PATH = OUTPUT_DIR / "arc_handle.step"
 MESH_PATH = OUTPUT_DIR / "arc_handle.msh"
 MESH_REPORT_PATH = OUTPUT_DIR / "arc_handle.mesh.json"

@@ -20,16 +20,15 @@ from build_demo import build_case  # noqa: E402
 build_case({
     "root": ROOT,
     "stl": {
-        "path": ROOT.parent / "out" / "flange_plate" / "flange_plate.stl",
+        "path": ROOT / "out" / "flange_plate.stl",
         "name": "flange_plate.stl",
         "note": "7,266 三角面 · 最终 8 孔 @PCD 84.5",
         "gl_cap": "flange_plate 终态 · 8 孔 @PCD 84.5（第 2 轮改参后交付）· 会话自动导出（scadpkg / STEP AP242 / STL）",
     },
     "imgs": [
-        {"key": "initial", "path": ROOT.parent / "out" / "flange_plate" / "view_initial_6b.png", "cap": "初版 · 6 孔 @PCD 78（第 1 轮需求交付态）"},
-        {"key": "iso", "path": ROOT.parent / "out" / "flange_plate" / "view_iso.png", "cap": "终版 · 8 孔 @PCD 84.5 · 等轴"},
-        {"key": "top", "path": ROOT.parent / "out" / "flange_plate" / "view_top.png", "cap": "终版 · 俯视（45° 均布）"},
-        {"key": "detail", "path": ROOT.parent / "out" / "flange_plate" / "view_detail.png", "cap": "终版 · 螺栓孔 + 根部圆角特写"},
+        {"key": "iso", "path": ROOT / "out" / "render_iso.png", "cap": "终版 · 8 孔 @PCD 84.5 · 等轴"},
+        {"key": "top", "path": ROOT / "out" / "render_top.png", "cap": "终版 · 俯视（45° 均布）"},
+        {"key": "detail", "path": ROOT / "out" / "render_detail.png", "cap": "终版 · 螺栓孔 + 根部圆角特写"},
     ],
     "params": [
         ["flange_od", "100 mm", "法兰盘外径"],

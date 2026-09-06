@@ -361,7 +361,7 @@ APIs are actually implemented.
 
 ## Example: Hydraulic Rod Assembly
 
-`examples/10_part_assembly.py` builds a hydraulic rod/cylinder assembly that uses
+`examples/hydraulic_rod_assembly/model.py` builds a hydraulic rod/cylinder assembly that uses
 implemented geometry, QL, Part, Material, Placement, Assembly, projection, STEP,
 and FCStd translation APIs.
 
@@ -377,7 +377,7 @@ projection:
 Run it from the source checkout:
 
 ```bash
-uv run python examples/10_part_assembly.py
+uv run python examples/hydraulic_rod_assembly/model.py
 ```
 
 ## Boiling Lake Implementation Plan
