@@ -73,8 +73,21 @@ STEP / 可编辑 FCStd / MJCF。
 
 ### 3 · 逆向工程
 
-导入 STEP，在浏览器里检查 BREP、圈点标注区域，agent 依据标注重建参数化可编辑模型
-—— 人机协作全程录制、可回放。展示视频随发布另行提供。
+导入 STEP，在浏览器里检查 BREP，直接点选你关注的几何对象——每次点选都会以标签
+形式落进标注输入框，旁边配上操作意图（sketch · boolean · fillet · 阵列…）和自由
+备注。你的逆向思路挂在具体的面标签上，agent 收到的是被收窄的搜索空间，而不是从
+零盲猜——人机协作全程录制、可回放。
+
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/reverse_studio_mvp.gif" alt="re-studio：点选面、标注意图，agent 重建"><br/>
+<b>re-studio MVP</b> —— 在 STEP 目标上点选面、逐条叠加操作意图与备注后提交；
+agent 据此对连杆全部 37 个面做分类，从你的上下文出发开始重建 ·
+<a href="img/capability/reverse_studio_mvp.mp4">▶ 完整视频</a>
+</td>
+</tr>
+</table>
 
 ### 4 · 仿真插件
 

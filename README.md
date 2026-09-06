@@ -80,10 +80,24 @@ builds the package from scratch; `render_showcase.py` renders the views above;
 
 ### 3 · Reverse Engineering
 
-Import a STEP, inspect its BREP in the browser, circle and annotate regions,
-and let an agent reconstruct a parametric editable model from the annotations —
-the whole human-agent session is recorded and replayable. Showcase video ships
-separately with the release.
+Import a STEP, inspect its BREP in the browser, and click the geometric
+entities you care about — each pick lands as a tag in an annotation composer
+next to operation intents (sketch · boolean · fillet · pattern …) and a free
+note. Your reverse-engineering hunches ride on concrete face tags, so the
+agent receives a narrowed search space instead of guessing from scratch —
+and the whole human-agent session is recorded and replayable.
+
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/reverse_studio_mvp.gif" alt="re-studio: click faces, annotate intent, agent rebuilds"><br/>
+<b>re-studio MVP</b> — click faces on the STEP target, stack operation
+chips and notes per pick, submit; the agent classifies all 37 faces of a
+link rod and starts rebuilding from your context ·
+<a href="img/capability/reverse_studio_mvp.mp4">▶ full video</a>
+</td>
+</tr>
+</table>
 
 ### 4 · Simulation Plugins
 

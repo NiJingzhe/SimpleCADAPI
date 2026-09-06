@@ -56,3 +56,4 @@ tools/research/histjson/out/
 
 # Source screen recordings stay local; compressed MP4/GIF derivatives are tracked
 img/capability/*.mov
+img/capability/逆向工具mvp.mp4
