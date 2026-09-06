@@ -90,19 +90,30 @@ separately with the release.
 The same parametric package feeds downstream solvers without manual rework:
 AP242 STEP into Gmsh for volume meshing and CalculiX for static FEM (boundary
 faces are selected by preserved `interface.*` tags, so simulation survives
-model revisions), and MJCF into MuJoCo for mechanism dynamics.
+model revisions), and MJCF into MuJoCo for mechanism dynamics — where a
+virtual-collision pass catches assembly interference and drives the correction
+before the mechanism runs clean.
 
 <table>
 <tr>
-<td width="50%" align="center" valign="top">
+<td width="34%" align="center" valign="top" rowspan="2">
 <img src="img/capability/ap242_gmsh_bracket_static_von_mises.png" alt="Bracket FEM von Mises"><br/>
 <b>L-bracket static FEM</b> — CalculiX von Mises<br/>
 meshed via Gmsh OpenCASCADE kernel from the AP242 export
 </td>
-<td width="50%" align="center" valign="top">
-<img src="img/capability/ap242_gmsh_bracket_stl_views.png" alt="Bracket views"><br/>
-<b>Four-bar linkage + MuJoCo</b> — virtual collision<br/>
-MJCF export straight from the assembly (video ships separately)
+<td width="33%" align="center" valign="top">
+<img src="img/capability/fourbar_collision_before.gif" alt="Four-bar assembly with links crashing into each other in MuJoCo"><br/>
+<b>Four-bar linkage + MuJoCo</b> — first assembly pass:<br/>
+the links crash through each other mid-cycle; the assembly is wrong ·
+<a href="img/capability/fourbar_collision_before.mp4">▶ full video</a>
+</td>
+</tr>
+<tr>
+<td width="33%" align="center" valign="top">
+<img src="img/capability/fourbar_collision_after.gif" alt="Corrected four-bar assembly articulating clean in MuJoCo"><br/>
+<b>After the virtual-collision correction</b> — corrected assembly:<br/>
+the full crank cycle sweeps clean in the same sim ·
+<a href="img/capability/fourbar_collision_after.mp4">▶ full video</a>
 </td>
 </tr>
 </table>

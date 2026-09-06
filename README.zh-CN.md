@@ -80,19 +80,27 @@ STEP / 可编辑 FCStd / MJCF。
 
 同一份参数化包直接喂给下游求解器，无需人工返工：AP242 STEP 进 Gmsh 体网格 +
 CalculiX 静力 FEM（边界面按保真的 `interface.*` 标签选取，仿真链在模型改版后依然
-成立），MJCF 进 MuJoCo 做机构动力学。
+成立），MJCF 进 MuJoCo 做机构动力学——仿真环境里的虚拟碰撞检查会暴露装配干涉，
+驱动修正，直到机构全程干净运动。
 
 <table>
 <tr>
-<td width="50%" align="center" valign="top">
+<td width="34%" align="center" valign="top" rowspan="2">
 <img src="img/capability/ap242_gmsh_bracket_static_von_mises.png" alt="支架 FEM von Mises 云图"><br/>
 <b>L 形支架静力 FEM</b> —— CalculiX von Mises 云图<br/>
 经 Gmsh OpenCASCADE 内核从 AP242 导出体网格
 </td>
-<td width="50%" align="center" valign="top">
-<img src="img/capability/ap242_gmsh_bracket_stl_views.png" alt="支架四视图"><br/>
-<b>四连杆 + MuJoCo</b> —— 虚拟碰撞<br/>
-装配体直出 MJCF（视频随发布另行提供）
+<td width="33%" align="center" valign="top">
+<img src="img/capability/fourbar_collision_before.gif" alt="MuJoCo 中四连杆相互碰撞贯穿"><br/>
+<b>四连杆 + MuJoCo</b> —— 首次装配：连杆在运动中撞在一起，装配不对 ·
+<a href="img/capability/fourbar_collision_before.mp4">▶ 完整视频</a>
+</td>
+</tr>
+<tr>
+<td width="33%" align="center" valign="top">
+<img src="img/capability/fourbar_collision_after.gif" alt="修正后的四连杆在 MuJoCo 中全程干净运动"><br/>
+<b>虚拟碰撞修正后</b> —— 同一仿真环境，修正后的装配全程干净运动 ·
+<a href="img/capability/fourbar_collision_after.mp4">▶ 完整视频</a>
 </td>
 </tr>
 </table>
