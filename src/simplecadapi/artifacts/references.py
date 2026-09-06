@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from ..product.placement import Placement
+from ..product.placement import canonical_frame
 from .canonical import (
     ArtifactValidationError,
     content_hash,
@@ -25,6 +25,12 @@ def _closed(data: Mapping[str, Any], required: set[str], path: str) -> None:
         unknown = sorted(actual - required)
         detail = f"missing={missing}, unknown={unknown}"
         raise ArtifactValidationError("fields_invalid", path, detail)
+def _canonical_local_frame(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize connector frames into integer-tick identity form."""
+    try:
+        return canonical_frame(value)
+    except (TypeError, ValueError) as exc:
+        raise ArtifactValidationError("frame_invalid", "/connector/local_frame", str(exc)) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,10 +143,7 @@ class ConnectorInterface:
             raise ArtifactValidationError("name_invalid", "/connector/name", "name must be null or non-empty")
         if self.anchor_kind not in {"geometry", "placement", "public"}:
             raise ArtifactValidationError("connector_invalid", "/connector/anchor_kind", "unsupported anchor kind")
-        try:
-            frame = Placement(**dict(self.local_frame)).to_dict()
-        except (TypeError, ValueError) as exc:
-            raise ArtifactValidationError("frame_invalid", "/connector/local_frame", str(exc)) from exc
+        frame = _canonical_local_frame(self.local_frame)
         object.__setattr__(self, "local_frame", frame)
         if self.anchor_kind == "geometry" and self.binding is None:
             raise ArtifactValidationError("connector_invalid", "/connector/binding", "geometry connector requires binding")
@@ -274,7 +277,7 @@ class PartInstance:
         if self.name is not None and (not isinstance(self.name, str) or not self.name.strip()):
             raise ArtifactValidationError("name_invalid", "/instance/name", "name must be null or non-empty")
         try:
-            object.__setattr__(self, "placement", Placement(**dict(self.placement)).to_dict())
+            object.__setattr__(self, "placement", canonical_frame(self.placement))
         except (TypeError, ValueError) as exc:
             raise ArtifactValidationError("frame_invalid", "/instance/placement", str(exc)) from exc
 

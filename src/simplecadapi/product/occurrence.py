@@ -9,7 +9,7 @@ from typing import Any, Mapping
 from ..artifacts.assembly_definition import AssemblyDefinition
 from ..artifacts.canonical import canonical_bytes, content_hash, parse_canonical_json
 from ..artifacts.part_definition import PartDefinition
-from .placement import identity_placement
+from .placement import identity_placement, placement_ticks
 
 Definition = PartDefinition | AssemblyDefinition
 
@@ -167,7 +167,7 @@ def compile_product_occurrence_graph(root: Definition) -> ProductOccurrenceGraph
         root,
         (root.definition_id,),
         None,
-        identity_placement().to_dict(),
+        placement_ticks(identity_placement()),
         None,
         None,
         root.metadata.get("name"),

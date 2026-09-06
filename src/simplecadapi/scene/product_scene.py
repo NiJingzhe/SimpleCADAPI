@@ -28,7 +28,7 @@ from ..artifacts.feature_graph import (
 from ..artifacts.part_io import encode_part_definition, load_part_definition
 from ..core import Edge, Face, Solid, Vertex
 from ..kernel.ocp_properties import center_of_mass
-from ..product.placement import Placement, identity_placement
+from ..product.placement import Placement, identity_placement, placement_from_canonical
 from .archive import canonical_zip_bytes, preflight_zip_bytes
 from .canonical import (
     canonical_json_bytes,
@@ -529,7 +529,7 @@ def _part_geometry(
 
 
 def _placement(value: Mapping[str, Any]) -> Placement:
-    return Placement(**dict(value))
+    return placement_from_canonical(value)
 
 
 def _node_id(path: tuple[str, ...]) -> str:

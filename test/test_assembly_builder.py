@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from simplecadapi.product.placement import placement_ticks
 
 import simplecadapi as scad
 from simplecadapi.artifacts.canonical import (
@@ -212,11 +213,14 @@ def test_assemble_keeps_authored_placements_separate_from_solved_snapshot(
         for item in train.definition.solved_snapshot["component_placements"]
     }
 
-    identity = scad.identity_placement_rplacement().to_dict()
+    identity = placement_ticks(scad.identity_placement_rplacement())
     assert authored["gear_a"] == identity
-    assert authored["gear_b"] == identity
-    assert solved["gear_a"]["origin"] == [5.0, 4.0, 2.0]
-    assert solved["gear_b"]["origin"] == [25.0, 4.0, 2.0]
+    assert solved["gear_a"]["origin"] == placement_ticks(
+        scad.make_placement_rplacement(origin=(5.0, 4.0, 2.0))
+    )["origin"]
+    assert solved["gear_b"]["origin"] == placement_ticks(
+        scad.make_placement_rplacement(origin=(25.0, 4.0, 2.0))
+    )["origin"]
     assert train.definition.interface_hashes.geometry == content_hash(
         {
             "instances": [
@@ -235,8 +239,8 @@ def test_assemble_keeps_authored_placements_separate_from_solved_snapshot(
 
     rebuilt = scad.materialize_definition(train.definition)
     assert isinstance(rebuilt, scad.Assembly)
-    assert rebuilt.get_component("gear_a").placement.to_dict() == solved["gear_a"]
-    assert rebuilt.get_component("gear_b").placement.to_dict() == solved["gear_b"]
+    assert placement_ticks(rebuilt.get_component("gear_a").placement) == solved["gear_a"]
+    assert placement_ticks(rebuilt.get_component("gear_b").placement) == solved["gear_b"]
 
 
 def test_nested_occurrence_placements_survive_materialization_and_replay(
@@ -381,9 +385,9 @@ def test_nested_occurrence_placements_survive_materialization_and_replay(
         for record in fixture.definition.solved_snapshot["occurrence_placements"]
     }
 
-    assert occurrence_placements[("bearing", "inner_ring")]["x_axis"] == pytest.approx(
-        quarter_turn.x_axis
-    )
+    assert occurrence_placements[("bearing", "inner_ring")]["x_axis"] == [
+        round(value * 1.0e9) for value in quarter_turn.x_axis
+    ]
 
     for restored in (
         fixture.value,

@@ -26,7 +26,7 @@ from ..product.connector import (
 from ..product.constraint import Constraint, ScalarLimit
 from ..product.material import Material
 from ..product.part import Part
-from ..product.placement import Placement
+from ..product.placement import placement_from_canonical, placement_ticks
 from ..scene.archive import canonical_zip_bytes, preflight_zip_bytes
 from .assembly_definition import (
     AssemblyDefinition,
@@ -599,7 +599,7 @@ def _runtime_connector(interface: ConnectorInterface) -> Connector:
             name=interface.name,
             anchor=ConnectorAnchor(
                 "placement",
-                placement=Placement(**dict(interface.local_frame)),
+                placement=placement_from_canonical(interface.local_frame),
             ),
         )
     raise ArtifactValidationError(
@@ -695,11 +695,11 @@ def _apply_verified_snapshot(
             for component_id in authored.component_ids():
                 candidate = candidate.with_component_placement(
                     component_id,
-                    Placement(**dict(by_id[component_id])),
+                    placement_from_canonical(by_id[component_id]),
                 )
         if any(
-            candidate.get_component(component_id).placement.to_dict()
-            != dict(by_id[component_id])
+            placement_ticks(candidate.get_component(component_id).placement)
+            != placement_ticks(by_id[component_id])
             for component_id in authored.component_ids()
         ):
             return None
@@ -765,7 +765,7 @@ def materialize_definition(
                 Component(
                     component_id=item.instance_id,
                     item=direct[item.definition_id],
-                    placement=Placement(**dict(item.placement)),
+                    placement=placement_from_canonical(item.placement),
                     name=item.name,
                 )
                 for item in node.instances

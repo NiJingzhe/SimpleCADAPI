@@ -9,7 +9,7 @@ from .._internal.semantic import SemanticValueMixin, _validate_identifier
 from .connector import ConnectorRef, resolve_connector, resolve_item_connector
 from .constraint import Constraint, _validate_constraints
 from .part import Part
-from .placement import Placement
+from .placement import Placement, placement_from_canonical, placement_ticks
 
 _AUTHORED_PLACEMENTS_RUNTIME_KEY = "assembly.authored_component_placements"
 
@@ -375,7 +375,7 @@ def _component_occurrence_placements(
             records.append(
                 {
                     "component_path": list(component_path),
-                    "placement": component.placement.to_dict(),
+                    "placement": placement_ticks(component.placement),
                 }
             )
             if isinstance(component.item, Assembly):
@@ -465,7 +465,7 @@ def _restore_component_occurrence_placements(
     memo: Dict[Tuple[int, Tuple[Any, ...]], Assembly] = {}
 
     def placement_key(placement: Mapping[str, Any]) -> Tuple[Any, ...]:
-        value = Placement(**dict(placement))
+        value = placement_from_canonical(placement)
         return (
             value.origin,
             value.x_axis,
@@ -497,7 +497,7 @@ def _restore_component_occurrence_placements(
         components = []
         for component in owner.components:
             component_path = (*prefix, component.component_id)
-            placement = Placement(**dict(by_path[component_path]))
+            placement = placement_from_canonical(by_path[component_path])
             item = (
                 rebuild(component.item, component_path)
                 if isinstance(component.item, Assembly)
