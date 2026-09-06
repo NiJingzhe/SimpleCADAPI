@@ -80,29 +80,54 @@ builds the package from scratch; `render_showcase.py` renders the views above;
 
 ### 3 · Reverse Engineering
 
-Import a STEP, inspect its BREP in the browser, circle and annotate regions,
-and let an agent reconstruct a parametric editable model from the annotations —
-the whole human-agent session is recorded and replayable. Showcase video ships
-separately with the release.
+Import a STEP, inspect its BREP in the browser, and click the geometric
+entities you care about — each pick lands as a tag in an annotation composer
+next to operation intents (sketch · boolean · fillet · pattern …) and a free
+note. Your reverse-engineering hunches ride on concrete face tags, so the
+agent receives a narrowed search space instead of guessing from scratch —
+and the whole human-agent session is recorded and replayable.
+
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+<img src="img/capability/reverse_studio_mvp.gif" alt="re-studio: click faces, annotate intent, agent rebuilds"><br/>
+<b>re-studio MVP</b> — click faces on the STEP target, stack operation
+chips and notes per pick, submit; the agent classifies all 37 faces of a
+link rod and starts rebuilding from your context ·
+<a href="img/capability/reverse_studio_mvp.mp4">▶ full video</a>
+</td>
+</tr>
+</table>
 
 ### 4 · Simulation Plugins
 
 The same parametric package feeds downstream solvers without manual rework:
 AP242 STEP into Gmsh for volume meshing and CalculiX for static FEM (boundary
 faces are selected by preserved `interface.*` tags, so simulation survives
-model revisions), and MJCF into MuJoCo for mechanism dynamics.
+model revisions), and MJCF into MuJoCo for mechanism dynamics — where a
+virtual-collision pass catches assembly interference and drives the correction
+before the mechanism runs clean.
 
 <table>
 <tr>
-<td width="50%" align="center" valign="top">
+<td width="34%" align="center" valign="top" rowspan="2">
 <img src="img/capability/ap242_gmsh_bracket_static_von_mises.png" alt="Bracket FEM von Mises"><br/>
 <b>L-bracket static FEM</b> — CalculiX von Mises<br/>
 meshed via Gmsh OpenCASCADE kernel from the AP242 export
 </td>
-<td width="50%" align="center" valign="top">
-<img src="img/capability/ap242_gmsh_bracket_stl_views.png" alt="Bracket views"><br/>
-<b>Four-bar linkage + MuJoCo</b> — virtual collision<br/>
-MJCF export straight from the assembly (video ships separately)
+<td width="33%" align="center" valign="top">
+<img src="img/capability/fourbar_collision_before.gif" alt="Four-bar assembly with links crashing into each other in MuJoCo"><br/>
+<b>Four-bar linkage + MuJoCo</b> — first assembly pass:<br/>
+the links crash through each other mid-cycle; the assembly is wrong ·
+<a href="img/capability/fourbar_collision_before.mp4">▶ full video</a>
+</td>
+</tr>
+<tr>
+<td width="33%" align="center" valign="top">
+<img src="img/capability/fourbar_collision_after.gif" alt="Corrected four-bar assembly articulating clean in MuJoCo"><br/>
+<b>After the virtual-collision correction</b> — corrected assembly:<br/>
+the full crank cycle sweeps clean in the same sim ·
+<a href="img/capability/fourbar_collision_after.mp4">▶ full video</a>
 </td>
 </tr>
 </table>
