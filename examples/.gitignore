@@ -9,3 +9,6 @@ out/
 *.scadpkg
 *.zip
 *.log
+
+# reverse-engineering target STEP is the example input, not an artifact
+!bowl_connector/*.step
