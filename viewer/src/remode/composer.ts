@@ -20,6 +20,9 @@ export type ComposerToken = {
 
 export type TokenComposerOptions = {
   placeholder?: string;
+  /** Replaces the default `re-composer-input` host class (keep that class
+   *  name when styling externally — the empty-state placeholder targets it). */
+  hostClassName?: string;
   onChange?: () => void;
   onCommit?: () => void;
   /** Runs before built-in key handling; return true to consume the key. */
@@ -46,7 +49,7 @@ export class TokenComposer {
   constructor(options: TokenComposerOptions = {}) {
     this.options = options;
     this.host = document.createElement('div');
-    this.host.className = 're-composer-input';
+    this.host.className = options.hostClassName ?? 're-composer-input';
     this.host.contentEditable = 'true';
     this.host.role = 'textbox';
     this.host.ariaMultiLine = 'true';
@@ -69,8 +72,18 @@ export class TokenComposer {
     this.host.focus();
   }
 
+  /** Runs the commit callback (Enter behavior) — for external submit buttons. */
+  commit(): void {
+    this.options.onCommit?.();
+  }
+
+  // Chips may repeat — an annotation can cite the same operation tip twice
+  // ("[fillet] before [chamfer], but keep [fillet] at R2"). Entity chips stay
+  // unique because the click path dedupes through its selection draft before
+  // calling here; this class is a dumb chip editor, not a semantics police.
+
   insertToken(token: ComposerToken): void {
-    if (!token.token || this.hasToken(token.token)) return;
+    if (!token.token) return;
     const chip = this.buildChip(token);
     const space = document.createTextNode(' ');
     const range = this.caretRange();
@@ -92,18 +105,7 @@ export class TokenComposer {
     if (!token) return false;
     const chip = this.host.querySelector<HTMLElement>(`[data-token="${escapeAttributeValue(token)}"]`);
     if (!chip) return false;
-    const next = chip.nextSibling;
-    chip.remove();
-    if (next instanceof Text && next.data.startsWith(' ')) {
-      next.data = next.data.slice(1);
-      if (!next.data) next.remove();
-    }
-    this.notifyChange();
-    return true;
-  }
-
-  hasToken(token: string): boolean {
-    return this.host.querySelector(`[data-token="${escapeAttributeValue(token)}"]`) !== null;
+    return this.removeChip(chip);
   }
 
   listTokens(): ComposerToken[] {
@@ -197,7 +199,9 @@ export class TokenComposer {
     this.notifyChange();
   }
 
-  /** Delete the whole chip when backspacing right after it (atomic chips). */
+  /** Delete the whole chip when backspacing right after it (atomic chips).
+   *  Removes the exact element before the caret — with duplicate chips
+   *  allowed, a token-keyed lookup could delete the wrong occurrence. */
 
   private deleteChipBeforeCaret(): boolean {
     const selection = window.getSelection();
@@ -206,19 +210,28 @@ export class TokenComposer {
     if (range.startContainer === this.host) {
       const previous = this.host.childNodes[range.startOffset - 1];
       if (previous instanceof HTMLElement && previous.classList.contains('re-token')) {
-        this.removeToken(previous.dataset.token ?? '');
-        return true;
+        return this.removeChip(previous);
       }
       return false;
     }
     if (range.startContainer instanceof Text && range.startOffset === 0) {
       const previous = range.startContainer.previousSibling;
       if (previous instanceof HTMLElement && previous.classList.contains('re-token')) {
-        this.removeToken(previous.dataset.token ?? '');
-        return true;
+        return this.removeChip(previous);
       }
     }
     return false;
+  }
+
+  private removeChip(chip: Element): boolean {
+    const next = chip.nextSibling;
+    chip.remove();
+    if (next instanceof Text && next.data.startsWith(' ')) {
+      next.data = next.data.slice(1);
+      if (!next.data) next.remove();
+    }
+    this.notifyChange();
+    return true;
   }
 
   private caretRange(): Range | null {

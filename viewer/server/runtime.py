@@ -40,7 +40,6 @@ ARTIFACT_NAMES = (
     "comparison.png",
     "evaluation.json",
 )
-MAX_ENTITIES_PER_ANNOTATION = 8
 MAX_ADJACENCY_IDS = 40
 
 
@@ -299,9 +298,12 @@ def compose_submission(
     referenced_ops: list[str] = []
     for annotation in payload.get("annotations", []):
         record = dict(annotation)
+        # every picked entity goes through — a silent cap would drop the
+        # human's selection without a trace (ruling 2026-09-06: never
+        # truncate user selections)
         entity_ids = [
             str(item) for item in record.get("entity_ids", []) if isinstance(item, str)
-        ][:MAX_ENTITIES_PER_ANNOTATION]
+        ]
         record["entity_ids"] = entity_ids
         operations = [
             str(item)
