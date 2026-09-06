@@ -182,5 +182,5 @@ print(len(rebuilt))
 - `references/docs/guides/reconstruction-agent-test-prompt.md`
 - `references/docs/guides/reconstruction-agent-strategy.md`
 - `references/docs/guides/cache-build-workflow.md`
-- `references/docs/guides/ql-selection-playbook.md`
+- `references/ql-playbook.md`
 - `references/docs/api/`, `references/docs/stdlib/`, `references/docs/core/`

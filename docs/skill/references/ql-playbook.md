@@ -1,15 +1,20 @@
 # QL Selection Playbook
 
-Verified query patterns for selecting **what an operation produced**: side
-faces and rims of extrude-like features, output slots of primitives, and the
-intersection curves (seams) of booleans — then feeding those selections into
-modifiers such as fillet.
+Copy-paste patterns for selecting **what an operation produced** with QL —
+side faces and rims of extrude-like features, output slots of primitives,
+intersection curves (seams) of booleans, bore rims and root blends — and the
+operations that consume those selections (fillet, chamfer, sketch datums,
+extrude profiles).
 
-Every pattern in this file was executed and checked against `dev` @ `e87df6b`
-(2026-09-02, 33/33 checks across four harnesses: extrude family, primitives,
-sweep/loft, D-boss seam). Snippets are trimmed copies of the passing harness
-code. Anything listed under "Verified boundaries" is a real, current engine
-limitation — do not work around it silently; route around it as shown.
+Every pattern in the Ground rules and Patterns A/B was executed and checked
+against `dev` @ `e87df6b` (2026-09-02, 33/33 checks across four harnesses:
+extrude family, primitives, sweep/loft, D-boss seam). Snippets are trimmed
+copies of the passing harness code. The recipes (selection loop, predicate
+vocabulary, root blend, bore→rim chamfer, face→datum plane, facts printing)
+were executed against `dev` @ `0ec8b76` (2026-09-06, 11/11 checks — see
+Verification harnesses). Anything listed under "Verified boundaries" is a
+real, current engine limitation — do not work around it silently; route
+around it as shown.
 
 ## Ground rules
 
@@ -27,7 +32,12 @@ limitation — do not work around it silently; route around it as shown.
 
    Tagging an edge resolved from the *wire* under a face is invisible to the
    face (different cache). `apply_tag_rselection` returns a clone — always
-   reassign the returned view.
+   reassign the returned view. Pass `targets` as a **resolved list**; an
+   unresolved selector as `targets` yields a clone foreign to the active
+   session (the next operation rejects it with "graph node not owned by
+   active graph"). Tag a shape **before** the next operation consumes it:
+   retagging a consumed shape fails the same way — re-derive the selectors
+   from the newest result instead.
 
 3. **Enumerate with QL, not plural getters.** `ql.edges().resolve(shape)`,
    never bare `get_edges()` (raises by design; enumeration is QL-exclusive).
@@ -45,6 +55,56 @@ limitation — do not work around it silently; route around it as shown.
    "Single-step" means the metadata describes the last operation that touched
    the shape; the next tracked operation overwrites it. Long-range identity =
    op-kwarg names (across booleans) and edge-source names (across modifiers).
+
+## The selection loop (card before cardinality)
+
+Never hand a selector to an operation unresolved. Resolve it first,
+print the card, read it, then assert:
+
+```python
+sel = ql.edges().shared_boundary(walls, top, to_kind="edge")
+card = sel.resolve(solid)                     # probe without cardinality
+for e in card:
+    c = e.get_center()
+    print(f"len={e.get_length():.3f} center=({c.x:.1f},{c.y:.1f},{c.z:.1f})")
+sel = sel.exactly(len(card))                  # now freeze the count
+```
+
+Read the card against the geometry you imagined: expected count,
+expected lengths (a full circle at radius r prints `2*pi*r`; a half
+circle prints half that). A mismatch is a finding about the part, not
+about QL. `.exactly(n)` failing loudly (`expected exactly 2 edge(s),
+got 0`) is the gate working — widen or fix the window, never lower n
+until the call succeeds.
+
+## Predicate vocabulary
+
+| Family | Examples | Notes |
+| --- | --- | --- |
+| Geometry | `ql.prop("geom.type", "==", "CYLINDER")`, `geom.center.x/y/z`, `geom.normal.x/y/z`, `geom.area`, `geom.length` | types are uppercase enums (`PLANE`, `CYLINDER`, ...) |
+| Naming | `ql.tag("role.fastener_bore")`, wildcards `ql.tag("fillet.*")` | tags attached via `apply_tag_rselection(scope, targets=<resolved list>, tag=...)` |
+| Lineage | `ql.output_role("fillet.patch")`, `ql.op("fillet")`, `ql.origin_role("contour_edge")` | see "Lineage routes" below |
+| Boolean | `ql.and_(...)`, `ql.or_(...)`, `ql.not_(...)` | combine into one `.where(...)` |
+
+**Coordinates take ranges, never equality.** Measured centers carry
+float noise (`center.z` reads `15.000000000000002`); an `==` window
+silently misses. Use paired bounds:
+`ql.prop("geom.center.z", ">=", 14.5)` together with
+`ql.prop("geom.center.z", "<=", 15.5)`.
+
+**One property is never enough after a boolean or blend.** After a
+fillet, the patch faces are cylinders too — `geom.type == "CYLINDER"`
+matched five faces on a plate with one bore and four corner blends.
+Discriminate by axis window plus size:
+
+```python
+bore = ql.faces().where(ql.and_(
+    ql.prop("geom.type", "==", "CYLINDER"),
+    ql.prop("geom.center.x", ">=", 14.9), ql.prop("geom.center.x", "<=", 15.1),
+    ql.prop("geom.center.y", ">=", 9.9),  ql.prop("geom.center.y", "<=", 10.1),
+    ql.prop("geom.area", ">=", 200.0),
+)).exactly(1)
+```
 
 ## Pattern A — extrude-like outputs
 
@@ -170,6 +230,133 @@ Facts that matter when filleting a seam:
 - The whole seam filleted at once is a hard kernel case; if a radius fails,
   step down (2.0 → 1.5 → 1.0 verified ladder pattern).
 
+## Recipe: root blend via shared boundary
+
+Edges shared between two named bodies are the first-choice selection
+(`discipline/geometric-validation.md`, edge-selection defaults):
+
+```python
+walls     = ql.faces().where(ql.prop("geom.type", "==", "CYLINDER"))
+plate_top = ql.faces().where(ql.and_(
+    ql.prop("geom.normal.z", ">=", 0.999),
+    ql.prop("geom.center.z", ">=", 14.5), ql.prop("geom.center.z", "<=", 15.5)))
+root = walls.shared_boundary(plate_top, to_kind="edge")
+
+with GraphSession(graph_id="blend") as s:
+    blended = scad.fillet_rsolid(solid, root.exactly(card_count), radius=2.0,
+                                 generated_faces_tag="fillet.root_patch")
+    s.capture_result(value=blended)
+```
+
+### Shared-boundary failure signatures (read them, do not fight them)
+
+A shared boundary resolves against the real topology; when it does not
+match the shape you imagined, the difference is diagnostic:
+
+| Card looks like | Cause | Fillet result |
+| --- | --- | --- |
+| One closed arc, length `2*pi*r` | feature seated with clearance (axis-to-wall distance > radius) | succeeds |
+| Two arcs meeting at one point, lengths summing to `2*pi*r` | **tangency**: axis-to-wall distance exactly equals the radius; outline touches the wall in one point | kernel crash `TopOpeBRepDS_DataStructure::Point` at any radius |
+| Half arc / extra short arcs | feature overhangs the wall (axis outside or on the wall) | kernel build aborts |
+
+Reason from these the same way for every shared-boundary case: compare
+the card's segment count and lengths with the intersection curve you
+imagined; look for the singular point where segments meet; treat
+"selection resolved fine but every radius crashes" as evidence of a
+degenerate configuration in the design, not a selector bug. Before
+blending a seated feature, assert clearance: axis-to-neighboring-wall
+distance must exceed the blend radius (same family as fastener
+envelopes, `discipline/mechanical-modeling.md`).
+
+## Recipe: tagged bore -> rim chamfer
+
+Tag the bore wall right after the cut (Ground rule 2: tag before the next
+operation consumes the shape), then chamfer its top rim:
+
+```python
+bore_faces = bore.resolve(solid)              # resolve first — see Ground rule 2
+tagged = scad.apply_tag_rselection(scope=solid, targets=bore_faces,
+                                   tag="role.fastener_bore")
+bore_sel = ql.faces().where(ql.tag("role.fastener_bore")).exactly(1)
+top_rim = ql.edges().incident_to(bore_sel, distinct=True).where(
+    ql.prop("geom.center.z", ">=", 14.0))
+rim_card = top_rim.resolve(tagged)
+chamfed = scad.chamfer_rsolid(tagged, top_rim.exactly(len(rim_card)),
+                              distance=1.0)
+```
+
+Gotchas this recipe absorbs:
+
+- `incident_to` on a cylindrical wall returns seam edges too (the
+  vertical seam of the cylinder surface sits mid-wall); filter rims by
+  an axial coordinate window. The rim card is one closed arc of length
+  `2*pi*r`.
+- Passing an unresolved selector as `targets` (instead of the resolved
+  list) produces a clone foreign to the active session; the next
+  operation rejects it with "graph node not owned by active graph".
+  Tagging a shape that a later operation has already consumed fails
+  the same way — tag immediately after the op that produced the faces.
+- Objects live in one `GraphSession`; passing a solid into operations
+  under another session fails loudly. Keep the whole build in one.
+
+## Recipe: selected face -> sketch datum plane
+
+`make_sketch_rsketch(plane=...)` accepts `"XY"/"XZ"/"YZ"` or a plane
+mapping — never a Face. Derive the mapping from the selected face:
+
+```python
+def plane_mapping_from_face(face):
+    c, n = face.get_center(), face.get_normal_at()
+    z = (n.x, n.y, n.z)
+    ref = (1.0, 0.0, 0.0) if abs(z[2]) >= 0.9 else (0.0, 0.0, 1.0)
+    dot = sum(ref[i] * z[i] for i in range(3))
+    x = [ref[i] - dot * z[i] for i in range(3)]
+    m = sum(v * v for v in x) ** 0.5
+    x = [v / m for v in x]
+    y = (z[1]*x[2]-z[2]*x[1], z[2]*x[0]-z[0]*x[2], z[0]*x[1]-z[1]*x[0])
+    return {"origin": (c.x, c.y, c.z), "x_axis": tuple(x), "y_axis": y}
+
+sketch = scad.make_sketch_rsketch(name="on_face",
+                                  plane=plane_mapping_from_face(selected_face))
+```
+
+Pick the datum face itself with QL when the intent is structural
+("largest up-facing face") rather than positional:
+
+```python
+datum = (ql.faces().where(ql.prop("geom.normal.z", ">=", 0.999))
+         .order_by(ql.value("geom.area"), desc=True).take(1).exactly(1))
+```
+
+`extrude_rsolid(profile=..., ...)` accepts the selected Face directly
+as a profile — same object, no re-derivation needed. Extruding the
+top face of a 30×20 plate (bore opening r=6 after chamfer) by 2 mm
+gives exactly `(30*20 - pi*6**2) * 2` volume.
+
+## Lineage routes (proving what an operation produced)
+
+| Question | Route | Verified semantics |
+| --- | --- | --- |
+| Which faces did this operation generate? | `generated_faces_tag="name"` param, then `ql.tag("name")` | kernel-proven patch faces only |
+| Same, without pre-declaring a tag | `ql.output_role("fillet.patch")` | faces whose track metadata carries `result_roles` and `events=["generated"]` |
+| Everything the operation touched (new + modified)? | `ql.op("fillet")` | superset: includes faces with `events=["modified"]` |
+
+Counting patch faces after a blend is the proof that the blend landed
+where intended — pair it with the highlight render from the selection
+evidence gate. Track metadata is authoritative: a generated face
+carries `events: ["generated"]`, a reshaped survivor carries
+`["modified"]`.
+
+## Facts printing
+
+For ad-hoc facts outside selectors, the list query mirrors the selector
+API:
+
+```python
+ql.select(ql.faces().resolve(shape)).where(ql.prop("geom.type", "==", "PLANE")) \
+  .order_by(ql.value("geom.area"), desc=True).limit(3).all()
+```
+
 ## Verified boundaries
 
 Current engine gaps found by the harnesses — each has a workaround above:
@@ -201,12 +388,13 @@ Current engine gaps found by the harnesses — each has a workaround above:
    output). For long-range names across a cut chain, prefer naming after the
    final cut, or union-side naming.
 
-## Verification harnesses (2026-09-02, dev @ e87df6b)
+## Verification harnesses
 
 | Harness | Checks | Result |
 | --- | --- | --- |
-| extrude family (5 capabilities + group naming + geometry identity) | 8 | PASS |
-| plane-axes convention (frame properties, rectangle extents on both paths) | 5 | PASS |
-| primitives (box slots, rim, shared edge, kwarg naming, cylinder seam/rim/topology signature) | 8 | PASS |
-| sweep + loft (profile-edge inheritance, caps, rims, shared edges, seam-by-topology) | 9 | PASS |
-| D-boss seam (origin-role partition, 13-edge seam inventory, dual-parent witnesses, fillet, 7/7 patch naming) | 8 | PASS |
+| extrude family (5 capabilities + group naming + geometry identity) — 2026-09-02, dev @ `e87df6b` | 8 | PASS |
+| plane-axes convention (frame properties, rectangle extents on both paths) — 2026-09-02, dev @ `e87df6b` | 5 | PASS |
+| primitives (box slots, rim, shared edge, kwarg naming, cylinder seam/rim/topology signature) — 2026-09-02, dev @ `e87df6b` | 8 | PASS |
+| sweep + loft (profile-edge inheritance, caps, rims, shared edges, seam-by-topology) — 2026-09-02, dev @ `e87df6b` | 9 | PASS |
+| D-boss seam (origin-role partition, 13-edge seam inventory, dual-parent witnesses, fillet, 7/7 patch naming) — 2026-09-02, dev @ `e87df6b` | 8 | PASS |
+| recipes (loop card, predicate windows, bore→rim chamfer with resolved targets, root blend + lineage routes on a chamfered plate, face→datum plane mapping + face-profile extrude, facts printing) — 2026-09-06, dev @ `0ec8b76` | 11 | PASS |
