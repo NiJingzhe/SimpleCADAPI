@@ -162,6 +162,21 @@ def test_compose_submission_attaches_context_and_names_failures(scene, case: ReC
     assert case.read_submission_seq() == submission["submission_seq"]
 
 
+def test_compose_submission_never_truncates_entity_selection(scene, case: ReCase) -> None:
+    """A user pick list passes through whole — capping it would silently
+    discard part of the human's selection (ruling 2026-09-06)."""
+
+    entity_ids = [f"edge:{index}" for index in range(1, 15)]
+    submission = compose_submission(
+        case,
+        scene.model.describe_entity,
+        scene.summary,
+        {"annotations": [{"annotation_id": "a1", "kind": "free", "intent": "free", "text": "seams", "entity_ids": entity_ids}]},
+    )
+    annotation = submission["annotations"][0]
+    assert annotation["entity_ids"] == entity_ids
+
+
 def test_compose_submission_injects_one_level_neighborhood(scene, case: ReCase) -> None:
     """face → edges → adjacent faces and vertices, exactly one level deep."""
 

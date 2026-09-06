@@ -126,6 +126,31 @@ export class BRepRenderer {
     // window-level A/S/D drag modifiers must not react to typing. The tuple
     // type is fixed, so park unreachable key codes instead of leaving A/S/D live.
     this.controls.keys = ['__unused_rotate', '__unused_zoom', '__unused_pan'];
+    // Shift+left-drag pans. TrackballControls has no modifier support, but its
+    // `keyState` field (the keyboard A/S/D path) deliberately outranks the
+    // mouse-button gesture, so borrowing it reuses the controls' own pan
+    // seeding, damping and release. onPointerUp only resets `state`, so the
+    // keyState clear is on us. Capture on the host precedes the controls'
+    // listeners on the canvas.
+    host.addEventListener(
+      'pointerdown',
+      (event) => {
+        if (!event.shiftKey || event.button !== 0 || this.controls.enabled === false) return;
+        // `keyState` drives the controls' real keyboard-pan path but is not
+        // in the shipped typings; the runtime field is the documented state
+        // machine (PAN=2, NONE=-1).
+        const controls = this.controls as TrackballControls & { keyState: number };
+        controls.keyState = 2; // TrackballControls._STATE.PAN
+        const release = (): void => {
+          controls.keyState = -1; // TrackballControls._STATE.NONE
+          window.removeEventListener('pointerup', release);
+          window.removeEventListener('pointercancel', release);
+        };
+        window.addEventListener('pointerup', release);
+        window.addEventListener('pointercancel', release);
+      },
+      true,
+    );
     this.modelRoot.name = 'scene-root';
     this.threeScene.add(this.modelRoot);
     this.setupLighting();
