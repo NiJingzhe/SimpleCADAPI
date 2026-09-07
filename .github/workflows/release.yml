@@ -20,6 +20,10 @@ concurrency:
 
 jobs:
   release:
+    # Releases are built and published from the private repository only.
+    # The public mirror carries the same workflow file, where a tag push
+    # could never succeed (no release credentials); skip it there.
+    if: github.repository == 'So3Lab/CADIR'
     name: Test, build, and release
     runs-on: ubuntu-latest
     timeout-minutes: 45
