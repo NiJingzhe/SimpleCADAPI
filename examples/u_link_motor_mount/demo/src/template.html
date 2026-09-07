@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>人 × Agent 参数化 CAD 建模 · 会话回放 Demo</title>
+<style>/*__CSS__*/</style>
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">
+    <div class="logo">SCA</div>
+    <div class="titles">
+      <h1>人 × Agent 参数化 CAD 建模 <em>· 会话忠实回放</em></h1>
+      <div class="sub" id="metaLine"></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="seg" id="modeSeg">
+      <button data-m="replay" class="on">回放模式</button>
+      <button data-m="read">阅读模式</button>
+    </div>
+    <div class="seg" id="speedSeg">
+      <button data-s="0.5">×0.5</button>
+      <button data-s="1" class="on">×1</button>
+      <button data-s="2">×2</button>
+      <button data-s="4">×4</button>
+      <button data-s="99">∞</button>
+    </div>
+    <button class="tgl on" id="tglThink">🧠 思考</button>
+    <button class="tgl on" id="tglOut">🔧 输出</button>
+    <button id="nextBtn">⏭ 下一轮</button>
+    <button id="playBtn">▶ 播放</button>
+  </div>
+</header>
+
+<div id="scrubRow">
+  <div id="scrubStat"></div>
+  <div id="stageChip">S0</div>
+  <div id="scrub">
+    <div id="scrubTrack"><div id="scrubFill"></div></div>
+    <div id="scrubTip"></div>
+  </div>
+</div>
+
+<main>
+  <section id="chatWrap">
+    <div id="chat">
+      <div id="sessionCard"></div>
+    </div>
+    <div id="followPill">↓ 回到最新</div>
+  </section>
+
+  <aside id="side">
+    <nav id="tabs">
+      <button data-t="3d" class="on">🧊 3D 模型</button>
+      <button data-t="renders">🖼 渲染图</button>
+      <button data-t="params">⚙ 参数</button>
+      <button data-t="out">📦 产物</button>
+      <button data-t="about">ℹ 关于</button>
+    </nav>
+    <div class="tabpanes">
+      <div class="pane on" id="tab-3d">
+        <div id="glBar">
+          <button data-a="rotate" class="on">⟳ 自转</button>
+          <button data-a="iso">等轴</button>
+          <button data-a="front">正视</button>
+          <button data-a="top">俯视</button>
+          <button data-a="wire">线框</button>
+          <button data-a="reset">重置</button>
+        </div>
+        <div id="glWrap">
+          <canvas id="gl"></canvas>
+          <div id="glLoad">正在装配 3D 模型…</div>
+          <div id="glHint">拖拽旋转 · 滚轮缩放 · 右键平移</div>
+        </div>
+        <div id="glCap">u_link_assembly · body + shell · 44,976 三角面 · 会话自动导出（STEP AP242 / STL / FCStd）</div>
+      </div>
+      <div class="pane" id="tab-renders"><div class="panebody"><div class="rgrid" id="rgrid"></div></div></div>
+      <div class="pane" id="tab-params"><div class="panebody"></div></div>
+      <div class="pane" id="tab-out"><div class="panebody"></div></div>
+      <div class="pane" id="tab-about"><div class="panebody"></div></div>
+    </div>
+  </aside>
+</main>
+
+<button id="sideToggle">🧊 3D 模型</button>
+<div id="lightbox"></div>
+
+<script type="application/json" id="feed">__DATA__</script>
+<script>__THREE__</script>
+<script>__ORBIT__</script>
+<script>__STLL__</script>
+<script>
+/*__JS__*/
+</script>
+</body>
+</html>

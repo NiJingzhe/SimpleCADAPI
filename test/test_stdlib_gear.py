@@ -103,10 +103,10 @@ class TestSpurGear(unittest.TestCase):
         )
         expected_tip = module * n_teeth / 2.0 + module
         max_r = 0.0
-        for face in solid.get_faces():
-            for wire in face.get_wires():
-                for edge in wire.get_edges():
-                    for vertex in edge.get_vertices():
+        for face in solid._iter_faces():
+            for wire in face._iter_wires():
+                for edge in wire._iter_edges():
+                    for vertex in edge._iter_vertices():
                         x, y, _ = vertex.get_coordinates()
                         max_r = max(max_r, math.sqrt(x * x + y * y))
         self.assertLess(max_r, expected_tip * 1.05)
@@ -412,12 +412,12 @@ class TestHelicalGear(unittest.TestCase):
         self.assertFalse(
             any(node["op"] == "make_loft_rsolid" for node in payload["graph"]["nodes"])
         )
-        self.assertEqual(len(solid.get_faces()), 74)
+        self.assertEqual(len(solid._iter_faces()), 74)
 
         replayed = scad.replay_model_json(
             json_str=json.dumps(payload), strict=True
         )[0]
-        self.assertEqual(len(replayed.get_faces()), 74)
+        self.assertEqual(len(replayed._iter_faces()), 74)
         self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=6)
 
 
@@ -467,12 +467,12 @@ class TestHerringboneGear(unittest.TestCase):
                 if node["op"] == "make_twisted_sweep_rsolid"
             )
         )
-        self.assertEqual(len(solid.get_faces()), 146)
+        self.assertEqual(len(solid._iter_faces()), 146)
 
         replayed = scad.replay_model_json(
             json_str=json.dumps(payload), strict=True
         )[0]
-        self.assertEqual(len(replayed.get_faces()), 146)
+        self.assertEqual(len(replayed._iter_faces()), 146)
         self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=6)
 
     def test_stdlib_graph_tracking_scope_does_not_leak(self):
@@ -545,12 +545,12 @@ class TestSpurRingGear(unittest.TestCase):
             pressure_angle=pressure_angle,
             rim_thickness=4.0,
         )
-        inner_wire = face.get_inner_wires()[0]
+        inner_wire = face.get_inner_wires(0)
 
         vertex_radii = [
             math.hypot(x, y)
-            for edge in inner_wire.get_edges()
-            for vertex in edge.get_vertices()
+            for edge in inner_wire._iter_edges()
+            for vertex in edge._iter_vertices()
             for x, y, _z in [vertex.get_coordinates()]
         ]
         pitch_radius = module * n_teeth / 2.0
@@ -676,62 +676,63 @@ class TestHelicalRingGear(unittest.TestCase):
         )
         self.assertGreater(solid.get_volume(), 0.0)
 
-    def test_helical_ring_uses_small_step_ruled_inner_loft(self):
-        loft_nodes = _loft_nodes_for(
-            lambda: scad.std.gear.make_helical_ring_gear_rsolid(
+    def test_helical_ring_uses_one_continuous_twisted_sweep(self):
+        with scad.GraphSession() as session:
+            solid = scad.std.gear.make_helical_ring_gear_rsolid(
                 n_teeth=20,
                 module=2.0,
                 helix_angle=20.0,
                 gear_height=8.0,
             )
-        )
+            payload = json.loads(scad.export_model_json(session=session))
 
-        self.assertEqual(len(loft_nodes), 1)
-        self.assertEqual(loft_nodes[0]["params"]["profile_count"], 7)
-        self.assertTrue(loft_nodes[0]["params"]["ruled"])
+        loft_nodes = [
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_loft_rsolid"
+        ]
+        cut_nodes = [
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_cut_rsolid"
+        ]
+        twisted_nodes = [
+            node
+            for node in payload["graph"]["nodes"]
+            if node["op"] == "make_twisted_sweep_rsolid"
+        ]
+        self.assertEqual(len(loft_nodes), 0)
+        self.assertEqual(len(cut_nodes), 0)
+        self.assertEqual(len(twisted_nodes), 1)
+        self.assertGreater(solid.get_volume(), 0.0)
 
 
 class TestHerringboneRingGear(unittest.TestCase):
-    def setUp(self):
-        scad.GraphSession()
-
-    def test_basic_herringbone_ring(self):
-        solid = scad.std.gear.make_herringbone_ring_gear_rsolid(
-            n_teeth=20,
-            module=2.0,
-            helix_angle=20.0,
-            gear_height=10.0,
-        )
-        self.assertGreater(solid.get_volume(), 0.0)
-
-    def test_herringbone_ring_uses_small_step_ruled_inner_loft(self):
+    def test_herringbone_ring_uses_two_opposite_twisted_sweeps(self):
         with scad.GraphSession() as session:
-            scad.std.gear.make_herringbone_ring_gear_rsolid(
+            solid = scad.std.gear.make_herringbone_ring_gear_rsolid(
                 n_teeth=20,
                 module=2.0,
                 helix_angle=20.0,
                 gear_height=10.0,
             )
+            payload = json.loads(scad.export_model_json(session=session))
 
-        payload = json.loads(scad.export_model_json(session=session))
         loft_nodes = [
-            node
-            for node in payload["graph"]["nodes"]
-            if node["op"] == "make_loft_rsolid"
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_loft_rsolid"
         ]
         cut_nodes = [
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_cut_rsolid"
+        ]
+        twisted_nodes = [
             node
             for node in payload["graph"]["nodes"]
-            if node["op"] == "make_cut_rsolid"
+            if node["op"] == "make_twisted_sweep_rsolid"
         ]
-
-        self.assertEqual(len(loft_nodes), 1)
-        self.assertEqual(loft_nodes[0]["params"]["profile_count"], 9)
-        self.assertTrue(loft_nodes[0]["params"]["ruled"])
-        self.assertEqual(loft_nodes[0]["params"]["tracking_policy"], "graph")
-        self.assertEqual(len(cut_nodes), 1)
-        self.assertEqual(cut_nodes[0]["params"]["tracking_policy"], "graph")
-        self.assertNotIn("topo_delta", cut_nodes[0])
+        union_nodes = [
+            node for node in payload["graph"]["nodes"] if node["op"] == "make_union_rsolid"
+        ]
+        self.assertEqual(len(loft_nodes), 0)
+        self.assertEqual(len(cut_nodes), 0)
+        self.assertEqual(len(twisted_nodes), 2)
+        self.assertEqual(len(union_nodes), 1)
+        self.assertGreater(solid.get_volume(), 0.0)
 
 
 class TestCycloidalDisc(unittest.TestCase):
@@ -942,7 +943,7 @@ class Test2DFaceBoolean(unittest.TestCase):
             math.pi * (100 - 16),
             places=1,
         )
-        self.assertEqual(len(ring.get_inner_wires()), 1)
+        self.assertEqual(len(ring._iter_inner_wires()), 1)
 
     def test_make_face_from_wires_rface_creates_hole(self):
         outer = scad.make_circle_rwire(center=(0, 0, 0), radius=10.0)
@@ -953,7 +954,7 @@ class Test2DFaceBoolean(unittest.TestCase):
             math.pi * (100 - 16),
             places=1,
         )
-        self.assertEqual(len(ring.get_inner_wires()), 1)
+        self.assertEqual(len(ring._iter_inner_wires()), 1)
 
     def test_make_2d_union_rface(self):
         a = scad.make_circle_rface(center=(0, 0, 0), radius=5.0)

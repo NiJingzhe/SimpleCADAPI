@@ -5,8 +5,8 @@ from __future__ import annotations
 import math
 
 from ..core import Solid
-from ..operations import cut_rsolid, make_cylinder_rsolid
-from ..tracking import graph_tracking_scope
+from ..operators import cut_rsolid, make_cylinder_rsolid
+from ..topology.tracking import graph_tracking_scope
 
 __all__ = ["make_roller_chain_sprocket_rsolid"]
 

@@ -40,7 +40,7 @@ class ArchiveInfo:
     input_size: int | None
     canonical_size: int
     used_deflate: bool
-
+    manifest_name: str = "scene.json"
 
 @dataclass(frozen=True)
 class _CentralEntry:
@@ -70,12 +70,24 @@ def _validate_member_name(name: str, seen_casefold: set[str]) -> bytes:
 
 
 def preflight_archive_member_sizes(
-    sizes: Mapping[str, int], *, limits: SceneResourceLimits = BASE_LIMITS
+    sizes: Mapping[str, int],
+    *,
+    limits: SceneResourceLimits = BASE_LIMITS,
+    manifest_name: str | None = "scene.json",
 ) -> int:
     """Validate declared archive sizes before allocating or reading payloads."""
 
-    if not sizes or "scene.json" not in sizes:
-        raise ValueError("scene package must contain scene.json")
+    if not sizes:
+        raise ValueError("archive must contain a root manifest")
+    if manifest_name is None:
+        candidates = tuple(
+            name for name in ("scene.json", "part.json", "assembly.json") if name in sizes
+        )
+        if len(candidates) != 1:
+            raise ValueError("archive must contain exactly one supported root manifest")
+        manifest_name = candidates[0]
+    elif manifest_name not in sizes:
+        raise ValueError(f"archive must contain {manifest_name}")
     if len(sizes) > limits.zip_members:
         raise ValueError("archive member count exceeds resource limit")
     total = 0
@@ -109,12 +121,15 @@ def canonical_zip_bytes(
     members: Mapping[str, bytes | bytearray | memoryview],
     *,
     limits: SceneResourceLimits = BASE_LIMITS,
+    manifest_name: str = "scene.json",
 ) -> bytes:
     """Encode exact canonical stored ZIP bytes for a validated member mapping."""
 
     payloads = {name: bytes(value) for name, value in members.items()}
     canonical_size = preflight_archive_member_sizes(
-        {name: len(value) for name, value in payloads.items()}, limits=limits
+        {name: len(value) for name, value in payloads.items()},
+        limits=limits,
+        manifest_name=manifest_name,
     )
     local_parts: list[bytes] = []
     central_parts: list[bytes] = []
@@ -192,8 +207,9 @@ def preflight_zip_bytes(
     data: bytes | bytearray | memoryview,
     *,
     limits: SceneResourceLimits = BASE_LIMITS,
+    manifest_name: str | None = "scene.json",
 ) -> ArchiveInfo:
-    """Validate and decode an allowlisted stored/deflate Scene ZIP archive."""
+    """Validate and decode an allowlisted canonical ZIP archive."""
 
     input_size = data.nbytes if isinstance(data, memoryview) else len(data)
     preflight_input_archive_size(input_size, limits=limits)
@@ -271,7 +287,9 @@ def preflight_zip_bytes(
         raise ValueError("unexpected bytes in ZIP central directory")
 
     canonical_size = preflight_archive_member_sizes(
-        {entry.name: entry.uncompressed_size for entry in entries}, limits=limits
+        {entry.name: entry.uncompressed_size for entry in entries},
+        limits=limits,
+        manifest_name=manifest_name,
     )
     occupied: list[tuple[int, int]] = []
     payload_ranges: list[tuple[_CentralEntry, int, int]] = []
@@ -364,6 +382,15 @@ def preflight_zip_bytes(
         input_size=len(raw),
         canonical_size=canonical_size,
         used_deflate=any(entry.method == 8 for entry in entries),
+        manifest_name=(
+            manifest_name
+            if manifest_name is not None
+            else next(
+                name
+                for name in ("scene.json", "part.json", "assembly.json")
+                if name in members
+            )
+        ),
     )
 
 

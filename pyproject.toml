@@ -1,6 +1,6 @@
 [project]
 name = "simplecadapi"
-version = "2.0.4b2"
+version = "2.0.4b3"
 description = "A simplified OCP-native CAD modeling Python API"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -14,7 +14,7 @@ classifiers = [
   "Intended Audience :: Manufacturing",
   "Topic :: Scientific/Engineering",
   "Topic :: Scientific/Engineering :: Visualization",
-  "License :: OSI Approved :: GNU Affero General Public License v3",
+  "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
@@ -29,8 +29,11 @@ dependencies = [
     "jsonschema>=4.25.1,<5.0.0",
     "rfc8785>=0.1.4,<0.2.0",
     "typing-extensions>=4.12,<5",
+    "tomli>=2.0,<3; python_version < '3.11'",
     "py-slvs==1.0.6",
     "ocp-gordon>=0.2,<0.3",
+    "ezdxf>=1.4.4",
+    "pymupdf>=1.28.2",
 ]
 
 [project.optional-dependencies]
@@ -42,11 +45,15 @@ dev = [
   "isort>=5.0",
 ]
 editor = []
-collision = [
-    "python-fcl>=0.7.0.11",
-]
 inspect = [
     "matplotlib>=3.7.0",
+]
+gmsh = [
+    "gmsh>=4.15,<5",
+]
+fem = [
+    "gmsh>=4.15,<5",
+    "ccx2paraview[VTK]>=3.2,<4",
 ]
 
 [project.urls]
@@ -60,8 +67,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/simplecadapi", "docs"]
-include = ["src/**/*", "docs/**"]
+# The Python package ships code only. Generated skill docs live in docs/skill
+# (built by tools/auto_docs_gen.py + tools/skillbuild.py) and are distributed
+# as the Agent Skill archive, not inside the wheel.
+packages = ["src/simplecadapi"]
+include = ["src/**/*"]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -78,7 +88,6 @@ exclude = [
   "/test",
   "/tests",
   "/skills",
-  "/sandbox",
   "/examples",
 ]
 
@@ -92,10 +101,40 @@ dev = [
     "numpy-stl>=3.2.0",
     "trimesh>=4.11.3",
     "datamodel-code-generator==0.32.0",
+    "ty>=0.0.18",
 ]
 
+[tool.ty.environment]
+python-version = "3.10"
+
+# FreeCAD runtime payloads are exec'd inside FreeCAD's embedded interpreter;
+# GRAPH_NODES / App / Part etc. are runtime-injected globals by design.
+[[tool.ty.overrides]]
+include = ["src/simplecadapi/translator/freecad_translator/runtime/**/*.py"]
+
+[tool.ty.overrides.rules]
+unresolved-import = "ignore"
+unresolved-reference = "ignore"
+
+[tool.ty.rules]
+# OCP/VTK are compiled C-extension bindings that ship no .pyi stubs, and
+# example scripts import sibling modules — import resolution is
+# environmental noise in this repo, not signal. Real import typos surface
+# at runtime and in the test suite.
+unresolved-import = "ignore"
+
+[tool.ty.src]
+include = ["src", "test", "tests", "examples", "tools", "viewer/server"]
+exclude = [
+    "**/__pycache__/**",
+    ".venv/**",
+    "build/**",
+    "dist/**",
+    "output/**",
+]
+[tool.pytest.ini_options]
+testpaths = ["test", "tests"]
+
 [project.scripts]
-evolve = "simplecadapi.auto_tools.evolution:main"
-make-export = "simplecadapi.auto_tools.make_export:main"
-auto-docs-gen = "simplecadapi.auto_tools.auto_docs_gen:main"
-skill-pack = "simplecadapi.auto_tools.skill_pack:main"
+simplecad-cache = "simplecadapi.cache.cli:main"
+simplecad-export = "simplecadapi.exporter.cli:main"

@@ -10,7 +10,7 @@ from __future__ import annotations
 import unittest
 
 import simplecadapi as scad
-from simplecadapi.graph import GraphSession
+from simplecadapi.recording.graph import GraphSession
 
 
 REQUIRED_GEOMETRY_TYPES = (
@@ -260,9 +260,13 @@ class TestRearchitecture20IoContracts(unittest.TestCase):
         self.assertGreaterEqual(payload["graph"].node_count, 1)
         self.assertGreaterEqual(payload["expression_graph"].node_count, 1)
 
-    def test_step_export_still_exists_as_final_geometry_export(self):
-        self.assertTrue(hasattr(scad, "export_step"))
-        self.assertTrue(hasattr(scad, "export_stl"))
+    def test_product_exports_require_exporter_namespace(self):
+        self.assertFalse(hasattr(scad, "export_step"))
+        self.assertFalse(hasattr(scad, "export_stl"))
+        self.assertFalse(hasattr(scad, "export_obj"))
+        self.assertTrue(hasattr(scad.exporter, "export_product_package_to_step"))
+        self.assertTrue(hasattr(scad.exporter, "export_product_package_to_obj"))
+        self.assertTrue(hasattr(scad.exporter, "export_product_package_to_stl"))
 
     def test_model_json_export_exists_as_canonical_seed(self):
         r = scad.var("r", 2.0)
@@ -281,7 +285,7 @@ class TestRearchitecture20IoContracts(unittest.TestCase):
 
         self.assertIn("canonical_contract", payload)
         contract = payload["canonical_contract"]
-        self.assertEqual(contract["contract_version"], "2.0")
+        self.assertEqual(contract["contract_version"], "2.1")
         self.assertEqual(contract["graph_roles"]["graph"], "canonical_low_level_graph")
         self.assertEqual(contract["graph_roles"]["leaf_ids"], "explicit_result_set")
         self.assertEqual(contract["replay_policy"]["preferred_graph"], "graph")

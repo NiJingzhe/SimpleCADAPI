@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 import numpy as np
-from OCP.BRep import BRep_Tool
+from OCP.BRep import BRep_Builder, BRep_Tool
 from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Section
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
@@ -30,7 +30,14 @@ from OCP.TopAbs import (
 )
 from OCP.TopExp import TopExp, TopExp_Explorer
 from OCP.TopTools import TopTools_IndexedMapOfShape
-from OCP.TopoDS import TopoDS, TopoDS_Edge, TopoDS_Face, TopoDS_Shape, TopoDS_Wire
+from OCP.TopoDS import (
+    TopoDS,
+    TopoDS_Compound,
+    TopoDS_Edge,
+    TopoDS_Face,
+    TopoDS_Shape,
+    TopoDS_Wire,
+)
 from OCP.gp import gp_Dir, gp_Pln, gp_Pnt
 
 from .io import xyz
@@ -670,6 +677,30 @@ def _section_contours(
     return contours
 
 
+def _section_source(
+    model: BRepModel, face_ids: Sequence[str] | None
+) -> tuple[TopoDS_Shape, list[str] | None]:
+    if face_ids is None:
+        return (model._material_union() if model.bodies else model.root), None
+    if not face_ids:
+        raise ValueError("face_ids must not be empty")
+    canonical_ids: list[str] = []
+    faces: list[TopoDS_Face] = []
+    for entity_id in face_ids:
+        canonical, kind, _, shape = _canonical_id(model, entity_id)
+        if kind != "face":
+            raise BRepEntityError("face_ids must identify faces")
+        if canonical not in canonical_ids:
+            canonical_ids.append(canonical)
+            faces.append(TopoDS.Face_s(shape))
+    builder = BRep_Builder()
+    compound = TopoDS_Compound()
+    builder.MakeCompound(compound)
+    for face in faces:
+        builder.Add(compound, face)
+    return compound, canonical_ids
+
+
 def inspect_section_rdescriptor(
     model_or_path: BRepModel | TopoDS_Shape | str | Path,
     origin: Sequence[float],
@@ -678,8 +709,9 @@ def inspect_section_rdescriptor(
     samples_per_edge: int = 16,
     connection_tolerance: float | None = None,
     compact: bool = False,
+    face_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    """Intersect a model with an unbounded plane and assemble sampled contours."""
+    """Intersect a model or selected faces with a plane and assemble contours."""
     _require_positive(tolerance, "tolerance")
     connection_tolerance_value = (
         tolerance if connection_tolerance is None else float(connection_tolerance)
@@ -692,7 +724,7 @@ def inspect_section_rdescriptor(
     plane_normal = _point(normal, "normal")
     basis_origin, x_axis, y_axis = _plane_basis(plane_origin, plane_normal)
     plane = gp_Pln(gp_Pnt(*basis_origin), gp_Dir(*plane_normal))
-    source = model._material_union() if model.bodies else model.root
+    source, scope_face_ids = _section_source(model, face_ids)
     section = BRepAlgoAPI_Section(source, plane, False)
     section.SetFuzzyValue(tolerance)
     section.Build()
@@ -735,6 +767,7 @@ def inspect_section_rdescriptor(
             "x_direction": x_axis.tolist(),
             "y_direction": y_axis.tolist(),
         },
+        "scope": {"face_ids": scope_face_ids},
         "tolerance": tolerance,
         "connection_tolerance": connection_tolerance_value,
         "edges": edges,

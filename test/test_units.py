@@ -7,7 +7,7 @@ import math
 import unittest
 
 import simplecadapi as scad
-from simplecadapi.units import _infer, unit_to_payload
+from simplecadapi.params.units import _infer, unit_to_payload
 
 
 class TestDimensionsAndUnits(unittest.TestCase):

@@ -14,7 +14,7 @@ export type Connector = {
 } & {
   connector_id: ProductId;
   name: string | null;
-  anchor: GeometryAnchor | PlacementAnchor | ForwardedAnchor;
+  anchor: GeometryAnchor | PlacementAnchor;
   geometry_ref?: null | GeometryRef;
 };
 /**
@@ -77,18 +77,12 @@ export interface Transform {
   y_axis: Vec3;
   z_axis: Vec3;
 }
-export interface ForwardedAnchor {
-  anchor_kind: "forwarded";
-  source_component_id: ProductId;
-  source_connector_id: ProductId;
-  offset: null | Transform;
-}
 export interface Assembly {
   kind: "assembly";
   assembly_id: ProductId;
   name: string | null;
   components: Component[];
-  connectors: Connector[];
+  public_connectors: PublicConnector[];
   constraints: Constraint[];
   grounded_component_ids: ProductId[];
   metadata: {
@@ -100,6 +94,12 @@ export interface Component {
   name: string | null;
   definition_ref: StructuralId;
   local_placement: Transform;
+}
+export interface PublicConnector {
+  public_connector_id: ProductId;
+  component_id: ProductId;
+  connector_id: ProductId;
+  name: string | null;
 }
 export interface Constraint {
   constraint_id: ProductId;

@@ -26,7 +26,7 @@ class TestExpressionGraph(unittest.TestCase):
         self.assertAlmostEqual(float(expr), 11.0)
 
     def test_expression_canonicalization_does_not_promote_discrete_index_lists(self):
-        from simplecadapi.expr import ExpressionGraph, canonicalize_params
+        from simplecadapi.params.expr import ExpressionGraph, canonicalize_params
 
         graph = ExpressionGraph()
         params, param_exprs = canonicalize_params(

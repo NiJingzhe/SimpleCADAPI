@@ -1,13 +1,15 @@
-"""SolidWorks backend facade for canonical model translation."""
+"""SolidWorks backend facade for validated product-package translation."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Sequence, Set
+from typing import Any, Dict, Sequence, Set
 
 from ...errors import ErrorGuidance
 from ...topology import OperationGraph
 from ..base import BaseTranslator
 from ..errors import TranslationRequestError
+from ..package_units import ProductPackageInput
+from ..product_graph import build_product_graph_view
 from ..types import BackendCapabilities, SupportLevel, TranslationArtifact
 from .capabilities import CAPABILITIES
 from .compiler import SolidWorksScriptTranslator
@@ -33,13 +35,13 @@ def _dependency_node_ids(
 
 
 class SolidWorksTranslator(BaseTranslator):
-    """Translate canonical model JSON into a SolidWorks COM Python script."""
+    """Translate one validated `.scadpkg` closure into SolidWorks automation."""
 
     def __init__(
         self,
-        document_name: str = "SimpleCADModel",
+        document_name: str = "SimpleCADProduct",
         *,
-        output_path: Optional[str] = None,
+        output_path: str | None = None,
         visible: bool = False,
         source_kernel_fallback: bool = False,
     ) -> None:
@@ -52,16 +54,8 @@ class SolidWorksTranslator(BaseTranslator):
     def capabilities(self) -> BackendCapabilities:
         return CAPABILITIES
 
-    def _result_ids(
-        self, payload: Dict[str, Any], graph: OperationGraph
-    ) -> Sequence[str]:
-        leaf_ids = payload.get("leaf_ids")
-        if isinstance(leaf_ids, list) and leaf_ids:
-            return [str(node_id) for node_id in leaf_ids]
-        return [node.node_id for node in graph.leaf_nodes()]
-
-    def _preflight(self, payload: Dict[str, Any], graph: OperationGraph) -> None:
-        needed = _dependency_node_ids(graph, self._result_ids(payload, graph))
+    def _preflight(self, graph: OperationGraph, result_node_id: str) -> None:
+        needed = _dependency_node_ids(graph, [result_node_id])
         unsupported = sorted(
             {
                 node.op
@@ -79,62 +73,55 @@ class SolidWorksTranslator(BaseTranslator):
             joined = ", ".join(unsupported)
             raise TranslationRequestError(
                 "solidworks",
-                "translate_model_payload",
+                "translate_product_package",
                 ErrorGuidance(
-                    what_happened=f"The result graph uses unsupported SolidWorks operations: {joined}.",
+                    what_happened=(
+                        "The product package uses unsupported SolidWorks "
+                        f"operations: {joined}."
+                    ),
                     possible_causes=(
-                        "The model uses canonical operations not implemented by the contributed runtime.",
+                        (
+                            "A definition-owned Feature Graph uses operations not "
+                            "implemented by the SolidWorks runtime."
+                        ),
                     ),
                     how_to_fix=(
-                        "Lower the model to operations declared by solidworks_translator.CAPABILITIES.",
-                        "Use another translator backend for this model.",
+                        "Use operations declared by solidworks_translator.CAPABILITIES.",
+                        "Use another translator backend for this product.",
                     ),
                 ),
             )
 
-    def translate_model_payload_to_script(
+    def translate_product_package(
         self,
-        payload: Dict[str, Any],
-        *,
-        graph: Optional[OperationGraph] = None,
-    ) -> str:
-        source_graph = graph or payload.get("graph")
-        if not isinstance(source_graph, OperationGraph) or source_graph.node_count == 0:
-            raise ValueError(
-                "SolidWorks translation requires a non-empty canonical graph"
-            )
-        self._preflight(payload, source_graph)
-        return SolidWorksScriptTranslator(
+        data: ProductPackageInput,
+        **_options: Any,
+    ) -> TranslationArtifact:
+        view = build_product_graph_view(data)
+        payload = view.model_payload()
+        self._preflight(view.graph, view.root_result_node_id)
+        script = SolidWorksScriptTranslator(
             document_name=self.document_name,
             visible=self.visible,
             source_kernel_fallback=self.source_kernel_fallback,
         ).translate_model_payload_to_script(
             payload,
-            graph=source_graph,
+            graph=view.graph,
             output_path=self.output_path,
         )
-
-    def translate_model_json_to_script(self, json_str: str) -> str:
-        artifact = self.translate_model_json(json_str)
-        assert isinstance(artifact.content, str)
-        return artifact.content
-
-    def translate_model_payload(
-        self,
-        payload: Dict[str, Any],
-        *,
-        graph: Optional[OperationGraph] = None,
-    ) -> TranslationArtifact:
         return TranslationArtifact(
             backend_id="solidworks",
             target_id="solidworks_script",
             media_type="text/x-python",
             suggested_suffix=".py",
-            content=self.translate_model_payload_to_script(payload, graph=graph),
+            content=script,
             metadata={
                 "document_name": self.document_name,
                 "output_path": self.output_path,
                 "visible": self.visible,
+                "root_definition_id": view.root_definition_id,
+                "root_definition_kind": view.root_definition_kind,
+                "definition_ids": view.definition_ids,
                 "source_kernel_fallback": self.source_kernel_fallback,
                 "target_runtime_validated": False,
             },

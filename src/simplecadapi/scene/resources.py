@@ -11,10 +11,10 @@ MIB = 1024 * 1024
 @dataclass(frozen=True)
 class SceneResourceLimits:
     zip_members: int = 50_000
-    input_archive_bytes: int = 256 * MIB
-    canonical_archive_bytes: int = 256 * MIB
+    input_archive_bytes: int = 512 * MIB
+    canonical_archive_bytes: int = 512 * MIB
     total_uncompressed_bytes: int = 1024 * MIB
-    one_member_bytes: int = 256 * MIB
+    one_member_bytes: int = 512 * MIB
     scene_json_bytes: int = 32 * MIB
     entity_json_bytes: int = 64 * MIB
     model_json_bytes: int = 64 * MIB
@@ -31,7 +31,7 @@ class SceneResourceLimits:
     connectors: int = 100_000
     cameras: int = 1_000
     hierarchy_depth: int = 256
-    forwarded_connector_depth: int = 64
+    public_connector_depth: int = 64
     entities_per_sidecar: int = 500_000
     entities_total: int = 2_000_000
     triangle_vertices_per_asset: int = 2_000_000

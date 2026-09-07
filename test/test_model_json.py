@@ -7,7 +7,8 @@ import unittest
 from copy import deepcopy
 
 import simplecadapi as scad
-from simplecadapi.graph import GraphSession
+from simplecadapi.recording.graph import GraphSession
+from simplecadapi.topology import TopoEvent
 
 
 class TestModelJson(unittest.TestCase):
@@ -64,7 +65,7 @@ class TestModelJson(unittest.TestCase):
 
         self.assertIn("canonical_contract", payload)
         contract = payload["canonical_contract"]
-        self.assertEqual(contract["contract_version"], "2.0")
+        self.assertEqual(contract["contract_version"], "2.1")
         self.assertEqual(contract["graph_roles"]["graph"], "canonical_low_level_graph")
         self.assertEqual(contract["graph_roles"]["leaf_ids"], "explicit_result_set")
         self.assertEqual(contract["replay_policy"]["preferred_graph"], "graph")
@@ -413,6 +414,81 @@ class TestModelJson(unittest.TestCase):
         with self.assertRaises(ValueError):
             scad.import_model_json(json.dumps(payload))
 
+    def test_model_json_import_accepts_missing_legacy_contract_and_rejects_forgery(self):
+        with GraphSession() as session:
+            scad.make_box_rsolid(1.0, 1.0, 1.0)
+        payload = json.loads(scad.export_model_json(session))
+
+        missing = dict(payload)
+        missing.pop("canonical_contract")
+        imported = scad.import_model_json(json.dumps(missing))
+        self.assertEqual(imported["canonical_contract"], {"contract_version": "2.0"})
+
+        explicit_null = dict(payload)
+        explicit_null["canonical_contract"] = None
+        with self.assertRaises(ValueError):
+            scad.import_model_json(json.dumps(explicit_null))
+
+        forged = json.loads(json.dumps(payload))
+        forged["canonical_contract"]["core_op_set"] = []
+        with self.assertRaises(ValueError):
+            scad.import_model_json(json.dumps(forged))
+
+        forged_legacy = json.loads(json.dumps(payload))
+        forged_legacy["canonical_contract"] = {
+            "contract_version": "2.0",
+            "core_op_set": [],
+        }
+        with self.assertRaises(ValueError):
+            scad.import_model_json(json.dumps(forged_legacy))
+
+    def test_model_json_import_negotiates_frozen_legacy_contract(self):
+        from simplecadapi.recording.serializer import _canonical_contract_payload
+
+        with GraphSession() as session:
+            scad.make_box_rsolid(1.0, 1.0, 1.0)
+        payload = json.loads(scad.export_model_json(session))
+        payload["canonical_contract"] = _canonical_contract_payload("2.0")
+
+        imported = scad.import_model_json(json.dumps(payload))
+        self.assertEqual(imported["canonical_contract"]["contract_version"], "2.0")
+
+        payload["canonical_contract"] = {"contract_version": "2.0"}
+        imported = scad.import_model_json(json.dumps(payload))
+        self.assertEqual(imported["canonical_contract"], {"contract_version": "2.0"})
+
+    def test_legacy_contract_rejects_snapshot_operations(self):
+        with GraphSession() as session:
+            scad.make_box_rsolid(1.0, 1.0, 1.0)
+        payload = json.loads(scad.export_model_json(session))
+        payload["canonical_contract"] = {"contract_version": "2.0"}
+        payload["graph"]["nodes"][0]["op"] = "load_brep_region_rsolid"
+        payload["graph"]["nodes"][0]["params"] = {
+            "path": "body.scadbrep",
+            "sha256": "sha256:" + "0" * 64,
+        }
+
+        with self.assertRaises(ValueError):
+            scad.import_model_json(json.dumps(payload))
+
+    def test_model_json_import_rejects_missing_graph_schema(self):
+        with GraphSession() as session:
+            scad.make_box_rsolid(1.0, 1.0, 1.0)
+        payload = json.loads(scad.export_model_json(session))
+        payload["graph"].pop("schema_version")
+
+        with self.assertRaises(ValueError):
+            scad.import_model_json(json.dumps(payload))
+
+    def test_strict_replay_rejects_forged_output_count(self):
+        with GraphSession() as session:
+            scad.make_box_rsolid(1.0, 1.0, 1.0)
+        payload = json.loads(scad.export_model_json(session))
+        payload["graph"]["nodes"][0]["output_count"] = 2
+
+        with self.assertRaises(scad.SimpleCADError):
+            scad.replay_model_json(json.dumps(payload), strict=True)
+
     def test_graph_selection_refs_follow_declared_schema(self):
         with GraphSession() as session:
             box = scad.make_box_rsolid(4.0, 4.0, 4.0)
@@ -517,7 +593,7 @@ class TestModelJson(unittest.TestCase):
                 ):
                     box = scad.make_box_rsolid(2.0, 4.0, 6.0)
                     original = scad.translate_shape(box, (0.0, 0.0, 2.0))
-                    scad.capture_result(value=original)
+                    session.capture_result(value=original)
 
         box_node = next(
             node
@@ -557,7 +633,7 @@ class TestModelJson(unittest.TestCase):
                     sketch = scad.add_circle_rsketch(sketch, "circle", "center", 1.0)
 
             original = scad.make_face_from_sketch_rface(sketch, profile="circle")
-            scad.capture_result(value=original)
+            session.capture_result(value=original)
 
         self.assertEqual(sketch.plane["origin"], (12.0, 24.0, 27.0))
         self.assertEqual(sketch.plane["x_axis"], (0.0, 0.0, -1.0))
@@ -622,6 +698,51 @@ class TestOperationGraphDeltaSerialization(unittest.TestCase):
         self.assertEqual(leaf.op, "make_cut_rsolid")
         self.assertIsNotNone(leaf.topo_delta)
         self.assertEqual(len(leaf.topo_delta.raw_event["steps"]), 2)
+
+        for entry in leaf.topo_delta.entries:
+            self.assertEqual(entry.ref.graph_id, session.graph.graph_id)
+            self.assertFalse(entry.ref.node_id.startswith("n_"))
+            for parent in entry.parent_refs:
+                self.assertEqual(parent.graph_id, session.graph.graph_id)
+                self.assertFalse(parent.node_id.startswith("n_"))
+
+        event_lists = {
+            TopoEvent.PRESERVED: leaf.topo_delta.preserved,
+            TopoEvent.MODIFIED: leaf.topo_delta.modified,
+            TopoEvent.GENERATED: leaf.topo_delta.generated,
+            TopoEvent.DELETED: leaf.topo_delta.deleted,
+        }
+        for event, refs in event_lists.items():
+            self.assertEqual(
+                set(refs),
+                {
+                    entry.ref
+                    for entry in leaf.topo_delta.entries
+                    if entry.event == event
+                },
+            )
+
+    def test_multi_tool_cut_model_json_is_deterministic(self):
+        def build_model_json():
+            with GraphSession(graph_id="deterministic_multi_cut") as session:
+                body = scad.make_box_rsolid(4.0, 4.0, 4.0)
+                tool_a = scad.make_box_rsolid(
+                    1.0,
+                    1.0,
+                    5.0,
+                    bottom_face_center=(1.0, 1.0, -0.5),
+                )
+                tool_b = scad.make_box_rsolid(
+                    1.0,
+                    1.0,
+                    5.0,
+                    bottom_face_center=(2.0, 2.0, -0.5),
+                )
+                result = scad.cut_rsolid(body, tool_a, tool_b)
+                session.capture_result(value=result)
+            return scad.export_model_json(session)
+
+        self.assertEqual(build_model_json(), build_model_json())
 
     def test_multi_tool_intersect_topology_delta_keeps_step_chain(self):
         with GraphSession() as session:

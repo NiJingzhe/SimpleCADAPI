@@ -47,7 +47,7 @@ from pathlib import Path
 import sys
 
 import simplecadapi as scad
-from simplecadapi.product import Assembly
+from simplecadapi.product.assembly import Assembly
 
 path = Path(sys.argv[1]).resolve()
 builder_name = sys.argv[2]
@@ -62,9 +62,10 @@ if spec is None or spec.loader is None:
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 result = getattr(module, builder_name)()
-assembly = result.value[0]
+value = result.value
+assembly = value[0] if isinstance(value, tuple) else value
 if not isinstance(assembly, Assembly):
-    raise TypeError(f"{builder_name} did not return an Assembly first")
+    raise TypeError(f"{builder_name} did not return an Assembly product")
 
 nodes = []
 def walk(item):
@@ -97,7 +98,7 @@ if path.name == "10_part_assembly.py":
             for item in nodes
             if not isinstance(item, Assembly) and item.part_id == part_id
         )
-        faces = part.body.get_faces()
+        faces = part.body._iter_faces()
         face_naming[part_id] = {
             "face_count": len(faces),
             "unnamed_indices": [

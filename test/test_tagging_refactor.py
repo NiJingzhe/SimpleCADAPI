@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 import simplecadapi as scad
-from simplecadapi import operations, tagging
+from simplecadapi import operators as operations, tagging
 
 
 class TestTaggingRefactor(unittest.TestCase):
@@ -20,7 +20,7 @@ class TestTaggingRefactor(unittest.TestCase):
         self.assertFalse(
             any(
                 "role.mounting_surface" in face._list_tags("effective")
-                for face in box.get_faces()
+                for face in box._iter_faces()
             )
         )
 
@@ -278,7 +278,7 @@ class TestTaggingRefactor(unittest.TestCase):
             lineage_policy=scad.LineagePolicy.CONTINUATION_FRAGMENT,
         )
         tagged_face = next(
-            face for face in tagged.get_faces() if face.topo_id == source_face.topo_id
+            face for face in tagged._iter_faces() if face.topo_id == source_face.topo_id
         )
 
         self.assertIn(
@@ -311,7 +311,7 @@ class TestTaggingRefactor(unittest.TestCase):
 
     def test_wire_edge_indices_live_in_geo_metadata_not_tags(self):
         wire = scad.make_rectangle_rwire(1.0, 1.0)
-        edges = wire.get_edges()
+        edges = wire._iter_edges()
 
         self.assertTrue(edges)
         self.assertFalse(any(tag.isdigit() for edge in edges for tag in scad.list_tags(edge)))
@@ -328,14 +328,14 @@ class TestAutoTagFacesNamespaces(unittest.TestCase):
     def test_box_faces_have_new_tags(self):
         box = scad.make_box_rsolid(1.0, 1.0, 1.0)
         box.auto_tag_faces("box")
-        faces = box.get_faces()
+        faces = box._iter_faces()
         self.assertTrue(any("face.top" in scad.list_tags(face) for face in faces))
         self.assertTrue(any("face.bottom" in scad.list_tags(face) for face in faces))
 
     def test_cylinder_faces_have_new_tags(self):
         cylinder = scad.make_cylinder_rsolid(1.0, 2.0)
         cylinder.auto_tag_faces("cylinder")
-        faces = cylinder.get_faces()
+        faces = cylinder._iter_faces()
         self.assertTrue(any("face.top" in scad.list_tags(face) for face in faces))
         self.assertTrue(any("face.bottom" in scad.list_tags(face) for face in faces))
         self.assertTrue(any("face.side" in scad.list_tags(face) for face in faces))
@@ -343,7 +343,7 @@ class TestAutoTagFacesNamespaces(unittest.TestCase):
     def test_sphere_faces_have_new_tags(self):
         sphere = scad.make_sphere_rsolid(1.0)
         sphere.auto_tag_faces("sphere")
-        faces = sphere.get_faces()
+        faces = sphere._iter_faces()
         self.assertEqual(len(faces), 1)
         self.assertIn("face.surface", scad.list_tags(faces[0]))
 

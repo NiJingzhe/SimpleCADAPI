@@ -9,17 +9,20 @@ the outer-race inner wall and records the simplification in metadata.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Dict, List, Optional
 
-from ..product import Assembly, Material, Part
-from ..operations import (
+from ..product.assembly import Assembly
+from ..product.material import Material
+from ..product.part import Part
+from ..operators import (
     add_component_rassembly,
     add_connector_rpart,
     add_revolute_constraint_rassembly,
     apply_tag,
     assign_material_rpart,
     chamfer_rsolid,
-    forward_connector_rassembly,
+    ground_component_rassembly,
     identity_placement_rplacement,
     make_assembly_rassembly,
     make_connector_ref_rconnectorref,
@@ -32,12 +35,13 @@ from ..operations import (
     make_three_point_arc_redge,
     make_wire_from_edges_rwire,
     revolve_rsolid,
+    set_public_connector_rassembly,
     union_rsolid,
 )
 from ..core import Face, Solid
-from ..tracking import graph_tracking_scope
+from ..topology.tracking import graph_tracking_scope
 
-__all__ = ["make_ball_bearing_rassembly"]
+__all__ = ["build_ball_bearing", "make_ball_bearing_rassembly"]
 
 
 def _validate_positive_finite(name: str, value: float) -> float:
@@ -87,7 +91,7 @@ def _validate_ball_count(
 
 def _candidate_chamfer_edges(solid: Solid, bearing_width: float) -> List[object]:
     circular_min_length = max(1e-6, bearing_width * 1.1)
-    return [edge for edge in solid.get_edges() if edge.get_length() > circular_min_length]
+    return [edge for edge in solid._iter_edges() if edge.get_length() > circular_min_length]
 
 
 def _apply_edge_chamfer(solid: Solid, edge_chamfer: float, bearing_width: float) -> Solid:
@@ -197,7 +201,7 @@ def _make_race_ring_solid(
 
 def _axis_face(solid: Solid, target_z: float) -> Face:
     candidates = []
-    for face in solid.get_faces():
+    for face in solid._iter_faces():
         normal = face.get_normal_at()
         if normal.z < 0.7:
             continue
@@ -422,24 +426,19 @@ def make_ball_bearing_rassembly(
         drive_angle_degrees=drive_angle_degrees,
         name="Inner ring spins in outer ring",
     )
-    public_axis_offset = make_placement_rplacement(
-        origin=(0.0, 0.0, -bearing_width_value / 2.0),
-    )
-    assembly = forward_connector_rassembly(
+    assembly = set_public_connector_rassembly(
         assembly,
-        connector_id="outer_axis",
+        public_connector_id="outer_axis",
         source_component_id="outer_ring",
         source_connector_id="axis",
         name="Outer ring housing axis",
-        offset=public_axis_offset,
     )
-    assembly = forward_connector_rassembly(
+    assembly = set_public_connector_rassembly(
         assembly,
-        connector_id="inner_axis",
+        public_connector_id="inner_axis",
         source_component_id="inner_ring",
         source_connector_id="axis",
         name="Inner ring shaft axis",
-        offset=public_axis_offset,
     )
     assembly.set_metadata(
         "std.bearing.ball_bearing",
@@ -476,3 +475,144 @@ def make_ball_bearing_rassembly(
         },
     )
     return assembly
+
+
+def build_ball_bearing(
+    *,
+    bore_diameter: float,
+    outer_diameter: float,
+    bearing_width: float,
+    ball_diameter: float,
+    ball_count: Optional[int] = None,
+    raceway_clearance: float = 0.02,
+    edge_chamfer: float = 0.0,
+    assembly_id: str = "std_ball_bearing",
+    revision: str = "1.0.0",
+    drive_angle_degrees: Optional[float] = None,
+    fuse_rolling_elements: bool = True,
+    rolling_element_fuse_overlap: float = 0.01,
+    material: Optional[Material] = None,
+    ground: Optional[str] = "outer_ring",
+    cache: object = "off",
+):
+    """Build one ball bearing as a reusable durable sub-assembly definition.
+
+    Returns an ``AssemblyBuildResult`` whose definition re-declares the
+    standard library contract: public ``outer_axis``/``inner_axis`` connectors
+    over one internal ``inner_outer_revolute`` constraint, returned unsolved so
+    a parent assembly can drive both rings through external fixed constraints.
+    ``ground`` selects the ring the nested definition grounds for its own
+    incremental solve (``"outer_ring"``, ``"inner_ring"``, or ``None``).
+    """
+
+
+    from ..build import assemble, part
+
+    stdlib_root = Path(__file__).resolve().parents[2]
+
+    if ground not in (None, "outer_ring", "inner_ring"):
+        raise ValueError("ground must be 'outer_ring', 'inner_ring', or None")
+
+    def _spec_kwargs():
+        return dict(
+            bore_diameter=bore_diameter,
+            outer_diameter=outer_diameter,
+            bearing_width=bearing_width,
+            ball_diameter=ball_diameter,
+            ball_count=ball_count,
+            raceway_clearance=raceway_clearance,
+            edge_chamfer=edge_chamfer,
+            assembly_id=assembly_id,
+            drive_angle_degrees=drive_angle_degrees,
+            fuse_rolling_elements=fuse_rolling_elements,
+            rolling_element_fuse_overlap=rolling_element_fuse_overlap,
+            material=material,
+        )
+
+    def _ring_result(role: str):
+        @part(
+            id=f"{assembly_id}_{role}",
+            revision=revision,
+            cache=cache,
+            project_root=stdlib_root,
+        )
+        def build_ring() -> Part:
+            return make_ball_bearing_rassembly(**_spec_kwargs()).get_component(
+                role
+            ).item
+
+        return build_ring()
+
+    outer = _ring_result("outer_ring")
+    inner = _ring_result("inner_ring")
+    declared = (outer, inner)
+    if not fuse_rolling_elements:
+        ball = _ring_result("ball_00")
+        declared = (*declared, ball)
+
+    @assemble(
+        id=assembly_id,
+        revision=revision,
+        definitions=declared,
+        cache=cache,
+        project_root=stdlib_root,
+    )
+    def build() -> Assembly:
+        bearing = make_assembly_rassembly(
+            assembly_id,
+            name=f"{assembly_id} standard ball bearing",
+        )
+        identity = identity_placement_rplacement()
+        bearing = add_component_rassembly(
+            bearing,
+            outer.part,
+            component_id="outer_ring",
+            placement=identity,
+        )
+        bearing = add_component_rassembly(
+            bearing,
+            inner.part,
+            component_id="inner_ring",
+            placement=identity,
+        )
+        if not fuse_rolling_elements:
+            probe = make_ball_bearing_rassembly(**_spec_kwargs())
+            meta = probe.get_metadata("std.bearing.ball_bearing")
+            for component_id in meta["ball_component_ids"]:
+                bearing = add_component_rassembly(
+                    bearing,
+                    ball.part,
+                    component_id=component_id,
+                    placement=_ball_placement(
+                        (bore_diameter + outer_diameter) / 4.0,
+                        meta["ball_angles_degrees"][component_id],
+                    ),
+                )
+                bearing = ground_component_rassembly(bearing, component_id)
+        if ground is not None:
+            bearing = ground_component_rassembly(bearing, ground)
+        bearing = add_revolute_constraint_rassembly(
+            bearing,
+            "inner_outer_revolute",
+            make_connector_ref_rconnectorref("outer_ring", "axis"),
+            make_connector_ref_rconnectorref("inner_ring", "axis"),
+            drive_angle_degrees=drive_angle_degrees,
+            name="Inner ring spins in outer ring",
+        )
+        bearing = set_public_connector_rassembly(
+            bearing,
+            public_connector_id="outer_axis",
+            source_component_id="outer_ring",
+            source_connector_id="axis",
+            name="Outer ring housing axis",
+        )
+        bearing = set_public_connector_rassembly(
+            bearing,
+            public_connector_id="inner_axis",
+            source_component_id="inner_ring",
+            source_connector_id="axis",
+            name="Inner ring shaft axis",
+        )
+        return bearing
+
+    return build()

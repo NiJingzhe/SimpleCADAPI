@@ -1,28 +1,27 @@
-"""Public Fusion 360 translator entrypoints."""
+"""Public Fusion 360 product translator entrypoint."""
 
 from __future__ import annotations
 
-from typing import Optional, Sequence
-
+from ..package_units import ProductPackageInput
 from .translator import Fusion360Translator
 
 
-def translate_model_json_to_fusion360_script(
-    json_str: str,
-    document_name: str = "SimpleCADModel",
-    result_node_ids: Optional[Sequence[str]] = None,
+def translate_product_package_to_fusion360_script(
+    data: ProductPackageInput,
+    document_name: str = "SimpleCADProduct",
     *,
     selection_mode: str = "gsm",
     source_kernel_fallback: bool = False,
 ) -> str:
-    """Translate canonical model JSON into a Fusion 360 Python script."""
+    """Translate one validated `.scadpkg` closure into a Fusion 360 script."""
 
-    return Fusion360Translator(
+    artifact = Fusion360Translator(
         document_name=document_name,
-        result_node_ids=result_node_ids,
         selection_mode=selection_mode,
         source_kernel_fallback=source_kernel_fallback,
-    ).translate_model_json_to_script(json_str)
+    ).translate_product_package(data)
+    assert isinstance(artifact.content, str)
+    return artifact.content
 
 
-__all__ = ["translate_model_json_to_fusion360_script"]
+__all__ = ["translate_product_package_to_fusion360_script"]

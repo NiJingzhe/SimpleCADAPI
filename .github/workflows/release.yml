@@ -62,7 +62,7 @@ jobs:
           fi
 
       - name: Install locked dependencies
-        run: uv sync --locked --group dev --extra collision
+        run: uv sync --locked --group dev
       - name: Install headless rendering support
         run: sudo apt-get update && sudo apt-get install --yes xvfb
 
@@ -80,8 +80,10 @@ jobs:
         run: uv run twine check dist/*
       - name: Build and verify Agent Skill archive
         run: |
-          uv run skill-pack --refresh-docs --archive
-          uv run pytest test/test_skill_pack.py -q
+          uv run python tools/auto_docs_gen.py --quiet
+          uv run python tools/skillbuild.py --target omp
+          uv run pytest test/test_skill_build.py -q
+          tar -C skills -czf skills/simplecadapi.tar.gz simplecadapi-omp
 
 
       - name: Create GitHub release

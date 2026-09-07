@@ -1,0 +1,17 @@
+# make_circle_redge
+
+## API Definition
+
+```python
+def make_circle_redge(center: Tuple[float, float, float], radius: ScalarLike, normal: Tuple[float, float, float] = (0, 0, 1), *, tag_prefix: Optional[str] = None) -> Edge
+```
+
+*Source: operators/geometry.py*
+
+## Import Surface
+
+- top-level: `from simplecadapi import make_circle_redge`
+
+## Description
+
+Create a circular edge.

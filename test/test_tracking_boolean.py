@@ -11,7 +11,7 @@ from simplecadapi.topology import (
     OperationNode,
     OperationGraph,
 )
-from simplecadapi.tracking import (
+from simplecadapi.topology.tracking import (
     tracked_cut,
     tracked_union,
     tracked_intersect,
@@ -63,8 +63,8 @@ class TestTrackedCut(unittest.TestCase):
     def test_tracked_cut_total_faces_increased(self):
         """A cylinder cut through a box adds the cylindrical hole face."""
         result = tracked_cut(self.body, self.tool)
-        original_faces = len(self.body.get_faces())
-        result_faces = len(result.solid.get_faces())
+        original_faces = len(self.body._iter_faces())
+        result_faces = len(result.solid._iter_faces())
         # Cylinder through box: at least 1 new face (cylindrical hole)
         self.assertGreaterEqual(result_faces, original_faces)
 
@@ -136,9 +136,9 @@ class TestTrackedUnion(unittest.TestCase):
         ]
 
         result = scad.union_rsolid(*solids, glue=False)
-        tracks = [face.get_metadata("track") for face in result.get_faces()]
+        tracks = [face.get_metadata("track") for face in result._iter_faces()]
 
-        self.assertEqual(len(result.get_faces()), 6)
+        self.assertEqual(len(result._iter_faces()), 6)
         self.assertTrue(all(track["status"] == "proven" for track in tracks))
         self.assertEqual(
             {role for track in tracks for role in track["origin_roles"]},
@@ -165,13 +165,13 @@ class TestTrackedUnion(unittest.TestCase):
             bottom_face_center=(58.0, 0.0, 0.0),
             axis=(1.0, 0.0, 0.0),
         )
-        source_face = max(flange.get_faces(), key=lambda face: face.get_center().x)
+        source_face = max(flange._iter_faces(), key=lambda face: face.get_center().x)
         scad.apply_tag(source_face, "cap.face.end")
 
         result = scad.union_rsolid(barrel, flange, nose, glue=False)
         descendants = [
             face
-            for face in result.get_faces()
+            for face in result._iter_faces()
             if "cap.face.end" in scad.list_tags(face, scope="lineage")
         ]
 
@@ -200,7 +200,7 @@ class TestTrackedUnion(unittest.TestCase):
             bottom_face_center=(58.0, 0.0, 0.0),
             axis=(1.0, 0.0, 0.0),
         )
-        source_face = max(flange.get_faces(), key=lambda face: face.get_center().x)
+        source_face = max(flange._iter_faces(), key=lambda face: face.get_center().x)
         flange = scad.apply_tag_rselection(
             flange,
             [source_face],
@@ -211,7 +211,7 @@ class TestTrackedUnion(unittest.TestCase):
         result = scad.union_rsolid(barrel, flange, nose, glue=False)
 
         self.assertFalse(
-            any("cap.face.end" in scad.list_tags(face) for face in result.get_faces())
+            any("cap.face.end" in scad.list_tags(face) for face in result._iter_faces())
         )
 
     def test_nary_union_face_binding_stays_directly_queryable_after_cut(self):
@@ -278,11 +278,11 @@ class TestTrackedUnion(unittest.TestCase):
 
         result = scad.union_rsolid(*solids, clean=False, glue=False)
 
-        self.assertEqual(len(result.get_faces()), 14)
+        self.assertEqual(len(result._iter_faces()), 14)
         self.assertTrue(
             all(
                 face.get_metadata("track")["status"] == "proven"
-                for face in result.get_faces()
+                for face in result._iter_faces()
             )
         )
 
@@ -349,7 +349,7 @@ class TestSolidMapping(unittest.TestCase):
 
     def test_result_has_faces(self):
         result = tracked_cut(self.body, self.tool)
-        faces = result.solid.get_faces()
+        faces = result.solid._iter_faces()
         self.assertGreater(len(faces), 0)
 
     def test_result_has_valid_volume(self):

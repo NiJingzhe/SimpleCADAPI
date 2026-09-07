@@ -199,7 +199,7 @@ def main() -> int:
                 "name": None,
             }
         ],
-        "connectors": [],
+        "public_connectors": [],
         "constraints": [],
         "grounded_component_ids": ["component_a"],
         "kind": "assembly",

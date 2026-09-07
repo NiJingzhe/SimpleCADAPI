@@ -7,7 +7,7 @@
     "implementation_status": {
       "phase": "phase_a_target_profile",
       "scene_compiler": "phase_b_not_implemented",
-      "grounding_modules": ["simplecadapi.kernel.ocp_properties", "simplecadapi.operations", "simplecadapi.serializer", "simplecadapi.product"],
+      "grounding_modules": ["simplecadapi.connector", "simplecadapi.kernel.ocp_properties", "simplecadapi.operations", "simplecadapi.placement", "simplecadapi.serializer"],
       "required_ocp_binding": "cadquery-ocp>=7.9.3.1",
       "target_deltas_from_current_helpers": ["serializer resolver accepts score ties; this target requires a unique passing score", "product edge frame falls back to +X when endpoints are missing; this target requires a null frame"]
     },
@@ -138,7 +138,7 @@
       "selector_solid_fields": ["volume", "center"],
       "bbox_api": "BRepBndLib.AddOptimal_s(shape, box, False, False) after Bnd_Box.SetGap(0.0)",
       "edge_payload_calls": ["Edge.get_length()", "Edge.get_center()", "Edge.get_start_vertex().get_coordinates()", "Edge.get_end_vertex().get_coordinates()"],
-      "face_payload_calls": ["Face.get_area()", "Face.get_center()", "Face.get_normal_at(0.5, 0.5)", "Face.get_edges()", "Face.get_inner_wires()"],
+      "face_payload_calls": ["Face.get_area()", "Face.get_center()", "Face.get_normal_at(0.5, 0.5)", "Face._iter_edges()", "Face._iter_inner_wires()"],
       "face_normal_calls": ["BRepAdaptor_Surface(face, True)", "BRepAdaptor_Surface.FirstUParameter()", "BRepAdaptor_Surface.LastUParameter()", "BRepAdaptor_Surface.FirstVParameter()", "BRepAdaptor_Surface.LastVParameter()", "BRepLProp_SLProps(adaptor, midpoint_u, midpoint_v, 1, 1e-7)", "BRepLProp_SLProps.IsNormalDefined()", "BRepLProp_SLProps.Normal()"],
       "face_normal_orientation": "reverse_when_face.Orientation() == TopAbs_REVERSED",
       "vertex_payload_call": "Vertex.get_coordinates()",
@@ -170,7 +170,7 @@
       "non_finite_score_policy": "reject"
     },
     "connector_frame": {
-      "placement_symbol": "simplecadapi.product.Placement",
+      "placement_symbol": "simplecadapi.placement.Placement",
       "normalization": "binary64_euclidean",
       "face_origin": "selector.center",
       "face_z_axis": "normalize(selector.normal)",

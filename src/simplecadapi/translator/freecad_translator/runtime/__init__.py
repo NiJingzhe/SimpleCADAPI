@@ -22,8 +22,7 @@ _FRAGMENT_NAMES = (
 def assemble_runtime_source() -> str:
     runtime_dir = Path(__file__).resolve().parent
     return "".join(
-        (runtime_dir / name).read_text(encoding="utf-8")
-        for name in _FRAGMENT_NAMES
+        (runtime_dir / name).read_text(encoding="utf-8") for name in _FRAGMENT_NAMES
     )
 
 

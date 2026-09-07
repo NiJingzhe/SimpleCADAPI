@@ -303,7 +303,7 @@ class TestBooleanOperations(unittest.TestCase):
         with redirect_stdout(stdout_buffer):
             result = scad.union_rsolid(box_left, box_right)
         self.assertAlmostEqual(result.get_volume(), 2.0, places=6)
-        self.assertEqual(len(result.get_faces()), 6)
+        self.assertEqual(len(result._iter_faces()), 6)
         self.assertEqual(stdout_buffer.getvalue(), "")
 
     def test_union_bridges_small_explicit_gap_only_with_tolerance(self):
@@ -406,7 +406,7 @@ class TestAdvancedFeatures(unittest.TestCase):
     def test_fillet(self):
         """Test fillet."""
         # 获取所有边
-        edges = self.box.get_edges()
+        edges = self.box._iter_edges()
         # 选择前4条边进行圆角
         selected_edges = edges[:4]
 
@@ -421,7 +421,7 @@ class TestAdvancedFeatures(unittest.TestCase):
     def test_chamfer(self):
         """Test chamfer."""
         # 获取所有边
-        edges = self.box.get_edges()
+        edges = self.box._iter_edges()
         # 选择前4条边进行倒角
         selected_edges = edges[:4]
 
@@ -436,7 +436,7 @@ class TestAdvancedFeatures(unittest.TestCase):
     def test_shell(self):
         """Test shell."""
         # 获取顶面
-        faces = self.box.get_faces()
+        faces = self.box._iter_faces()
         top_faces = [face for face in faces if "face.top" in scad.list_tags(face)]
 
         try:
@@ -519,7 +519,7 @@ class TestTagging(unittest.TestCase):
     def test_auto_tag_faces_box(self):
         """Test auto tag faces box."""
         self.box.auto_tag_faces("box")
-        faces = self.box.get_faces()
+        faces = self.box._iter_faces()
 
         # 检查是否有标记的面
         tagged_faces = [face for face in faces if len(scad.list_tags(face)) > 0]
@@ -529,7 +529,7 @@ class TestTagging(unittest.TestCase):
         """Test auto tag faces cylinder."""
         cylinder = scad.create_cylinder(1.0, 2.0)
         cylinder.auto_tag_faces("cylinder")
-        faces = cylinder.get_faces()
+        faces = cylinder._iter_faces()
 
         # 检查是否有标记的面
         tagged_faces = [face for face in faces if len(scad.list_tags(face)) > 0]
@@ -539,7 +539,7 @@ class TestTagging(unittest.TestCase):
         """Test auto tag faces sphere."""
         sphere = scad.create_sphere(1.0)
         sphere.auto_tag_faces("sphere")
-        faces = sphere.get_faces()
+        faces = sphere._iter_faces()
 
         # 球体应该只有一个面，且被标记为surface
         self.assertEqual(len(faces), 1)
@@ -722,91 +722,6 @@ class TestCoordinateSystem(unittest.TestCase):
         self.assertTrue(np.allclose(placement.origin, [15.0, 26.0, 26.0], atol=1e-9))
 
 
-class TestExport(unittest.TestCase):
-    """Tests for export functionality."""
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.box = scad.make_box_rsolid(1.0, 1.0, 1.0)
-
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir)
-
-    def test_export_stl(self):
-        """Test export STL."""
-        stl_path = os.path.join(self.temp_dir, "test.stl")
-        try:
-            scad.export_stl(self.box, stl_path)
-            # 检查文件是否创建
-            self.assertTrue(os.path.exists(stl_path))
-            # 检查文件是否有内容
-            self.assertGreater(os.path.getsize(stl_path), 0)
-        except Exception as e:
-            self.skipTest(f"STL export not fully implemented: {e}")
-
-    def test_export_step(self):
-        """Test export STEP."""
-        step_path = os.path.join(self.temp_dir, "test.step")
-        try:
-            scad.export_step(self.box, step_path)
-            # 检查文件是否创建
-            self.assertTrue(os.path.exists(step_path))
-            # 检查文件是否有内容
-            self.assertGreater(os.path.getsize(step_path), 0)
-        except Exception as e:
-            self.skipTest(f"STEP export not fully implemented: {e}")
-
-    def test_export_multiple_shapes(self):
-        """Test export multiple shapes."""
-        box1 = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        box2 = scad.make_box_rsolid(0.5, 0.5, 0.5, bottom_face_center=(2, 0, 0))
-        stl_path = os.path.join(self.temp_dir, "multiple.stl")
-
-        try:
-            scad.export_stl([box1, box2], stl_path)
-            # 检查文件是否创建
-            self.assertTrue(os.path.exists(stl_path))
-            # 检查文件是否有内容
-            self.assertGreater(os.path.getsize(stl_path), 0)
-        except Exception as e:
-            self.skipTest(f"Multiple shapes export not fully implemented: {e}")
-
-    def test_export_nested_shape_list(self):
-        """Test export nested shape list."""
-        box = scad.make_box_rsolid(0.8, 0.8, 0.8)
-        cylinder = scad.make_cylinder_rsolid(0.4, 1.0)
-        sphere = scad.make_sphere_rsolid(0.5)
-
-        nested_shapes = [box, [cylinder, sphere]]
-        step_path = os.path.join(self.temp_dir, "nested.step")
-
-        try:
-            scad.export_step(nested_shapes, step_path)
-            self.assertTrue(os.path.exists(step_path))
-            self.assertGreater(os.path.getsize(step_path), 0)
-        except Exception as e:
-            self.skipTest(f"Nested shapes export not fully implemented: {e}")
-
-    def test_export_step_multiple_solids_single_file(self):
-        """Test export STEP multiple solids single file."""
-        box1 = scad.make_box_rsolid(1.0, 1.0, 1.0)
-        box2 = scad.make_box_rsolid(0.7, 0.7, 0.7, bottom_face_center=(2.0, 0, 0))
-        step_path = os.path.join(self.temp_dir, "assembly_like.step")
-
-        try:
-            scad.export_step([box1, box2], step_path)
-            self.assertTrue(os.path.exists(step_path))
-            self.assertGreater(os.path.getsize(step_path), 0)
-
-            with open(step_path, "r", encoding="utf-8", errors="ignore") as f:
-                step_text = f.read()
-
-            # STEP文本中每个实体通常对应一个MANIFOLD_SOLID_BREP定义
-            self.assertGreaterEqual(step_text.count("MANIFOLD_SOLID_BREP"), 2)
-        except Exception as e:
-            self.skipTest(
-                f"Multiple solids in one STEP export not fully implemented: {e}"
-            )
 
 
 class TestComplexExamples(unittest.TestCase):

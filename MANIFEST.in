@@ -11,8 +11,6 @@ recursive-include src *.py
 recursive-include src/simplecadapi/scene/contracts *.json *.md
 include src/simplecadapi/py.typed
 
-recursive-include src/auto_tools *.py
-
 # 排除不需要的文件
 exclude .python-version
 exclude uv.lock

@@ -1,5 +1,5 @@
 import simplecadapi as scad
-import simplecadapi._mesh as _mesh
+import simplecadapi._internal.mesh as _mesh
 
 
 def _write_cached_mesh_as_obj(solid, path):
@@ -38,7 +38,7 @@ def test_internal_mesh_preserves_face_triangle_ranges():
     assert mesh is not None
 
     ranges = mesh.face_triangle_ranges
-    assert len(ranges) == len(solid.get_faces())
+    assert len(ranges) == len(solid._iter_faces())
     assert sum(item.count for item in ranges) == mesh.triangle_count
     assert [item.face_index for item in ranges] == list(range(len(ranges)))
     assert all(item.source_topo_id for item in ranges)

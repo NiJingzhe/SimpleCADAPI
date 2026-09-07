@@ -1,0 +1,17 @@
+# select_edges_by_tag
+
+## API Definition
+
+```python
+def select_edges_by_tag(shape: Union[Face, Solid], tag: str, scope: str | TagScope = TagScope.EFFECTIVE) -> List[Edge]
+```
+
+*Source: operators/selection.py*
+
+## Import Surface
+
+- top-level: `from simplecadapi import select_edges_by_tag`
+
+## Description
+
+Select edges by tag.

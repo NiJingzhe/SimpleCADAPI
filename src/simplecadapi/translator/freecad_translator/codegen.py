@@ -7,9 +7,9 @@ import json
 import pprint
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from ...expr import ExpressionGraph
+from ...params.expr import ExpressionGraph
 from ...topology import OperationNode
-from ...units import expression_uses_units, infer_dimension, unit_from_payload
+from ...params.units import expression_uses_units, infer_dimension, unit_from_payload
 
 
 def _json_ascii(value: Any) -> str:
@@ -203,9 +203,9 @@ def _sanitize_expr_alias(alias: str, *, prefix: str = "expr") -> str:
 
 def _expr_short_suffix(expr_id: str) -> str:
     raw = str(expr_id).rsplit("_", 1)[-1]
-    token = "".join(
-        ch if ch.isascii() and ch.isalnum() else "_" for ch in raw
-    ).strip("_")
+    token = "".join(ch if ch.isascii() and ch.isalnum() else "_" for ch in raw).strip(
+        "_"
+    )
     return token[:8] if token else "id"
 
 
@@ -215,9 +215,9 @@ def _const_value_alias_token(value: Any) -> str:
     except Exception:
         return "value"
     text = f"{number:.6g}".replace("-", "neg_").replace(".", "_")
-    token = "".join(
-        ch if ch.isascii() and ch.isalnum() else "_" for ch in text
-    ).strip("_")
+    token = "".join(ch if ch.isascii() and ch.isalnum() else "_" for ch in text).strip(
+        "_"
+    )
     return token or "value"
 
 

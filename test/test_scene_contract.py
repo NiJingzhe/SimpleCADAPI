@@ -1378,7 +1378,7 @@ def test_shared_positive_case_names_cannot_drift_to_negative_expectations():
                 assert case["expected"] is None, positive_names[-1]
             if "error" in case:
                 assert case["error"] is None, positive_names[-1]
-    assert len(positive_names) == 30
+    assert len(positive_names) == 29
 
 
 def test_accepted_package_fixtures_cover_every_connector_binding_status():
@@ -1623,15 +1623,13 @@ def test_python_matches_shared_resource_boundaries():
                             {"source": {"component_path": ["x"] * count}}
                         ]
                     }
-                elif kind == "forwarded":
+                elif kind == "public":
                     value = {
                         "connectors": [
                             {
-                                "anchor_kind": "forwarded",
+                                "anchor_kind": "public",
                                 "connector_snapshot_id": f"c{index}",
-                                "forwarded_from": {
-                                    "source_connector_snapshot_id": f"c{index + 1}"
-                                },
+                                "source_connector_snapshot_id": f"c{index + 1}",
                             }
                             for index in range(count)
                         ]

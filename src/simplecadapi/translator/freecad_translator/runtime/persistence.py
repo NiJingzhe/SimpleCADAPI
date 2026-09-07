@@ -278,6 +278,7 @@ def _set_part_body_visibility(product_value, visible):
         if _is_connector_object(child):
             _set_visibility(child, False)
             continue
+        _set_tree_visibility(child, True)
         _set_visibility(child, bool(visible and child is body))
     if body is not None:
         _set_visibility(body, visible)
@@ -377,13 +378,24 @@ def _apply_result_visibility(result_node_ids):
         for node_id in ASSEMBLY_PROJECTION_INPUTS
         for obj in list(GRAPH_OUTPUTS.get(str(node_id), []) or [])
     }
-    for node_id, outputs in GRAPH_OUTPUTS.items():
-        is_visible = str(node_id) in visible_ids
-        for obj in outputs:
-            _set_tree_visibility(obj, False)
-            if id(obj) in projection_objects:
-                _set_visibility(obj, False)
-            else:
-                _set_visibility(obj, is_visible)
+    result_objects = {
+        id(obj)
+        for node_id, outputs in GRAPH_OUTPUTS.items()
+        if str(node_id) in visible_ids
+        for obj in list(outputs or [])
+    }
+    # Sweep every document object, not only GRAPH_OUTPUTS: boolean tool/step
+    # wrappers, geo-selection features, and transform App::Links are created
+    # outside the graph-output registry and previously kept their default
+    # Visibility=True — rendering in the viewport while absent from the tree
+    # (ShowInTree=False) until their owning container was double-clicked.
+    # Deliverables are re-shown afterwards by _apply_product_result_visibility.
+    for obj in list(getattr(doc, "Objects", []) or []):
+        _set_tree_visibility(obj, False)
+        if id(obj) in projection_objects:
+            _set_visibility(obj, False)
+        else:
+            _set_visibility(obj, id(obj) in result_objects)
     _apply_product_result_visibility(display_product_ids)
     _hide_all_origin_trees()
+    _hide_all_connector_datums()

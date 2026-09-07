@@ -7,7 +7,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
 from OCP.BRepLib import BRepLib
-from OCP.GC import GC_MakeArcOfCircle, GC_MakeCircle
+from OCP.GC import GC_MakeArcOfCircle, GC_MakeCircle, GC_MakeEllipse
 from OCP.GCE2d import GCE2d_MakeSegment
 from OCP.Geom import Geom_BSplineCurve
 from OCP.GeomAPI import GeomAPI_Interpolate
@@ -50,6 +50,33 @@ def make_circle_edge(
         else gp_Ax2(_pnt(center), _dir(normal))
     )
     geom = GC_MakeCircle(axis, float(radius)).Value()
+    return BRepBuilderAPI_MakeEdge(geom).Edge()
+
+
+def make_ellipse_edge(
+    center: Sequence[float],
+    major_radius: float,
+    minor_radius: float,
+    normal: Sequence[float],
+    major_direction: Optional[Sequence[float]] = None,
+):
+    """Create a full closed ellipse edge.
+
+    ``major_direction`` orients the major axis; when omitted the plane basis
+    derived from ``normal`` picks it, matching ``make_circle_edge``.
+    """
+    if float(major_radius) <= 0.0 or float(minor_radius) <= 0.0:
+        raise ValueError("Ellipse radii must be positive")
+    if float(minor_radius) > float(major_radius):
+        raise ValueError(
+            "Ellipse minor radius must not exceed the major radius"
+        )
+    axis = (
+        gp_Ax2(_pnt(center), _dir(normal), _dir(major_direction))
+        if major_direction is not None
+        else gp_Ax2(_pnt(center), _dir(normal))
+    )
+    geom = GC_MakeEllipse(axis, float(major_radius), float(minor_radius)).Value()
     return BRepBuilderAPI_MakeEdge(geom).Edge()
 
 
@@ -169,14 +196,21 @@ def make_helix_wire(
     center: Sequence[float],
     direction: Sequence[float],
     x_direction: Optional[Sequence[float]] = None,
+    handedness: str = "Right",
 ):
+    if handedness not in {"Right", "Left"}:
+        raise ValueError("handedness must be 'Right' or 'Left'")
     axis = (
         gp_Ax3(_pnt(center), _dir(direction), _dir(x_direction))
         if x_direction is not None
         else gp_Ax3(_pnt(center), _dir(direction))
     )
     geom_surf = Geom_CylindricalSurface(axis, float(radius))
-    geom_line = Geom2d_Line(gp_Pnt2d(0.0, 0.0), gp_Dir2d(2 * math.pi, float(pitch)))
+    # A right-handed helix advances counterclockwise (positive u) as it
+    # climbs; negating the u component mirrors the winding without
+    # changing the ascent direction.
+    u_step = 2 * math.pi if handedness == "Right" else -2 * math.pi
+    geom_line = Geom2d_Line(gp_Pnt2d(0.0, 0.0), gp_Dir2d(u_step, float(pitch)))
     n_turns = float(height) / float(pitch)
     u_start = geom_line.Value(0.0)
     u_stop = geom_line.Value(

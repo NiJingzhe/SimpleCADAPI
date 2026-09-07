@@ -51,7 +51,9 @@ class TransformEmitterMixin:
             vector = node.params.get("vector")
             if isinstance(vector, (list, tuple)) and len(vector) == 3:
                 try:
-                    if all(abs(float(v)) <= 1e-12 for v in vector) and not _contains_expr_refs(dict(node.param_exprs)):
+                    if all(
+                        abs(float(v)) <= 1e-12 for v in vector
+                    ) and not _contains_expr_refs(dict(node.param_exprs)):
                         return finish_alias(inputs[0])
                 except Exception:
                     pass

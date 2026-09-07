@@ -66,6 +66,11 @@ class GeometryEmitterMixin:
                 f"{var_name} = _register_graph_value(_kernel_circle_from_params({rp}, {re}).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
             ]
             return lines
+        if node.op == "make_ellipse_redge":
+            lines = [
+                f"{var_name} = _register_graph_value(_kernel_ellipse_from_params({rp}, {re}).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
+            ]
+            return lines
         if node.op == "make_angle_arc_redge":
             lines = [
                 f"{var_name} = _register_graph_value(Part.ArcOfCircle(_kernel_circle_from_params({rp}, {re}), float(_resolve_param_value({rp}, {re}, 'start_angle')), float(_resolve_param_value({rp}, {re}, 'end_angle'))).toShape(), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})"
@@ -137,16 +142,18 @@ class GeometryEmitterMixin:
                         point_exprs.append(f"_edge_start_point({edge_obj_expr})")
                         point_exprs.append(f"_edge_mid_point({edge_obj_expr})")
                         point_exprs.append(f"_edge_end_point({edge_obj_expr})")
-                    elif input_node.op in {"make_spline_redge", "make_interpolated_spline_redge"}:
+                    elif input_node.op in {
+                        "make_spline_redge",
+                        "make_interpolated_spline_redge",
+                    }:
                         point_exprs.append(f"_edge_start_point({edge_obj_expr})")
                         point_exprs.append(f"_edge_mid_point({edge_obj_expr})")
                         point_exprs.append(f"_edge_end_point({edge_obj_expr})")
                     limitation_payload = _node_expression_limitation(input_node)
-                    if (
-                        input_node.op
-                        in {"make_circle_redge", "make_angle_arc_redge"}
-                        and _contains_expr_refs(input_node.param_exprs.get("normal"))
-                    ):
+                    if input_node.op in {
+                        "make_circle_redge",
+                        "make_angle_arc_redge",
+                    } and _contains_expr_refs(input_node.param_exprs.get("normal")):
                         limitation_payload = {
                             "op": input_node.op,
                             "reason": _DYNAMIC_CURVE_NORMAL_LIMITATION,
@@ -169,8 +176,7 @@ class GeometryEmitterMixin:
                     frame_points = "[" + ", ".join(point_exprs) + "]"
                     preferred_normal_expr = "None"
                     if all(
-                        input_node is not None
-                        and input_node.op == "make_circle_redge"
+                        input_node is not None and input_node.op == "make_circle_redge"
                         for input_node in input_nodes
                     ):
                         circle_var = _safe_name(input_nodes[0].node_id)
@@ -308,7 +314,10 @@ class GeometryEmitterMixin:
                         lines.append(
                             f"{var_name}_constraint_bindings.append((f'Constraints[{{{var_name}_angle_constraint_{geom_index}}}]', {_json_ascii(arc_span_formula) if arc_span_formula is not None else 'None'}))"
                         )
-                    elif input_node.op in {"make_spline_redge", "make_interpolated_spline_redge"}:
+                    elif input_node.op in {
+                        "make_spline_redge",
+                        "make_interpolated_spline_redge",
+                    }:
                         lines.append(
                             f"{var_name}.addGeometry(_bspline_curve_from_params({edge_var}_params, transform_point=lambda point: _local_point_on_frame(point, {var_name}_origin, {var_name}_xaxis, {var_name}_yaxis), context={_py_literal(input_node.context or {})}), False)"
                         )
@@ -346,6 +355,17 @@ class GeometryEmitterMixin:
             ]
             return lines
         if node.op == "make_helix_redge":
+            if str(node.params.get("handedness", "Right")) == "Left":
+                # Part::Helix only builds right-handed curves; materialize
+                # the mirrored winding through Part.makeHelix(lefthand=True).
+                lines = [
+                    f"{var_name} = _make_feature({_json_ascii(object_name)}, Part.makeHelix(float(_resolve_param_value({rp}, {re}, 'pitch')), float(_resolve_param_value({rp}, {re}, 'height')), float(_resolve_param_value({rp}, {re}, 'radius')), 0.0, True), node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
+                    f"{var_name}.Placement = App.Placement(_vec(_resolve_vec3_param({rp}, {re}, 'center') if 'center' in {rp} else (0.0, 0.0, 0.0)), App.Rotation(App.Vector(0.0, 0.0, 1.0), _vec(_resolve_vec3_param({rp}, {re}, 'dir') if 'dir' in {rp} else (0.0, 0.0, 1.0))))",
+                ]
+                lines.append(
+                    f"_apply_op_expression_bindings({var_name}, {_json_ascii(node.op)}, {re})"
+                )
+                return lines
             lines = [
                 f"{var_name} = _make_native_object('Part::Helix', {_json_ascii(object_name)}, node_id={_json_ascii(node.node_id)}, op={_json_ascii(node.op)}, params={rp}, inputs={var_name}_inputs, tags={tags_literal}, context={context_literal}, output_count={node.output_count}, param_exprs={param_exprs_literal}, semantic_delta={semantic_delta_literal}, topo_delta={topo_delta_literal})",
                 f"{var_name}.Pitch = float(_resolve_param_value({rp}, {re}, 'pitch'))",

@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 MODULE_PATH = (
-    Path(__file__).resolve().parents[1] / "src/simplecadapi/auto_tools/auto_docs_gen.py"
+    Path(__file__).resolve().parents[1] / "tools/auto_docs_gen.py"
 )
 MODULE_SPEC = importlib.util.spec_from_file_location(
     "simplecadapi_auto_docs_gen",
@@ -21,7 +21,7 @@ MODULE_SPEC.loader.exec_module(auto_docs_gen)
 
 
 class TestAutoDocsGenPathResolution(unittest.TestCase):
-    def test_resolve_source_files_from_source_checkout(self):
+    def test_resolve_source_files_from_repo_checkout(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             project_root = Path(tmp_dir)
             (project_root / "pyproject.toml").write_text(
@@ -29,7 +29,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            module_file = project_root / "src/simplecadapi/auto_tools/auto_docs_gen.py"
+            module_file = project_root / "tools/auto_docs_gen.py"
             module_file.parent.mkdir(parents=True, exist_ok=True)
             module_file.write_text("", encoding="utf-8")
 
@@ -44,23 +44,13 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
 
             self.assertEqual(resolved, expected)
 
-    def test_resolve_source_files_from_site_packages_install(self):
+    def test_resolve_source_files_outside_repo_fails_loud(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            venv_root = Path(tmp_dir) / ".venv/lib/python3.12/site-packages"
-            module_file = venv_root / "simplecadapi/auto_tools/auto_docs_gen.py"
-            module_file.parent.mkdir(parents=True, exist_ok=True)
+            module_file = Path(tmp_dir) / "auto_docs_gen.py"
             module_file.write_text("", encoding="utf-8")
 
-            resolved = auto_docs_gen._resolve_source_files(
-                None, module_file=module_file
-            )
-            package_root = venv_root / "simplecadapi"
-            expected = [
-                (package_root / name).resolve()
-                for name in auto_docs_gen.DEFAULT_SOURCE_FILENAMES
-            ]
-
-            self.assertEqual(resolved, expected)
+            with self.assertRaises(FileNotFoundError):
+                auto_docs_gen._resolve_source_files(None, module_file=module_file)
 
     def test_resolve_output_dirs_from_source_checkout_uses_repo_docs(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -70,32 +60,17 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            module_file = project_root / "src/simplecadapi/auto_tools/auto_docs_gen.py"
+            module_file = project_root / "tools/auto_docs_gen.py"
             module_file.parent.mkdir(parents=True, exist_ok=True)
             module_file.write_text("", encoding="utf-8")
 
             resolved = auto_docs_gen._resolve_output_dirs(None, module_file=module_file)
 
-            self.assertEqual(resolved, [(project_root / "docs/api").resolve()])
-
-    def test_resolve_output_dirs_from_site_packages_install_uses_cwd(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            workspace_root = tmp_path / "workspace"
-            workspace_root.mkdir()
-
-            venv_root = tmp_path / ".venv/lib/python3.12/site-packages"
-            module_file = venv_root / "simplecadapi/auto_tools/auto_docs_gen.py"
-            module_file.parent.mkdir(parents=True, exist_ok=True)
-            module_file.write_text("", encoding="utf-8")
-
-            resolved = auto_docs_gen._resolve_output_dirs(
-                None,
-                module_file=module_file,
-                cwd=workspace_root,
+            self.assertEqual(
+                resolved,
+                [(project_root / "docs/skill/references/docs/api").resolve()],
             )
 
-            self.assertEqual(resolved, [(workspace_root / "docs/api").resolve()])
 
     def test_default_source_files_include_v2_public_modules(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -105,14 +80,17 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             backend_root.mkdir(parents=True)
             (backend_root / "api.py").write_text("", encoding="utf-8")
             (backend_root / "translator.py").write_text("", encoding="utf-8")
+            (backend_root / "types.py").write_text("", encoding="utf-8")
 
             resolved = auto_docs_gen._default_source_files(package_root)
 
-            resolved_names = [path.relative_to(package_root).as_posix() for path in resolved]
-            self.assertIn("serializer.py", resolved_names)
-            self.assertIn("graph.py", resolved_names)
-            self.assertIn("expr.py", resolved_names)
-            self.assertIn("tolerance.py", resolved_names)
+            resolved_names = [
+                path.relative_to(package_root).as_posix() for path in resolved
+            ]
+            self.assertIn("recording/serializer.py", resolved_names)
+            self.assertIn("recording/graph.py", resolved_names)
+            self.assertIn("params/expr.py", resolved_names)
+            self.assertIn("params/tolerance.py", resolved_names)
             self.assertIn("sketch.py", resolved_names)
             self.assertIn("math.py", resolved_names)
             self.assertIn("translator/freecad_translator/api.py", resolved_names)
@@ -120,8 +98,61 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 "translator/freecad_translator/translator.py",
                 resolved_names,
             )
+            self.assertIn(
+                "translator/freecad_translator/types.py",
+                resolved_names,
+            )
             self.assertIn("inspect/brep/inspect.py", resolved_names)
+            self.assertIn("inspect/brep/manufacturing.py", resolved_names)
             self.assertIn("inspect/brep/queries.py", resolved_names)
+            self.assertIn("exporter/mjcf.py", resolved_names)
+
+    def test_default_source_files_include_cache_build_public_surface(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            package_root = Path(tmp_dir) / "src/simplecadapi"
+            package_root.mkdir(parents=True, exist_ok=True)
+            resolved = auto_docs_gen._default_source_files(package_root)
+            resolved_names = [
+                path.relative_to(package_root).as_posix() for path in resolved
+            ]
+
+            self.assertIn("build/part_builder.py", resolved_names)
+            self.assertIn("build/assembly_builder.py", resolved_names)
+            self.assertIn("build/dependencies.py", resolved_names)
+            self.assertIn("build/results.py", resolved_names)
+            self.assertIn("product/capture.py", resolved_names)
+            self.assertIn("cache/policy.py", resolved_names)
+            self.assertIn("cache/store.py", resolved_names)
+
+    def test_real_cache_build_sources_document_only_top_level_surface(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            generator = auto_docs_gen.APIDocumentGenerator(
+                source_files=auto_docs_gen._default_source_files(
+                    Path(__file__).resolve().parents[1] / "src/simplecadapi"
+                ),
+                output_dirs=[Path(tmp_dir) / "docs/api"],
+                quiet=True,
+            )
+            names = {api.name for api in generator.extract_apis()}
+            for name in (
+                "capture",
+                "CaptureResult",
+                "assemble",
+                "file_input",
+                "part",
+                "AssemblyBuildResult",
+                "AssemblySolveReport",
+                "CachePolicy",
+                "CacheReport",
+                "ContentAddressedStore",
+                "ProductMJCFExportReport",
+                "export_product_package_to_mjcf",
+            ):
+                self.assertIn(name, names)
+            self.assertNotIn("snapshot_file_inputs", names)
+            self.assertNotIn("OperationCacheReport", names)
+            self.assertNotIn("operation_cache_scope", names)
+            self.assertNotIn("operation_cache_report", names)
 
     def test_inspect_brep_api_docs_use_inspection_namespace(self):
         class InspectionDocGenerator(auto_docs_gen.APIDocumentGenerator):
@@ -139,7 +170,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             )
             source_file.write_text(
                 "def inspect_step_rsummary(path: str) -> dict:\n"
-                "    \"\"\"Inspect one STEP summary.\"\"\"\n"
+                '    """Inspect one STEP summary."""\n'
                 "    return {}\n",
                 encoding="utf-8",
             )
@@ -153,13 +184,142 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             generator.generate_markdown_docs()
 
             readme = (output_dir / "README.md").read_text(encoding="utf-8")
-            page = (output_dir / "inspect_step_rsummary.md").read_text(
-                encoding="utf-8"
-            )
+            page = (output_dir / "inspect_step_rsummary.md").read_text(encoding="utf-8")
             self.assertIn("## STEP/BREP Inspection", readme)
             self.assertIn("`inspection namespace`", readme)
             self.assertIn("from simplecadapi.inspect import brep", page)
-            self.assertIn("unavailable inside GraphSession/@model", page)
+            self.assertIn("unavailable inside GraphSession", page)
+
+    def test_evaluator_api_docs_preserve_schemas_units_and_trust_boundaries(self):
+        class EvaluationDocGenerator(auto_docs_gen.APIDocumentGenerator):
+            def _module_name_for(self, file_path):
+                return "inverse_engineer/brep/evaluation.py"
+
+        project_root = MODULE_PATH.parents[1]
+        source_file = (
+            project_root / "src/simplecadapi/inverse_engineer/brep/evaluation.py"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir) / "docs/api"
+            generator = EvaluationDocGenerator(
+                source_files=[source_file],
+                output_dirs=[output_dir],
+                quiet=True,
+            )
+            generator.extract_apis()
+            generator.generate_markdown_docs()
+
+            readme = (output_dir / "README.md").read_text(encoding="utf-8")
+            bundle = (output_dir / "run_comparison_bundle.md").read_text(
+                encoding="utf-8"
+            )
+            config = (output_dir / "EvaluationConfig.md").read_text(encoding="utf-8")
+            classify = (output_dir / "classify_benchmark_result.md").read_text(
+                encoding="utf-8"
+            )
+            section = (output_dir / "SectionEvaluationConfig.md").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertIn("## Reconstruction Evaluation", readme)
+            self.assertIn("`reverse-engineering evaluator`", readme)
+            self.assertIn("from simplecadapi.inverse_engineer.brep import", bundle)
+            self.assertNotIn("top-level:", bundle)
+            self.assertIn("Report schemas and units", bundle)
+            self.assertIn("cubic millimetres", bundle)
+            self.assertIn("checks.hard_gate", bundle)
+            self.assertIn(
+                "diagnostic, never equality proof",
+                " ".join(bundle.split()),
+            )
+            self.assertIn("diagnostics and never affect classification", bundle)
+            self.assertIn("status ``completed``", bundle)
+            self.assertIn("``gate_passed=None``", bundle)
+            self.assertIn("strict bidirectional", bundle)
+            self.assertIn("non-fuzzy bidirectional Cut residual volumes", bundle)
+            self.assertIn("mass-property comparison", bundle)
+            for deprecated in (
+                "global_max_bbox_delta",
+                "global_max_centroid_distance",
+                "global_max_relative_volume_error",
+                "global_max_relative_area_error",
+                "boundary_max_hausdorff",
+                "boundary_max_p95",
+            ):
+                self.assertIn(deprecated, config)
+            self.assertIn("deprecated compatibility inputs and are ignored", config)
+            self.assertIn("strict_material_tolerance", config)
+            self.assertIn("boundary_linear_deflection", config)
+            self.assertIn("boundary_max_samples", config)
+            self.assertIn("strict_geometric_tolerance", config)
+            self.assertIn("unmodified, process-local result", classify)
+            self.assertIn("ignored by classification", classify)
+            self.assertIn("at least one unique face", classify)
+            self.assertIn(
+                "not just a claimed stage status",
+                " ".join(classify.split()),
+            )
+            self.assertIn("bounded diagnostic section probe", section)
+            self.assertIn("not acceptance gates", section)
+            self.assertIn("require_nonempty", section)
+            self.assertIn("max_hausdorff", section)
+            self.assertIn("max_relative_area_error", section)
+            self.assertIn("deprecated compatibility inputs", section)
+            self.assertIn("do not affect stage status", section)
+
+    def test_persistence_api_docs_distinguish_roundtrip_from_target_similarity(self):
+        class PersistenceDocGenerator(auto_docs_gen.APIDocumentGenerator):
+            def _module_name_for(self, file_path):
+                return "inspect/brep/persistence.py"
+
+        project_root = MODULE_PATH.parents[1]
+        source_file = project_root / "src/simplecadapi/inspect/brep/persistence.py"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir) / "docs/api"
+            generator = PersistenceDocGenerator(
+                source_files=[source_file],
+                output_dirs=[output_dir],
+                quiet=True,
+            )
+            generator.extract_apis()
+            generator.generate_markdown_docs()
+
+            persistence = (
+                output_dir / "validate_step_roundtrip_rdescriptor.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("candidate-before/after volume and surface-area", persistence)
+            self.assertIn("STEP serialization integrity checks", persistence)
+            self.assertIn("not candidate-to-target", persistence)
+
+    def test_manufacturing_module_generates_public_api_pages(self):
+        project_root = Path(__file__).resolve().parents[1]
+        source_file = (
+            project_root / "src/simplecadapi/inspect/brep/manufacturing.py"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir) / "docs/api"
+            generator = auto_docs_gen.APIDocumentGenerator(
+                source_files=[source_file],
+                output_dirs=[output_dir],
+                quiet=True,
+            )
+
+            generator.extract_apis()
+            generator.generate_markdown_docs()
+
+            readme = (output_dir / "README.md").read_text(encoding="utf-8")
+            self.assertTrue(
+                (output_dir / "inspect_manufacturing_hints_rdescriptor.md").exists()
+            )
+            self.assertTrue(
+                (output_dir / "render_manufacturing_hints_rpath.md").exists()
+            )
+            self.assertIn("inspect_manufacturing_hints_rdescriptor", readme)
+            self.assertIn("render_manufacturing_hints_rpath", readme)
+            renderer_page = (
+                output_dir / "render_manufacturing_hints_rpath.md"
+            ).read_text(encoding="utf-8")
+            self.assertNotIn("report:", renderer_page)
 
     def test_default_stdlib_source_files_include_standard_modules(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -184,7 +344,7 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            module_file = project_root / "src/simplecadapi/auto_tools/auto_docs_gen.py"
+            module_file = project_root / "tools/auto_docs_gen.py"
             module_file.parent.mkdir(parents=True, exist_ok=True)
             module_file.write_text("", encoding="utf-8")
 
@@ -193,14 +353,23 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 module_file=module_file,
             )
 
-            self.assertEqual(resolved, [(project_root / "docs/stdlib").resolve()])
+            self.assertEqual(
+                resolved,
+                [(project_root / "docs/skill/references/docs/stdlib").resolve()],
+            )
 
 
 class TestAutoDocsGenExtraction(unittest.TestCase):
     def test_extract_apis_from_v2_public_modules(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            source_file = tmp_path / "serializer.py"
+            (tmp_path / "pkg").mkdir()
+            (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+            (tmp_path / "pkg" / "recording").mkdir()
+            (tmp_path / "pkg" / "recording" / "__init__.py").write_text(
+                "", encoding="utf-8"
+            )
+            source_file = tmp_path / "pkg" / "recording" / "serializer.py"
             source_file.write_text(
                 """
 def export_model_json(session, indent=2):
@@ -230,7 +399,13 @@ def _internal_helper():
     def test_generate_markdown_includes_v2_model_api_entry(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            source_file = tmp_path / "serializer.py"
+            (tmp_path / "pkg").mkdir()
+            (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+            (tmp_path / "pkg" / "recording").mkdir()
+            (tmp_path / "pkg" / "recording" / "__init__.py").write_text(
+                "", encoding="utf-8"
+            )
+            source_file = tmp_path / "pkg" / "recording" / "serializer.py"
             source_file.write_text(
                 """
 def export_model_json(session, indent=2):
@@ -268,7 +443,13 @@ def export_model_json(session, indent=2):
     def test_generate_markdown_avoids_case_insensitive_filename_collisions(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            source_file = tmp_path / "expr.py"
+            (tmp_path / "pkg").mkdir()
+            (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+            (tmp_path / "pkg" / "params").mkdir()
+            (tmp_path / "pkg" / "params" / "__init__.py").write_text(
+                "", encoding="utf-8"
+            )
+            source_file = tmp_path / "pkg" / "params" / "expr.py"
             source_file.write_text(
                 """
 class Const:
@@ -346,7 +527,7 @@ def fit_cubic_bspline_control_points(sample_points, *, tolerance=1e-3):
             (tmp_path / "__init__.py").write_text(
                 "__all__ = ['SurfaceSettings']\n", encoding="utf-8"
             )
-            source_file = tmp_path / "operations.py"
+            source_file = tmp_path / "ql.py"
             source_file.write_text(
                 '''
 from dataclasses import dataclass
@@ -378,11 +559,15 @@ class SurfaceSettings:
     def test_generate_markdown_includes_physical_units_category(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            init_file = tmp_path / "__init__.py"
+            (tmp_path / "pkg" / "params").mkdir(parents=True)
+            init_file = tmp_path / "pkg" / "__init__.py"
             init_file.write_text(
                 "__all__ = ['Dimension', 'convert_value']\n", encoding="utf-8"
             )
-            source_file = tmp_path / "units.py"
+            (tmp_path / "pkg" / "params" / "__init__.py").write_text(
+                "", encoding="utf-8"
+            )
+            source_file = tmp_path / "pkg" / "params" / "units.py"
             source_file.write_text(
                 '''
 class Dimension:
@@ -449,9 +634,7 @@ def _private_helper():
             generator.generate_markdown_docs()
 
             readme = (output_dir / "README.md").read_text(encoding="utf-8")
-            page = (output_dir / "make_spur_gear_rsolid.md").read_text(
-                encoding="utf-8"
-            )
+            page = (output_dir / "make_spur_gear_rsolid.md").read_text(encoding="utf-8")
 
             self.assertIn("# SimpleCAD Standard Library Index", readme)
             self.assertIn("[make_spur_gear_rsolid](make_spur_gear_rsolid.md)", readme)

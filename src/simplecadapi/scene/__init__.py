@@ -87,6 +87,21 @@ from .render_mesh import (
     solid_asset_bounds,
 )
 
+
+def __getattr__(name: str):
+    if name in {
+        "ProductSceneError",
+        "ProductScenePackage",
+        "compile_product_scene",
+        "encode_product_scene",
+        "read_scene_package",
+        "validate_product_scene_package",
+    }:
+        from . import product_scene
+
+        return getattr(product_scene, name)
+    raise AttributeError(name)
+
 __all__ = [
     "ArchiveInfo",
     "BASE_LIMITS",
@@ -98,6 +113,8 @@ __all__ = [
     "GlbInfo",
     "NormalizedProductDocument",
     "PresentationDocument",
+    "ProductSceneError",
+    "ProductScenePackage",
     "SCHEMA_FILES",
     "SceneContractError",
     "SceneDocument",
@@ -147,6 +164,10 @@ __all__ = [
     "build_render_mesh",
     "cad_direction_to_gltf",
     "cad_to_gltf",
+    "compile_product_scene",
+    "encode_product_scene",
+    "read_scene_package",
+    "validate_product_scene_package",
     "compile_scene",
     "export_scene",
     "json_resource_issues",

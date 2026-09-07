@@ -6,8 +6,8 @@ import unittest
 from unittest import mock
 
 import simplecadapi as scad
-from simplecadapi import operations
-from simplecadapi.graph import GraphSession
+from simplecadapi import operators as operations
+from simplecadapi.recording.graph import GraphSession
 
 
 class TestRearchitecture20CoreOps(unittest.TestCase):
@@ -311,12 +311,12 @@ class TestRearchitecture20CoreOps(unittest.TestCase):
             if item.op == "make_twisted_sweep_rsolid"
         )
         self.assertIsNotNone(node.topo_delta)
-        self.assertEqual(len(solid.get_faces()), 6)
+        self.assertEqual(len(solid._iter_faces()), 6)
 
         replayed = scad.replay_model_json(
             scad.export_model_json(session), strict=True
         )[0]
-        self.assertEqual(len(replayed.get_faces()), 6)
+        self.assertEqual(len(replayed._iter_faces()), 6)
         self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=8)
 
     def test_twisted_sweep_supports_expression_parameters_and_arbitrary_axis(self):
@@ -342,24 +342,33 @@ class TestRearchitecture20CoreOps(unittest.TestCase):
             if item.op == "make_twisted_sweep_rsolid"
         )
         self.assertEqual(set(node.param_exprs), {"distance", "twist_angle"})
-        self.assertEqual(len(solid.get_faces()), 6)
+        self.assertEqual(len(solid._iter_faces()), 6)
 
         replayed = scad.replay_model_json(
             scad.export_model_json(session), strict=True
         )[0]
         self.assertAlmostEqual(replayed.get_volume(), solid.get_volume(), places=8)
 
-    def test_twisted_sweep_rejects_inner_wires_and_invalid_axis(self):
+    def test_twisted_sweep_supports_inner_wires(self):
+        import math
+
         outer = scad.make_circle_rface(center=(0.0, 0.0, 0.0), radius=2.0)
         inner = scad.make_circle_rface(center=(0.0, 0.0, 0.0), radius=1.0)
         ring = scad.make_2d_cut_rface(body=outer, tool=inner)
 
-        with self.assertRaises(scad.SimpleCADError):
-            scad.twisted_sweep_rsolid(
-                profile=ring,
-                distance=2.0,
-                twist_angle=20.0,
-            )
+        swept = scad.twisted_sweep_rsolid(
+            profile=ring,
+            distance=2.0,
+            twist_angle=20.0,
+        )
+
+        expected = math.pi * (2.0**2 - 1.0**2) * 2.0
+        self.assertAlmostEqual(swept.get_volume() / expected, 1.0, places=6)
+        self.assertEqual(len(swept._iter_faces()), 4)
+
+    def test_twisted_sweep_rejects_invalid_axis(self):
+        outer = scad.make_circle_rface(center=(0.0, 0.0, 0.0), radius=2.0)
+
         with self.assertRaises(scad.SimpleCADError):
             scad.twisted_sweep_rsolid(
                 profile=outer,

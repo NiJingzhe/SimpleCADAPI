@@ -5,8 +5,8 @@ import unittest
 import simplecadapi as scad
 from simplecadapi import ql as Q
 from simplecadapi.topology import TopoDelta
-from simplecadapi.tracking import tracked_cut, tracked_union, tracked_extrude
-from simplecadapi.autotag import apply_tracking_tags_to_delta
+from simplecadapi.topology.tracking import tracked_cut, tracked_union, tracked_extrude
+from simplecadapi.topology.autotag import apply_tracking_tags_to_delta
 
 
 def proven_event(op: str, event: str):
@@ -28,7 +28,7 @@ class TestAutoTagCut(unittest.TestCase):
         tagged_solid = apply_tracking_tags_to_delta(
             result.solid, result.delta, result.delta_entries, op="cut"
         )
-        faces = tagged_solid.get_faces()
+        faces = tagged_solid._iter_faces()
         has_change = any(
             proven_event("cut", "modified")(face)
             or proven_event("cut", "generated")(face)
@@ -41,7 +41,7 @@ class TestAutoTagCut(unittest.TestCase):
         tagged_solid = apply_tracking_tags_to_delta(
             result.solid, result.delta, result.delta_entries, op="cut"
         )
-        faces = tagged_solid.get_faces()
+        faces = tagged_solid._iter_faces()
         preserved = [face for face in faces if proven_event("cut", "preserved")(face)]
         self.assertGreater(len(preserved), 0)
 
@@ -50,7 +50,7 @@ class TestAutoTagCut(unittest.TestCase):
         tagged_solid = apply_tracking_tags_to_delta(
             result.solid, result.delta, result.delta_entries, op="cut"
         )
-        faces = tagged_solid.get_faces()
+        faces = tagged_solid._iter_faces()
         for face in faces:
             track = face.get_metadata("track")
             self.assertEqual(track["schema_version"], "1.0")
@@ -71,7 +71,7 @@ class TestAutoTagCut(unittest.TestCase):
         tagged_solid = apply_tracking_tags_to_delta(
             result.solid, result.delta, result.delta_entries, op="cut"
         )
-        faces = tagged_solid.get_faces()
+        faces = tagged_solid._iter_faces()
         proven = Q.meta("track.status", "==", "proven")
         has_body = any(Q.origin_role("body")(face) and proven(face) for face in faces)
         has_tool = any(Q.origin_role("tool")(face) and proven(face) for face in faces)
@@ -82,7 +82,7 @@ class TestAutoTagCut(unittest.TestCase):
         solid = scad.make_box_rsolid(1.0, 1.0, 1.0)
         tagged = apply_tracking_tags_to_delta(solid, TopoDelta(), op="cut")
 
-        for face in tagged.get_faces():
+        for face in tagged._iter_faces():
             track = face.get_metadata("track")
             self.assertEqual(track["coverage"], "partial")
             self.assertEqual(track["status"], "unknown")
@@ -102,7 +102,7 @@ class TestAutoTagUnion(unittest.TestCase):
         tagged_solid = apply_tracking_tags_to_delta(
             result.solid, result.delta, result.delta_entries, op="union"
         )
-        faces = tagged_solid.get_faces()
+        faces = tagged_solid._iter_faces()
         has_union_evidence = any(
             proven_event("union", "modified")(face)
             or proven_event("union", "preserved")(face)
@@ -112,7 +112,7 @@ class TestAutoTagUnion(unittest.TestCase):
 
         section_tracks = [
             edge.get_metadata("track")
-            for edge in tagged_solid.get_edges()
+            for edge in tagged_solid._iter_edges()
             if edge.get_metadata("track").get("section")
         ]
         self.assertTrue(section_tracks)
@@ -134,7 +134,7 @@ class TestAutoTagExtrude(unittest.TestCase):
         tagged_solid = apply_tracking_tags_to_delta(
             result.shape, result.delta, result.delta_entries, op="extrude"
         )
-        faces = tagged_solid.get_faces()
+        faces = tagged_solid._iter_faces()
         self.assertTrue(faces)
         roles = [
             role
@@ -150,7 +150,7 @@ class TestAutoTagExtrude(unittest.TestCase):
 class TestAutoTagPreservesExisting(unittest.TestCase):
     def test_user_semantics_are_available_only_through_proven_lineage(self):
         body = scad.make_box_rsolid(10, 10, 10)
-        for face in body.get_faces():
+        for face in body._iter_faces():
             scad.apply_tag(face, "role.source_face")
         tool = scad.make_cylinder_rsolid(2.0, 15.0, bottom_face_center=(3, 3, -2.5))
         result = tracked_cut(body, tool)
@@ -163,7 +163,7 @@ class TestAutoTagPreservesExisting(unittest.TestCase):
         )
         body_descendants = [
             face
-            for face in tagged_solid.get_faces()
+            for face in tagged_solid._iter_faces()
             if Q.origin_role("body")(face)
             and face.get_metadata("track")["status"] == "proven"
         ]

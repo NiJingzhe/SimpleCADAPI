@@ -5,9 +5,9 @@ import unittest
 import simplecadapi as scad
 from simplecadapi import ql as Q
 from simplecadapi.topology import OperationGraph, OperationNode
-from simplecadapi.graph import GraphSession, record_operation, get_active_session
-from simplecadapi.tracking import tracked_cut, tracked_union
-from simplecadapi.autotag import apply_tracking_tags_to_delta
+from simplecadapi.recording.graph import GraphSession, record_operation, get_active_session
+from simplecadapi.topology.tracking import tracked_cut, tracked_union
+from simplecadapi.topology.autotag import apply_tracking_tags_to_delta
 
 
 class TestQLSugar(unittest.TestCase):
@@ -97,7 +97,7 @@ class TestQLSugar(unittest.TestCase):
         tagged = apply_tracking_tags_to_delta(
             result.solid, result.delta, result.delta_entries, op="cut"
         )
-        modified = Q.select(tagged.get_faces()).where(Q.op("cut", "modified")).all()
+        modified = Q.select(tagged._iter_faces()).where(Q.op("cut", "modified")).all()
         self.assertGreater(len(modified), 0)
 
     def test_select_faces_by_origin(self):
@@ -107,7 +107,7 @@ class TestQLSugar(unittest.TestCase):
         tagged = apply_tracking_tags_to_delta(
             result.solid, result.delta, result.delta_entries, op="cut"
         )
-        tool_faces = Q.select(tagged.get_faces()).where(Q.origin("tool")).all()
+        tool_faces = Q.select(tagged._iter_faces()).where(Q.origin("tool")).all()
         self.assertGreater(len(tool_faces), 0)
 
 
