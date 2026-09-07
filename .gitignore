@@ -63,3 +63,4 @@ examples/*/out/
 examples/bowl_connector/re_work/
 examples/bowl_connector/__pycache__/
 examples/bowl_connector/.re_server.lock
+session-audit-*.md
