@@ -35,7 +35,7 @@ HTML，忠实回放完整录制的对话（用户输入、Agent 思考、每一�
 <td><img src="img/capability/flange_turntable.gif" width="420" alt="法兰旋转展示"></td>
 </tr>
 <tr>
-<td><b>筋板 L 形支架（FEM 主模型）</b><br/>2 轮用户输入 · 49 次工具调用<br/><a href="examples/12_ap242_gmsh_volume_mesh/demo/index.html">▶ 完整会话回放</a></td>
+<td><b>筋板 L 形支架（FEM 主模型）</b><br/>2 轮用户输入 · 49 次工具调用<br/><a href="examples/ap242_gmsh_volume_mesh/demo/index.html">▶ 完整会话回放</a></td>
 <td>“把已有的 L 形直角连接件 legacy 脚本按 single-part-modeling 工作流正式化：FTC 特征块 + 命名参数重建；与旧版几何等价（体积偏差 &lt; 0.1%）；<code>interface.*</code> FEM 边界标签必须原样保留——下游 Gmsh/CalculiX 按标签选面。”</td>
 <td><img src="img/capability/bracket_turntable.gif" width="420" alt="支架旋转展示"></td>
 </tr>
@@ -67,7 +67,7 @@ HTML，忠实回放完整录制的对话（用户输入、Agent 思考、每一�
 </tr>
 </table>
 
-复现方式：`uv run python examples/20_integrated_bldc_joint_actuator/main.py`
+复现方式：`uv run python examples/integrated_bldc_joint_actuator/main.py`
 从零构建装配包；`render_showcase.py` 渲染上述视图；`export_all.py` 导出
 STEP / 可编辑 FCStd / MJCF。
 
@@ -271,7 +271,7 @@ simplecad-cache prune
 ```
 
 cache mode、配置优先级、PRT 复用、增量失效、损坏修复和破坏性命令确认见
-[持久缓存与产品构建工作流](docs/guides/cache-build-workflow.md)。
+[持久缓存与产品构建工作流](docs/skill/references/docs/guides/cache-build-workflow.md)。
 
 ## STEP/BREP Agent 逆向
 
@@ -313,9 +313,9 @@ simplecad-brep tools
 simplecad-brep tool get_model_summary --arguments-file summary-args.json
 ```
 
-受控测试请使用 [Reconstruction Agent 测试规范](docs/guides/reconstruction-agent-test-prompt.md)，
+受控测试请使用 [Reconstruction Agent 测试规范](docs/skill/references/docs/guides/reconstruction-agent-test-prompt.md)，
 完整证据、建模、回放和验收流程请阅读
-[STEP BREP 逆向工程指南](docs/guides/step-brep-reverse-engineering.md)。
+[STEP BREP 逆向工程指南](docs/skill/references/workflows/reverse-engineering-studio.md)。
 
 ## FreeCAD 转换
 
@@ -343,10 +343,10 @@ AP242/Gmsh 示例还包含可选 CalculiX FEM 流程。Python 侧依赖通过
 `brew install costerwi/homebrew-calculix/calculix-ccx`）：
 
 ```bash
-uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/run_calculix.py \
+uv run --extra fem python examples/ap242_gmsh_volume_mesh/run_calculix.py \
   --ccx "$(brew --prefix calculix-ccx)/bin/ccx_2.23"
-uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/visualize_calculix.py
-uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/study_mesh_convergence.py \
+uv run --extra fem python examples/ap242_gmsh_volume_mesh/visualize_calculix.py
+uv run --extra fem python examples/ap242_gmsh_volume_mesh/study_mesh_convergence.py \
   --ccx "$(brew --prefix calculix-ccx)/bin/ccx_2.23" \
   --linear-solver "ITERATIVE CHOLESKY" --solver-timeout 2400
 ```
@@ -367,15 +367,15 @@ uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/study_mesh_converge
 
 - 2.1.0 更新说明：[`docs/updates/2.1.0.zh-CN.md`](docs/updates/2.1.0.zh-CN.md)
 - Reconstruction Agent 测试规范：
-  [`docs/guides/reconstruction-agent-test-prompt.md`](docs/guides/reconstruction-agent-test-prompt.md)
+  [`docs/guides/reconstruction-agent-test-prompt.md`](docs/skill/references/docs/guides/reconstruction-agent-test-prompt.md)
 - STEP BREP 逆向工程指南：
-  [`docs/guides/step-brep-reverse-engineering.md`](docs/guides/step-brep-reverse-engineering.md)
+  [`docs/guides/step-brep-reverse-engineering.md`](docs/skill/references/workflows/reverse-engineering-studio.md)
 - 持久缓存与产品构建工作流：
-  [`docs/guides/cache-build-workflow.md`](docs/guides/cache-build-workflow.md)
-- 公共 API 参考：[`docs/api/`](docs/api/)
-- 核心类型与建模说明：[`docs/core/`](docs/core/)
-- 序列化与重放：[`docs/core/serialization/README.md`](docs/core/serialization/README.md)
-- 操作图 JSON 规范：[`docs/core/operation_graph_json_spec.md`](docs/core/operation_graph_json_spec.md)
+  [`docs/guides/cache-build-workflow.md`](docs/skill/references/docs/guides/cache-build-workflow.md)
+- 公共 API 参考：[`docs/api/`](docs/skill/references/docs/api/)
+- 核心类型与建模说明：[`docs/core/`](docs/skill/references/docs/core/)
+- 序列化与重放：[`docs/core/serialization/README.md`](docs/skill/references/docs/core/serialization/README.md)
+- 操作图 JSON 规范：[`docs/core/operation_graph_json_spec.md`](docs/skill/references/docs/core/operation_graph_json_spec.md)
 - 示例索引：[`examples/README.md`](examples/README.md)
   `.scadpkg` 产品包规范：[`design-docs/scadpkg-spec.md`](design-docs/scadpkg-spec.md)
 

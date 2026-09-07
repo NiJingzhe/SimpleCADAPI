@@ -39,7 +39,7 @@ deterministic face tags that survive re-parameterization, and synchronized
 <td><img src="img/capability/flange_turntable.gif" width="420" alt="flange turntable"></td>
 </tr>
 <tr>
-<td><b>Ribbed L-bracket (FEM main model)</b><br/>2 user turns · 49 tool calls<br/><a href="examples/12_ap242_gmsh_volume_mesh/demo/index.html">▶ Full session replay</a></td>
+<td><b>Ribbed L-bracket (FEM main model)</b><br/>2 user turns · 49 tool calls<br/><a href="examples/ap242_gmsh_volume_mesh/demo/index.html">▶ Full session replay</a></td>
 <td>"Formalize the existing legacy L-bracket script through the single-part workflow: rebuild with FTC feature blocks and named parameters; geometric equivalence to the legacy model (volume delta < 0.1%); the <code>interface.*</code> FEM boundary tags must survive untouched — the downstream Gmsh/CalculiX pipeline selects faces by them."</td>
 <td><img src="img/capability/bracket_turntable.gif" width="420" alt="bracket turntable"></td>
 </tr>
@@ -74,7 +74,7 @@ concentric parts peel into radius bands; camera circles on an inclined orbit
 </tr>
 </table>
 
-Reproduce it: `uv run python examples/20_integrated_bldc_joint_actuator/main.py`
+Reproduce it: `uv run python examples/integrated_bldc_joint_actuator/main.py`
 builds the package from scratch; `render_showcase.py` renders the views above;
 `export_all.py` emits STEP / editable FCStd / MJCF.
 
@@ -327,7 +327,7 @@ simplecad-cache verify
 simplecad-cache prune
 ```
 
-See the [persistent cache and product build workflow](docs/guides/cache-build-workflow.md)
+See the [persistent cache and product build workflow](docs/skill/references/docs/guides/cache-build-workflow.md)
 for cache modes, configuration precedence, PRT reuse, incremental invalidation,
 corruption repair, and destructive-command confirmation.
 
@@ -378,10 +378,10 @@ costerwi/homebrew-calculix/calculix-ccx`). The example uses consistent `mm`,
 `N`, and `MPa` units:
 
 ```bash
-uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/run_calculix.py \
+uv run --extra fem python examples/ap242_gmsh_volume_mesh/run_calculix.py \
   --ccx "$(brew --prefix calculix-ccx)/bin/ccx_2.23"
-uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/visualize_calculix.py
-uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/study_mesh_convergence.py \
+uv run --extra fem python examples/ap242_gmsh_volume_mesh/visualize_calculix.py
+uv run --extra fem python examples/ap242_gmsh_volume_mesh/study_mesh_convergence.py \
   --ccx "$(brew --prefix calculix-ccx)/bin/ccx_2.23" \
   --linear-solver "ITERATIVE CHOLESKY" --solver-timeout 2400
 ```
@@ -435,8 +435,8 @@ print("faces", summary["face_count"])
 print("carrier", face["geometry"]["type"])
 ```
 
-Use the [Reconstruction Agent test specification](docs/guides/reconstruction-agent-test-prompt.md)
-for controlled runs and the [STEP BREP reverse-engineering guide](docs/guides/step-brep-reverse-engineering.md)
+Use the [Reconstruction Agent test specification](docs/skill/references/docs/guides/reconstruction-agent-test-prompt.md)
+for controlled runs and the [STEP BREP reverse-engineering guide](docs/skill/references/workflows/reverse-engineering-studio.md)
 for the inspection primitives, modeling loop, replay checks, and acceptance gates.
 
 ## Physical Units And Tolerances
@@ -509,36 +509,45 @@ The exporter namespace owns neutral STEP and STL file output.
 
 ## Examples
 
-Run examples from the source checkout:
+Every example is a self-contained folder: sources, verification scripts, and
+fresh artifacts under `examples/<name>/out/`. The set covers part modeling,
+assemblies, reverse engineering, and FEM — see the category index in
+[`examples/README.md`](examples/README.md).
 
 ```bash
-uv run python examples/04_dimension_tolerance_chain.py
-uv run python examples/08_constrained_sketch.py
-uv run python examples/09_naca0016_blade_freecad.py
-uv run python examples/11_external_reference_gear_train.py
-uv run python examples/16_compact_two_stage_planetary_reducer/main.py
-uv run python examples/20_integrated_bldc_joint_actuator/main.py
+# part (quickstart FTC example, external verification script included)
+uv run python examples/flange_plate/model.py
+
+# assembly (two-stage planetary reducer, MJCF export)
+uv run python examples/compact_two_stage_planetary_reducer/main.py
+
+# FEM (AP242 STEP -> Gmsh volume mesh -> Calculix statics)
+uv run python examples/ap242_gmsh_volume_mesh/model.py
+uv run --extra fem python examples/ap242_gmsh_volume_mesh/run_calculix.py
 ```
+
+Reverse engineering runs through the browser studio in `viewer/re.html`
+against a target STEP (see `examples/bowl_connector/`).
 
 ## Documentation
 
 - 2.1.0 update notes: [`docs/updates/2.1.0.md`](docs/updates/2.1.0.md)
 - Reconstruction Agent test specification:
-  [`docs/guides/reconstruction-agent-test-prompt.md`](docs/guides/reconstruction-agent-test-prompt.md)
-- STEP BREP reverse-engineering guide:
-  [`docs/guides/step-brep-reverse-engineering.md`](docs/guides/step-brep-reverse-engineering.md)
+  [`docs/skill/references/docs/guides/reconstruction-agent-test-prompt.md`](docs/skill/references/docs/guides/reconstruction-agent-test-prompt.md)
+- Reverse-engineering studio workflow:
+  [`docs/skill/references/workflows/reverse-engineering-studio.md`](docs/skill/references/workflows/reverse-engineering-studio.md)
 - Persistent cache and product build workflow:
-  [`docs/guides/cache-build-workflow.md`](docs/guides/cache-build-workflow.md)
-- Public API reference: [`docs/api/`](docs/api/)
-- Core type and modeling notes: [`docs/core/`](docs/core/)
+  [`docs/skill/references/docs/guides/cache-build-workflow.md`](docs/skill/references/docs/guides/cache-build-workflow.md)
+- Public API reference: [`docs/skill/references/docs/api/`](docs/skill/references/docs/api/)
+- Core type and modeling notes: [`docs/skill/references/docs/core/`](docs/skill/references/docs/core/)
 - Serialization and replay details:
-  [`docs/core/serialization/README.md`](docs/core/serialization/README.md)
+  [`docs/skill/references/docs/core/serialization/README.md`](docs/skill/references/docs/core/serialization/README.md)
 - Dimension tolerance chains:
-  [`docs/core/dimension-tolerance-chains.md`](docs/core/dimension-tolerance-chains.md)
+  [`docs/core/dimension-tolerance-chains.md`](docs/skill/references/docs/core/dimension-tolerance-chains.md)
 - Physical units and dimension inference:
-  [`docs/core/physical-units.md`](docs/core/physical-units.md)
+  [`docs/core/physical-units.md`](docs/skill/references/docs/core/physical-units.md)
 - Operation graph JSON spec:
-  [`docs/core/operation_graph_json_spec.md`](docs/core/operation_graph_json_spec.md)
+  [`docs/core/operation_graph_json_spec.md`](docs/skill/references/docs/core/operation_graph_json_spec.md)
   `.scadpkg` 产品包规范（中文）：[`design-docs/scadpkg-spec.md`](design-docs/scadpkg-spec.md)
 
 ## Releasing the Agent Skill
