@@ -120,13 +120,15 @@ CalculiX 静力 FEM（边界面按保真的 `interface.*` 标签选取，仿真�
 
 ---
 
-## 更新日志（2.0.4b3 开发中）
+## 更新日志（2.1.0）
 
 > **Beta 版本：** 用于生产前，请验证生成的定义、装配约束和制造几何。
 
-SimpleCADAPI 2.0.4b3 新增可复现的 `@part`/`@assemble` 产品边界、增量装配求解，
-以及整零件的持久化崩溃安全缓存。契约、cache mode、诊断、限制和验证范围见
-[完整中文更新说明](docs/updates/2.0.4b3.zh-CN.md)。
+SimpleCADAPI 2.1.0 把 SDK 推向 agent-first CAD 工具箱：Feature Tree Convention
+建模纪律、外部 CAD 历史导入、浏览器逆向工作台、DXF 工程图与自包含示例，全部
+建立在可复现的 `@part`/`@assemble` 产品边界与持久化崩溃安全缓存之上。契约、
+cache mode、诊断、限制和验证范围见
+[完整中文更新说明](docs/updates/2.1.0.zh-CN.md)。
 
 ---
 
@@ -143,7 +145,7 @@ SimpleCADAPI 2.0.4b3 新增可复现的 `@part`/`@assemble` 产品边界、增�
 
 SimpleCADAPI 是一个基于 OCP 的 Python CAD SDK，提供清晰的函数式建模操作和可重放的模型图。它在 OpenCascade 几何内核之上提供精简的公共 API，可用于创建实体、应用特征、添加语义标签、查询拓扑、导出制造文件，以及将记录的模型转换为 FreeCAD 工作流。
 
-当前开发 Beta：`simplecadapi==2.0.4b3`。
+当前版本：`simplecadapi==2.1.0`。
 
 ## 核心能力
 
@@ -363,7 +365,7 @@ uv run --extra fem python examples/12_ap242_gmsh_volume_mesh/study_mesh_converge
 
 ## 文档
 
-- 2.0.4b3 更新说明：[`docs/updates/2.0.4b3.zh-CN.md`](docs/updates/2.0.4b3.zh-CN.md)
+- 2.1.0 更新说明：[`docs/updates/2.1.0.zh-CN.md`](docs/updates/2.1.0.zh-CN.md)
 - Reconstruction Agent 测试规范：
   [`docs/guides/reconstruction-agent-test-prompt.md`](docs/guides/reconstruction-agent-test-prompt.md)
 - STEP BREP 逆向工程指南：

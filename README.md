@@ -134,19 +134,22 @@ the full crank cycle sweeps clean in the same sim ·
 
 ---
 
-## Update Notes (2.0.4b3 development)
+## Update Notes (2.1.0)
 
-> **Beta release:** Validate generated definitions, assembly constraints, and
+> **Release notice:** Validate generated definitions, assembly constraints, and
 > manufacturing geometry before production use.
 
-SimpleCADAPI 2.0.4b3 adds reproducible `@part`/`@assemble` product boundaries,
-incremental assembly solves, and a persistent crash-safe cache for whole parts.
-See the [full English update notes](docs/updates/2.0.4b3.md) for contracts,
+SimpleCADAPI 2.1.0 turns the SDK into an agent-first CAD toolkit: the Feature
+Tree Convention authoring discipline, external CAD-history import, the
+browser reverse-engineering studio, DXF engineering drawings, and
+self-contained runnable examples — on top of the reproducible
+`@part`/`@assemble` product boundaries and the persistent crash-safe cache.
+See the [full English update notes](docs/updates/2.1.0.md) for contracts,
 cache modes, diagnostics, limitations, and verification coverage.
 
 All formal single-script examples emit a synchronized `.scadpkg`, AP242
 `.step`, and editable `.FCStd` from the same product package. The
-split AP242/Gmsh example under `examples/12_ap242_gmsh_volume_mesh/` exposes
+split AP242/Gmsh example under `examples/ap242_gmsh_volume_mesh/` exposes
 each build and export stage as a separate directly runnable script.
 
 ---
@@ -167,7 +170,7 @@ in a compact public API for creating solids, applying features, tagging semantic
 intent, querying topology, exporting manufacturing files, and translating recorded
 models into FreeCAD workflows.
 
-Current development beta: `simplecadapi==2.0.4b3`.
+Current release: `simplecadapi==2.1.0`.
 
 ## What It Provides
 
@@ -519,7 +522,7 @@ uv run python examples/20_integrated_bldc_joint_actuator/main.py
 
 ## Documentation
 
-- 2.0.4b3 update notes: [`docs/updates/2.0.4b3.md`](docs/updates/2.0.4b3.md)
+- 2.1.0 update notes: [`docs/updates/2.1.0.md`](docs/updates/2.1.0.md)
 - Reconstruction Agent test specification:
   [`docs/guides/reconstruction-agent-test-prompt.md`](docs/guides/reconstruction-agent-test-prompt.md)
 - STEP BREP reverse-engineering guide:
