@@ -1,0 +1,653 @@
+{
+  "cq_status": "ok",
+  "error": "",
+  "cq_volume": 11087.955961135734,
+  "cq_bbox": [
+    -32.4,
+    -5.0,
+    -32.4,
+    32.4,
+    1.6781084181954496e-17,
+    32.4
+  ],
+  "steps": [
+    {
+      "op": "Workplane",
+      "args": [
+        "XZ"
+      ],
+      "plane_name": "XZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "circle",
+      "args": [
+        32.4
+      ],
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "extrude",
+      "args": [
+        5.0
+      ],
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "faces",
+      "args": [
+        ">Y"
+      ],
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "selector": ">Y",
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "selector": ">Y",
+      "selections": [
+        {
+          "kind": "face",
+          "index": 1,
+          "geom_type": "PLANE",
+          "center": [
+            1.4210854715202004e-14,
+            0.0,
+            -8.663834607652495e-16
+          ],
+          "normal": [
+            -0.0,
+            1.0,
+            0.0
+          ],
+          "area": 3297.918304032421,
+          "bbox": {
+            "min": [
+              -32.4,
+              0.0,
+              -32.4
+            ],
+            "max": [
+              32.4,
+              0.0,
+              32.4
+            ]
+          }
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "selections": [
+        {
+          "kind": "face",
+          "index": 1,
+          "geom_type": "PLANE",
+          "center": [
+            1.4210854715202004e-14,
+            0.0,
+            -8.663834607652495e-16
+          ],
+          "normal": [
+            -0.0,
+            1.0,
+            0.0
+          ],
+          "area": 3297.918304032421,
+          "bbox": {
+            "min": [
+              -32.4,
+              0.0,
+              -32.4
+            ],
+            "max": [
+              32.4,
+              0.0,
+              32.4
+            ]
+          }
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "Plane(origin=(0.0, 0.0, 0.0), xDir=(-1.0, -0.0, 0.0), normal=(-0.0, 1.0, 0.0))"
+      ],
+      "plane_name": "Plane(origin=(0.0, 0.0, 0.0), xDir=(-1.0, -0.0, 0.0), normal=(-0.0, 1.0, 0.0))",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        -1.0,
+        -0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "hole",
+      "args": [
+        37.0
+      ],
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        -1.0,
+        -0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "edges",
+      "args": [
+        ">Y"
+      ],
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        -1.0,
+        -0.0,
+        0.0
+      ],
+      "selector": ">Y",
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "selector": ">Y",
+      "selections": [
+        {
+          "kind": "edge",
+          "index": 1,
+          "geom_type": "CIRCLE",
+          "center": [
+            1.5209269266911748e-13,
+            0.0,
+            -8.670602095899002e-16
+          ],
+          "length": 203.57520395261858,
+          "bbox": {
+            "min": [
+              -32.4,
+              0.0,
+              -32.4
+            ],
+            "max": [
+              32.4,
+              0.0,
+              32.4
+            ]
+          },
+          "start": [
+            32.4,
+            0.0,
+            0.0
+          ],
+          "end": [
+            32.4,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "kind": "edge",
+          "index": 3,
+          "geom_type": "CIRCLE",
+          "center": [
+            8.820713588690454e-14,
+            0.0,
+            5.492201376236126e-16
+          ],
+          "length": 116.23892818282235,
+          "bbox": {
+            "min": [
+              -18.5,
+              0.0,
+              -18.5
+            ],
+            "max": [
+              18.5,
+              0.0,
+              18.5
+            ]
+          },
+          "start": [
+            18.5,
+            0.0,
+            -4.531193156845207e-15
+          ],
+          "end": [
+            18.5,
+            0.0,
+            -4.531193156845207e-15
+          ]
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "chamfer",
+      "args": [
+        0.4
+      ],
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        -1.0,
+        -0.0,
+        0.0
+      ],
+      "selections": [
+        {
+          "kind": "edge",
+          "index": 1,
+          "geom_type": "CIRCLE",
+          "center": [
+            1.5209269266911748e-13,
+            0.0,
+            -8.670602095899002e-16
+          ],
+          "length": 203.57520395261858,
+          "bbox": {
+            "min": [
+              -32.4,
+              0.0,
+              -32.4
+            ],
+            "max": [
+              32.4,
+              0.0,
+              32.4
+            ]
+          },
+          "start": [
+            32.4,
+            0.0,
+            0.0
+          ],
+          "end": [
+            32.4,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "kind": "edge",
+          "index": 3,
+          "geom_type": "CIRCLE",
+          "center": [
+            8.820713588690454e-14,
+            0.0,
+            5.492201376236126e-16
+          ],
+          "length": 116.23892818282235,
+          "bbox": {
+            "min": [
+              -18.5,
+              0.0,
+              -18.5
+            ],
+            "max": [
+              18.5,
+              0.0,
+              18.5
+            ]
+          },
+          "start": [
+            18.5,
+            0.0,
+            -4.531193156845207e-15
+          ],
+          "end": [
+            18.5,
+            0.0,
+            -4.531193156845207e-15
+          ]
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "edges",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        -1.0,
+        -0.0,
+        0.0
+      ],
+      "selections": [
+        {
+          "kind": "edge",
+          "index": 1,
+          "geom_type": "CIRCLE",
+          "center": [
+            1.5209269266911748e-13,
+            0.0,
+            -8.670602095899002e-16
+          ],
+          "length": 203.57520395261858,
+          "bbox": {
+            "min": [
+              -32.4,
+              0.0,
+              -32.4
+            ],
+            "max": [
+              32.4,
+              0.0,
+              32.4
+            ]
+          },
+          "start": [
+            32.4,
+            0.0,
+            0.0
+          ],
+          "end": [
+            32.4,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "kind": "edge",
+          "index": 3,
+          "geom_type": "CIRCLE",
+          "center": [
+            8.820713588690454e-14,
+            0.0,
+            5.492201376236126e-16
+          ],
+          "length": 116.23892818282235,
+          "bbox": {
+            "min": [
+              -18.5,
+              0.0,
+              -18.5
+            ],
+            "max": [
+              18.5,
+              0.0,
+              18.5
+            ]
+          },
+          "start": [
+            18.5,
+            0.0,
+            -4.531193156845207e-15
+          ],
+          "end": [
+            18.5,
+            0.0,
+            -4.531193156845207e-15
+          ]
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    }
+  ],
+  "stem": "washer",
+  "family": ""
+}
