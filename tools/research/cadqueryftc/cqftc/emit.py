@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .tracer.trace_schema import GeoFingerprint
 
@@ -89,7 +89,12 @@ def _part_id(stem: str) -> str:
 
 
 class SketchScript:
-    """Accumulate one sketch document as FTC source lines (local 2D coords)."""
+    """Accumulate one sketch document as FTC source lines (local 2D coords).
+
+    ``snapshot_entities`` mirrors every entity in emission order — the
+    schema-facing geometry snapshot consumed by the constraint recovery
+    engine and written to ``*.sketches.json``.
+    """
 
     def __init__(self, name: str, origin: Vec3, u_dir: Vec3, v_dir: Vec3) -> None:
         self.name = name
@@ -99,6 +104,7 @@ class SketchScript:
         self.lines: List[str] = [
             f"s = scad.make_sketch_rsketch(name={name!r}, plane={fmt_plane(origin, u_dir, v_dir)})"
         ]
+        self.snapshot_entities: List[Dict[str, Any]] = []
         self._points: Dict[Tuple[float, float], str] = {}
         self._point_n = 0
         self._entity_n = 0
@@ -112,6 +118,7 @@ class SketchScript:
         ref = f"{self.name}_p{self._point_n}"
         self._points[key] = ref
         self.lines.append(f"s = scad.add_point_rsketch(s, {ref!r}, {fmt_num(x)}, {fmt_num(y)})")
+        self.snapshot_entities.append({"id": ref, "kind": "point", "xy": [float(x), float(y)]})
         return ref
 
     def _entity(self, kind: str) -> str:
@@ -121,10 +128,12 @@ class SketchScript:
     def line(self, start_ref: str, end_ref: str) -> None:
         eid = self._entity("line")
         self.lines.append(f"s = scad.add_line_rsketch(s, {eid!r}, {start_ref!r}, {end_ref!r})")
+        self.snapshot_entities.append({"id": eid, "kind": "line", "start": start_ref, "end": end_ref})
 
     def circle(self, center_ref: str, radius: float) -> None:
         eid = self._entity("circle")
         self.lines.append(f"s = scad.add_circle_rsketch(s, {eid!r}, {center_ref!r}, {fmt_num(radius)})")
+        self.snapshot_entities.append({"id": eid, "kind": "circle", "center": center_ref, "radius": float(radius)})
 
     def arc3(self, start: Tuple[float, float], mid: Tuple[float, float], end: Tuple[float, float]) -> None:
         """Three-point arc via circumcenter, endpoints ordered so the sweep
@@ -143,6 +152,9 @@ class SketchScript:
         eid = self._entity("arc")
         self.lines.append(
             f"s = scad.add_arc_rsketch(s, {eid!r}, {start_ref!r}, {end_ref!r}, {center_ref!r})"
+        )
+        self.snapshot_entities.append(
+            {"id": eid, "kind": "arc", "start": start_ref, "end": end_ref, "center": center_ref}
         )
 
     def to_local(self, point: Vec3) -> Tuple[float, float]:
@@ -182,15 +194,17 @@ def emit_profile_sketch(
     var: str,
     *,
     as_wire: bool = False,
-) -> Tuple[List[str], str, List[str]]:
+    constraints_hook: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
+) -> Tuple[List[str], str, List[str], Optional[Dict[str, Any]]]:
     """Emit one profile dict as a sketch script + face (or wire) expression.
 
     Profile dicts come from the replayer: ``kind`` in {circle, rect,
     wire_path, spline_path} with global-coord geometry plus a frame
-    {normal, u, v, extrude} and origin.  Returns (lines, expr, notes) where
-    expr names the promoted face/wire variable.  Spline profiles are not
-    sketch-expressible (interpolation points, no constraints): they emit a
-    geometry-tier interpolated wire and the caller annotates honestly.
+    {normal, u, v, extrude} and origin.  Returns (lines, expr, notes,
+    snapshot); ``snapshot`` is None for geometry-tier splines (nothing to
+    constrain).  ``constraints_hook`` receives the snapshot between the
+    entity lines and the promotion line and returns constraint source
+    lines to insert there.
     """
     notes: List[str] = []
     frame = profile.get("frame") or {}
@@ -210,9 +224,9 @@ def emit_profile_sketch(
             "    )",
         ]
         if as_wire:
-            return lines, f"{var}_wire", ["spline profile: geometry tier (interpolated, no constraints)"]
+            return lines, f"{var}_wire", ["spline profile: geometry tier (interpolated, no constraints)"], None
         lines.append(f"    {var}_profile = scad.make_face_from_wire_rface(wire={var}_wire)")
-        return lines, f"{var}_profile", ["spline profile: geometry tier (interpolated, no constraints)"]
+        return lines, f"{var}_profile", ["spline profile: geometry tier (interpolated, no constraints)"], None
 
     sketch = SketchScript(var, origin, u_dir, v_dir)
 
@@ -254,12 +268,26 @@ def emit_profile_sketch(
     else:
         raise ValueError(f"unsupported profile kind for sketch emission: {kind}")
 
+    snapshot: Dict[str, Any] = {
+        "entities": sketch.snapshot_entities,
+        "closed": bool(profile.get("closed", True)),
+        "plane": {
+            "origin": list(origin),
+            "x_axis": list(u_dir),
+            "y_axis": list(v_dir),
+        },
+    }
+    constraint_lines: List[str] = []
+    if constraints_hook is not None:
+        constraint_lines = list(constraints_hook(snapshot))
+
     lines = sketch.render()
+    lines.extend(constraint_lines)
     if as_wire:
         lines.append(f"    {var}_wire = scad.make_wire_from_sketch_rwire(s, profile=0)")
-        return lines, f"{var}_wire", notes
+        return lines, f"{var}_wire", notes, snapshot
     lines.append(f"    {var}_profile = scad.make_face_from_sketch_rface(s, profile=0)")
-    return lines, f"{var}_profile", notes
+    return lines, f"{var}_profile", notes, snapshot
 
 
 def _band_predicates(path: str, values: Sequence[float], tol: float = _QL_TOL) -> List[str]:

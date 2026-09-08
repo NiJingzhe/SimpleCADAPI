@@ -64,7 +64,8 @@ def _load_trace(name: str) -> OperationTrace:
 
 def _translate(name: str):
     trace = _load_trace(name)
-    return replay_trace_to_ftc(trace, stem=name)
+    source, meta, _snapshots = replay_trace_to_ftc(trace, stem=name)
+    return source, meta
 
 
 class TestCadQueryFtcFormat(unittest.TestCase):
@@ -141,7 +142,7 @@ class TestCadQueryFtcFormat(unittest.TestCase):
         trace.steps.append(
             type(trace.steps[0])(op="totallyUnknown", args=[1.0], kwargs={}, selections=[])
         )
-        source, meta = replay_trace_to_ftc(trace, stem="hexnut_x")
+        source, meta, _snapshots = replay_trace_to_ftc(trace, stem="hexnut_x")
         self.assertIn("unsupported op: totallyUnknown", source)
         self.assertEqual(meta["status"], "partial")
         self.assertTrue(any("totallyUnknown" in note for note in meta["unsupported"]))

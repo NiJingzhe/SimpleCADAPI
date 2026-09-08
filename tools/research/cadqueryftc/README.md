@@ -35,6 +35,28 @@ CadQuery 源码 ──(stage 1: 真实执行+插桩)──▶ trace.json ──(
 | `cadquery_validate.py` | 仓库 `.venv` | 验收对账：执行 FTC 源码，体积/包围盒 vs trace 真值，分级 accepted / partial / rejected |
 | `cadquery_profile.py` | 仓库 `.venv`（parquet 需 pyarrow） | 摸底：op 直方图、选择器分布、不支持 op 覆盖 |
 
+### 约束恢复（`--constraints on`）
+
+CadQuery 源码没有约束——翻译默认只发几何声明（`profile=geometry` 转录）。
+`cadquery_to_ftc.py --constraints on` 额外从**几何快照恢复推断约束组**：
+
+- 每次翻译都写 `<stem>.sketches.json`：逐 block 的快照（平面标架 + 类型化
+  实体局部坐标 + 闭合性），是与来源无关的公共接口——任何能产出平面环/开链
+  的前端（STEP 切片、re-studio 标注环、histjson 无约束残留）都能复用同
+  一个恢复器。
+- 恢复引擎 `cqftc/constraints.py`，公理 P1–P5：候选全部是被快照**实际满足**
+  的关系（P2 无中生有禁止）；准入判据是生产 solver（SolveSpace）的 DOF 下降
+  （P3），引入冗余的候选拒收——DOF 计数器会被秩亏系统欺骗（dof=0 但雅可比
+  奇异），**盆地检验**（扰动重建后收敛回快照）是 P1 的最终裁决；测量值原样
+  发射不吸附（P4）；id 一律 `inf<N>_<Kind>` 前缀声明推断出处（P5）。
+- 候选按意图典型性分层贪心：锚定(fix) → 水平/竖直 → 平行/垂直 → 相切/等
+  半径/等长/同心 → 边长/半径 → 定向 dx → 相邻角 → 半格网净距。
+- 结果分级：`riveted`（dof 0 + 坐标复现 + 盆地通过）/ `partial`（部分约束、
+  坐标仍复现，如实欠约束）/ `none|error`。约束行只在坐标复现时发射。
+- 已知边界：60+ 点自由轮廓（如 wheel 的 63 点轮辐线）受逐层试探预算限制
+  常落 `partial`——诚实报告优于无界贪心；符号约定踩过坑已修（`distance_x`
+  的 value = b − a 有符号，发绝对值会把解拉到镜像分支）。
+
 ### 环境（一次性）
 
 ```bash

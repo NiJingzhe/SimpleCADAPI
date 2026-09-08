@@ -207,6 +207,7 @@ class TraceReplayer:
         tool_mode: bool = False,
         tool_prefix: str = "tool",
         cq_bbox: Optional[List[float]] = None,
+        constraints_mode: bool = False,
     ) -> None:
         self.stem = stem
         self.state = ReplayState()
@@ -218,6 +219,10 @@ class TraceReplayer:
         self._slugs = SlugAllocator()
         self.features: List[Dict[str, str]] = []
         self.built_profile = False  # tool chains: did this tool build 2D input?
+        self._constraints_mode = constraints_mode
+        self.snapshots: List[Dict[str, Any]] = []
+        self.recovery_reports: List[Dict[str, Any]] = []
+        self._current_block: Dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # block bookkeeping
@@ -230,9 +235,11 @@ class TraceReplayer:
             if not self._tool_mode:
                 resolved_role = "add"
         if self._tool_mode:
+            self._current_block = {"slug": slug, "role": "tool", "op": op}
             return slug.replace("-", "_")
         self.state.lines.append("    " + block_header(slug, resolved_role, tiers=list(tiers)))
         self.features.append({"slug": slug, "role": resolved_role, "op": op})
+        self._current_block = {"slug": slug, "role": resolved_role, "op": op}
         return slug.replace("-", "_")
 
     def _tool_var(self, slug_base: str) -> str:
@@ -462,10 +469,34 @@ class TraceReplayer:
         self.state.pending_profile["cursor"] = end
 
     def _emit_profile(self, var: str, profile: Dict[str, Any], *, as_wire: bool = False) -> str:
-        lines, expr, notes = emit_profile_sketch(profile, var, as_wire=as_wire)
+        lines, expr, notes, snapshot = emit_profile_sketch(
+            profile, var, as_wire=as_wire, constraints_hook=self._constraints_hook
+        )
         self.state.lines.extend(lines)
         self.state.unsupported.extend(notes)
+        if snapshot is not None:
+            entry = dict(self._current_block)
+            entry.update(snapshot)
+            self.snapshots.append(entry)
         return expr
+
+    def _constraints_hook(self, snapshot: Dict[str, Any]) -> List[str]:
+        """Recover constraints for one sketch snapshot (P1–P5 engine); emit
+        lines only when they reproduce the declared geometry."""
+        if not self._constraints_mode:
+            return []
+        from .constraints import emit_constraint_lines, recover_constraints_guarded
+
+        payload = dict(self._current_block)
+        payload.update(snapshot)
+        try:
+            report = recover_constraints_guarded(payload)
+        except Exception as exc:  # noqa: BLE001 — recovery is best-effort inline
+            report = {"status": "error", "reason": str(exc)[:200], "constraints": []}
+        self.recovery_reports.append(report)
+        if report.get("coords_ok"):
+            return emit_constraint_lines(report)
+        return []
 
     def _profile_is_sketch_tier(self, profile: Dict[str, Any]) -> bool:
         return profile.get("kind") in {"circle", "rect", "wire_path"}
@@ -546,6 +577,17 @@ class TraceReplayer:
         meta["unsupported"] = list(self.state.unsupported)
         meta["feature_count"] = len(self.features)
         meta["features"] = list(self.features)
+        meta["sketch_count"] = len(self.snapshots)
+        meta["constraint_recovery"] = [
+            {
+                "block": r.get("block"),
+                "status": r.get("status"),
+                "dof_remaining": r.get("dof_remaining"),
+                "constraints": len(r.get("constraints", [])),
+                "basin_ok": r.get("basin_ok"),
+            }
+            for r in self.recovery_reports
+        ]
         if not self.state.bodies:
             meta["status"] = "error"
             meta["error"] = "no solid produced"
@@ -569,7 +611,13 @@ class TraceReplayer:
         *,
         prefix: str,
     ) -> Tuple[List[str], str, List[str], bool]:
-        sub = TraceReplayer(self.stem, tool_mode=True, tool_prefix=prefix, cq_bbox=self._cq_bbox)
+        sub = TraceReplayer(
+            self.stem,
+            tool_mode=True,
+            tool_prefix=prefix,
+            cq_bbox=self._cq_bbox,
+            constraints_mode=self._constraints_mode,
+        )
         sub_consumed: set = set()
         for index, step in enumerate(steps):
             if step.op == "sweep":
@@ -589,6 +637,8 @@ class TraceReplayer:
                 handler(step)
             except Exception as exc:
                 sub.state.unsupported.append(f"{step.op}: {exc}")
+        self.snapshots.extend(sub.snapshots)
+        self.recovery_reports.extend(sub.recovery_reports)
         tool_var = sub.state.last_solid
         if tool_var is None:
             return sub.state.lines, "", list(sub.state.unsupported), sub.built_profile
@@ -619,7 +669,13 @@ class TraceReplayer:
     # sweep
 
     def _build_path_wire(self, path_steps: List[TraceStep], prefix: str) -> Tuple[List[str], str, bool]:
-        sub = TraceReplayer(self.stem, tool_mode=True, tool_prefix=prefix, cq_bbox=self._cq_bbox)
+        sub = TraceReplayer(
+            self.stem,
+            tool_mode=True,
+            tool_prefix=prefix,
+            cq_bbox=self._cq_bbox,
+            constraints_mode=self._constraints_mode,
+        )
         for step in path_steps:
             sub._update_plane_frame(step)
             handler = getattr(sub, f"_op_{step.op}", None)
@@ -631,7 +687,14 @@ class TraceReplayer:
         profile = sub.state.pending_profile
         if profile.get("kind") != "spline_path":
             profile = sub._finalize_wire_profile()
-        lines, expr, notes = emit_profile_sketch(profile, prefix, as_wire=True)
+        lines, expr, notes, snapshot = emit_profile_sketch(
+            profile, prefix, as_wire=True, constraints_hook=self._constraints_hook
+        )
+        if snapshot is not None:
+            entry = dict(self._current_block)
+            entry.update(snapshot)
+            entry["role"] = "path"
+            self.snapshots.append(entry)
         return lines, expr, bool(notes)
 
     def _op_sweep(self, step: TraceStep, *, path_steps: Optional[List[TraceStep]]) -> None:
@@ -1657,7 +1720,13 @@ class TraceReplayer:
 # Imported late to avoid a cycle in the type checker's first pass.
 
 
-def replay_trace_to_ftc(trace: OperationTrace, *, stem: str) -> Tuple[str, Dict[str, Any]]:
-    """Library entry: CadQuery trace → FTC source + translation meta."""
-    replayer = TraceReplayer(stem, cq_bbox=trace.cq_bbox)
-    return replayer.replay(trace)
+def replay_trace_to_ftc(
+    trace: OperationTrace,
+    *,
+    stem: str,
+    constraints_mode: bool = False,
+) -> Tuple[str, Dict[str, Any], List[Dict[str, Any]]]:
+    """Library entry: CadQuery trace → FTC source + translation meta + snapshots."""
+    replayer = TraceReplayer(stem, cq_bbox=trace.cq_bbox, constraints_mode=constraints_mode)
+    source, meta = replayer.replay(trace)
+    return source, meta, replayer.snapshots
