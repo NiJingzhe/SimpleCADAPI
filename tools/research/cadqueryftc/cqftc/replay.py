@@ -220,6 +220,7 @@ class TraceReplayer:
         self.features: List[Dict[str, str]] = []
         self.built_profile = False  # tool chains: did this tool build 2D input?
         self._constraints_mode = constraints_mode
+        self._role_hint = ""
         self.snapshots: List[Dict[str, Any]] = []
         self.recovery_reports: List[Dict[str, Any]] = []
         self._current_block: Dict[str, str] = {}
@@ -469,33 +470,46 @@ class TraceReplayer:
         self.state.pending_profile["cursor"] = end
 
     def _emit_profile(self, var: str, profile: Dict[str, Any], *, as_wire: bool = False) -> str:
-        lines, expr, notes, snapshot = emit_profile_sketch(
-            profile, var, as_wire=as_wire, constraints_hook=self._constraints_hook
+        lines, expr, notes = emit_profile_sketch(
+            profile, var, as_wire=as_wire, sink=self._sketch_sink
         )
         self.state.lines.extend(lines)
         self.state.unsupported.extend(notes)
-        if snapshot is not None:
-            entry = dict(self._current_block)
-            entry.update(snapshot)
-            self.snapshots.append(entry)
         return expr
 
-    def _constraints_hook(self, snapshot: Dict[str, Any]) -> List[str]:
-        """Recover constraints for one sketch snapshot (P1–P5 engine); emit
-        lines only when they reproduce the declared geometry."""
+    def _sketch_sink(self, sketch: "SketchScript") -> List[str]:
+        """The single capture point handler: stamp the block context, collect
+        the snapshot, run constraint recovery, and return the constraint
+        lines to append after the entities.  Fired from SketchScript.render
+        for every sketch this replayer builds — profiles, loft/taper
+        sections, countersink cones, sweep paths, pattern seeds alike."""
+        entry: Dict[str, Any] = dict(self._current_block)
+        if self._role_hint:
+            entry["role"] = self._role_hint
+            self._role_hint = ""
+        entry.update(
+            {
+                "entities": list(sketch.snapshot_entities),
+                "closed": sketch.closed,
+                "plane": {
+                    "origin": list(sketch.origin),
+                    "x_axis": list(sketch.u_dir),
+                    "y_axis": list(sketch.v_dir),
+                },
+            }
+        )
+        self.snapshots.append(entry)
         if not self._constraints_mode:
             return []
         from .constraints import emit_constraint_lines, recover_constraints_guarded
 
-        payload = dict(self._current_block)
-        payload.update(snapshot)
         try:
-            report = recover_constraints_guarded(payload)
+            report = recover_constraints_guarded(entry)
         except Exception as exc:  # noqa: BLE001 — recovery is best-effort inline
             report = {"status": "error", "reason": str(exc)[:200], "constraints": []}
         self.recovery_reports.append(report)
         if report.get("coords_ok"):
-            return emit_constraint_lines(report)
+            return emit_constraint_lines(report, indent="")
         return []
 
     def _profile_is_sketch_tier(self, profile: Dict[str, Any]) -> bool:
@@ -687,14 +701,10 @@ class TraceReplayer:
         profile = sub.state.pending_profile
         if profile.get("kind") != "spline_path":
             profile = sub._finalize_wire_profile()
-        lines, expr, notes, snapshot = emit_profile_sketch(
-            profile, prefix, as_wire=True, constraints_hook=self._constraints_hook
+        self._role_hint = "path"
+        lines, expr, notes = emit_profile_sketch(
+            profile, prefix, as_wire=True, sink=self._sketch_sink
         )
-        if snapshot is not None:
-            entry = dict(self._current_block)
-            entry.update(snapshot)
-            entry["role"] = "path"
-            self.snapshots.append(entry)
         return lines, expr, bool(notes)
 
     def _op_sweep(self, step: TraceStep, *, path_steps: Optional[List[TraceStep]]) -> None:
@@ -1254,12 +1264,17 @@ class TraceReplayer:
         end_center = tuple(origin[i] + direction[i] * distance for i in range(3))
 
         def emit_section(tag: str, center: Vec3, r: float) -> str:
-            sketch = SketchScript(f"{var}_{tag}", center, frame.get("u", (1.0, 0.0, 0.0)), frame.get("v", (0.0, 1.0, 0.0)))
-            center_ref = sketch.point(0.0, 0.0)
-            sketch.circle(center_ref, r)
-            self.state.lines.extend(sketch.render())
-            self.state.lines.append(f"    {var}_{tag}_wire = scad.make_wire_from_sketch_rwire(s, profile=0)")
-            return f"{var}_{tag}_wire"
+            section_profile = {
+                "kind": "circle",
+                "radius": r,
+                "origin": center,
+                "frame": dict(frame),
+            }
+            lines, expr, _notes = emit_profile_sketch(
+                section_profile, f"{var}_{tag}", as_wire=True, sink=self._sketch_sink
+            )
+            self.state.lines.extend(lines)
+            return expr
 
         w0 = emit_section("p0", origin, radius)
         w1 = emit_section("p1", end_center, end_radius)
@@ -1398,10 +1413,22 @@ class TraceReplayer:
 
     def _pattern_sketch_lines(self, profile: Dict[str, Any], var: str, center_expr: str, indent: str) -> List[str]:
         """Sketch + face lines inside a pattern loop; the plane origin is the
-        loop variable expression, entity geometry is constant-local."""
+        loop variable expression, entity geometry is constant-local.  The
+        seed goes through the same SketchScript sink — captured (and, with
+        --constraints on, recovered) like every other sketch."""
         if profile["kind"] not in {"circle", "rect", "wire_path"}:
             raise ValueError(f"pattern profile kind {profile['kind']} not supported")
-        probe = SketchScript(var, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0))
+        frame = profile.get("frame", self._plane_frame())
+        u_dir = frame["u"]
+        v_dir = frame["v"]
+        probe = SketchScript(
+            var,
+            (0.0, 0.0, 0.0),
+            u_dir,
+            v_dir,
+            sink=self._sketch_sink,
+            closed=bool(profile.get("closed", True)),
+        )
         if profile["kind"] == "circle":
             center_ref = probe.point(0.0, 0.0)
             probe.circle(center_ref, float(profile["radius"]))
@@ -1414,28 +1441,23 @@ class TraceReplayer:
                 probe.line(a, b)
         else:
             origin = profile["origin"]
-            frame = profile.get("frame", self._plane_frame())
             for segment in profile["segments"]:
                 if segment["kind"] == "line":
                     probe.line(
-                        probe.point(*_global_to_local(origin, frame["u"], frame["v"], segment["start"])),
-                        probe.point(*_global_to_local(origin, frame["u"], frame["v"], segment["end"])),
+                        probe.point(*_global_to_local(origin, u_dir, v_dir, segment["start"])),
+                        probe.point(*_global_to_local(origin, u_dir, v_dir, segment["end"])),
                     )
                 elif segment["kind"] == "arc3":
                     probe.arc3(
-                        _global_to_local(origin, frame["u"], frame["v"], segment["start"]),
-                        _global_to_local(origin, frame["u"], frame["v"], segment["mid"]),
-                        _global_to_local(origin, frame["u"], frame["v"], segment["end"]),
+                        _global_to_local(origin, u_dir, v_dir, segment["start"]),
+                        _global_to_local(origin, u_dir, v_dir, segment["mid"]),
+                        _global_to_local(origin, u_dir, v_dir, segment["end"]),
                     )
-            if profile.get("closed"):
-                pass  # polygon/polyline segments are already closed chains
-        u_dir = profile.get("frame", self._plane_frame())["u"]
-        v_dir = profile.get("frame", self._plane_frame())["v"]
         header = (
-            f"{indent}s = scad.make_sketch_rsketch(name={var!r}, "
+            f"s = scad.make_sketch_rsketch(name={var!r}, "
             f"plane={{'origin': {center_expr}, 'x_axis': {fmt_vec(u_dir)}, 'y_axis': {fmt_vec(v_dir)}}})"
         )
-        return [header] + [indent + line for line in probe.lines[1:]]
+        return probe.render(indent=indent, header=header)
 
     def _emit_pattern_cut(self, profile: Dict[str, Any], depth: float, *, op: str) -> None:
         pattern = self.state.pending_rarray or {}
@@ -1605,12 +1627,17 @@ class TraceReplayer:
         del normal
 
     def _circle_sketch_wire(self, name: str, center: Vec3, radius: float, u_dir: Vec3, v_dir: Vec3) -> str:
-        sketch = SketchScript(name, center, u_dir, v_dir)
-        center_ref = sketch.point(0.0, 0.0)
-        sketch.circle(center_ref, radius)
-        self.state.lines.extend(sketch.render())
-        self.state.lines.append(f"    {name}_wire = scad.make_wire_from_sketch_rwire(s, profile=0)")
-        return f"{name}_wire"
+        section_profile = {
+            "kind": "circle",
+            "radius": radius,
+            "origin": center,
+            "frame": {"u": u_dir, "v": v_dir},
+        }
+        lines, expr, _notes = emit_profile_sketch(
+            section_profile, name, as_wire=True, sink=self._sketch_sink
+        )
+        self.state.lines.extend(lines)
+        return expr
 
     # ------------------------------------------------------------------
     # bare booleans (no tool workplane)

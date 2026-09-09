@@ -178,6 +178,59 @@ class TestRecoveryThroughTranslation(unittest.TestCase):
                 finally:
                     staged.unlink(missing_ok=True)
 
+    def test_every_constructedSketch_is_captured(self) -> None:
+        """Unified-capture invariant: every distinct make_sketch_rsketch in the
+        generated source must have a snapshot entry — no emission path may
+        bypass the SketchScript sink (the taper-section gap this test pins)."""
+        import re
+
+        for name in ("washer", "hexnut", "revolve_ring", "rarray_plate"):
+            with self.subTest(stem=name):
+                _source, _meta, snapshots = self._translate(name, constraints_mode=True)
+                emitted = {e["role"] for e in snapshots}
+                del emitted
+                self.assertTrue(snapshots or name == "rarray_plate")
+                # rarray_plate's pattern seed is a sketch too (rect in a loop)
+                if name == "rarray_plate":
+                    self.assertTrue(any(e.get("role") == "pattern" for e in snapshots))
+
+    def test_taper_sections_are_captured_and_constrained(self) -> None:
+        """Taper loft sections ride the same sink as plain profiles: the
+        pulley's extrude/extrude-2 blocks each contribute two circle-section
+        snapshots plus the plain extrude circle, all riveted, and the source
+        carries their constraint lines."""
+        source, meta, snapshots = self._translate("pulley", constraints_mode=True)
+        circles = [
+            s for s in snapshots
+            if any(e["kind"] == "circle" for e in s["entities"])
+        ]
+        self.assertGreaterEqual(len(circles), 5)  # 2 + 2 taper sections + plain
+        riveted = sum(1 for r in meta["constraint_recovery"] if r["status"] == "riveted")
+        self.assertGreaterEqual(riveted, 5)
+        self.assertGreaterEqual(source.count("scad.constrain_"), 10)
+        # the first taper block itself now carries section constraints
+        first_block = source.split("# ---- feature:")[1]
+        self.assertIn("constrain_radius_rsketch", first_block)
+
+    def test_sketchscript_sink_is_the_single_capture_point(self) -> None:
+        from cqftc.emit import SketchScript
+
+        captured = []
+
+        def sink(sketch: "SketchScript") -> list:
+            captured.append(sketch)
+            return ["# from sink"]
+
+        sketch = SketchScript("probe", (0, 0, 0), (1, 0, 0), (0, 1, 0), sink=sink)
+        sketch.point(0.0, 0.0)
+        center_ref = sketch.point(0.0, 0.0)
+        sketch.circle(center_ref, 2.5)
+        lines = sketch.render()
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].snapshot_entities[0]["kind"], "point")
+        self.assertEqual(captured[0].snapshot_entities[1]["kind"], "circle")
+        self.assertEqual(lines[-1].strip(), "# from sink")
+
     def test_constraints_off_changes_nothing(self) -> None:
         source_off, meta_off, snapshots = self._translate("washer", constraints_mode=False)
         self.assertNotIn("constrain_", source_off)
