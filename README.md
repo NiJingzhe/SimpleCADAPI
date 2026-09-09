@@ -134,18 +134,18 @@ the full crank cycle sweeps clean in the same sim ·
 
 ---
 
-## Update Notes (2.1.0)
+## Update Notes (2.1.1)
 
 > **Release notice:** Validate generated definitions, assembly constraints, and
 > manufacturing geometry before production use.
 
-SimpleCADAPI 2.1.0 turns the SDK into an agent-first CAD toolkit: the Feature
-Tree Convention authoring discipline, external CAD-history import, the
-browser reverse-engineering studio, DXF engineering drawings, and
-self-contained runnable examples — on top of the reproducible
-`@part`/`@assemble` product boundaries and the persistent crash-safe cache.
-See the [full English update notes](docs/updates/2.1.0.md) for contracts,
-cache modes, diagnostics, limitations, and verification coverage.
+SimpleCADAPI 2.1.1 is a tooling patch (SDK API unchanged): a CadQuery→FTC
+translator toolset with snapshot constraint recovery under
+`tools/research/cadqueryftc`, aligned with the histjson four-stage research
+pattern. See the [full English update notes](docs/updates/2.1.1.md) for the
+tracer/translator/validator split, the recovery axioms, and verification
+coverage; the 2.1.0 agent-first feature set is described in
+[docs/updates/2.1.0.md](docs/updates/2.1.0.md).
 
 All formal single-script examples emit a synchronized `.scadpkg`, AP242
 `.step`, and editable `.FCStd` from the same product package. The
@@ -170,7 +170,7 @@ in a compact public API for creating solids, applying features, tagging semantic
 intent, querying topology, exporting manufacturing files, and translating recorded
 models into FreeCAD workflows.
 
-Current release: `simplecadapi==2.1.0`.
+Current release: `simplecadapi==2.1.1`.
 
 ## What It Provides
 
@@ -531,6 +531,7 @@ against a target STEP (see `examples/bowl_connector/`).
 
 ## Documentation
 
+- 2.1.1 update notes: [`docs/updates/2.1.1.md`](docs/updates/2.1.1.md)
 - 2.1.0 update notes: [`docs/updates/2.1.0.md`](docs/updates/2.1.0.md)
 - Reconstruction Agent test specification:
   [`docs/skill/references/docs/guides/reconstruction-agent-test-prompt.md`](docs/skill/references/docs/guides/reconstruction-agent-test-prompt.md)

@@ -1,0 +1,3315 @@
+{
+  "cq_status": "ok",
+  "error": "",
+  "cq_volume": 3768.852665613271,
+  "cq_bbox": [
+    0.0,
+    -12.499999999999998,
+    -12.5,
+    36.0,
+    12.500000000000002,
+    12.5
+  ],
+  "steps": [
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "circle",
+      "args": [
+        12.5
+      ],
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "extrude",
+      "args": [
+        16.2
+      ],
+      "kwargs": {
+        "taper": 24.257
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "faces",
+      "args": [
+        ">X"
+      ],
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "selector": ">X",
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "selector": ">X",
+      "selections": [
+        {
+          "kind": "face",
+          "index": 2,
+          "geom_type": "PLANE",
+          "center": [
+            16.2,
+            -1.3257592621127407e-15,
+            9.598956381683404e-16
+          ],
+          "normal": [
+            1.0,
+            0.0,
+            -0.0
+          ],
+          "area": 84.95033671131662,
+          "bbox": {
+            "min": [
+              16.199999999999996,
+              -5.200051154542029,
+              -5.200051154542028
+            ],
+            "max": [
+              16.199999999999996,
+              5.200051154542029,
+              5.20005115454203
+            ]
+          }
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "selections": [
+        {
+          "kind": "face",
+          "index": 2,
+          "geom_type": "PLANE",
+          "center": [
+            16.2,
+            -1.3257592621127407e-15,
+            9.598956381683404e-16
+          ],
+          "normal": [
+            1.0,
+            0.0,
+            -0.0
+          ],
+          "area": 84.95033671131662,
+          "bbox": {
+            "min": [
+              16.199999999999996,
+              -5.200051154542029,
+              -5.200051154542028
+            ],
+            "max": [
+              16.199999999999996,
+              5.200051154542029,
+              5.20005115454203
+            ]
+          }
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "Plane(origin=(16.2, 0.0, 0.0), xDir=(-0.0, 1.0, 0.0), normal=(1.0, 0.0, -0.0))"
+      ],
+      "plane_name": "Plane(origin=(16.2, 0.0, 0.0), xDir=(-0.0, 1.0, 0.0), normal=(1.0, 0.0, -0.0))",
+      "plane_origin": [
+        16.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "circle",
+      "args": [
+        5.2
+      ],
+      "plane_origin": [
+        16.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "extrude",
+      "args": [
+        9.0
+      ],
+      "kwargs": {
+        "taper": -10.697
+      },
+      "plane_origin": [
+        16.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "faces",
+      "args": [
+        ">X"
+      ],
+      "plane_origin": [
+        16.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "selector": ">X",
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "selector": ">X",
+      "selections": [
+        {
+          "kind": "face",
+          "index": 4,
+          "geom_type": "PLANE",
+          "center": [
+            25.2,
+            4.937245353137531e-16,
+            -2.4346986151028063e-16
+          ],
+          "normal": [
+            1.0,
+            0.0,
+            -0.0
+          ],
+          "area": 149.57467704445193,
+          "bbox": {
+            "min": [
+              25.2,
+              -6.90007959562763,
+              -6.90007959562763
+            ],
+            "max": [
+              25.2,
+              6.90007959562763,
+              6.90007959562763
+            ]
+          }
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "workplane",
+      "plane_origin": [
+        16.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "selections": [
+        {
+          "kind": "face",
+          "index": 4,
+          "geom_type": "PLANE",
+          "center": [
+            25.2,
+            4.937245353137531e-16,
+            -2.4346986151028063e-16
+          ],
+          "normal": [
+            1.0,
+            0.0,
+            -0.0
+          ],
+          "area": 149.57467704445193,
+          "bbox": {
+            "min": [
+              25.2,
+              -6.90007959562763,
+              -6.90007959562763
+            ],
+            "max": [
+              25.2,
+              6.90007959562763,
+              6.90007959562763
+            ]
+          }
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "Plane(origin=(25.2, 0.0, 0.0), xDir=(-0.0, 1.0, 0.0), normal=(1.0, 0.0, -0.0))"
+      ],
+      "plane_name": "Plane(origin=(25.2, 0.0, 0.0), xDir=(-0.0, 1.0, 0.0), normal=(1.0, 0.0, -0.0))",
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "circle",
+      "args": [
+        6.9
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "extrude",
+      "args": [
+        10.8
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          7.245,
+          0.0,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        7.245,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        7.245,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          6.694,
+          2.773,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        6.694,
+        2.773
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        6.694,
+        2.773
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          5.123,
+          5.123,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        5.123,
+        5.123
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        5.123,
+        5.123
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          2.773,
+          6.694,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        2.773,
+        6.694
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        2.773,
+        6.694
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          0.0,
+          7.245,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        0.0,
+        7.245
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        0.0,
+        7.245
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          -2.773,
+          6.694,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        -2.773,
+        6.694
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        -2.773,
+        6.694
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          -5.123,
+          5.123,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        -5.123,
+        5.123
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        -5.123,
+        5.123
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          -6.694,
+          2.773,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        -6.694,
+        2.773
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        -6.694,
+        2.773
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          -7.245,
+          0.0,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        -7.245,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        -7.245,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          -6.694,
+          -2.773,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        -6.694,
+        -2.773
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        -6.694,
+        -2.773
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          -5.123,
+          -5.123,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        -5.123,
+        -5.123
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        -5.123,
+        -5.123
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          -2.773,
+          -6.694,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        -2.773,
+        -6.694
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        -2.773,
+        -6.694
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          -0.0,
+          -7.245,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        0.0,
+        -7.245
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        0.0,
+        -7.245
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          2.773,
+          -6.694,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        2.773,
+        -6.694
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        2.773,
+        -6.694
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          5.123,
+          -5.123,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        5.123,
+        -5.123
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        5.123,
+        -5.123
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "transformed",
+      "kwargs": {
+        "offset": [
+          6.694,
+          -2.773,
+          25.8
+        ],
+        "rotate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        25.8,
+        6.694,
+        -2.773
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cylinder",
+      "args": [
+        19.8,
+        1.2
+      ],
+      "plane_origin": [
+        25.8,
+        6.694,
+        -2.773
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "cut",
+      "args": [
+        {
+          "__workplane_ref__": true
+        }
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "faces",
+      "args": [
+        "<X"
+      ],
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "selector": "<X",
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "selector": "<X",
+      "selections": [
+        {
+          "kind": "face",
+          "index": 0,
+          "geom_type": "PLANE",
+          "center": [
+            0.0,
+            -4.375808424126154e-16,
+            -1.0004441719502213e-15
+          ],
+          "normal": [
+            -1.0,
+            -0.0,
+            0.0
+          ],
+          "area": 490.8738521234051,
+          "bbox": {
+            "min": [
+              0.0,
+              -12.499999999999998,
+              -12.5
+            ],
+            "max": [
+              0.0,
+              12.500000000000002,
+              12.5
+            ]
+          }
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "workplane",
+      "plane_origin": [
+        25.2,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "plane_x_dir": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "selections": [
+        {
+          "kind": "face",
+          "index": 0,
+          "geom_type": "PLANE",
+          "center": [
+            0.0,
+            -4.375808424126154e-16,
+            -1.0004441719502213e-15
+          ],
+          "normal": [
+            -1.0,
+            -0.0,
+            0.0
+          ],
+          "area": 490.8738521234051,
+          "bbox": {
+            "min": [
+              0.0,
+              -12.499999999999998,
+              -12.5
+            ],
+            "max": [
+              0.0,
+              12.500000000000002,
+              12.5
+            ]
+          }
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "Plane(origin=(0.0, 0.0, 0.0), xDir=(0.0, -1.0, 0.0), normal=(-1.0, -0.0, 0.0))"
+      ],
+      "plane_name": "Plane(origin=(0.0, 0.0, 0.0), xDir=(0.0, -1.0, 0.0), normal=(-1.0, -0.0, 0.0))",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        -1.0,
+        -0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "hole",
+      "args": [
+        10.0
+      ],
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        -1.0,
+        -0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    }
+  ],
+  "stem": "pulley",
+  "family": ""
+}
