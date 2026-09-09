@@ -1479,7 +1479,7 @@ class TraceReplayer:
         self.state.lines.extend(sketch_lines)
         self.state.lines.append(
             f"{indent}_tool = scad.extrude_rsolid("
-            f"profile=scad.make_face_from_sketch_rface(s, profile=0), "
+            f"profile=scad.make_face_from_sketch_rface(sketch=s, profile=0), "
             f"direction={fmt_vec(direction)}, distance={fmt_num(depth)},)"
         )
         self.state.lines.append(f"{indent}bodies = [scad.cut_rsolid(_b, [_tool]) for _b in bodies]")
@@ -1508,7 +1508,7 @@ class TraceReplayer:
         self.state.lines.extend(sketch_lines)
         self.state.lines.append(
             f"{indent}_tool = scad.extrude_rsolid("
-            f"profile=scad.make_face_from_sketch_rface(s, profile=0), "
+            f"profile=scad.make_face_from_sketch_rface(sketch=s, profile=0), "
             f"direction={fmt_vec(direction)}, distance={fmt_num(abs(distance))},)"
         )
         self.state.lines.extend(

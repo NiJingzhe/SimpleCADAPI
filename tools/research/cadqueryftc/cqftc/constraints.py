@@ -476,19 +476,54 @@ def recover_constraints(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     return report
 
 
+_CONSTRAINT_PARAM_NAMES = {
+    "fix": ("target",),
+    "horizontal": ("line",),
+    "vertical": ("line",),
+    "parallel": ("a", "b"),
+    "perpendicular": ("a", "b"),
+    "concentric": ("a", "b"),
+    "equal_radius": ("a", "b"),
+    "equal_length": ("a", "b"),
+    "tangent": ("a", "b"),
+    "length": ("line", "value"),
+    "radius": ("circle", "value"),
+    "distance": ("a", "b", "value"),
+    "distance_x": ("a", "b", "value"),
+    "angle": ("a", "b", "value"),
+}
+
+
+def _fmt_arg(value: Any) -> str:
+    # NB: keep this out of f-string conversion syntax — `!r` applies to the
+    # whole conditional result, which would quote the numeric branch too.
+    if isinstance(value, float):
+        return fmt_num(value)
+    return repr(value)
+
+
 def emit_constraint_lines(report: Dict[str, Any], indent: str = "    ") -> List[str]:
-    """FTC source lines for an accepted constraint set (P5: inf provenance)."""
+    """FTC source lines for an accepted constraint set.
+
+    Everything is keyword-passed (training-corpus self-documentation: the
+    parameter names carry the meaning); ids keep the ``inf`` provenance
+    prefix (P5).
+    """
     lines: List[str] = []
     for item in report.get("constraints", []):
         kind = item["kind"]
-        targets = ", ".join(repr(t) for t in item["targets"])
-        value = f", {fmt_num(item['value'])}" if item.get("value") is not None else ""
+        params = list(zip(_CONSTRAINT_PARAM_NAMES[kind], (*item["targets"], item["value"])))
+        args = "".join(
+            f", {name}={_fmt_arg(value)}"
+            for name, value in params
+            if value is not None
+        )
         kwargs = ""
         for key in ("at_a", "at_b", "mode"):
             if item.get("kwargs") and item["kwargs"].get(key) is not None:
                 kwargs += f", {key}={item['kwargs'][key]!r}"
         lines.append(
-            f"{indent}s = scad.constrain_{kind}_rsketch(s, {targets}{value}{kwargs}, "
+            f"{indent}s = scad.constrain_{kind}_rsketch(sketch=s{args}{kwargs}, "
             f"constraint_id={item['constraint_id']!r})"
         )
     return lines

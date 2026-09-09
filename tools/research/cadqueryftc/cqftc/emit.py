@@ -131,7 +131,7 @@ class SketchScript:
         self._point_n += 1
         ref = f"{self.name}_p{self._point_n}"
         self._points[key] = ref
-        self.lines.append(f"s = scad.add_point_rsketch(s, {ref!r}, {fmt_num(x)}, {fmt_num(y)})")
+        self.lines.append(f"s = scad.add_point_rsketch(sketch=s, point_id={ref!r}, x={fmt_num(x)}, y={fmt_num(y)})")
         self.snapshot_entities.append({"id": ref, "kind": "point", "xy": [float(x), float(y)]})
         return ref
 
@@ -141,12 +141,12 @@ class SketchScript:
 
     def line(self, start_ref: str, end_ref: str) -> None:
         eid = self._entity("line")
-        self.lines.append(f"s = scad.add_line_rsketch(s, {eid!r}, {start_ref!r}, {end_ref!r})")
+        self.lines.append(f"s = scad.add_line_rsketch(sketch=s, entity_id={eid!r}, start={start_ref!r}, end={end_ref!r})")
         self.snapshot_entities.append({"id": eid, "kind": "line", "start": start_ref, "end": end_ref})
 
     def circle(self, center_ref: str, radius: float) -> None:
         eid = self._entity("circle")
-        self.lines.append(f"s = scad.add_circle_rsketch(s, {eid!r}, {center_ref!r}, {fmt_num(radius)})")
+        self.lines.append(f"s = scad.add_circle_rsketch(sketch=s, entity_id={eid!r}, center={center_ref!r}, radius={fmt_num(radius)})")
         self.snapshot_entities.append({"id": eid, "kind": "circle", "center": center_ref, "radius": float(radius)})
 
     def arc3(self, start: Tuple[float, float], mid: Tuple[float, float], end: Tuple[float, float]) -> None:
@@ -165,7 +165,7 @@ class SketchScript:
         center_ref = self.point(cx, cy)
         eid = self._entity("arc")
         self.lines.append(
-            f"s = scad.add_arc_rsketch(s, {eid!r}, {start_ref!r}, {end_ref!r}, {center_ref!r})"
+            f"s = scad.add_arc_rsketch(sketch=s, entity_id={eid!r}, start={start_ref!r}, end={end_ref!r}, center={center_ref!r})"
         )
         self.snapshot_entities.append(
             {"id": eid, "kind": "arc", "start": start_ref, "end": end_ref, "center": center_ref}
@@ -301,9 +301,9 @@ def emit_profile_sketch(
 
     lines = sketch.render()
     if as_wire:
-        lines.append(f"    {var}_wire = scad.make_wire_from_sketch_rwire(s, profile=0)")
+        lines.append(f"    {var}_wire = scad.make_wire_from_sketch_rwire(sketch=s, profile=0)")
         return lines, f"{var}_wire", notes
-    lines.append(f"    {var}_profile = scad.make_face_from_sketch_rface(s, profile=0)")
+    lines.append(f"    {var}_profile = scad.make_face_from_sketch_rface(sketch=s, profile=0)")
     return lines, f"{var}_profile", notes
 
 

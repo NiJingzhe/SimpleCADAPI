@@ -102,6 +102,7 @@ QL 选边对账）。`test/cadquery_traces/` 里烘焙了同一批 trace 与源�
   `geom.center.*`/`geom.normal.*` 容差带 + 基数 `.take(n).exactly(n)`），
   生成源码里不存在免参拓扑枚举。
 - 通孔/穿透刀具长度由 trace 包围盒推导，不用魔法数 1000。
+- 发射的 API 调用一律 keyword 实参（`add_circle_rsketch(sketch=s, entity_id=..., center=..., radius=...)`）——语料即文档，参数名自带语义；唯一例外是布尔 `*solids` 变长实参（union/cut/intersect 无键可取）。
 - 生成源码零自检（无 print/assert/体积校验）；数字全字面量（trace 里没有
   命名参数，翻译器不发明参数名）。翻译完整性提示只出现在块尾注释与
   `*.meta.json`（`unsupported` 列表，永不静默丢弃——未知 op 也会记 note）。

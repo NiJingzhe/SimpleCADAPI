@@ -148,7 +148,7 @@ class TestRecoveryThroughTranslation(unittest.TestCase):
         self.assertTrue(recovery)
         for entry in recovery:
             self.assertEqual(entry["status"], "riveted", msg=json.dumps(entry))
-        self.assertIn("scad.constrain_fix_rsketch(s,", source)
+        self.assertIn("scad.constrain_fix_rsketch(sketch=s,", source)
         self.assertIn("constraint_id='inf1_fix'", source)
         self.assertTrue(snapshots)
         kinds = {e["kind"] for snapshot in snapshots for e in snapshot["entities"]}
@@ -230,6 +230,22 @@ class TestRecoveryThroughTranslation(unittest.TestCase):
         self.assertEqual(captured[0].snapshot_entities[0]["kind"], "point")
         self.assertEqual(captured[0].snapshot_entities[1]["kind"], "circle")
         self.assertEqual(lines[-1].strip(), "# from sink")
+
+    def test_emitted_corpus_is_keyword_only(self) -> None:
+        """Training-corpus pin: sketch-family calls carry keyword arguments
+        so the parameter meaning is legible from the source itself.  Boolean
+        *solids varargs (union/cut/intersect) have no keywords to take."""
+        import re
+
+        for name in ("washer", "hexnut", "pulley"):
+            with self.subTest(stem=name):
+                source, _meta, _snapshots = self._translate(name, constraints_mode=True)
+                positional = re.findall(
+                    r"scad\.(?:add_\w+|constrain_\w+|make_face_from_sketch_rface"
+                    r"|make_wire_from_sketch_rwire)\(s,", source)
+                self.assertEqual(positional, [], msg=f"positional calls leaked: {positional[:3]}")
+                self.assertIn("scad.add_circle_rsketch(sketch=s, entity_id=", source)
+                self.assertIn("scad.constrain_radius_rsketch(sketch=s, circle=", source)
 
     def test_constraints_off_changes_nothing(self) -> None:
         source_off, meta_off, snapshots = self._translate("washer", constraints_mode=False)
