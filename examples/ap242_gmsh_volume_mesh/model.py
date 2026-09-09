@@ -258,7 +258,7 @@ def build_stage(stage: str) -> scad.Solid:
 @scad.part(
     id="ap242_gmsh_bracket",
     revision="2.1.0",
-    inputs=(scad.file_input(path="examples/ap242_gmsh_volume_mesh/model.py"),),
+    inputs=(scad.file_input(path="model.py"),),
     cache=CACHE,
 )
 def build_bracket() -> scad.Part:

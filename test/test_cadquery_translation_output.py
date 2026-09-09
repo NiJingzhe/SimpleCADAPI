@@ -160,8 +160,8 @@ class TestCadQueryFtcGeometry(unittest.TestCase):
     def _build_and_compare(self, name: str) -> None:
         source, meta = _translate(name)
         self.assertEqual(meta["status"], "ok")
-        # @scad.part needs a real file under a project root; stage uniquely so
-        # the content-addressed part cache never short-circuits the body.
+        # @scad.part anchors to the staged file's own directory; stage uniquely
+        # so the content-addressed part cache never short-circuits the body.
         cases_dir = _TOOLS_DIR / "out" / "_test_cases"
         cases_dir.mkdir(parents=True, exist_ok=True)
         self._counter += 1

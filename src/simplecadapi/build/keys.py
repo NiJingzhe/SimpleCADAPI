@@ -200,7 +200,13 @@ def normalize_bound_arguments(
 def infer_project_root(
     function: Callable[..., Any], explicit: str | Path | None = None
 ) -> Path:
-    """Locate the source checkout owning a builder."""
+    """Resolve the anchor directory for a builder (cache, file inputs, config).
+
+    Default anchor is the directory containing the builder's source file —
+    a script is its own project, so a standalone source runs anywhere and
+    its cache lands beside it. An explicit ``project_root`` relocates the
+    anchor (project-level cache or config) and must contain the source.
+    """
 
     source_name = inspect.getsourcefile(function) or inspect.getfile(function)
     if not source_name or source_name.startswith("<"):
@@ -221,14 +227,7 @@ def infer_project_root(
                 "builder source is outside project root",
             ) from exc
         return root
-    for parent in (source_path.parent, *source_path.parents):
-        if (parent / "pyproject.toml").is_file():
-            return parent
-    raise ArtifactValidationError(
-        "source_unavailable",
-        "/builder/source",
-        "no project root containing pyproject.toml was found",
-    )
+    return source_path.parent
 
 
 def builder_source_fingerprint(

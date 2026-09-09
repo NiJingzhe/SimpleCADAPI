@@ -359,7 +359,7 @@ class StepEmitter:
         self.counter += 1
         pid = f"{self.name}_p{self.counter}"
         self.pool[pid] = (float(x), float(y))
-        self.lines.append(f"s = scad.add_point_rsketch(s, {pid!r}, {_fmt(x)}, {_fmt(y)})")
+        self.lines.append(f"s = scad.add_point_rsketch(sketch=s, point_id={pid!r}, x={_fmt(x)}, y={_fmt(y)})")
         return pid
 
     def emit_sketch(self) -> None:
@@ -372,11 +372,11 @@ class StepEmitter:
                 start = self.point(*data["start"])
                 end = self.point(*data["end"])
                 self.sub_points[(eid, "start")], self.sub_points[(eid, "end")] = start, end
-                self.lines.append(f"s = scad.add_line_rsketch(s, {eid!r}, {start!r}, {end!r})")
+                self.lines.append(f"s = scad.add_line_rsketch(sketch=s, entity_id={eid!r}, start={start!r}, end={end!r})")
             elif kind == "circle":
                 center = self.point(*data["center"])
                 self.sub_points[(eid, "center")] = center
-                self.lines.append(f"s = scad.add_circle_rsketch(s, {eid!r}, {center!r}, {_fmt(data['radius'])})")
+                self.lines.append(f"s = scad.add_circle_rsketch(sketch=s, entity_id={eid!r}, center={center!r}, radius={_fmt(data['radius'])})")
             elif kind == "arc":
                 cx, cy = circumcenter(data["start"], data["middle"], data["end"])
                 center = self.point(cx, cy)
@@ -393,7 +393,7 @@ class StepEmitter:
                 end = self.point(*end_pt)
                 self.sub_points[(eid, "start")], self.sub_points[(eid, "end")] = start, end
                 self.sub_points[(eid, "center")] = center
-                self.lines.append(f"s = scad.add_arc_rsketch(s, {eid!r}, {start!r}, {end!r}, {center!r})")
+                self.lines.append(f"s = scad.add_arc_rsketch(sketch=s, entity_id={eid!r}, start={start!r}, end={end!r}, center={center!r})")
             elif kind == "ellipse":
                 cx, cy = data["center"]
                 major, minor = float(data["major"]), float(data["minor"])
@@ -404,7 +404,7 @@ class StepEmitter:
                 self.sub_points[(eid, "center")] = center
                 self.sub_points[(eid, "major")] = major_pt
                 self.sub_points[(eid, "minor")] = minor_pt
-                self.lines.append(f"s = scad.add_ellipse_rsketch(s, {eid!r}, {center!r}, {major_pt!r}, {minor_pt!r})")
+                self.lines.append(f"s = scad.add_ellipse_rsketch(sketch=s, entity_id={eid!r}, center={center!r}, major_point={major_pt!r}, minor_point={minor_pt!r})")
             elif kind == "elliptical_arc":
                 raise UnsupportedFeature("elliptical_arc entity")
             elif kind == "nurbs":
@@ -415,7 +415,7 @@ class StepEmitter:
                 controls = ", ".join(f"({_fmt(c[0])}, {_fmt(c[1])})" for c in data["controls"])
                 weights = list(data["weights"]) if data.get("weights") else None
                 self.lines.append(
-                    f"s = scad.add_bspline_rsketch(s, {eid!r}, {start!r}, {end!r},\n"
+                    f"s = scad.add_bspline_rsketch(sketch=s, entity_id={eid!r}, start={start!r}, end={end!r},\n"
                     f"    control_points=[{controls}],\n"
                     f"    degree={int(data['degree'])}, knots={knots!r},\n"
                     f"    multiplicities={mults!r}, weights={weights!r},\n"
@@ -556,11 +556,11 @@ class StepEmitter:
             if pa is not None and pa == pb:
                 self.elided_constraints.append(label)
                 return []
-            return self._constrain(f"constrain_coincident_rsketch(s, {refs[0][0]}, {refs[1][0]})")
+            return self._constrain(f"constrain_coincident_rsketch(sketch=s, a={refs[0][0]}, b={refs[1][0]})")
         if ctype in {"Horizontal", "Vertical"}:
             fn = "Horizontal" if ctype == "Horizontal" else "Vertical"
             if len(refs) == 2 and all(r and r[1] == "point" for r in refs):
-                return self._constrain(f"constrain_points_{fn.lower()}_rsketch(s, {refs[0][0]}, {refs[1][0]})")
+                return self._constrain(f"constrain_points_{fn.lower()}_rsketch(sketch=s, a={refs[0][0]}, b={refs[1][0]})")
             lines = [r for r in refs if r and r[1] == "line"]
             if refs and len(lines) == len(refs) and lines:
                 # dataset form: a flat list of lines, each individually
@@ -568,7 +568,7 @@ class StepEmitter:
                 return [
                     c
                     for i, r in enumerate(lines)
-                    for c in self._constrain(f"constrain_{fn.lower()}_rsketch(s, {r[0]})", label if i == 0 else f"{label}-{i + 2}")
+                    for c in self._constrain(f"constrain_{fn.lower()}_rsketch(sketch=s, line={r[0]})", label if i == 0 else f"{label}-{i + 2}")
                 ]
         if ctype == "Parallel" and len(refs) >= 2:
             chain = [r for r in refs if r and r[1] == "line"]
@@ -576,10 +576,10 @@ class StepEmitter:
                 return [
                     c
                     for i, (a, b) in enumerate(zip(chain, chain[1:]))
-                    for c in self._constrain(f"constrain_parallel_rsketch(s, {a[0]}, {b[0]})", f"{label}-{i + 2}")
+                    for c in self._constrain(f"constrain_parallel_rsketch(sketch=s, a={a[0]}, b={b[0]})", f"{label}-{i + 2}")
                 ]
         if ctype == "Perpendicular" and len(refs) == 2 and all(r and r[1] == "line" for r in refs):
-            return self._constrain(f"constrain_perpendicular_rsketch(s, {refs[0][0]}, {refs[1][0]})")
+            return self._constrain(f"constrain_perpendicular_rsketch(sketch=s, a={refs[0][0]}, b={refs[1][0]})")
         if ctype == "Equal" and len(refs) >= 2 and all(r for r in refs):
             out: List[str] = []
             ok = True
@@ -593,9 +593,9 @@ class StepEmitter:
                 for i, (ka, kb) in enumerate(pairs):
                     chain_label = label if i == 0 else f"{label}-{i + 2}"
                     if ka == kb == "line":
-                        out.extend(self._constrain(f"constrain_equal_length_rsketch(s, {refs[i][0]}, {refs[i + 1][0]})", chain_label))
+                        out.extend(self._constrain(f"constrain_equal_length_rsketch(sketch=s, a={refs[i][0]}, b={refs[i + 1][0]})", chain_label))
                     elif ka in {"circle", "arc"} and kb in {"circle", "arc"}:
-                        out.extend(self._constrain(f"constrain_equal_radius_rsketch(s, {refs[i][0]}, {refs[i + 1][0]})", chain_label))
+                        out.extend(self._constrain(f"constrain_equal_radius_rsketch(sketch=s, a={refs[i][0]}, b={refs[i + 1][0]})", chain_label))
                     else:
                         ok = False
                         break
@@ -620,15 +620,15 @@ class StepEmitter:
                         return []
                     kwargs.append(f"at_{'a' if i == 0 else 'b'}={selector!r}")
                 suffix = (", " + ", ".join(kwargs)) if kwargs else ""
-                return self._constrain(f"constrain_tangent_rsketch(s, {refs[0][0]}, {refs[1][0]}{suffix})")
-            return self._constrain(f"constrain_tangent_rsketch(s, {refs[0][0]}, {refs[1][0]})")
+                return self._constrain(f"constrain_tangent_rsketch(sketch=s, a={refs[0][0]}, b={refs[1][0]}{suffix})")
+            return self._constrain(f"constrain_tangent_rsketch(sketch=s, a={refs[0][0]}, b={refs[1][0]})")
         if ctype == "Concentric" and len(refs) >= 2:
             chain = [r for r in refs if r and r[1] in {"circle", "arc", "ellipse"}]
             if len(chain) == len(refs) and len(chain) >= 2:
                 return [
                     c
                     for i, (a, b) in enumerate(zip(chain, chain[1:]))
-                    for c in self._constrain(f"constrain_concentric_rsketch(s, {a[0]}, {b[0]})", f"{label}-{i + 2}")
+                    for c in self._constrain(f"constrain_concentric_rsketch(sketch=s, a={a[0]}, b={b[0]})", f"{label}-{i + 2}")
                 ]
         if ctype in {"Diameter", "Radius", "MajorRadius", "MinorRadius"} and len(entry) == 2:
             ref = self._ref(entry[0])
@@ -638,49 +638,49 @@ class StepEmitter:
                 # the sketch's major/minor (and our constraint) are semi-axes
                 value = value / 2.0
             if ref and value is not None:
-                fn = {
-                    "Radius": "constrain_radius_rsketch",
-                    "Diameter": "constrain_diameter_rsketch",
-                    "MajorRadius": "constrain_major_radius_rsketch",
-                    "MinorRadius": "constrain_minor_radius_rsketch",
+                fn, param = {
+                    "Radius": ("constrain_radius_rsketch", "circle"),
+                    "Diameter": ("constrain_diameter_rsketch", "circle"),
+                    "MajorRadius": ("constrain_major_radius_rsketch", "ellipse"),
+                    "MinorRadius": ("constrain_minor_radius_rsketch", "ellipse"),
                 }[ctype]
                 expected = {"Radius": {"circle", "arc"}, "Diameter": {"circle", "arc"}, "MajorRadius": {"ellipse"}, "MinorRadius": {"ellipse"}}[ctype]
                 if ref[1] in expected:
-                    return self._constrain(f"{fn}(s, {ref[0]}, {_fmt(value)})")
+                    return self._constrain(f"{fn}(sketch=s, {param}={ref[0]}, value={_fmt(value)})")
         if ctype == "Length" and len(entry) == 2:
             ref = self._ref(entry[0])
             if ref and ref[1] == "line":
                 value = eval_value_expr(entry[1])
                 if value is not None:
-                    return self._constrain(f"constrain_length_rsketch(s, {ref[0]}, {_fmt(value)})")
+                    return self._constrain(f"constrain_length_rsketch(sketch=s, line={ref[0]}, value={_fmt(value)})")
                 other = self._ref(entry[1])
                 if other and other[1] == "line":
-                    return self._constrain(f"constrain_equal_length_rsketch(s, {ref[0]}, {other[0]})")
+                    return self._constrain(f"constrain_equal_length_rsketch(sketch=s, a={ref[0]}, b={other[0]})")
         if ctype == "Angle" and len(entry) == 3 and all(refs) and all(r[1] == "line" for r in refs[:2]):
             value = eval_value_expr(entry[2])
             if value is not None:
-                return self._constrain(f"constrain_angle_rsketch(s, {refs[0][0]}, {refs[1][0]}, {_fmt(value)})")
+                return self._constrain(f"constrain_angle_rsketch(sketch=s, a={refs[0][0]}, b={refs[1][0]}, value={_fmt(value)})")
         if ctype == "Normal" and len(refs) == 2 and all(refs):
             kinds = {r[1] for r in refs}
             if kinds == {"line", "circle"} or kinds == {"line", "arc"}:
-                return self._constrain(f"constrain_normal_rsketch(s, {refs[0][0]}, {refs[1][0]})")
+                return self._constrain(f"constrain_normal_rsketch(sketch=s, a={refs[0][0]}, b={refs[1][0]})")
         if ctype == "Mirror" and len(entry) == 3:
             a, axis, b = (self._ref(t) for t in entry)
             if a and b and axis and axis[1] == "line" and a[1] == b[1] and a[1] in {"line", "circle", "arc"}:
-                return self._constrain(f"constrain_mirror_rsketch(s, {a[0]}, {axis[0]}, {b[0]})")
+                return self._constrain(f"constrain_mirror_rsketch(sketch=s, a={a[0]}, axis={axis[0]}, b={b[0]})")
         if ctype == "Midpoint" and len(entry) == 2:
             if isinstance(entry[1], list) and len(entry[1]) == 2:
                 mid, a, b = (self._ref(entry[0]), self._ref(entry[1][0]), self._ref(entry[1][1]))
                 if mid and a and b and all(r[1] == "point" for r in (mid, a, b)):
-                    return self._constrain(f"constrain_midpoint_points_rsketch(s, {mid[0]}, {a[0]}, {b[0]})")
+                    return self._constrain(f"constrain_midpoint_points_rsketch(sketch=s, mid={mid[0]}, a={a[0]}, b={b[0]})")
             else:
                 point, target = (self._ref(entry[0]), self._ref(entry[1]))
                 if point and target and point[1] == "point" and target[1] == "line":
-                    return self._constrain(f"constrain_midpoint_rsketch(s, {point[0]}, {target[0]})")
+                    return self._constrain(f"constrain_midpoint_rsketch(sketch=s, point={point[0]}, line={target[0]})")
         if ctype == "Fix" and isinstance(entry, list) and len(entry) == 1:
             ref = self._ref(entry[0])
             if ref:
-                return self._constrain(f"constrain_fix_rsketch(s, {ref[0]})")
+                return self._constrain(f"constrain_fix_rsketch(sketch=s, target={ref[0]})")
         if ctype == "Distance" and len(entry) == 3 and isinstance(entry[2], dict):
             payload = entry[2]
             value = eval_value_expr(payload.get("length"))
@@ -699,11 +699,11 @@ class StepEmitter:
                             magnitude = abs(value)
                             signed = magnitude if delta >= 0.0 else -magnitude
                             fn = "distance_x" if direction == "HORIZONTAL" else "distance_y"
-                            return self._constrain(f"constrain_{fn}_rsketch(s, {pair[0][0]}, {pair[1][0]}, {_fmt(signed)})")
+                            return self._constrain(f"constrain_{fn}_rsketch(sketch=s, a={pair[0][0]}, b={pair[1][0]}, value={_fmt(signed)})")
                     else:
-                        return self._constrain(f"constrain_distance_rsketch(s, {pair[0][0]}, {pair[1][0]}, {_fmt(abs(value))})")
+                        return self._constrain(f"constrain_distance_rsketch(sketch=s, a={pair[0][0]}, b={pair[1][0]}, value={_fmt(abs(value))})")
                 if all(r[1] == "line" for r in pair):
-                    return self._constrain(f"constrain_line_distance_rsketch(s, {pair[0][0]}, {pair[1][0]}, {_fmt(abs(value))})")
+                    return self._constrain(f"constrain_line_distance_rsketch(sketch=s, a={pair[0][0]}, b={pair[1][0]}, value={_fmt(abs(value))})")
         drop(ctype if len(entry) != 2 else f"{ctype}({len(entry)})")
         return []
 
@@ -726,7 +726,7 @@ class StepEmitter:
             face_var = f"{self.name}_face{island}"
             inner = f", inner_profiles={[h['index'] for h in holes]}" if holes else ""
             tool_lines.append(
-                f"{face_var} = scad.make_face_from_sketch_rface(s, profile={outer['index']}{inner})"
+                f"{face_var} = scad.make_face_from_sketch_rface(sketch=s, profile={outer['index']}{inner})"
             )
             if towards > 0 and opposite > 0:
                 tool_var = f"{self.name}_tool{island}"
@@ -776,6 +776,8 @@ def translate_steps(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode:
     lines: List[str] = [
         f'"""FTC source generated from HistCAD {uid}."""',
         "",
+        "from pathlib import Path",
+        "",
         "import simplecadapi as scad",
         "",
         "BODIES = None  # all solid bodies before single-solid merge",
@@ -791,7 +793,8 @@ def translate_steps(steps: Sequence[Dict[str, Any]], uid: str, constraints_mode:
         "    return result",
         "",
         "",
-        f"@scad.part(id={'histcad-' + uid.replace('/', '-')!r}, revision='1.0.0')",
+        f"@scad.part(id={'histcad-' + uid.replace('/', '-')!r}, revision='1.0.0', "
+        "project_root=Path(__file__).parent)",
         "def build() -> scad.Part:",
     ]
     notes: List[str] = []

@@ -134,17 +134,17 @@ the full crank cycle sweeps clean in the same sim ·
 
 ---
 
-## Update Notes (2.1.1)
+## Update Notes (2.1.2)
 
 > **Release notice:** Validate generated definitions, assembly constraints, and
 > manufacturing geometry before production use.
 
-SimpleCADAPI 2.1.1 is a tooling patch (SDK API unchanged): a CadQuery→FTC
-translator toolset with snapshot constraint recovery under
-`tools/research/cadqueryftc`, aligned with the histjson four-stage research
-pattern. See the [full English update notes](docs/updates/2.1.1.md) for the
-tracer/translator/validator split, the recovery axioms, and verification
-coverage; the 2.1.0 agent-first feature set is described in
+SimpleCADAPI 2.1.2 anchors the `@scad.part` cache to the builder script's own
+directory (standalone sources run anywhere, no `pyproject.toml` required) and
+makes translator-emitted corpus keyword-form with an explicit cache anchor.
+See the [full English update notes](docs/updates/2.1.2.md) for the anchor
+semantics, compatibility notes, and the FTC convention's new `@scad.part`
+section; 2.1.0's agent-first feature set is described in
 [docs/updates/2.1.0.md](docs/updates/2.1.0.md).
 
 All formal single-script examples emit a synchronized `.scadpkg`, AP242
@@ -170,7 +170,7 @@ in a compact public API for creating solids, applying features, tagging semantic
 intent, querying topology, exporting manufacturing files, and translating recorded
 models into FreeCAD workflows.
 
-Current release: `simplecadapi==2.1.1`.
+Current release: `simplecadapi==2.1.2`.
 
 ## What It Provides
 
@@ -531,6 +531,7 @@ against a target STEP (see `examples/bowl_connector/`).
 
 ## Documentation
 
+- 2.1.2 update notes: [`docs/updates/2.1.2.md`](docs/updates/2.1.2.md)
 - 2.1.1 update notes: [`docs/updates/2.1.1.md`](docs/updates/2.1.1.md)
 - 2.1.0 update notes: [`docs/updates/2.1.0.md`](docs/updates/2.1.0.md)
 - Reconstruction Agent test specification:
