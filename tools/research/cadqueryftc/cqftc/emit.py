@@ -400,6 +400,8 @@ def emit_module(
 ) -> str:
     """Assemble the FTC module shell (histjson-translator shape)."""
     lines: List[str] = [f'"""FTC source generated from CadQuery trace: {stem}."""', ""]
+    lines.append("from pathlib import Path")
+    lines.append("")
     lines.append("import simplecadapi as scad")
     if uses_ql:
         lines.append("from simplecadapi import ql")
@@ -423,7 +425,8 @@ def emit_module(
             "    return result",
             "",
             "",
-            f"@scad.part(id={_part_id(stem)!r}, revision='1.0.0')",
+            f"@scad.part(id={_part_id(stem)!r}, revision='1.0.0', "
+            "project_root=Path(__file__).parent)",
             "def build() -> scad.Part:",
         ]
     )

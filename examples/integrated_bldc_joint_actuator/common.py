@@ -12,9 +12,9 @@ CACHE = scad.CachePolicy(root=Path(__file__).resolve().parent / "out" / ".cache"
 PART_INPUTS = tuple(
     scad.file_input(path)
     for path in (
-        "examples/integrated_bldc_joint_actuator/common.py",
-        "examples/integrated_bldc_joint_actuator/dimensions.py",
-        "examples/integrated_bldc_joint_actuator/materials.py",
+        "common.py",
+        "dimensions.py",
+        "materials.py",
     )
 )
 
