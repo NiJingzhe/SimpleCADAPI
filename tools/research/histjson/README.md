@@ -68,17 +68,18 @@ def _merge_bodies(bodies):
     ...
 
 
-@scad.part(id='histcad-0100-01003954', revision='1.0.0')
+@scad.part(id='histcad-0100-01003954', revision='1.0.0',
+           project_root=Path(__file__).parent)
 def build() -> scad.Part:
     # ---- feature: newbody-1 (build, profile=sketch) ----
     s = scad.make_sketch_rsketch(name='f0', plane={'origin': (0.0, 0.0, 0.0), ...})
-    s = scad.add_point_rsketch(s, 'f0_p1', -5.0, -1.5)
-    s = scad.add_line_rsketch(s, 'line_1', 'f0_p1', 'f0_p2')
+    s = scad.add_point_rsketch(sketch=s, point_id='f0_p1', x=-5.0, y=-1.5)
+    s = scad.add_line_rsketch(sketch=s, entity_id='line_1', start='f0_p1', end='f0_p2')
     ...
-    s = scad.constrain_horizontal_rsketch(s, 'line_1', constraint_id='h6_Horizontal')
-    s = scad.constrain_distance_x_rsketch(s, 'line_3.start', 'line_3.end', -8.89,
+    s = scad.constrain_horizontal_rsketch(sketch=s, line='line_1', constraint_id='h6_Horizontal')
+    s = scad.constrain_distance_x_rsketch(sketch=s, a='line_3.start', b='line_3.end', value=-8.89,
                                           constraint_id='h5_Distance')
-    f0_face0 = scad.make_face_from_sketch_rface(s, profile=0)
+    f0_face0 = scad.make_face_from_sketch_rface(sketch=s, profile=0)
     f0_tool0 = scad.extrude_rsolid(profile=f0_face0, direction=(0.0, 0.0, -1.0), distance=1.905)
 
     # ---- feature: cut-2 (subtract, profile=geometry) ----
@@ -94,6 +95,9 @@ def build() -> scad.Part:
   `profile=geometry`（数据集本就没有可映射约束，或全部是池化恒真的重合约束）。
 - **每条约束带原生编号** `constraint_id='h5_Distance'`（h<序号>_<数据集约束类型>，
   变长链加 `-2/-3` 后缀）——审计工具靠它点名到数据集里的原始条目。
+- **草图族调用一律 keyword 参数**（`sketch=`/`entity_id=`/`value=`…）：产物是训练
+  语料，参数名直接提示语义（与 cadqueryftc 同一钉子，测试锁死）；布尔
+  union/cut/intersect 是 `*solids` 变参、无 keyword 可用，位置形式豁免。
 - 头部注释会标注 `feature N: unmapped constraint kinds [...]`（该特征里没有映射形式
   的约束类型），这是唯一的翻译完整性提示，不是检查代码。
 - 多体 case（数据集里不相交的多个 NewBody/Join）用 `bodies` 列表 +

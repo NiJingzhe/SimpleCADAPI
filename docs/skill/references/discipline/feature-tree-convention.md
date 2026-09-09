@@ -101,6 +101,44 @@ design parameters) stay in the source; geometric verification never does
 — it lives in the external verification scripts per
 `geometric-validation.md`.
 
+## The `@scad.part` decorator and its cache
+
+`@scad.part` accepts keyword parameters only; emitted corpus sources state
+them explicitly so the meaning is legible from the source itself:
+
+- `id` — logical part identity (defaults to the function name); part of the
+  cache key.
+- `revision` — `'1.0.0'` by default; bump it to force rebuilds; part of the
+  cache key.
+- `inputs` — sequence of `file_input()` declarations; the referenced files'
+  content snapshots enter the cache key.
+- `cache` — cache policy: `"auto"` (read/write), `"off"`, `"read_only"`,
+  `"read_write"`, `"refresh"`, or a policy dict / `CachePolicy`.
+- `project_root` — anchor for the part cache, file inputs, and project
+  config. Default: the directory containing the builder's source file —
+  a script is its own project, runs from anywhere, and its cache lands
+  beside it. Pass it explicitly only to anchor at a larger project
+  (project-level cache or `[tool.simplecadapi.cache]` config).
+- `tolerance_profile` — kernel tolerance fingerprint (default
+  `'simplecad-default'`); part of the cache key.
+
+**Where the cache lands.** The cache root is `<anchor>/.simplecad/cache`
+(`records/`, `objects/`, `locks/`, `quarantine/`); part interface state
+lives beside it at `<anchor>/.simplecad/state/latest-parts.json` and
+follows the cache root. Overrides resolve as decorator `cache=` >
+environment (`SIMPLECAD_CACHE_DIR`, `SIMPLECAD_CACHE_MODE`, …) >
+`[tool.simplecadapi.cache]` in the `pyproject.toml` at the anchor >
+defaults. The cache key covers `id`, `revision`, `tolerance_profile`,
+normalized call arguments, the whole-file source fingerprint, file-input
+snapshots, and the generator profile (SDK/OCC versions) — any source edit
+invalidates.
+
+**Delivered sources state the anchor explicitly.** A translator-emitted
+or standalone `.ftc.py` passes `project_root=Path(__file__).parent`
+explicitly so the cache location is legible from the source itself —
+even though it matches the default, the corpus states it rather than
+relying on implicit resolution.
+
 ## Reference shape of a compliant source
 
 ```python
@@ -111,7 +149,8 @@ PLATE_T = scad.var("plate_t", 6.0, unit="mm")
 def _pocket_tools(p):
     ...  # block-local, geometry tier when tools are pure primitives
 
-@scad.part(id="motor-mount", revision="1.0.0", ...)
+@scad.part(id="motor-mount", revision="1.0.0",
+           project_root=Path(__file__).parent)
 def build_motor_mount() -> scad.Part:
     # ---- feature: base-plate (build, profile=sketch) ----
     s = scad.make_sketch_rsketch(name="base", plane="XY")
