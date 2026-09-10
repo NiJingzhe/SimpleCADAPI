@@ -18,16 +18,27 @@ by consuming `.scadpkg` product packages.
 | Geometry modeling, domain modeling operations, anything that must build BRep inside a session | SimpleCADAPI core (optionally as an extra, e.g. `simplecadapi[fem]`) |
 | Verification, analysis, simulation, rendering, export to foreign ecosystems, anything that *consumes* finished geometry | An addon |
 
-An addon never imports `simplecadapi` and never shares a Python
-environment with it. Its entire contact surface is process-level:
+An addon has two legal integration modes with the SDK.
 
-- the `.scadpkg` file format (members, tags channel, occurrence graph,
-  scene projection; units are millimeters);
-- command-line interaction with whatever tooling the host provides.
+**Recommended default — process boundary.** The addon consumes
+`.scadpkg` files (members, tags channel, occurrence graph, scene
+projection; units are millimeters) and whatever host tooling it needs,
+in any language. Dependency conflicts are structurally impossible and
+non-Python addons are first-class.
 
-This boundary is structural, not advisory: separate environments mean
-dependency conflicts with OCP cannot occur, and non-Python addons are
-first-class.
+**Allowed — in-process SDK use.** A Python addon may install
+`simplecadapi` inside its own environment and import it: the builtin
+exporters (STEP/STL/OBJ/MJCF, gmsh meshing) and the package readers
+(`read_product_package`, `load_product_package`) exist for exactly this
+kind of downstream consumer. The descriptor's `[compat] sca` range
+governs which SDK releases that dependency may resolve to — declare
+the SDK as a dependency of the addon environment and keep the range
+honest.
+
+What holds in both modes: the addon runs in its own environment and is
+not installed into the environment that models the geometry — mixing
+plugin dependencies into the modeling SDK environment is what the
+separation exists to prevent.
 
 ## Repository layout
 
