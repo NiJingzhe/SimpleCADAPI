@@ -48,6 +48,9 @@ editor = []
 inspect = [
     "matplotlib>=3.7.0",
 ]
+whucad = [
+    "h5py>=3.8",
+]
 gmsh = [
     "gmsh>=4.15,<5",
 ]
