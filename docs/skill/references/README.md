@@ -34,12 +34,15 @@ whole API index up front.
 | `standard-parts` | stdlib gears, ring gears, racks, cycloidal discs, bearings |
 | `step-inspection` | STEP/BREP evidence, comparison, reconstruction evaluation |
 | `export-and-translation` | STEP/STL/OBJ/MJCF export, FreeCAD/Fusion/SolidWorks translation |
+| `addon-development` | third-party addon authoring and management: `sca` CLI, `sca-addon.toml` descriptor, runtime probes, addon SKILL.md requirements |
 
 Cross-cutting capabilities — QL grounding, semantic tags, GraphSession replay,
 units/tolerances, incremental validation — are not routing targets; each
 workflow pulls them in as conditions require. Verified QL selection patterns
 for operation outputs (extrude-family slots, boolean seam curves, seam
-fillets) live in `ql-playbook.md`.
+fillets) live in `ql-playbook.md`. The `.scadpkg` consumer-facing format
+spec (member layout, `interface.*` tag channel, minimal readers for addon
+exporters) lives in `scadpkg-format.md`.
 
 ## Workflows
 
