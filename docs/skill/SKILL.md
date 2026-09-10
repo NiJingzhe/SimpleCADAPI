@@ -44,6 +44,10 @@ Paths are relative to this file's directory.
 - Questions about an existing STEP file that change nothing enter no
   workflow; you MUST use `references/domains/step-inspection.md` for them
   directly.
+- Creating, installing, updating, or removing a SimpleCADAPI addon (a
+  third-party skill+tooling package around `.scadpkg`) enters no
+  workflow; you MUST use `references/domains/addon-development.md`
+  directly.
 
 ## Task routing
 
@@ -175,12 +179,15 @@ print(len(rebuilt))
 
 - `references/README.md` — skill layer structure
 - `references/workflows/` — six goal-oriented workflows
-- `references/domains/` — eight capability domains
+- `references/domains/` — nine capability domains
 - `references/discipline/` — modeling knowledge and invariants
 - `references/SDK_OVERVIEW.md` — package-level map
 - `references/inspect/brep-reverse-engineering.md`
+- `references/domains/addon-development.md` — `sca` addon CLI and authoring guide
 - `references/docs/guides/reconstruction-agent-test-prompt.md`
 - `references/docs/guides/reconstruction-agent-strategy.md`
 - `references/docs/guides/cache-build-workflow.md`
 - `references/ql-playbook.md`
+- `references/scadpkg-format.md` — `.scadpkg` consumer spec: member
+  layout, tag channel, minimal readers (addon exporters read this)
 - `references/docs/api/`, `references/docs/stdlib/`, `references/docs/core/`
