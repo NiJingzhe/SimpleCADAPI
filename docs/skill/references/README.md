@@ -40,7 +40,9 @@ Cross-cutting capabilities — QL grounding, semantic tags, GraphSession replay,
 units/tolerances, incremental validation — are not routing targets; each
 workflow pulls them in as conditions require. Verified QL selection patterns
 for operation outputs (extrude-family slots, boolean seam curves, seam
-fillets) live in `ql-playbook.md`.
+fillets) live in `ql-playbook.md`. The `.scadpkg` consumer-facing format
+spec (member layout, `interface.*` tag channel, minimal readers for addon
+exporters) lives in `scadpkg-format.md`.
 
 ## Workflows
 

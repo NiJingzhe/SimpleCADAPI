@@ -112,6 +112,27 @@ The skill is the addon's single agent-facing document:
   model with SimpleCADAPI → `capture` a `.scadpkg` → this addon
   consumes it.
 
+## Reading a `.scadpkg`
+
+The complete consumer-facing format spec — member layout, manifest
+fields, the `interface.*` tag channel, and two verified minimal
+readers (in-process SDK and pure ZIP+JSON for any language) — lives in
+`references/scadpkg-format.md`. Point your addon's agent at that page:
+it is written so that an agent given the document alone can produce a
+correct parser or exporter for the inputs your addon declares. Mirror
+this pointer in your addon's SKILL.md (the page ships inside the
+SimpleCADAPI skill; the normative JSON Schemas also ship inside the
+`simplecadapi` wheel at `simplecadapi/contracts/` for environments
+without the skill).
+
+Consumer rules that hold regardless of path:
+
+- resolve members through the manifest by `sha256`, never by guessing
+  names or extensions;
+- treat missing `interface.*` names as loud failures naming the exact
+  name — never approximate by geometry;
+- verify `schema_version` major before parsing anything else.
+
 ## Installing and managing addons
 
 ```bash

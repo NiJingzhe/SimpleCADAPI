@@ -188,4 +188,6 @@ print(len(rebuilt))
 - `references/docs/guides/reconstruction-agent-strategy.md`
 - `references/docs/guides/cache-build-workflow.md`
 - `references/ql-playbook.md`
+- `references/scadpkg-format.md` — `.scadpkg` consumer spec: member
+  layout, tag channel, minimal readers (addon exporters read this)
 - `references/docs/api/`, `references/docs/stdlib/`, `references/docs/core/`
