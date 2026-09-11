@@ -48,6 +48,7 @@ from .emitters import (
     emit_native_node,
 )
 from .runtime import assemble_runtime_source
+from .emitters.products import evaluated_assembly_params
 from .versions import normalize_solidworks_version
 
 
@@ -291,6 +292,8 @@ class _SolidWorksCompiler(
             )
         elif op == "make_spline_redge":
             params = _clamped_spline_params(params)
+        elif op == "evaluate_assembly_definition":
+            params = evaluated_assembly_params(params)
         return params
 
     def translate_model_json_to_script(
@@ -619,6 +622,7 @@ class SolidWorksTranslator(BaseTranslator):
                 "root_definition_id": view.root_definition_id,
                 "root_definition_kind": view.root_definition_kind,
                 "definition_ids": view.definition_ids,
+                "target_runtime_validated": False,
             },
         )
 

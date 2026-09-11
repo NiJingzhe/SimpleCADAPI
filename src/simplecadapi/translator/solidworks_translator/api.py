@@ -100,8 +100,5 @@ def translate_product_package_to_solidworks_script(
 
 __all__ = [
     "SUPPORTED_SOLIDWORKS_VERSIONS",
-    "export_model_json_to_solidworks_step",
-    "translate_model_json_to_solidworks_script",
-    "translate_model_json_to_solidworks_step",
     "translate_product_package_to_solidworks_script",
 ]

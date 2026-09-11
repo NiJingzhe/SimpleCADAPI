@@ -878,19 +878,25 @@ class SimpleCADSolidWorksRuntime(
             self.product_values[node_id] = assembly
             return self._set_output(node, assembly)
         if op == 'make_solve_assembly_constraints_rassembly':
-            assembly = dict(self._first_output(inputs[0]))
-            solved_placements = dict(params.get('component_placements') or {})
-            components = []
-            for component in assembly.get('components') or []:
-                component = dict(component)
-                component_id = str(component.get('component_id') or '')
-                if component_id in solved_placements:
-                    component['placement'] = {
-                        'kind': 'placement',
-                        'params': dict(solved_placements[component_id]),
-                    }
-                components.append(component)
-            assembly['components'] = components
+            assembly = self._assembly_with_placements(
+                self._first_output(inputs[0]),
+                dict(params.get('component_placements') or {}),
+            )
+            self.product_values[node_id] = assembly
+            return self._set_output(node, assembly)
+        if op == 'evaluate_assembly_definition':
+            placements = {}
+            for record in params.get('component_placements') or []:
+                component_id = str(record['instance_id'])
+                if component_id in placements:
+                    raise RuntimeError(f'Duplicate solved component: {component_id}')
+                placements[component_id] = record['placement']
+            assembly = self._assembly_with_placements(self._first_output(inputs[0]), placements)
+            assembly['constraint_report'] = dict(params.get('constraint_report') or {})
+            self.product_values[node_id] = assembly
+            return self._set_output(node, assembly)
+        if op == 'make_set_public_connector_rassembly':
+            assembly = self._assembly_with_public_connector(self._first_output(inputs[0]), params)
             self.product_values[node_id] = assembly
             return self._set_output(node, assembly)
         if op == 'make_compound_from_assembly_rcompound':
@@ -903,8 +909,12 @@ class SimpleCADSolidWorksRuntime(
             return self._set_output(node, {'kind': 'compound', 'bodies': bodies})
         if op.startswith('make_') and op.endswith('_rconnector'):
             return self._set_output(node, {'kind': 'connector', 'params': params})
+        if op == 'make_add_connector_rpart':
+            part = dict(self._first_output(inputs[0]))
+            part['connectors'] = list(part.get('connectors') or []) + [self._first_output(inputs[1])]
+            self.product_values[node_id] = part
+            return self._set_output(node, part)
         if op in {
-            'make_add_connector_rpart', 'make_add_connector_rassembly',
             'make_connector_ref_rconnectorref', 'make_scalar_limit_rscalarlimit',
             'make_ground_component_rassembly', 'make_unground_component_rassembly',
             'make_fixed_constraint_rassembly', 'make_revolute_constraint_rassembly',

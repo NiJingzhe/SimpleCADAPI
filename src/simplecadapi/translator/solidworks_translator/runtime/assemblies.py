@@ -2,6 +2,51 @@
 
 
 class AssemblyRuntimeMixin:
+    def _assembly_with_placements(self, assembly, placements):
+        value = dict(assembly)
+        known = {str(c.get('component_id')) for c in assembly.get('components', [])}
+        if set(placements) - known:
+            raise RuntimeError('Solved placement references a missing component')
+        components = []
+        for source in assembly.get('components', []):
+            component = dict(source)
+            component_id = str(component.get('component_id'))
+            if component_id in placements:
+                component['placement'] = {
+                    'kind': 'placement', 'params': dict(placements[component_id]),
+                }
+            components.append(component)
+        value['components'] = components
+        return value
+
+    def _assembly_with_public_connector(self, assembly, params):
+        public_id = str(params.get('public_connector_id') or '')
+        component_id = str(params.get('source_component_id') or '')
+        connector_id = str(params.get('source_connector_id') or '')
+        if not all((public_id, component_id, connector_id)):
+            raise RuntimeError('Public connector requires non-empty IDs')
+        public = list(assembly.get('public_connectors') or [])
+        if any(c['public_connector_id'] == public_id for c in public):
+            raise RuntimeError(f'duplicate public_connector_id in assembly: {public_id}')
+        component = next((c for c in assembly.get('components', [])
+                          if str(c.get('component_id')) == component_id), None)
+        if component is None:
+            raise RuntimeError(f'Public connector references missing component: {component_id}')
+        item = component['item']
+        if item.get('kind') == 'assembly':
+            connector_ids = {c['public_connector_id'] for c in item.get('public_connectors', [])}
+        else:
+            connector_ids = {c['params']['connector_id'] for c in item.get('connectors', [])}
+        if connector_id not in connector_ids:
+            raise RuntimeError(f'Public connector references missing connector: {connector_id}')
+        public.append({
+            'public_connector_id': public_id, 'name': params.get('name'),
+            'component_id': component_id, 'connector_id': connector_id,
+        })
+        value = dict(assembly)
+        value['public_connectors'] = public
+        return value
+
     def _save_native_assembly(self, step_path, assembly_path):
         master_model = self.model
         master_title = str(_maybe_call(master_model.GetTitle))

@@ -65,7 +65,8 @@ _PRODUCT_OPS = {
     "make_vertex_connector_rconnector",
     "make_placement_connector_rconnector",
     "make_add_connector_rpart",
-    "make_add_connector_rassembly",
+    "make_set_public_connector_rassembly",
+    "evaluate_assembly_definition",
     "make_connector_ref_rconnectorref",
     "make_scalar_limit_rscalarlimit",
     "make_ground_component_rassembly",
@@ -103,7 +104,7 @@ for _op in _PRODUCT_OPS:
 CAPABILITIES = BackendCapabilities(
     backend_id=BACKEND_NAME,
     display_name="SolidWorks",
-    input_schema_versions=("2.0",),
+    input_schema_versions=("product-package-2.0",),
     targets=(
         TranslationTarget(
             target_id="solidworks_script",

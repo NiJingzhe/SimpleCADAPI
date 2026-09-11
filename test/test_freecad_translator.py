@@ -5398,21 +5398,15 @@ class TestGeoSelectorStabilityCriterion(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import math as math_module
-        from pathlib import Path
+        from simplecadapi.translator.freecad_translator.runtime import (
+            assemble_runtime_source,
+        )
 
-        import simplecadapi
-
-        source = (
-            Path(simplecadapi.__file__).parent
-            / "translator"
-            / "freecad_translator"
-            / "runtime"
-            / "selections.py"
-        ).read_text()
+        source = assemble_runtime_source()
         # One namespace dict so runtime snippet functions share globals,
         # mirroring how the emitter concatenates them into one script scope.
         cls.runtime = {"math": math_module}
-        exec(compile(source, "selections.py", "exec"), cls.runtime)
+        exec(compile(source, "<freecad-runtime>", "exec"), cls.runtime)
 
     @staticmethod
     def _edge(length, start, end, center=None):

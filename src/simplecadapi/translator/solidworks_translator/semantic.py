@@ -49,6 +49,8 @@ _OPERATION_LABELS: Dict[str, str] = {
     "apply_tag_rselection": "Tag",
     "make_part_rpart": "Part",
     "make_assembly_rassembly": "Assembly",
+    "make_set_public_connector_rassembly": "Public Connector",
+    "evaluate_assembly_definition": "Assembly Evaluation",
     "make_add_component_rassembly": "Component",
     "make_place_component_rassembly": "Component Placement",
     "make_material_rmaterial": "Material",
