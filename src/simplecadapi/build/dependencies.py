@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from .._internal.os_compat import with_binary_flag
 from ..artifacts.canonical import (
     DEFAULT_ARTIFACT_LIMITS,
     ArtifactLimits,
@@ -47,7 +48,7 @@ def read_stable_file(
 ) -> bytes:
     """Read a regular file once and reject observable concurrent mutation."""
 
-    flags = os.O_RDONLY
+    flags = with_binary_flag(os.O_RDONLY)
     if hasattr(os, "O_CLOEXEC"):
         flags |= os.O_CLOEXEC
     if hasattr(os, "O_NOFOLLOW"):
