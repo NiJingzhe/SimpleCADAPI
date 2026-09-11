@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from .._internal.os_compat import fsync_directory, with_binary_flag
 from .canonical import (
     ArtifactValidationError,
     canonical_bytes,
@@ -273,11 +274,7 @@ def _atomic_write(path: Path, payload: bytes) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary_name, path)
-        parent_descriptor = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(parent_descriptor)
-        finally:
-            os.close(parent_descriptor)
+        fsync_directory(path.parent)
     except BaseException:
         try:
             os.unlink(temporary_name)
@@ -299,7 +296,7 @@ def _state_lock(
         try:
             descriptor = os.open(
                 lock_path,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                with_binary_flag(os.O_WRONLY | os.O_CREAT | os.O_EXCL),
                 0o644,
             )
             os.close(descriptor)

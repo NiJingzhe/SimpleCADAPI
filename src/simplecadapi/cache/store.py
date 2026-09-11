@@ -20,6 +20,11 @@ from ..artifacts.canonical import (
     sha256_bytes,
     validate_hash,
 )
+from .._internal.os_compat import (
+    fsync_directory,
+    windows_pid_is_alive,
+    with_binary_flag,
+)
 from .policy import CachePolicy
 from .records import CacheRecord
 
@@ -92,17 +97,17 @@ class ContentAddressedStore:
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
-        descriptor = os.open(path, os.O_RDONLY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+        fsync_directory(path)
 
     @classmethod
     def _atomic_write(cls, path: Path, payload: bytes) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.parent / f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        descriptor = os.open(
+            temporary,
+            with_binary_flag(os.O_WRONLY | os.O_CREAT | os.O_EXCL),
+            0o644,
+        )
         try:
             with os.fdopen(descriptor, "wb", closefd=True) as stream:
                 stream.write(payload)
@@ -315,6 +320,9 @@ class ContentAddressedStore:
 
     @staticmethod
     def _pid_is_alive(pid: int) -> bool:
+        if os.name == "nt":
+            # os.kill(pid, 0) TerminateProcess()es its target on Windows.
+            return windows_pid_is_alive(pid)
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
@@ -326,11 +334,6 @@ class ContentAddressedStore:
             # the lock; leave recovery to the timeout/manual repair path.
             return True
         return True
-
-    @classmethod
-    def _can_break_stale_lock(cls, path: Path) -> bool:
-        owner = cls._read_lock_owner(path)
-        return owner is None or not cls._pid_is_alive(owner[0])
 
     @contextmanager
     def key_lock(self, namespace: str, key: str) -> Iterator[None]:
@@ -349,7 +352,7 @@ class ContentAddressedStore:
             try:
                 descriptor = os.open(
                     path,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    with_binary_flag(os.O_WRONLY | os.O_CREAT | os.O_EXCL),
                     0o644,
                 )
                 try:
@@ -364,10 +367,17 @@ class ContentAddressedStore:
                     age = time.time() - path.stat().st_mtime
                 except FileNotFoundError:
                     continue
-                if (
-                    age > self.policy.stale_lock_seconds
-                    and self._can_break_stale_lock(path)
-                ):
+                owner = self._read_lock_owner(path)
+                if owner is None:
+                    # An unreadable owner is only weak evidence of
+                    # abandonment; keep demanding the stale age threshold.
+                    breakable = age > self.policy.stale_lock_seconds
+                else:
+                    # A provably dead owner is positive evidence: recover at
+                    # once instead of making every peer burn the full lock
+                    # timeout after a crashed holder.
+                    breakable = not self._pid_is_alive(owner[0])
+                if breakable:
                     stale = path.with_name(
                         path.name + f".{uuid.uuid4().hex}.stale"
                     )

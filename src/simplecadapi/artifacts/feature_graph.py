@@ -16,6 +16,7 @@ from jsonschema import Draft202012Validator
 
 from ..scene.archive import canonical_zip_bytes, preflight_zip_bytes
 from ..recording.source_mapping import canonical_source_payload
+from .._internal.os_compat import with_binary_flag
 from ..topology import OperationGraph, semantic_delta_to_dict, topo_delta_to_dict
 from .canonical import (
     DEFAULT_ARTIFACT_LIMITS,
@@ -66,7 +67,7 @@ def _schema_validate(manifest: Mapping[str, Any]) -> None:
 
 
 def _stable_source_bytes(path: Path, *, max_bytes: int, error_path: str) -> bytes:
-    flags = os.O_RDONLY
+    flags = with_binary_flag(os.O_RDONLY)
     if hasattr(os, "O_CLOEXEC"):
         flags |= os.O_CLOEXEC
     if hasattr(os, "O_NOFOLLOW"):

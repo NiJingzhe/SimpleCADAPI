@@ -1,5 +1,14 @@
 """SimpleCAD API: a simplified OCP-native Python CAD modeling API."""
 
+import sys
+
+from ._internal.os_compat import harden_console_streams
+
+# Non-UTF consoles must escape unencodable diagnostic text instead of
+# raising UnicodeEncodeError inside error handlers, where it would mask
+# the real failure.
+harden_console_streams((sys.stdout, sys.stderr))
+
 from . import exporter, inspect, math, ql, std, surface, translator
 from .artifacts import (
     ArtifactLimits,
