@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ._diagnostics import BlendDiagnosis, diagnose_blend_failure, render_failure_evidence
 from ._support import *
 from .geometry import (
     _default_plane_x_direction,
@@ -11,6 +12,78 @@ from .geometry import (
 )
 
 from OCP.TopoDS import TopoDS_Shape
+
+def _blend_single_edge_ok(
+    solid: Solid,
+    edge: Edge,
+    size_value: float,
+    *,
+    operation_kind: str,
+    distance2: Optional[float] = None,
+) -> bool:
+    """Diagnostic rerun: does the blend succeed on this one edge alone?"""
+
+    try:
+        if operation_kind == "chamfer":
+            tracked = tracked_chamfer(solid, [edge], size_value, distance2=distance2)
+        else:
+            tracked = tracked_fillet(solid, [edge], size_value)
+        return tracked.shape is not None
+    except Exception:
+        return False
+
+
+def _wrap_blend_failure(
+    *,
+    operation: str,
+    operation_kind: str,
+    solid: Optional[Solid],
+    edges: List[Edge],
+    size_value: Optional[float],
+    error: BaseException,
+    retry_single: Optional[Any] = None,
+    default_what_happened: str,
+    default_possible_causes: Sequence[str],
+    default_how_to_fix: Sequence[str],
+) -> NoReturn:
+    """Wrap a fillet/chamfer failure with failure-time geometry diagnosis."""
+
+    diagnosis: Optional[BlendDiagnosis] = None
+    if solid is not None and edges and size_value is not None:
+        diagnosis = diagnose_blend_failure(
+            solid,
+            edges,
+            size_value=size_value,
+            operation_kind=operation_kind,
+            retry_single=retry_single,
+        )
+    evidence: Tuple[ErrorEvidence, ...] = ()
+    if diagnosis is not None and diagnosis.evidence_shapes:
+        dedup_key: Tuple = (operation, diagnosis.failure_kind)
+        if size_value is not None:
+            dedup_key = (operation, diagnosis.failure_kind, round(size_value, 1))
+        rendered = render_failure_evidence(
+            diagnosis.evidence_shapes,
+            operation=operation,
+            caption=diagnosis.evidence_caption,
+            dedup_key=dedup_key,
+        )
+        if rendered is not None:
+            evidence = (rendered,)
+    _wrap_public_api_error(
+        operation=operation,
+        what_happened=(diagnosis.what_happened or default_what_happened) if diagnosis else default_what_happened,
+        possible_causes=(
+            diagnosis.possible_causes
+            if diagnosis and diagnosis.possible_causes
+            else default_possible_causes
+        ),
+        how_to_fix=default_how_to_fix,
+        error=error,
+        measurements=diagnosis.measurements if diagnosis else (),
+        evidence=evidence,
+        repair=diagnosis.repair if diagnosis else (),
+    )
 
 def extrude_rsolid(
     profile: Union[Wire, Face],
@@ -388,6 +461,8 @@ def fillet_rsolid(
     generated_faces_tag: Optional[str] = None,
 ) -> Solid:
     """Apply fillets, with optional tagging of kernel-proven patch faces."""
+    selected_edges: List[Edge] = []
+    radius_value: Optional[float] = None
     try:
         assignments = _normalize_operation_role_tags(
             _OP_MAKE_FILLET_RSOLID,
@@ -442,20 +517,31 @@ def fillet_rsolid(
             result_tag=normalized_result_tag,
         )
     except Exception as e:
-        _wrap_public_api_error(
+        _wrap_blend_failure(
             operation="fillet_rsolid",
-            what_happened="Failed to apply the fillet operation.",
-            possible_causes=[
+            operation_kind="fillet",
+            solid=solid,
+            edges=selected_edges,
+            size_value=radius_value,
+            error=e,
+            retry_single=(
+                lambda edge: _blend_single_edge_ok(
+                    solid, edge, radius_value, operation_kind="fillet"
+                )
+                if radius_value is not None
+                else None
+            ),
+            default_what_happened="Failed to apply the fillet operation.",
+            default_possible_causes=[
                 "The radius is not a positive finite scalar.",
                 "No valid edges were selected.",
                 "The selected edges are incompatible with the requested fillet radius.",
             ],
-            how_to_fix=[
+            default_how_to_fix=[
                 "Use a positive fillet radius.",
                 "Select at least one valid edge or use a selector that resolves to edges.",
                 "If the kernel rejects the fillet, try a smaller radius or a simpler edge set.",
             ],
-            error=e,
         )
 
 def _chamfer_reference_face_pairs(
@@ -511,6 +597,9 @@ def chamfer_rsolid(
     ``reference_direction`` picks, per edge, the adjacent face whose outward
     normal best matches it as the reference face.
     """
+    selected_edges: List[Edge] = []
+    distance_value: Optional[float] = None
+    chamfer_distance2: Optional[float] = None
     try:
         assignments = _normalize_operation_role_tags(
             _OP_MAKE_CHAMFER_RSOLID,
@@ -591,20 +680,40 @@ def chamfer_rsolid(
             result_tag=normalized_result_tag,
         )
     except Exception as e:
-        _wrap_public_api_error(
+        effective_size = (
+            max(distance_value, chamfer_distance2 or 0.0)
+            if distance_value is not None
+            else None
+        )
+        _wrap_blend_failure(
             operation="chamfer_rsolid",
-            what_happened="Failed to apply the chamfer operation.",
-            possible_causes=[
+            operation_kind="chamfer",
+            solid=solid,
+            edges=selected_edges,
+            size_value=effective_size,
+            error=e,
+            retry_single=(
+                lambda edge: _blend_single_edge_ok(
+                    solid,
+                    edge,
+                    distance_value,
+                    operation_kind="chamfer",
+                    distance2=chamfer_distance2,
+                )
+                if distance_value is not None
+                else None
+            ),
+            default_what_happened="Failed to apply the chamfer operation.",
+            default_possible_causes=[
                 "The distance is not a positive finite scalar.",
                 "No valid edges were selected.",
                 "The selected edges are incompatible with the requested chamfer size.",
             ],
-            how_to_fix=[
+            default_how_to_fix=[
                 "Use a positive chamfer distance.",
                 "Select at least one valid edge or use a selector that resolves to edges.",
                 "If the kernel rejects the chamfer, try a smaller distance or fewer edges.",
             ],
-            error=e,
         )
 
 def shell_rsolid(
