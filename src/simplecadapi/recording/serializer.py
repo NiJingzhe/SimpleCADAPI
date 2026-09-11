@@ -718,14 +718,25 @@ def _validate_canonical_contract(contract: Any) -> Tuple[str, ...]:
     expected = _canonical_contract_payload(contract_version)
     if contract_version == "2.0" and contract == {"contract_version": "2.0"}:
         return CANONICAL_OP_SET_2_0
-    if contract != expected:
-        raise ValueError(
-            "Model canonical_contract does not match the declared contract version"
+    if contract == expected:
+        return (
+            CANONICAL_OP_SET
+            if contract_version == CANONICAL_CONTRACT_VERSION
+            else CANONICAL_OP_SET_2_0
         )
-    return (
-        CANONICAL_OP_SET
-        if contract_version == CANONICAL_CONTRACT_VERSION
-        else CANONICAL_OP_SET_2_0
+    if (
+        contract_version == "2.0"
+        and isinstance(contract.get("core_op_set"), list)
+        and contract.get("graph_roles") == expected.get("graph_roles")
+        and contract.get("replay_policy") == expected.get("replay_policy")
+        and contract.get("semantic_op_set") == expected.get("semantic_op_set")
+    ):
+        # Accept the SimpleCADAPI 2.0.x contract layout whose declared
+        # core_op_set predates later op renames; graph operations are still
+        # validated against the current canonical 2.0 set below.
+        return CANONICAL_OP_SET_2_0
+    raise ValueError(
+        "Model canonical_contract does not match the declared contract version"
     )
 
 

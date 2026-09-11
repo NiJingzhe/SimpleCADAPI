@@ -1,4 +1,4 @@
-"""FreeCAD translator backend for SimpleCAD product packages."""
+"""FreeCAD translator backend for SimpleCAD models."""
 
 from .api import (
     translate_product_package_to_fcstd,

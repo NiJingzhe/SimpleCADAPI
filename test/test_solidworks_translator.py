@@ -89,9 +89,8 @@ def test_script_owns_com_and_contains_native_product_paths(tmp_path: Path) -> No
     )
     assert coinit_offset < runtime_offset
     assert script.count("pythoncom.CoInitialize()") == 1
-    assert "self.sw.CloseDoc(str(_maybe_call(self.model.GetTitle)))" in script
-    assert "if not self.visible:" in script
-    assert "self.sw.ExitApp()" in script
+    assert "runtime.finish()" in script
+    assert "self._stop_solidworks()" in script
     assert "if op == 'make_box_rsolid':" in script
     assert "self._extrude_profile(" in script
     assert "if op == 'evaluate_assembly_definition':" in script

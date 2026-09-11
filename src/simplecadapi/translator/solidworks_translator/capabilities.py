@@ -16,19 +16,22 @@ from ..types import (
 BACKEND_NAME = "solidworks"
 
 _GEOMETRY_OPS = {
-    "make_box_rsolid",
-    "make_cylinder_rsolid",
-    "make_cone_rsolid",
-    "make_sphere_rsolid",
     "make_line_redge",
     "make_circle_redge",
     "make_three_point_arc_redge",
     "make_angle_arc_redge",
     "make_spline_redge",
+    "make_interpolated_spline_redge",
     "make_helix_redge",
     "make_wire_from_edges_rwire",
     "make_face_from_wire_rface",
     "make_face_from_wires_rface",
+    "make_wire_from_sketch_rwire",
+    "make_face_from_sketch_rface",
+    "make_box_rsolid",
+    "make_cylinder_rsolid",
+    "make_cone_rsolid",
+    "make_sphere_rsolid",
     "make_extrude_rsolid",
     "make_revolve_rsolid",
     "make_loft_rsolid",
@@ -44,6 +47,7 @@ _GEOMETRY_OPS = {
     "make_shell_rsolid",
     "make_select_redge",
     "make_select_rface",
+    "apply_tag_rselection",
 }
 
 _PRODUCT_OPS = {
@@ -54,7 +58,6 @@ _PRODUCT_OPS = {
     "make_assign_material_rpart",
     "make_assembly_rassembly",
     "make_add_component_rassembly",
-    "evaluate_assembly_definition",
     "make_place_component_rassembly",
     "make_compound_from_assembly_rcompound",
     "make_face_connector_rconnector",
@@ -63,7 +66,7 @@ _PRODUCT_OPS = {
     "make_placement_connector_rconnector",
     "make_add_connector_rpart",
     "make_set_public_connector_rassembly",
-
+    "evaluate_assembly_definition",
     "make_connector_ref_rconnectorref",
     "make_scalar_limit_rscalarlimit",
     "make_ground_component_rassembly",
@@ -72,7 +75,6 @@ _PRODUCT_OPS = {
     "make_revolute_constraint_rassembly",
     "make_prismatic_constraint_rassembly",
     "make_solve_assembly_constraints_rassembly",
-    "apply_tag_rselection",
 }
 
 OP_SUPPORT: Dict[str, OperationCapability] = {
@@ -114,7 +116,20 @@ CAPABILITIES = BackendCapabilities(
                 "document_name",
                 "output_path",
                 "visible",
-                "source_kernel_fallback",
+                "solidworks_version",
+            ),
+        ),
+        TranslationTarget(
+            target_id="step",
+            output_kind=TranslationOutputKind.FILE,
+            media_type="model/step",
+            extensions=(".step", ".stp"),
+            requires_external_runtime=True,
+            option_names=(
+                "document_name",
+                "visible",
+                "python_exe",
+                "solidworks_version",
             ),
         ),
     ),

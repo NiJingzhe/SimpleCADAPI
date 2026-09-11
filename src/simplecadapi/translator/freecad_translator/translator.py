@@ -255,6 +255,21 @@ class _FreeCADCompiler(
         return f"({end_expr}) - ({start_expr})"
 
 
+    def translate_model_json_to_script(self, json_str: str) -> str:
+        from ...recording.serializer import import_model_json
+
+        payload = import_model_json(json_str)
+        graph = payload.get("graph")
+        if not isinstance(graph, OperationGraph):
+            raise ValueError(
+                "FreeCAD translation requires model JSON with a canonical low-level graph"
+            )
+        if graph.node_count == 0:
+            raise ValueError(
+                "FreeCAD translation requires model JSON with a non-empty canonical low-level graph"
+            )
+        return self.translate_model_payload_to_script(payload, graph=graph)
+
     def translate_model_payload_to_script(
         self,
         payload: Dict[str, Any],
@@ -762,6 +777,31 @@ class FreeCADTranslator(BaseTranslator):
     @property
     def capabilities(self) -> BackendCapabilities:
         return CAPABILITIES
+
+    def translate_model_json_to_script(self, json_str: str) -> str:
+        return _FreeCADCompiler(self.document_name).translate_model_json_to_script(
+            json_str
+        )
+
+    def translate_model_payload_to_script(
+        self,
+        payload: Dict[str, Any],
+        *,
+        graph: Optional[OperationGraph] = None,
+    ) -> str:
+        return _FreeCADCompiler(self.document_name).translate_model_payload_to_script(
+            payload, graph=graph
+        )
+
+    def translate_model_json(self, json_str: str) -> TranslationArtifact:
+        return TranslationArtifact(
+            backend_id="freecad",
+            target_id="freecad_script",
+            media_type="text/x-python",
+            suggested_suffix=".py",
+            content=self.translate_model_json_to_script(json_str),
+            metadata={"document_name": self.document_name},
+        )
 
     def _translate_product_package_to_script(self, units: Any) -> str:
         if not units:
