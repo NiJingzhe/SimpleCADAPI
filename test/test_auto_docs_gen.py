@@ -71,7 +71,6 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
                 [(project_root / "docs/skill/references/docs/api").resolve()],
             )
 
-
     def test_default_source_files_include_v2_public_modules(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             package_root = Path(tmp_dir) / "src/simplecadapi"
@@ -189,6 +188,48 @@ class TestAutoDocsGenPathResolution(unittest.TestCase):
             self.assertIn("`inspection namespace`", readme)
             self.assertIn("from simplecadapi.inspect import brep", page)
             self.assertIn("unavailable inside GraphSession", page)
+
+    def test_real_drawing_sources_export_namespace_and_acceptance_docs(self):
+        project_root = MODULE_PATH.parents[1]
+        source_root = project_root / "src/simplecadapi"
+        sources = [
+            path
+            for path in auto_docs_gen._default_source_files(source_root)
+            if path.parent == source_root / "inspect/drawing"
+        ]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output = Path(tmp_dir)
+            generator = auto_docs_gen.APIDocumentGenerator(
+                source_files=sources, output_dirs=[output], quiet=True
+            )
+            apis = generator.extract_apis()
+            generator.generate_markdown_docs()
+            names = {api.name for api in apis}
+            self.assertTrue(
+                {
+                    "DrawingSectionDimensions",
+                    "DrawingText",
+                    "extract_drawing_primitives_rstrokes",
+                    "measure_model_section_rdimensions",
+                    "validate_section_annotations_rreport",
+                    "assess_dimension_rverdict",
+                }
+                <= names
+            )
+            self.assertNotIn("section_geometry", names)
+            self.assertNotIn("fit_circle_diagnostics", names)
+            for api in apis:
+                self.assertIn("drawing-inspection namespace", api.import_surface)
+                self.assertIn("unavailable inside GraphSession", api.import_surface)
+            self.assertIn(
+                "## Drawing Inspection",
+                (output / "README.md").read_text(encoding="utf-8"),
+            )
+            measure = (output / "measure_model_section_rdimensions.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("section_checks", measure)
+            self.assertIn("unknown", measure.lower())
 
     def test_evaluator_api_docs_preserve_schemas_units_and_trust_boundaries(self):
         class EvaluationDocGenerator(auto_docs_gen.APIDocumentGenerator):
