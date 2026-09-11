@@ -1,6 +1,6 @@
 [project]
 name = "simplecadapi"
-version = "2.1.0"
+version = "2.1.3b1"
 description = "A simplified OCP-native CAD modeling Python API"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -47,6 +47,9 @@ dev = [
 editor = []
 inspect = [
     "matplotlib>=3.7.0",
+]
+whucad = [
+    "h5py>=3.8",
 ]
 gmsh = [
     "gmsh>=4.15,<5",
@@ -142,3 +145,4 @@ testpaths = ["test", "tests"]
 [project.scripts]
 simplecad-cache = "simplecadapi.cache.cli:main"
 simplecad-export = "simplecadapi.exporter.cli:main"
+sca = "simplecadapi.addon.cli:main"

@@ -1,0 +1,418 @@
+{
+  "cq_status": "ok",
+  "error": "",
+  "cq_volume": 213510.268572,
+  "cq_bbox": [
+    -6.99,
+    -55.345,
+    -77.13,
+    6.99,
+    55.345,
+    77.13
+  ],
+  "steps": [
+    {
+      "op": "Workplane",
+      "args": [
+        "YZ"
+      ],
+      "plane_name": "YZ",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "box",
+      "args": [
+        110.69,
+        154.26,
+        13.98
+      ],
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    },
+    {
+      "op": "faces",
+      "args": [
+        ">X"
+      ],
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "selector": ">X",
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "selector": ">X",
+      "selections": [
+        {
+          "kind": "face",
+          "index": 5,
+          "geom_type": "PLANE",
+          "center": [
+            6.99,
+            1.970645868709653e-15,
+            5.135370752625171e-15
+          ],
+          "normal": [
+            1.0,
+            0.0,
+            0.0
+          ],
+          "area": 17075.039399999998,
+          "bbox": {
+            "min": [
+              6.99,
+              -55.345,
+              -77.13
+            ],
+            "max": [
+              6.99,
+              55.345,
+              77.13
+            ]
+          }
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "selections": [
+        {
+          "kind": "face",
+          "index": 5,
+          "geom_type": "PLANE",
+          "center": [
+            6.99,
+            1.970645868709653e-15,
+            5.135370752625171e-15
+          ],
+          "normal": [
+            1.0,
+            0.0,
+            0.0
+          ],
+          "area": 17075.039399999998,
+          "bbox": {
+            "min": [
+              6.99,
+              -55.345,
+              -77.13
+            ],
+            "max": [
+              6.99,
+              55.345,
+              77.13
+            ]
+          }
+        }
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "args": [
+        "Plane(origin=(6.99, 0.0, 0.0), xDir=(0.0, 1.0, 0.0), normal=(1.0, 0.0, 0.0))"
+      ],
+      "plane_name": "Plane(origin=(6.99, 0.0, 0.0), xDir=(0.0, 1.0, 0.0), normal=(1.0, 0.0, 0.0))",
+      "plane_origin": [
+        6.99,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "rarray",
+      "args": [
+        20.37,
+        75.31,
+        4,
+        2
+      ],
+      "plane_origin": [
+        6.99,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "pushPoints",
+      "args": [
+        [
+          [
+            -30.555,
+            -37.655,
+            0.0
+          ],
+          [
+            -30.555,
+            37.655,
+            0.0
+          ],
+          [
+            -10.184999999999999,
+            -37.655,
+            0.0
+          ],
+          [
+            -10.184999999999999,
+            37.655,
+            0.0
+          ],
+          [
+            10.185000000000002,
+            -37.655,
+            0.0
+          ],
+          [
+            10.185000000000002,
+            37.655,
+            0.0
+          ],
+          [
+            30.555,
+            -37.655,
+            0.0
+          ],
+          [
+            30.555,
+            37.655,
+            0.0
+          ]
+        ]
+      ],
+      "plane_origin": [
+        6.99,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "rect",
+      "args": [
+        11.65,
+        38.68
+      ],
+      "plane_origin": [
+        6.99,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "cutBlind",
+      "args": [
+        -6.99
+      ],
+      "plane_origin": [
+        6.99,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "plane_x_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "produced_solid": false
+    },
+    {
+      "op": "Workplane",
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "plane_x_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "produced_solid": true
+    }
+  ],
+  "stem": "rarray_plate",
+  "family": ""
+}

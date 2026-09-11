@@ -113,7 +113,7 @@ def test_constraints_are_translated_unconditionally(translator):
         },
     }
     source = translator.translate_steps([step], "t/bad", constraints_mode="on")
-    assert "constrain_distance_x_rsketch(s, 'line_3.start', 'line_3.end', -8.9" in source
+    assert "constrain_distance_x_rsketch(sketch=s, a='line_3.start', b='line_3.end', value=-8.9" in source
     assert source.count("constrain_fix_rsketch") == 4
     assert "profile=sketch" in source
 
@@ -137,15 +137,30 @@ def test_horizontal_vertical_list_form_maps_each_line(translator):
 def test_axis_distance_takes_sign_from_coordinates(translator):
     source = translator.translate_steps([_RECTANGLE_STEP], "t/rect", constraints_mode="on")
     # line_3.start=(8.89, 3.81) -> line_3.end=(0, 3.81): directed dx = -8.89
-    assert "constrain_distance_x_rsketch(s, 'line_3.start', 'line_3.end', -8.89" in source
+    assert "constrain_distance_x_rsketch(sketch=s, a='line_3.start', b='line_3.end', value=-8.89" in source
     # line_3.end=(0, 3.81) -> line_1.start=(0, 0): directed dy = -3.81
-    assert "constrain_distance_y_rsketch(s, 'line_3.end', 'line_1.start', -3.81" in source
+    assert "constrain_distance_y_rsketch(sketch=s, a='line_3.end', b='line_1.start', value=-3.81" in source
 
 
 def test_major_minor_radius_are_half_axis_lengths(translator):
     source = translator.translate_steps([_ELLIPSE_STEP], "t/ell", constraints_mode="on")
-    assert "constrain_major_radius_rsketch(s, 'ellipse_1', 1.1112" in source
-    assert "constrain_minor_radius_rsketch(s, 'ellipse_1', 0.635" in source
+    assert "constrain_major_radius_rsketch(sketch=s, ellipse='ellipse_1', value=1.1112" in source
+    assert "constrain_minor_radius_rsketch(sketch=s, ellipse='ellipse_1', value=0.635" in source
+
+
+def test_emitted_corpus_is_keyword_only(translator):
+    """Training-corpus pin: sketch-family calls carry keyword arguments so
+    the parameter meaning is legible from the source itself. Boolean
+    *solids varargs (union/cut/intersect) have no keywords to take."""
+    source = translator.translate_steps(
+        [_RECTANGLE_STEP, _ELLIPSE_STEP], "t/kw", constraints_mode="on"
+    )
+    positional = re.findall(
+        r"scad\.(?:add_\w+|constrain_\w+|make_face_from_sketch_rface"
+        r"|make_wire_from_sketch_rwire)\(s,", source)
+    assert positional == [], f"positional calls leaked: {positional[:3]}"
+    assert "scad.add_line_rsketch(sketch=s, entity_id=" in source
+    assert "scad.constrain_distance_x_rsketch(sketch=s, a=" in source
 
 
 def test_off_mode_transcribes_without_constraints(translator):

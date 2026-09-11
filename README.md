@@ -134,18 +134,19 @@ the full crank cycle sweeps clean in the same sim ·
 
 ---
 
-## Update Notes (2.1.0)
+## Update Notes (2.1.3b1)
 
-> **Release notice:** Validate generated definitions, assembly constraints, and
-> manufacturing geometry before production use.
+> **Release notice:** Pre-release (beta). Validate generated definitions,
+> assembly constraints, and manufacturing geometry before production use.
 
-SimpleCADAPI 2.1.0 turns the SDK into an agent-first CAD toolkit: the Feature
-Tree Convention authoring discipline, external CAD-history import, the
-browser reverse-engineering studio, DXF engineering drawings, and
-self-contained runnable examples — on top of the reproducible
-`@part`/`@assemble` product boundaries and the persistent crash-safe cache.
-See the [full English update notes](docs/updates/2.1.0.md) for contracts,
-cache modes, diagnostics, limitations, and verification coverage.
+SimpleCADAPI 2.1.3b1 ships the addon ecosystem: a `sca` CLI that installs
+third-party skill+tooling repositories (`sca addon init/add/update/remove/list`),
+a strict `sca-addon.toml` descriptor with platform and `[compat] sca` gates, and
+a consumer-facing `.scadpkg` format spec written so an agent given the document
+alone can produce a correct parser or exporter. See the
+[full English update notes](docs/updates/2.1.3b1.md) for the CLI contract, the
+two legal integration modes, and the tag channel; 2.1.2's script-anchored part
+cache is described in [docs/updates/2.1.2.md](docs/updates/2.1.2.md).
 
 All formal single-script examples emit a synchronized `.scadpkg`, AP242
 `.step`, and editable `.FCStd` from the same product package. The
@@ -170,7 +171,7 @@ in a compact public API for creating solids, applying features, tagging semantic
 intent, querying topology, exporting manufacturing files, and translating recorded
 models into FreeCAD workflows.
 
-Current release: `simplecadapi==2.1.0`.
+Current release: `simplecadapi==2.1.3b1`.
 
 ## What It Provides
 
@@ -531,6 +532,9 @@ against a target STEP (see `examples/bowl_connector/`).
 
 ## Documentation
 
+- 2.1.3b1 update notes: [`docs/updates/2.1.3b1.md`](docs/updates/2.1.3b1.md)
+- 2.1.2 update notes: [`docs/updates/2.1.2.md`](docs/updates/2.1.2.md)
+- 2.1.1 update notes: [`docs/updates/2.1.1.md`](docs/updates/2.1.1.md)
 - 2.1.0 update notes: [`docs/updates/2.1.0.md`](docs/updates/2.1.0.md)
 - Reconstruction Agent test specification:
   [`docs/skill/references/docs/guides/reconstruction-agent-test-prompt.md`](docs/skill/references/docs/guides/reconstruction-agent-test-prompt.md)

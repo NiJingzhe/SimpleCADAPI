@@ -69,7 +69,7 @@ WINDOW_Y = 80.0
 @scad.part(
     id="caplcd_enclosure_7ep",
     revision="1.0.0",
-    inputs=(scad.file_input(path="examples/caplcd_enclosure/model.py"),),
+    inputs=(scad.file_input(path="model.py"),),
     cache="auto",
 )
 def build_enclosure():

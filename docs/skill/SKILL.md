@@ -1,12 +1,12 @@
 ---
 name: simplecadapi
-description: Build, assemble, inspect, reconstruct, and export parametric CAD models with the SimpleCADAPI Python SDK. Use for SimpleCAD geometry modeling, constrained sketches, parts and assemblies, standard gears and bearings, STEP/BREP inspection and reconstruction, durable product packages, model JSON replay, and CAD backend translation.
+description: Build, assemble, inspect, reconstruct, and export parametric CAD models with the SimpleCADAPI Python SDK. Use for SimpleCAD geometry modeling, constrained sketches, parts and assemblies, standard gears and bearings, STEP/BREP inspection and reconstruction, vector-PDF drawing reconstruction, durable product packages, model JSON replay, and CAD backend translation.
 license: Apache-2.0
 metadata:
   project: simplecadapi
-  version: 2.1.0
+  version: 2.1.3b1
   package-name: simplecadapi
-  package-version: 2.1.0
+  package-version: 2.1.3b1
 ---
 
 # SimpleCAD SDK Skill
@@ -44,6 +44,10 @@ Paths are relative to this file's directory.
 - Questions about an existing STEP file that change nothing enter no
   workflow; you MUST use `references/domains/step-inspection.md` for them
   directly.
+- Creating, installing, updating, or removing a SimpleCADAPI addon (a
+  third-party skill+tooling package around `.scadpkg`) enters no
+  workflow; you MUST use `references/domains/addon-development.md`
+  directly.
 
 ## Task routing
 
@@ -56,6 +60,7 @@ Read exactly one workflow first, per the user's goal:
 | Rebuild an editable model from a STEP file | `references/workflows/step-reconstruction.md` |
 | Export/translate a validated package | `references/workflows/export-and-translation.md` |
 | Produce a GB engineering drawing (DXF) from validated geometry | `references/workflows/engineering-drawing.md` |
+| Rebuild a 3D model from a vector-PDF engineering drawing | `references/workflows/drawing-reconstruction.md` |
 
 Do not present route-choice menus when a row already matches: profile,
 strategy, and tool choices inside a route belong to that workflow's
@@ -115,9 +120,9 @@ it and stop that route; never invent an alternative route.
    `@scad.assemble` for assemblies with explicit definitions.
    Neither nests inside an active `GraphSession`. Durable delivery
    is `capture(result, "out/product.scadpkg")` in one call.
-9. `simplecadapi.inspect.brep` is diagnostic-only and rejected
-   inside `GraphSession`; obtain/export geometry first, inspect
-   outside.
+9. `simplecadapi.inspect.brep` and `simplecadapi.inspect.drawing` are
+   diagnostic-only and rejected inside `GraphSession`; obtain/export
+   geometry first, inspect outside.
 10. Standard parts first: before hand-modeling a gear, ring gear,
     rack, cycloidal disc, or bearing, check `scad.std.gear` /
     `scad.std.bearing`.
@@ -174,13 +179,16 @@ print(len(rebuilt))
 ## References
 
 - `references/README.md` — skill layer structure
-- `references/workflows/` — six goal-oriented workflows
-- `references/domains/` — eight capability domains
+- `references/workflows/` — goal-oriented workflows, including drawing reconstruction
+- `references/domains/` — capability domains, including drawing inspection
 - `references/discipline/` — modeling knowledge and invariants
 - `references/SDK_OVERVIEW.md` — package-level map
 - `references/inspect/brep-reverse-engineering.md`
+- `references/domains/addon-development.md` — `sca` addon CLI and authoring guide
 - `references/docs/guides/reconstruction-agent-test-prompt.md`
 - `references/docs/guides/reconstruction-agent-strategy.md`
 - `references/docs/guides/cache-build-workflow.md`
 - `references/ql-playbook.md`
+- `references/scadpkg-format.md` — `.scadpkg` consumer spec: member
+  layout, tag channel, minimal readers (addon exporters read this)
 - `references/docs/api/`, `references/docs/stdlib/`, `references/docs/core/`
