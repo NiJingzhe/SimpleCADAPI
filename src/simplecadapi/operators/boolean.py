@@ -33,10 +33,20 @@ def _wrap_boolean_failure(
         )
     evidence: Tuple[ErrorEvidence, ...] = ()
     if diagnosis is not None and diagnosis.evidence_shapes:
+        dedup_key: Optional[Tuple] = (operation, diagnosis.failure_kind)
+        if diagnosis.failure_kind == "disjoint" and diagnosis.measurements:
+            # Re-render when the geometry actually moved (new gap), skip when
+            # the agent retries the same unmoved failure.
+            dedup_key = (
+                operation,
+                diagnosis.failure_kind,
+                round(float(diagnosis.measurements[0].value), 1),
+            )
         rendered = render_failure_evidence(
             diagnosis.evidence_shapes,
             operation=operation,
             caption=diagnosis.evidence_caption,
+            dedup_key=dedup_key,
         )
         if rendered is not None:
             evidence = (rendered,)

@@ -67,6 +67,9 @@ def test_disjoint_union_text_axiom():
 def test_disjoint_union_evidence_render(tmp_path, monkeypatch):
     monkeypatch.delenv("SCA_NO_DIAGNOSTIC_RENDER", raising=False)
     monkeypatch.chdir(tmp_path)
+    from simplecadapi.operators._diagnostics import _RENDER_DEDUP
+
+    _RENDER_DEDUP.clear()
     base, tool = _disjoint_boxes()
 
     with pytest.raises(scad.SimpleCADError) as ctx:
@@ -83,6 +86,25 @@ def test_disjoint_union_evidence_render(tmp_path, monkeypatch):
     assert ".simplecad" in entry["path"]
     # Text axiom: the evidence path itself is part of the error text.
     assert entry["path"] in str(ctx.value)
+
+
+def test_identical_failure_renders_evidence_only_once(tmp_path, monkeypatch):
+    monkeypatch.delenv("SCA_NO_DIAGNOSTIC_RENDER", raising=False)
+    monkeypatch.chdir(tmp_path)
+    from simplecadapi.operators._diagnostics import _RENDER_DEDUP
+
+    _RENDER_DEDUP.clear()
+    base, tool = _disjoint_boxes()
+
+    with pytest.raises(scad.SimpleCADError) as first:
+        scad.union_rsolid(base, tool)
+    with pytest.raises(scad.SimpleCADError) as retry:
+        scad.union_rsolid(base, tool)  # same unmoved failure: agent retry loop
+
+    assert len(first.value.to_dict()["evidence"]) == 1
+    assert retry.value.to_dict()["evidence"] == []
+    # The retry still carries the full text diagnosis.
+    assert "min_gap: 14 mm" in str(retry.value)
 
 
 def test_diagnostics_dir_follows_cache_root(tmp_path, monkeypatch):
@@ -148,6 +170,23 @@ def test_union_multi_operand_reports_nearest_pair():
     measurements = _measurements_dict(ctx.value)
     assert "separated solids" in payload["what_happened"]
     assert measurements["min_gap"] == pytest.approx(4.0)
+
+
+def test_union_cluster_chain_reports_inter_cluster_gap_not_internal_pair():
+    # A and B overlap (one connected cluster); C is far away. The diagnosis
+    # must report the cluster-to-C separation (B↔C, 11 mm), never the
+    # internal A↔B pair — pairs connected transitively are not the failure.
+    a = scad.make_box_rsolid(10, 4, 4, bottom_face_center=(0, 0, 0))
+    b = scad.make_box_rsolid(10, 4, 4, bottom_face_center=(3, 0, 0))
+    c = scad.make_box_rsolid(2, 4, 4, bottom_face_center=(20, 0, 0))
+
+    with pytest.raises(scad.SimpleCADError) as ctx:
+        scad.union_rsolid(a, b, c)
+
+    payload = ctx.value.to_dict()
+    measurements = _measurements_dict(ctx.value)
+    assert "operand 2 and operand 3" in payload["what_happened"]
+    assert measurements["min_gap"] == pytest.approx(11.0)
 
 
 def test_message_error_contract_keys_present():

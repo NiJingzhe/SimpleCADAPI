@@ -9,6 +9,7 @@ replace the real error, so public entries swallow their own failures.
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +32,13 @@ _TRUTHY = {"1", "true", "yes", "on"}
 # quadratic blow-up for pathological operand counts instead of hanging the
 # failure path.
 _MAX_PAIR_PROBES = 256
+
+# Evidence rendering runs on the failure path, so it stays bounded: one
+# downgraded single-view render per distinct failure signature, abandoned
+# after this many seconds (the render worker's own 180s x 6 retries must
+# never hold the error hostage).
+_RENDER_BUDGET_SECONDS = 15.0
+_RENDER_DEDUP: set = set()
 
 
 def diagnostics_enabled() -> bool:
@@ -59,22 +67,53 @@ def render_failure_evidence(
     operation: str,
     view: str = "default",
     caption: str = "",
+    dedup_key: Optional[tuple] = None,
 ) -> Optional[ErrorEvidence]:
-    """Render one diagnostic image; never raises, returns None when disabled/failed."""
+    """Render one diagnostic image; never raises, returns None when skipped.
+
+    Skips when disabled, when this failure signature already rendered once in
+    the process (agent retry loops must not re-pay the render), or when the
+    render exceeds the budget — the error goes out immediately in all cases.
+    """
 
     if not diagnostics_enabled():
         return None
     try:
+        if dedup_key is not None:
+            if dedup_key in _RENDER_DEDUP:
+                return None
+            _RENDER_DEDUP.add(dedup_key)
         root = diagnostics_dir()
         root.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         path = root / f"{operation}-{stamp}.png"
         from .features import render_screenshot_rpath
 
-        render_screenshot_rpath(shapes, str(path))
+        result: dict = {}
+
+        def _render() -> None:
+            try:
+                render_screenshot_rpath(
+                    shapes,
+                    str(path),
+                    view=(25.0, 35.0),  # (elevation, azimuth); single view, not the 4-panel grid
+                    image_size=(1000, 700),
+                    supersample=1,
+                    show_legend=False,
+                    show_callouts=False,
+                )
+                result["path"] = str(path)
+            except Exception:
+                pass
+
+        worker = threading.Thread(target=_render, daemon=True)
+        worker.start()
+        worker.join(_RENDER_BUDGET_SECONDS)
+        if "path" not in result:
+            return None
         return ErrorEvidence(
             kind="render",
-            path=str(path),
+            path=result["path"],
             view=view,
             caption=caption,
         )
@@ -140,127 +179,136 @@ def _overlap_volume(shape_a: Any, shape_b: Any) -> float:
         return 0.0
 
 
-def _diagnose_pair(
+def _disjoint_diagnosis(
     index_a: int,
     index_b: int,
     solid_a: Any,
     solid_b: Any,
+    approach: ClosestApproach,
     effective_tol: float,
     operation_kind: str = "union",
-) -> Optional[BooleanDiagnosis]:
-    approach = closest_approach(solid_a.wrapped, solid_b.wrapped)
-    if approach is None:
-        return None
+) -> BooleanDiagnosis:
     label_a = f"operand {index_a + 1}"
     label_b = f"operand {index_b + 1}"
     move_vector = tuple(pb - pa for pa, pb in zip(approach.point_a, approach.point_b))
-    if approach.gap > effective_tol:
-        disjoint_causes = {
-            "union": [
-                "The operands are separated in space, so the union cannot produce exactly one solid.",
-                "A placement/translation moved one operand away from the other.",
-            ],
-            "cut": [
-                "The tool never reaches the base solid, so the cut removes nothing.",
-                "A placement/translation moved the tool away from the base solid.",
-            ],
-            "intersect": [
-                "The operands are separated in space, so the intersection is empty.",
-                "A placement/translation moved one operand away from the other.",
-            ],
-        }
-        disjoint_repair = {
-            "union": [
-                (
-                    f"Move {label_b} by {_vector_display(move_vector)} "
-                    f"(≥ {approach.gap:.4g} mm) so the operands touch, "
-                    "or extend one operand across the gap."
-                ),
-                "If the pieces are meant to stay separate, build an assembly "
-                "(make_assembly_rassembly) instead of a single-solid union.",
-            ],
-            "cut": [
-                (
-                    f"Move the tool {label_b} by {_vector_display(move_vector)} "
-                    f"(≥ {approach.gap:.4g} mm) so it reaches inside the base solid, "
-                    "or extend the tool across the gap."
-                ),
-                "Check the intended removal region: with this gap the cut is a no-op on the base solid.",
-            ],
-            "intersect": [
-                (
-                    f"Move {label_b} by {_vector_display(move_vector)} "
-                    f"(≥ {approach.gap:.4g} mm) so the operands share a positive-volume overlap."
-                ),
-            ],
-        }
-        return BooleanDiagnosis(
-            failure_kind="disjoint",
-            what_happened=(
-                f"separated solids: {label_a} and {label_b} never touch; "
-                f"nearest detected gap is {approach.gap:.4g} mm "
-                f"(tolerance {effective_tol:.4g})"
-            ),
-            possible_causes=disjoint_causes.get(operation_kind, disjoint_causes["union"]),
-            measurements=[
-                ErrorMeasurement("min_gap", approach.gap, "mm"),
-                ErrorMeasurement("closest_point_a", approach.point_a, "mm"),
-                ErrorMeasurement("closest_point_b", approach.point_b, "mm"),
-                ErrorMeasurement("closure_vector_a_to_b", move_vector, "mm"),
-            ],
-            repair=disjoint_repair.get(operation_kind, disjoint_repair["union"]),
-            evidence_shapes=[solid_a, solid_b],
-            evidence_caption=(
-                f"{label_a} and {label_b}; nearest gap {approach.gap:.4g} mm "
-                "between the two closest points (see measurements)"
-            ),
-        )
-    if approach.gap <= effective_tol and _overlap_volume(solid_a.wrapped, solid_b.wrapped) < 1e-12:
-        contact_repair = {
-            "cut": [
-                (
-                    "The tool only grazes the base solid; translate the tool "
-                    f"along {_vector_display(move_vector)} by a working depth "
-                    "(e.g. 0.5 mm beyond touch) so it removes real volume."
-                ),
-            ],
-            "intersect": [
-                (
-                    "The operands only graze each other; translate one along "
-                    f"{_vector_display(move_vector)} by a working depth "
-                    "(e.g. 0.5 mm beyond touch) to create a positive-volume overlap."
-                ),
-            ],
-        }
-        default_contact_repair = [
+    disjoint_causes = {
+        "union": [
+            "The operands are separated in space, so the union cannot produce exactly one solid.",
+            "A placement/translation moved one operand away from the other.",
+        ],
+        "cut": [
+            "The tool never reaches the base solid, so the cut removes nothing.",
+            "A placement/translation moved the tool away from the base solid.",
+        ],
+        "intersect": [
+            "The operands are separated in space, so the intersection is empty.",
+            "A placement/translation moved one operand away from the other.",
+        ],
+    }
+    disjoint_repair = {
+        "union": [
             (
-                "Give the contact a positive-volume overlap: translate one operand "
-                f"along {_vector_display(move_vector)} by a working overlap "
-                "(e.g. 0.5 mm beyond touch) and retry."
+                f"Move {label_b} by {_vector_display(move_vector)} "
+                f"(≥ {approach.gap:.4g} mm) so the operands touch, "
+                "or extend one operand across the gap."
             ),
-            "For intended face contact, make the shared face finite in area and "
-            "coincident; no artificial overlap is required.",
-        ]
-        return BooleanDiagnosis(
-            failure_kind="non_manifold_contact",
-            what_happened=(
-                f"operands meet only along an edge, vertex, or tangent "
-                f"(measured gap {approach.gap:.4g} mm ≤ tol {effective_tol:.4g}), "
-                "which is not one manifold solid"
+            "If the pieces are meant to stay separate, build an assembly "
+            "(make_assembly_rassembly) instead of a single-solid union.",
+        ],
+        "cut": [
+            (
+                f"Move the tool {label_b} by {_vector_display(move_vector)} "
+                f"(≥ {approach.gap:.4g} mm) so it reaches inside the base solid, "
+                "or extend the tool across the gap."
             ),
-            possible_causes=[
-                "The operands touch without a finite-area face or positive-volume overlap.",
-            ],
-            measurements=[
-                ErrorMeasurement("min_gap", approach.gap, "mm"),
-                ErrorMeasurement("closest_point_a", approach.point_a, "mm"),
-                ErrorMeasurement("closest_point_b", approach.point_b, "mm"),
-            ],
-            repair=contact_repair.get(operation_kind, default_contact_repair),
-            evidence_shapes=[solid_a, solid_b],
-            evidence_caption=f"{label_a} and {label_b} in edge/vertex/tangent-only contact",
-        )
-    return None
+            "Check the intended removal region: with this gap the cut is a no-op on the base solid.",
+        ],
+        "intersect": [
+            (
+                f"Move {label_b} by {_vector_display(move_vector)} "
+                f"(≥ {approach.gap:.4g} mm) so the operands share a positive-volume overlap."
+            ),
+        ],
+    }
+    return BooleanDiagnosis(
+        failure_kind="disjoint",
+        what_happened=(
+            f"separated solids: {label_a} and {label_b} never touch; "
+            f"nearest detected gap is {approach.gap:.4g} mm "
+            f"(tolerance {effective_tol:.4g})"
+        ),
+        possible_causes=disjoint_causes.get(operation_kind, disjoint_causes["union"]),
+        measurements=[
+            ErrorMeasurement("min_gap", approach.gap, "mm"),
+            ErrorMeasurement("closest_point_a", approach.point_a, "mm"),
+            ErrorMeasurement("closest_point_b", approach.point_b, "mm"),
+            ErrorMeasurement("closure_vector_a_to_b", move_vector, "mm"),
+        ],
+        repair=disjoint_repair.get(operation_kind, disjoint_repair["union"]),
+        evidence_shapes=[solid_a, solid_b],
+        evidence_caption=(
+            f"{label_a} and {label_b}; nearest gap {approach.gap:.4g} mm "
+            "between the two closest points (see measurements)"
+        ),
+    )
+
+
+def _contact_diagnosis(
+    index_a: int,
+    index_b: int,
+    solid_a: Any,
+    solid_b: Any,
+    approach: ClosestApproach,
+    effective_tol: float,
+    operation_kind: str = "union",
+) -> BooleanDiagnosis:
+    label_a = f"operand {index_a + 1}"
+    label_b = f"operand {index_b + 1}"
+    move_vector = tuple(pb - pa for pa, pb in zip(approach.point_a, approach.point_b))
+    contact_repair = {
+        "cut": [
+            (
+                "The tool only grazes the base solid; translate the tool "
+                f"along {_vector_display(move_vector)} by a working depth "
+                "(e.g. 0.5 mm beyond touch) so it removes real volume."
+            ),
+        ],
+        "intersect": [
+            (
+                "The operands only graze each other; translate one along "
+                f"{_vector_display(move_vector)} by a working depth "
+                "(e.g. 0.5 mm beyond touch) to create a positive-volume overlap."
+            ),
+        ],
+    }
+    default_contact_repair = [
+        (
+            "Give the contact a positive-volume overlap: translate one operand "
+            f"along {_vector_display(move_vector)} by a working overlap "
+            "(e.g. 0.5 mm beyond touch) and retry."
+        ),
+        "For intended face contact, make the shared face finite in area and "
+        "coincident; no artificial overlap is required.",
+    ]
+    return BooleanDiagnosis(
+        failure_kind="non_manifold_contact",
+        what_happened=(
+            f"operands meet only along an edge, vertex, or tangent "
+            f"(measured gap {approach.gap:.4g} mm ≤ tol {effective_tol:.4g}), "
+            "which is not one manifold solid"
+        ),
+        possible_causes=[
+            "The operands touch without a finite-area face or positive-volume overlap.",
+        ],
+        measurements=[
+            ErrorMeasurement("min_gap", approach.gap, "mm"),
+            ErrorMeasurement("closest_point_a", approach.point_a, "mm"),
+            ErrorMeasurement("closest_point_b", approach.point_b, "mm"),
+        ],
+        repair=contact_repair.get(operation_kind, default_contact_repair),
+        evidence_shapes=[solid_a, solid_b],
+        evidence_caption=f"{label_a} and {label_b} in edge/vertex/tangent-only contact",
+    )
 
 
 def diagnose_boolean_failure(
@@ -271,37 +319,64 @@ def diagnose_boolean_failure(
 ) -> Optional[BooleanDiagnosis]:
     """Classify a boolean failure from its operands; never raises.
 
-    Probes operand pairs for the nearest separated pair (disjoint) or the
-    touching-but-not-merged pair (non-manifold contact). Returns None when the
-    operands are unavailable or no pair explains the failure.
+    Model: operands within ``tol`` of each other form one connected cluster
+    (transitively). More than one cluster means the union is genuinely
+    separated — report the nearest inter-cluster pair. A single cluster that
+    still failed to fuse contains a touch-without-overlap pair — report it as
+    non-manifold contact. Returns None when no pair explains the failure.
     """
 
     try:
         if not operands or len(operands) < 2:
             return None
         tol = float(effective_tol or 0.0)
-        probes = 0
-        best_disjoint: Optional[BooleanDiagnosis] = None
-        best_contact: Optional[BooleanDiagnosis] = None
-        for i in range(len(operands)):
-            for j in range(i + 1, len(operands)):
-                if probes >= _MAX_PAIR_PROBES:
-                    break
-                probes += 1
-                candidate = _diagnose_pair(
-                    i, j, operands[i], operands[j], tol, operation_kind
+        count = len(operands)
+        total_pairs = count * (count - 1) // 2
+        if total_pairs > _MAX_PAIR_PROBES:
+            # Capped out: unprobed pairs might connect the clusters, so a
+            # nearest-pair claim could misattribute. Report nothing.
+            return None
+        approaches: dict = {}
+        for i in range(count):
+            for j in range(i + 1, count):
+                approach = closest_approach(operands[i].wrapped, operands[j].wrapped)
+                if approach is not None:
+                    approaches[(i, j)] = approach
+
+        parent = list(range(count))
+
+        def find(node: int) -> int:
+            while parent[node] != node:
+                parent[node] = parent[parent[node]]
+                node = parent[node]
+            return node
+
+        for (i, j), approach in approaches.items():
+            if approach.gap <= tol:
+                root_i, root_j = find(i), find(j)
+                if root_i != root_j:
+                    parent[root_i] = root_j
+
+        if len({find(i) for i in range(count)}) > 1:
+            best_pair = None
+            best_approach: Optional[ClosestApproach] = None
+            for (i, j), approach in approaches.items():
+                if find(i) != find(j) and (best_approach is None or approach.gap < best_approach.gap):
+                    best_pair, best_approach = (i, j), approach
+            if best_pair is None or best_approach is None:
+                return None
+            i, j = best_pair
+            return _disjoint_diagnosis(
+                i, j, operands[i], operands[j], best_approach, tol, operation_kind
+            )
+
+        for (i, j), approach in approaches.items():
+            if approach.gap <= tol and _overlap_volume(
+                operands[i].wrapped, operands[j].wrapped
+            ) < 1e-12:
+                return _contact_diagnosis(
+                    i, j, operands[i], operands[j], approach, tol, operation_kind
                 )
-                if candidate is None:
-                    continue
-                if candidate.failure_kind == "disjoint":
-                    gap = candidate.measurements[0].value
-                    if best_disjoint is None or gap < best_disjoint.measurements[0].value:
-                        best_disjoint = candidate
-                elif candidate.failure_kind == "non_manifold_contact":
-                    if best_contact is None:
-                        best_contact = candidate
-        if best_disjoint is not None:
-            return best_disjoint
-        return best_contact
+        return None
     except Exception:
         return None
