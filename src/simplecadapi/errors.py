@@ -138,6 +138,37 @@ class SimpleCADError(ValueError):
         }
 
 
+class SimpleCADMessageError(SimpleCADError):
+    """Message-first SDK error that still carries the structured payload.
+
+    Sole sanctioned base for message-style error families: raise sites keep
+    their legacy ``Error("message")`` call shape and plain ``str()`` display
+    while the structured channel (guidance, ``to_dict``) becomes available
+    family-wide. Guidance fields beyond ``what_happened`` stay empty until
+    each family's designed guidance lands.
+    """
+
+    operation = "simplecadapi"
+
+    def __init__(self, message: str) -> None:
+        self.message = str(message)
+        super().__init__(
+            type(self).operation,
+            ErrorGuidance(
+                what_happened=self.message,
+                possible_causes=(),
+                how_to_fix=(),
+            ),
+        )
+        self.args = (self.message,)
+
+    def __str__(self) -> str:
+        return self.message
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.message!r})"
+
+
 def raise_harness_error(
     *,
     operation: str,

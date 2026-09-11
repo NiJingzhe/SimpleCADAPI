@@ -20,6 +20,7 @@ from ..artifacts.canonical import (
     sha256_bytes,
     validate_hash,
 )
+from ..errors import SimpleCADMessageError
 from .._internal.os_compat import (
     fsync_directory,
     windows_pid_is_alive,
@@ -29,8 +30,13 @@ from .policy import CachePolicy
 from .records import CacheRecord
 
 
-class CacheLockTimeout(TimeoutError):
-    """Raised when a cache key remains locked past policy timeout."""
+class CacheLockTimeout(SimpleCADMessageError, TimeoutError):
+    """Raised when a cache key remains locked past policy timeout.
+
+    Stays catchable as TimeoutError for lock-handling callers.
+    """
+
+    operation = "part_cache"
 
 
 @dataclass(frozen=True, slots=True)

@@ -27,6 +27,7 @@ from ..artifacts.feature_graph import (
 )
 from ..artifacts.part_io import encode_part_definition, load_part_definition
 from ..core import Edge, Face, Solid, Vertex
+from ..errors import SimpleCADMessageError
 from ..kernel.ocp_properties import center_of_mass
 from ..product.placement import Placement, identity_placement, placement_from_canonical
 from .archive import canonical_zip_bytes, preflight_zip_bytes
@@ -56,8 +57,10 @@ Definition = PartDefinition | AssemblyDefinition
 _SCENE_MANIFEST = "scene.json"
 
 
-class ProductSceneError(ValueError):
+class ProductSceneError(SimpleCADMessageError):
     """Raised when a Scene 2.0 product snapshot is not closed and canonical."""
+
+    operation = "product_scene"
 
 
 @dataclass(frozen=True, slots=True)

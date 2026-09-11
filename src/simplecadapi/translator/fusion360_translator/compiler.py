@@ -781,6 +781,9 @@ SCALE = 0.1  # SimpleCAD model JSON is in mm; Fusion API geometry units are cm.
 TOL = 1.0e-5
 
 
+# Self-contained emitted-script fragment: runs inside Fusion's Python where
+# simplecadapi is NOT importable; deliberately NOT unified with
+# errors.SimpleCADError. Emitted runtime code catches this as RuntimeError.
 class SimpleCADUnsupportedOpError(RuntimeError):
     pass
 

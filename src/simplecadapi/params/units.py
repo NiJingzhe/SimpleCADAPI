@@ -7,12 +7,16 @@ import math
 from numbers import Real
 from typing import TYPE_CHECKING, Any, Dict, Mapping, Union
 
+from ..errors import SimpleCADMessageError
+
 if TYPE_CHECKING:
     from .expr import ScalarExpr, ScalarLike
 
 
-class UnitValidationError(ValueError):
+class UnitValidationError(SimpleCADMessageError):
     """Raised when units or expression dimensions are physically inconsistent."""
+
+    operation = "units"
 
 
 @dataclass(frozen=True)

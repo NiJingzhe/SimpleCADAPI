@@ -40,6 +40,7 @@ from OCP.TopoDS import (
 )
 from OCP.gp import gp_Pnt, gp_Vec
 
+from ...errors import SimpleCADMessageError
 from ...kernel.ocp_properties import face_normal_at
 from ...kernel.ocp_topology import inner_wires_of, outer_wire_of, vertex_point
 from .io import load_step_rshape, measure_shape_mass_rtuple, xyz
@@ -100,8 +101,10 @@ _ROOT_TYPE_NAMES = {
 }
 
 
-class BRepEntityError(ValueError):
+class BRepEntityError(SimpleCADMessageError):
     """Raised when a STEP model or stable entity query cannot be processed."""
+
+    operation = "brep_entity"
 
 
 def _enum_suffix(value: Any, prefix: str) -> str:

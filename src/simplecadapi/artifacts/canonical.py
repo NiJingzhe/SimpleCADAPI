@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
+from ..errors import SimpleCADMessageError
 from ..scene.canonical import canonical_json_bytes, parse_canonical_json, parse_strict_json
 
 ARTIFACT_SCHEMA_VERSION = "2.0"
@@ -39,14 +40,19 @@ class ArtifactLimits:
 DEFAULT_ARTIFACT_LIMITS = ArtifactLimits()
 
 
-class ArtifactValidationError(ValueError):
+class ArtifactValidationError(SimpleCADMessageError):
     """Deterministic artifact validation failure with a typed reason and path."""
+
+    operation = "artifact_validation"
 
     def __init__(self, reason: str, path: str, message: str) -> None:
         self.reason = str(reason)
         self.path = path if path.startswith("/") else "/" + path
         self.message = str(message)
         super().__init__(f"{self.reason} at {self.path}: {self.message}")
+        # super chain overwrites .message with the combined display string;
+        # programmatic consumers read the raw message.
+        self.message = str(message)
 
 
 def sha256_bytes(data: bytes | bytearray | memoryview) -> str:

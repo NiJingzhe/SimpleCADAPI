@@ -22,6 +22,7 @@ from .canonical import (
     parse_canonical_json,
     parse_strict_json,
 )
+from ..errors import SimpleCADMessageError
 from .glb import GlbInfo, preflight_glb
 from .resources import BASE_LIMITS, SceneResourceLimits, preflight_resource_count
 
@@ -105,8 +106,10 @@ class SceneValidationReport:
         return {"valid": self.valid, "issues": [issue.to_dict() for issue in self.issues]}
 
 
-class SceneContractError(ValueError):
+class SceneContractError(SimpleCADMessageError):
     """Raised by assert helpers with the complete deterministic report."""
+
+    operation = "scene_validation"
 
     def __init__(self, report: SceneValidationReport) -> None:
         self.report = report
