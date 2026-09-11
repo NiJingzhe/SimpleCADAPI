@@ -230,122 +230,42 @@ def _bbox_selector_score(candidate, selector):
     ) / _selector_bbox_diagonal(selector)
 
 
-def _geo_selector_score(candidate, selector, candidate_index):
-    score = _bbox_selector_score(candidate, selector) * 10.0
-    expected_geom_type = _selector_geom_type(selector)
-    actual_geom_type = _canonical_geom_type(_candidate_geom_type(candidate))
-    if (
-        expected_geom_type
-        and actual_geom_type
-        and expected_geom_type != actual_geom_type
-    ):
-        score += 10.0
-    kind = str(selector.get("kind", "")).lower()
-    if kind == "edge":
-        if "length" in selector and hasattr(candidate, "Length"):
-            score += _relative_scalar_delta(candidate.Length, selector["length"]) * 10.0
-        score += (
-            _dist3(_candidate_center(candidate), _tuple3(selector.get("center")))
-            / _selector_bbox_diagonal(selector)
-        ) * 10.0
-        vertices = list(getattr(candidate, "Vertexes", []) or [])
+def _freecad_geometry_signature(candidate, selector):
+    signature = {'geom_type': _canonical_geom_type(_candidate_geom_type(candidate)), 'center': _candidate_center(candidate)}
+    box = getattr(candidate, 'BoundBox', None)
+    if box is not None:
+        signature['bbox'] = {'min': (float(box.XMin), float(box.YMin), float(box.ZMin)), 'max': (float(box.XMax), float(box.YMax), float(box.ZMax))}
+    kind = str(selector.get('kind') or selector.get('target_kind') or '').lower()
+    for attr, key in (('Length', 'length'), ('Area', 'area'), ('Volume', 'volume')):
+        value = getattr(candidate, attr, None)
+        if value is not None:
+            signature[key] = float(value)
+    if kind == 'edge':
+        vertices = list(getattr(candidate, 'Vertexes', []) or [])
         if len(vertices) >= 2:
-            start = _point_tuple(vertices[0].Point)
-            end = _point_tuple(vertices[-1].Point)
-            expected_start = _tuple3(selector.get("start"))
-            expected_end = _tuple3(selector.get("end"))
-            if expected_start is not None and expected_end is not None:
-                direct = _dist3(start, expected_start) + _dist3(end, expected_end)
-                reverse = _dist3(start, expected_end) + _dist3(end, expected_start)
-                score += min(direct, reverse) / max(
-                    float(candidate.Length), float(selector.get("length", 1.0)), 1.0
-                )
-    elif kind == "face":
-        if "area" in selector and hasattr(candidate, "Area"):
-            score += _relative_scalar_delta(candidate.Area, selector["area"]) * 10.0
-        score += (
-            _dist3(_candidate_center(candidate), _tuple3(selector.get("center")))
-            / _selector_bbox_diagonal(selector)
-        ) * 10.0
-        expected_normal = _unit_tuple(_tuple3(selector.get("normal")))
-        actual_normal = _candidate_face_normal(candidate)
-        if expected_normal is not None and actual_normal is not None:
-            reversed_expected = tuple(-float(v) for v in expected_normal)
-            score += min(
-                _dist3(actual_normal, expected_normal),
-                _dist3(actual_normal, reversed_expected),
-            )
-        if "edge_count" in selector:
-            score += (
-                abs(
-                    len(list(getattr(candidate, "Edges", []) or []))
-                    - int(selector["edge_count"])
-                )
-                * 0.001
-            )
-        if "inner_wire_count" in selector:
-            score += (
-                abs(
-                    max(0, len(list(getattr(candidate, "Wires", []) or [])) - 1)
-                    - int(selector["inner_wire_count"])
-                )
-                * 0.001
-            )
-    elif kind == "vertex":
-        point = getattr(candidate, "Point", None)
-        if point is not None:
-            score += (
-                _dist3(_point_tuple(point), _tuple3(selector.get("coordinates")))
-                / _selector_bbox_diagonal(selector)
-            ) * 10.0
-    elif kind == "wire":
-        edges = list(getattr(candidate, "Edges", []) or [])
-        if "edge_count" in selector:
-            score += abs(len(edges) - int(selector["edge_count"])) * 10.0
-    elif kind == "solid":
-        if "volume" in selector and hasattr(candidate, "Volume"):
-            score += _relative_scalar_delta(candidate.Volume, selector["volume"]) * 10.0
-    return score
+            signature['start'] = _point_tuple(vertices[0].Point)
+            signature['end'] = _point_tuple(vertices[-1].Point)
+    if kind == 'face':
+        signature['normal'] = _candidate_face_normal(candidate)
+        signature['inner_wire_count'] = max(0, len(list(getattr(candidate, 'Wires', []) or [])) - 1)
+    if kind in ('face', 'wire'):
+        signature['edge_count'] = len(list(getattr(candidate, 'Edges', []) or []))
+    point = getattr(candidate, 'Point', None)
+    if kind == 'vertex' and point is not None:
+        signature['coordinates'] = _point_tuple(point)
+    return signature
+
+
+def _geo_selector_score(candidate, selector, candidate_index):
+    selector = dict(selector, geom_type=_selector_geom_type(selector))
+    return _gsm_score(_freecad_geometry_signature(candidate, selector), selector)
 
 
 def _selection_index_for_selector(source_shape, selector, context=None):
-    kind = str(selector.get("kind") or selector.get("target_kind") or "").lower()
+    kind = str(selector.get('kind') or selector.get('target_kind') or '').lower()
     candidates = _subshape_candidates_for_kind(source_shape, kind)
-    if not candidates:
-        raise RuntimeError(f"No {kind} candidates available for geo selection")
-    ranked = sorted(
-        enumerate(candidates),
-        key=lambda item: _geo_selector_score(item[1], selector, item[0]),
-    )
-    best_index, best_candidate = ranked[0]
-    best_score = _geo_selector_score(best_candidate, selector, best_index)
-    second_score = (
-        _geo_selector_score(ranked[1][1], selector, ranked[1][0])
-        if len(ranked) > 1
-        else float("inf")
-    )
-    if best_score <= 1e-4 and second_score <= 1e-4:
-        raise RuntimeError(
-            f"Geo selector is ambiguous for {kind}; context={context!r}, "
-            f"best score={best_score:.6g}, second score={second_score:.6g}"
-        )
-    if best_score > 1e-2:
-        # A rebuild in a foreign kernel (this FreeCAD's OCC vs the recording
-        # OCP build) differs from the recorded geometry in the 4th-6th
-        # significant digit, which lands the CORRECT candidate in the
-        # 0.01-0.5 score band, while wrong candidates score >= ~1. Accept
-        # the best candidate when it is clearly separated from the runner-up
-        # instead of demanding near-bit-identical geometry.
-        separated = second_score >= best_score * 10.0 + 0.5
-        if not (best_score <= 0.5 and separated):
-            suffix = (
-                "" if second_score == float("inf") else f", second score={second_score:.6g}"
-            )
-            raise RuntimeError(
-                f"Geo selector did not match a stable {kind} candidate; "
-                f"context={context!r}, best score={best_score:.6g}{suffix}"
-            )
-    return int(best_index)
+    selector = dict(selector, geom_type=_selector_geom_type(selector))
+    return int(_gsm_select([(index, _freecad_geometry_signature(candidate, selector)) for index, candidate in enumerate(candidates)], selector, context))
 
 
 def _same_fragment_support(first, second, expected_type, scale):

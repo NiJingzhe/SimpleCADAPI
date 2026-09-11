@@ -688,6 +688,25 @@ def _face_shape_from_wire_shapes(
             continue
         if face is not None and not face.isNull() and face.isValid():
             return face
+    # Tolerant fallback: wires rebuilt in a foreign OCC can drift within
+    # tolerance so Part.Face rejects the loop set even though each loop is
+    # individually valid. Assemble the planar region by cutting the inner
+    # faces out of the outer face instead.
+    try:
+        base_face = Part.Face(outer_wire)
+        inner_faces = []
+        for wire in inner_wires:
+            try:
+                inner_faces.append(Part.Face(wire))
+            except Exception:
+                continue
+        if inner_faces:
+            cut_result = base_face.cut(inner_faces)
+            result_faces = list(getattr(cut_result, "Faces", []) or [])
+            if len(result_faces) == 1 and result_faces[0].isValid():
+                return result_faces[0]
+    except Exception:
+        pass
     raise RuntimeError(f"{operation} produced an invalid multi-loop face")
 
 
