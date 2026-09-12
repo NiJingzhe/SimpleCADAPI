@@ -8,6 +8,9 @@ from :func:`run` for tests and tooling):
 * ``sca addon update [name]``   — re-fetch one addon or all of them
 * ``sca addon remove <name>``   — delete exactly what was installed
 * ``sca addon list``            — registry contents with on-disk drift
+* ``sca addon use <name> <cmd>`` — run cmd inside the addon's declared
+  environment (its ``[runtime].command_prefix`` is prepended; without a
+  command, report the prefix and addon directory)
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from typing import Any, Mapping, Sequence
 from . import AddonError
 from .home import ResolvedPaths, init_home, resolve_paths
 from .install import install_addon, list_addons, parse_source, remove_addon, update_addon
+from .use import use_addon
 
 
 def _add_location_flags(parser: argparse.ArgumentParser) -> None:
@@ -71,6 +75,24 @@ def _parser() -> argparse.ArgumentParser:
 
     listing = commands.add_parser("list", help="list installed addons")
     _add_location_flags(listing)
+
+    use = commands.add_parser(
+        "use",
+        help="run a command inside an installed addon's declared environment",
+        description="Prepends the addon's [runtime].command_prefix (with "
+        "{addon_dir} resolved) to the command and executes it via the shell; "
+        "SCA_ADDON_DIR is exported. Without a command, report the prefix.",
+    )
+    _add_location_flags(use)
+    use.add_argument("name", help="installed addon name")
+    use.add_argument(
+        "cmd", nargs=argparse.REMAINDER,
+        help="command and arguments to run (everything after NAME)",
+    )
+    use.add_argument(
+        "--capture", action="store_true",
+        help="capture the command's output into the report instead of streaming it",
+    )
     return parser
 
 
@@ -101,6 +123,9 @@ def run(argv: Sequence[str] | None = None) -> tuple[dict[str, Any], int]:
         return remove_addon(resolved, args.name), 0
     if args.command == "list":
         return list_addons(resolved), 0
+    if args.command == "use":
+        report = use_addon(resolved, args.name, args.cmd, capture_output=args.capture)
+        return report, report.get("exit_code", 0)
     raise AssertionError(f"unsupported command: {args.command}")
 
 
@@ -166,6 +191,13 @@ def _print(report: Mapping[str, Any]) -> None:
                 print(f"  skill: {entry['skill_dir']}")
             for drift in entry.get("drift", []):
                 print(f"  DRIFT: {drift}")
+        return
+    if report.get("action") == "use":
+        if "exit_code" in report:
+            return  # the command's own output already went to the terminal
+        print(f"{report['name']}  addon dir: {report['addon_dir']}")
+        print(f"  command prefix: {report['command_prefix'] or '(none)'}")
+        print("  usage: sca addon use NAME COMMAND [ARGS...]")
         return
     print(str(report))
 

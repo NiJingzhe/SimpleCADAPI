@@ -2,9 +2,15 @@
 
 Contract highlights (see ``docs/skill/references/domains/addon-development.md``):
 
-* hard failures (descriptor invalid, ``[compat] sca`` mismatch, platform
-  unsupported, name collision, foreign skill directory) abort with a
-  named cause;
+* the naming standard is enforced at install: repository name ==
+  ``[addon].name`` == SKILL.md frontmatter name;
+* ``[runtime].command_prefix`` (optional) is a shell prelude joined in
+  front of ``check_cmd`` and every ``sca addon use`` dispatch;
+  ``{addon_dir}`` resolves to the installed addon directory, and the
+  runtime probe runs against the final installed layout;
+* hard failures (descriptor invalid, name mismatch, ``[compat] sca``
+  mismatch, platform unsupported, name collision, foreign skill directory)
+  abort with a named cause;
 * a failing ``check_cmd`` is a loud warning, never an install blocker —
   the runtime can be installed afterwards;
 * GitHub addons install from the codeload tarball by default (no git
@@ -45,6 +51,74 @@ from .versions import VersionRange, compare_versions
 _GITHUB_SPEC_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$")
 _LOCAL_IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".DS_Store")
 _CHECK_TIMEOUT_SECONDS = 10.0
+
+
+def effective_command(prefix: str, addon_dir: Path, cmd: str) -> str:
+    """Join a descriptor command prefix with ``cmd`` into one shell line.
+
+    The prefix is a shell prelude (env assignments, PATH edits, `cd`, …)
+    and may reference ``{addon_dir}``, which is substituted with the
+    installed addon directory. An empty prefix returns ``cmd`` unchanged.
+    """
+    prelude = prefix.replace("{addon_dir}", str(addon_dir)).strip()
+    return f"{prelude} {cmd}" if prelude else cmd
+
+
+def skill_dir_name(addon_name: str) -> str:
+    """Install-directory name for an addon skill (``sca-`` marked, no doubling)."""
+    return addon_name if addon_name.startswith("sca-") else f"sca-{addon_name}"
+
+
+def _skill_frontmatter_name(skill_dir: Path) -> str:
+    """Read the ``name:`` field from a SKILL.md frontmatter block."""
+    text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    if not text.startswith("---"):
+        raise AddonError(
+            f"{skill_dir / 'SKILL.md'} has no frontmatter block; a skill must "
+            "start with '---' delimited YAML carrying at least name and description"
+        )
+    for line in text.split("\n")[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith("name:"):
+            return line.split(":", 1)[1].strip()
+    raise AddonError(
+        f"{skill_dir / 'SKILL.md'} frontmatter has no 'name:' field — the "
+        "skill name must match [addon].name in sca-addon.toml"
+    )
+
+
+def _local_repo_identity(path: Path) -> str:
+    """Best-available repository identity for a local checkout.
+
+    The basename of the git ``origin`` URL wins (a checkout dir may be
+    named anything); without git or a remote, fall back to the directory
+    name.
+    """
+    git = shutil.which("git")
+    if git is not None and (path / ".git").exists():
+        completed = subprocess.run(
+            [git, "-C", str(path), "remote", "get-url", "origin"],
+            capture_output=True, text=True,
+        )
+        if completed.returncode == 0:
+            url = completed.stdout.strip().rstrip("/")
+            return re.sub(r"\.git$", "", url.rsplit("/", 1)[-1])
+    return path.name
+
+
+def _check_name_consistency(descriptor: AddonDescriptor, source: Source) -> None:
+    """Enforce the naming standard: addon name == skill name == repo name."""
+    if isinstance(source, GitHubSource):
+        repo_identity = source.repo
+    else:
+        repo_identity = _local_repo_identity(source.path)
+    if repo_identity != descriptor.name:
+        raise AddonError(
+            f"repository name {repo_identity!r} does not match [addon].name "
+            f"{descriptor.name!r} — the naming standard requires the repository, "
+            "the descriptor, and the skill frontmatter to share one name"
+        )
 
 
 def sca_version() -> str:
@@ -309,6 +383,14 @@ def _validate_skill_dir(repo_root: Path, descriptor: AddonDescriptor) -> Path:
             f"skill directory {skill_dir} has no SKILL.md — an addon skill must "
             "be a directory containing SKILL.md"
         )
+    skill_name = _skill_frontmatter_name(skill_dir)
+    if skill_name != descriptor.name:
+        raise AddonError(
+            f"{skill_dir / 'SKILL.md'} frontmatter name {skill_name!r} does not "
+            f"match [addon].name {descriptor.name!r} — the naming standard "
+            "requires the repository, the descriptor, and the skill frontmatter "
+            "to share one name"
+        )
     return skill_dir
 
 
@@ -373,13 +455,14 @@ def _build_record(
         "source": stored_source,
         "addon_relpath": descriptor.name,
         "skill_install": {
-            "dir_name": f"sca-{descriptor.name}",
+            "dir_name": skill_dir_name(descriptor.name),
             "skills_dir": str(resolved.skills_dir),
         },
         "platforms": list(descriptor.platforms),
         "runtime": {
             "kind": descriptor.runtime_kind,
             "check_cmd": descriptor.check_cmd,
+            "command_prefix": descriptor.command_prefix,
         },
         "runtime_check": dict(check) if check is not None else None,
         "sca_version_at_install": sca_version(),
@@ -400,6 +483,7 @@ def install_addon(
     staging = _stage_fetch(source, resolved.home, method=method)
     try:
         descriptor = load_descriptor(_payload(staging))
+        _check_name_consistency(descriptor, source)
         _check_compat(descriptor)
         host_platform = _check_platform(descriptor)
         skill_dir = _validate_skill_dir(_payload(staging), descriptor)
@@ -408,22 +492,28 @@ def install_addon(
                 f"addon {descriptor.name!r} is already installed; use "
                 f"`sca addon update {descriptor.name}` to move to a new release"
             )
-        skill_target = resolved.skills_dir / f"sca-{descriptor.name}"
+        skill_target = resolved.skills_dir / skill_dir_name(descriptor.name)
         if skill_target.exists():
             raise AddonError(
                 f"skill directory {skill_target} already exists but is not "
                 "recorded as an installed addon; refusing to overwrite it — "
                 "move it away or rename the addon"
             )
+        addon_dir = resolved.home / descriptor.name
+        resolved.skills_dir.mkdir(parents=True, exist_ok=True)
+        _commit_install(staging, addon_dir, skill_dir, skill_target)
+        # Probe the FINAL installed layout: a command_prefix referencing
+        # {addon_dir} (a bundled venv, tool dirs) only resolves after the
+        # payload is in place. A failing probe stays a loud warning, never
+        # an install blocker — the runtime can be provisioned afterwards.
         check = None
         cmd = _resolve_check_cmd(descriptor, host_platform)
         if cmd is not None:
-            check = run_check_cmd(cmd)
+            effective = effective_command(descriptor.command_prefix, addon_dir, cmd)
+            check = run_check_cmd(effective)
             check["platform"] = host_platform
             check["cmd"] = cmd
-        resolved.skills_dir.mkdir(parents=True, exist_ok=True)
-        addon_dir = resolved.home / descriptor.name
-        _commit_install(staging, addon_dir, skill_dir, skill_target)
+            check["effective_cmd"] = effective
     except AddonError:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -461,23 +551,26 @@ def update_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
                 f"{descriptor.name!r}; the addon was renamed upstream — remove "
                 f"it and add {descriptor.name!r} explicitly"
             )
+        _check_name_consistency(descriptor, source)
         _check_compat(descriptor)
         host_platform = _check_platform(descriptor)
         skill_dir = _validate_skill_dir(_payload(staging), descriptor)
         skill_install = dict(record.get("skill_install") or {})
         skill_target = (
             Path(str(skill_install.get("skills_dir", resolved.skills_dir)))
-            / str(skill_install.get("dir_name", f"sca-{name}"))
+            / str(skill_install.get("dir_name", skill_dir_name(name)))
         )
+        addon_dir = resolved.home / name
+        skill_target.parent.mkdir(parents=True, exist_ok=True)
+        _commit_install(staging, addon_dir, skill_dir, skill_target)
         check = None
         cmd = _resolve_check_cmd(descriptor, host_platform)
         if cmd is not None:
-            check = run_check_cmd(cmd)
+            effective = effective_command(descriptor.command_prefix, addon_dir, cmd)
+            check = run_check_cmd(effective)
             check["platform"] = host_platform
             check["cmd"] = cmd
-        skill_target.parent.mkdir(parents=True, exist_ok=True)
-        addon_dir = resolved.home / name
-        _commit_install(staging, addon_dir, skill_dir, skill_target)
+            check["effective_cmd"] = effective
     except AddonError:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -521,7 +614,7 @@ def remove_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
     skill_install = dict(record.get("skill_install") or {})
     skill_target = (
         Path(str(skill_install.get("skills_dir", "")))
-        / str(skill_install.get("dir_name", f"sca-{name}"))
+        / str(skill_install.get("dir_name", skill_dir_name(name)))
         if skill_install.get("skills_dir")
         else None
     )

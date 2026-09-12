@@ -69,6 +69,7 @@ failure names the field and file.
 | `[runtime] kind` | `binary` \| `python-env` \| `docker` \| `none` |
 | `[runtime] platforms` | non-empty list, required for `binary`/`python-env`, forbidden for `none`/`docker` |
 | `[runtime] check_cmd` | required for `binary`/`python-env`, optional for `docker`, forbidden for `none` |
+| `[runtime] command_prefix` | optional shell prelude joined in front of every command the addon runs (see below); `{addon_dir}` resolves to the installed addon directory; no other `{placeholder}` is allowed |
 | `[runtime.check_overrides]` | optional per-platform command overrides; keys must be declared platforms |
 
 Closed platform enum (additive across spec versions):
@@ -77,6 +78,47 @@ Closed platform enum (additive across spec versions):
 macos-arm64 | macos-x86_64 | linux-x86_64 | linux-aarch64
 | windows-x86_64 | windows-arm64
 ```
+
+## Naming standard: one name everywhere
+
+The addon name is a single identity enforced at install time:
+
+- `[addon].name` == the repo name (the `repo` segment of an
+  `owner/repo` GitHub source; for a local path, the basename of the git
+  `origin` URL, falling back to the directory name);
+- `[addon].name` == the SKILL.md frontmatter `name:`.
+
+A mismatch is a hard install failure that names both sides. Skill
+directories install as `sca-<name>` (no doubling when the name already
+starts with `sca-`).
+
+## Command prefix and `sca addon use`
+
+An addon owns its runtime environment. `[runtime].command_prefix` is a
+shell prelude — env assignments, `PATH` edits, a `cd` — prepended to
+every command the addon runs:
+
+```toml
+[runtime]
+kind = "python-env"
+command_prefix = "PATH=\"{addon_dir}/.venv/bin:$PATH\""
+check_cmd = "python -c 'import mytool'"
+```
+
+- `{addon_dir}` is the one supported placeholder; it resolves to the
+  installed addon directory, so a bundled or user-provisioned venv
+  inside the addon home is addressable.
+- `sca addon use <name> <cmd...>` resolves the installed addon by name,
+  joins prefix + command, and executes it via the shell with
+  `SCA_ADDON_DIR` exported; the exit code propagates. `--capture`
+  returns output in the report instead of streaming it. Without a
+  command, `sca addon use <name>` reports the prefix and addon
+  directory.
+- `check_cmd` runs through the same prefix, so a probe like
+  `python -c 'import mytool'` automatically tests the addon's own
+  interpreter. The probe executes after the payload is committed, in
+  the final installed layout; a failing probe stays a loud warning,
+  never an install blocker.
 
 ## `check_cmd` contract
 
