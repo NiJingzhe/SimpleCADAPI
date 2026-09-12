@@ -1,9 +1,12 @@
-"""The ``sca`` console script: SimpleCADAPI addon manager.
+"""The ``init`` and ``addon`` groups of the top-level ``sca`` console script
+(see :mod:`simplecadapi.cli` for the dispatcher and the cache/export groups).
 
-Commands (human-readable output; machine-checkable reports come back
-from :func:`run` for tests and tooling):
+Groups (human-readable output; machine-checkable reports come back from
+:func:`run` for tests and tooling):
 
-* ``sca init``                  — create the addon home and write config
+* ``sca init``                  — create the addon home, write config, and
+  wire the ``sca`` shim + PATH block so the command resolves in any new
+  shell (``--no-shell`` skips the wiring)
 * ``sca addon add <source>``    — install an addon (GitHub or local path)
 * ``sca addon update [name]``   — re-fetch one addon or all of them
 * ``sca addon remove <name>``   — delete exactly what was installed
@@ -23,6 +26,7 @@ from typing import Any, Mapping, Sequence
 from . import AddonError
 from .home import ResolvedPaths, init_home, resolve_paths
 from .install import install_addon, list_addons, parse_source, remove_addon, update_addon
+from .shell import integrate_shell
 from .use import use_addon
 
 
@@ -35,20 +39,56 @@ def _add_location_flags(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="sca",
-        description="SimpleCADAPI addon manager: install third-party analysis, "
-        "simulation, and downstream tooling packaged with agent skills.",
-    )
-    groups = parser.add_subparsers(dest="group", required=True)
+def _run_init(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    resolved = resolve_paths(home=args.home, skills_dir=args.skills_dir)
+    report: dict[str, Any] = dict(init_home(resolved))
+    report["shell"] = {"skipped": True} if args.no_shell else integrate_shell()
+    return report, 0
 
-    init = groups.add_parser(
+
+def _run_addon(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    resolved = resolve_paths(home=args.home, skills_dir=args.skills_dir)
+    if args.command == "add":
+        source = parse_source(args.source)
+        return install_addon(resolved, source, method=args.method), 0
+    if args.command == "update":
+        return (_update_all(resolved) if args.name is None else update_addon(resolved, args.name)), 0
+    if args.command == "remove":
+        return remove_addon(resolved, args.name), 0
+    if args.command == "list":
+        return list_addons(resolved), 0
+    if args.command == "use":
+        report = use_addon(resolved, args.name, args.cmd, capture_output=args.capture)
+        return report, report.get("exit_code", 0)
+    raise AssertionError(f"unsupported command: {args.command}")
+
+
+def _update_all(resolved: ResolvedPaths) -> dict[str, Any]:
+    from .registry import load_registry
+
+    registry = load_registry(resolved.home) if resolved.home.is_dir() else {"addons": {}}
+    names = sorted(registry.get("addons", {}))
+    if not names:
+        raise AddonError("no addons installed; nothing to update")
+    return {
+        "action": "update-all",
+        "updated": [update_addon(resolved, name) for name in names],
+    }
+
+
+def configure(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``init`` and ``addon`` groups on a parent subparsers."""
+    init = subparsers.add_parser(
         "init", help="create the addon home, registry, and config (idempotent)"
     )
     _add_location_flags(init)
+    init.add_argument(
+        "--no-shell", action="store_true",
+        help="skip the shell integration (sca shim + PATH block)",
+    )
+    init.set_defaults(handler=_run_init, printer=_print)
 
-    addon = groups.add_parser("addon", help="manage SimpleCADAPI addons")
+    addon = subparsers.add_parser("addon", help="manage SimpleCADAPI addons")
     commands = addon.add_subparsers(dest="command", required=True)
 
     add = commands.add_parser(
@@ -93,40 +133,23 @@ def _parser() -> argparse.ArgumentParser:
         "--capture", action="store_true",
         help="capture the command's output into the report instead of streaming it",
     )
+    addon.set_defaults(handler=_run_addon, printer=_print)
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="sca",
+        description="SimpleCADAPI command line: setup, addons, package export, "
+        "cache diagnostics.",
+    )
+    subparsers = parser.add_subparsers(dest="group", required=True)
+    configure(subparsers)
     return parser
-
-
-def _update_all(resolved: ResolvedPaths) -> dict[str, Any]:
-    from .registry import load_registry
-
-    registry = load_registry(resolved.home) if resolved.home.is_dir() else {"addons": {}}
-    names = sorted(registry.get("addons", {}))
-    if not names:
-        raise AddonError("no addons installed; nothing to update")
-    return {
-        "action": "update-all",
-        "updated": [update_addon(resolved, name) for name in names],
-    }
 
 
 def run(argv: Sequence[str] | None = None) -> tuple[dict[str, Any], int]:
     args = _parser().parse_args(argv)
-    resolved = resolve_paths(home=args.home, skills_dir=args.skills_dir)
-    if args.group == "init":
-        return init_home(resolved), 0
-    if args.command == "add":
-        source = parse_source(args.source)
-        return install_addon(resolved, source, method=args.method), 0
-    if args.command == "update":
-        return (_update_all(resolved) if args.name is None else update_addon(resolved, args.name)), 0
-    if args.command == "remove":
-        return remove_addon(resolved, args.name), 0
-    if args.command == "list":
-        return list_addons(resolved), 0
-    if args.command == "use":
-        report = use_addon(resolved, args.name, args.cmd, capture_output=args.capture)
-        return report, report.get("exit_code", 0)
-    raise AssertionError(f"unsupported command: {args.command}")
+    return args.handler(args)
 
 
 def _print_check(check: Mapping[str, Any] | None) -> None:
@@ -152,6 +175,17 @@ def _print(report: Mapping[str, Any]) -> None:
         print(f"  registry:   {report.get('registry')}")
         if report.get("created") == "yes":
             print("  hint: export SCA_ADDON_HOME / SCA_SKILLS_DIR to override these")
+        shell = report.get("shell") or {}
+        if shell.get("skipped"):
+            print("  shell: integration skipped (--no-shell)")
+        elif shell.get("shim"):
+            print(f"  shell: shim {shell['shim']}")
+            for rc_path, state in shell.get("shell_blocks", {}).items():
+                print(f"    PATH block: {rc_path} ({state})")
+            if "windows_path" in shell:
+                print(f"    windows PATH: {shell['windows_path']}")
+            for note in shell.get("notes", []):
+                print(f"    note: {note}")
         return
     action = report.get("action")
     if action == "update-all":

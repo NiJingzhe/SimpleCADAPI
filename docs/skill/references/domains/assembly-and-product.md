@@ -80,7 +80,7 @@ persistent cache, writing a durable build, or running cache maintenance.
 - Product build: `part`, `assemble`, `file_input`, `resolve_cache_policy`,
   `PartBuildResult`, `AssemblyBuildResult`, `AssemblySolveReport`, `CacheReport`.
 - Cache: `CachePolicy`, `CacheMode`, `ContentAddressedStore`,
-  `simplecad-cache` CLI (status/verify/prune/clear).
+  `sca cache` CLI (status/verify/prune/clear).
 - Packages: `capture`, `CaptureResult`, `ProductPackage`,
   `build_product_package`, `read_product_package`, `load_product_package`,
   `validate_product_package`.

@@ -189,14 +189,33 @@ sca addon list                     # registry contents + on-disk drift
 
 - Locations resolve as flag > environment variable (`SCA_ADDON_HOME`,
   `SCA_SKILLS_DIR`) > `~/.sca/config.toml` > defaults
-  (`~/.sca/addons`, `~/.agents/skills`). The CLI never writes shell
-  profiles; env vars are user-side overrides.
+  (`~/.sca/addons`, `~/.agents/skills`).
 - Skills install as `sca-<name>` inside the skills directory — copied,
   never symlinked. A non-registry directory of that name is never
   overwritten.
 - GitHub sources fetch as tarballs (no git binary needed, byte-exact
   files); `--method clone` is the escape hatch for private
   repositories.
+
+### Shell integration (`sca init`)
+
+`sca` is the single CLI for the whole SDK (`sca addon …`, `sca cache …`,
+`sca export …`), and `sca init` makes it resolve in any new shell —
+interactive or scripted, on any of the supported platforms:
+
+- a shim `~/.sca/bin/sca` (Windows: `sca.cmd`) execs the real console
+  script of the install that ran `sca init`; the venv's own `bin` is
+  never put on PATH;
+- that directory lands on PATH via a marked, removable
+  `# >>> sca shell integration >>>` block: `~/.zshenv` for zsh (read by
+  non-interactive shells too, so agents see the command), `~/.bashrc`
+  for bash, `~/.config/fish/conf.d/sca-path.fish` for fish; on Windows
+  the user-scope `PATH` registry value is updated and refreshed.
+- rc files are only created for the login shell or when they already
+  exist — no dotfiles are planted for shells that are not in use;
+  `--no-shell` skips the step; re-running `sca init` refreshes the shim
+  after the install moves. Removing the block(s) and `~/.sca/bin`
+  uninstalls the wiring.
 
 ### Hard failures vs warnings
 

@@ -323,9 +323,9 @@ print(cold.cache_report.hit, warm.cache_report.hit)
 Inspect or maintain the cache with stable JSON output:
 
 ```bash
-simplecad-cache status
-simplecad-cache verify
-simplecad-cache prune
+sca cache status
+sca cache verify
+sca cache prune
 ```
 
 See the [persistent cache and product build workflow](docs/skill/references/docs/guides/cache-build-workflow.md)
@@ -354,7 +354,7 @@ Export the standard delivery set (AP242 STEP, binary STL, and OBJ) from a
 validated product package with no wrapper script:
 
 ```bash
-uv run simplecad-export out/mounting_plate.scadpkg --output-dir out/exports
+uv run sca export out/mounting_plate.scadpkg --output-dir out/exports
 ```
 
 Request additional targets explicitly.  FCStd requires `FreeCADCmd` (or an
@@ -362,9 +362,9 @@ explicit `--freecad-cmd` path); `--check` validates the package, output paths,
 and selected target prerequisites without writing files.
 
 ```bash
-uv run simplecad-export out/mounting_plate.scadpkg \
+uv run sca export out/mounting_plate.scadpkg \
   --format fcstd --format mjcf --output-dir out/exports --check
-uv run simplecad-export out/mounting_plate.scadpkg \
+uv run sca export out/mounting_plate.scadpkg \
   --format fcstd --freecad-cmd /path/to/FreeCADCmd --output-dir out/exports
 ```
 STL and OBJ share one direct OpenCASCADE tessellation of the evaluated BREP.

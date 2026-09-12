@@ -267,9 +267,9 @@ print(cold.cache_report.hit, warm.cache_report.hit)
 缓存检查和维护命令输出稳定 JSON：
 
 ```bash
-simplecad-cache status
-simplecad-cache verify
-simplecad-cache prune
+sca cache status
+sca cache verify
+sca cache prune
 ```
 
 cache mode、配置优先级、PRT 复用、增量失效、损坏修复和破坏性命令确认见

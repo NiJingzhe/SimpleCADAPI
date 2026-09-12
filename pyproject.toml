@@ -143,6 +143,4 @@ exclude = [
 testpaths = ["test", "tests"]
 
 [project.scripts]
-simplecad-cache = "simplecadapi.cache.cli:main"
-simplecad-export = "simplecadapi.exporter.cli:main"
-sca = "simplecadapi.addon.cli:main"
+sca = "simplecadapi.cli:main"

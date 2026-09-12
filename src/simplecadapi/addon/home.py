@@ -4,7 +4,7 @@ Resolution chain for both locations, most specific first:
 
 1. the ``--home`` / ``--skills-dir`` CLI flag;
 2. the ``SCA_ADDON_HOME`` / ``SCA_SKILLS_DIR`` environment variables
-   (user-side overrides — the CLI never writes shell profiles);
+   (user-side overrides);
 3. ``~/.sca/config.toml`` (written by ``sca init``; its presence
    is the "initialized" marker);
 4. platform defaults: ``~/.sca/addons`` and ``~/.agents/skills``.
