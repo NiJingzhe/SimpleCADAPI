@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ._diagnostics import (
-    _FAILING_EDGE_TAG,
     BlendDiagnosis,
     diagnose_blend_failure,
     render_failure_evidence,
@@ -67,16 +66,12 @@ def _wrap_blend_failure(
         dedup_key: Tuple = (operation, diagnosis.failure_kind)
         if size_value is not None:
             dedup_key = (operation, diagnosis.failure_kind, round(size_value, 1))
-        # evidence_shapes[1:] are tagged marker tubes; their highlight channel
-        # colors the failing edge, adds the legend and the callout.
-        marker_present = len(diagnosis.evidence_shapes) > 1
         rendered = render_failure_evidence(
             diagnosis.evidence_shapes,
             operation=operation,
             caption=diagnosis.evidence_caption,
             dedup_key=dedup_key,
-            highlight_tags=(_FAILING_EDGE_TAG,) if marker_present else (),
-            tag_labels={_FAILING_EDGE_TAG: "failing edge"},
+            highlight_edges=diagnosis.evidence_edges,
         )
         if rendered is not None:
             evidence = (rendered,)
@@ -365,6 +360,8 @@ def render_screenshot_rpath(
     edge_width_scale: Optional[float] = None,
     view_up: Optional[Sequence[float]] = None,
     supersample: int = 2,
+    highlight_edges: Optional[Sequence[Any]] = None,
+    highlight_edge_width: float = 4.5,
 ) -> str:
     """Render solids or raw TopoDS shapes through the one OCCT/VTK pipeline.
 
@@ -372,6 +369,10 @@ def render_screenshot_rpath(
     callout and legend support) or raw ``TopoDS_Shape`` entries from the
     STEP inspection family (same engine, same edge ink and supersampling,
     no tag features).
+
+    ``highlight_edges`` draws the given edges (SDK ``Edge`` objects or raw
+    ``TopoDS_Edge``) as crisp orange highlight lines exactly on the edge —
+    the failure-marking channel used by the blend diagnostics.
 
     There is exactly one output form: a multi-view grid of one to four
     panels, each carrying annotations. ``view="auto"`` (default) uses the
@@ -443,6 +444,8 @@ def render_screenshot_rpath(
                 edge_width_scale=edge_width_scale,
                 view_up=tuple(float(value) for value in view_up) if view_up is not None else None,
                 supersample=supersample,
+                highlight_edges=tuple(highlight_edges) if highlight_edges else (),
+                highlight_edge_width=highlight_edge_width,
             )
         )
     except Exception as e:

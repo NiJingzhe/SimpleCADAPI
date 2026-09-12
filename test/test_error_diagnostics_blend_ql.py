@@ -211,6 +211,21 @@ def test_ql_evidence_highlight_is_visible(tmp_path, monkeypatch):
     assert orange > 400, f"highlight not visible: only {orange} sampled orange pixels"
 
 
+def test_fillet_evidence_highlights_edge_as_line(tmp_path, monkeypatch):
+    """The failing edge renders as a crisp orange line, not marker geometry."""
+
+    monkeypatch.delenv("SCA_NO_DIAGNOSTIC_RENDER", raising=False)
+    monkeypatch.chdir(tmp_path)
+    _RENDER_DEDUP.clear()
+    box = _box()
+    with pytest.raises(scad.SimpleCADError) as ctx:
+        scad.fillet_rsolid(box, [_box_edges(box)[0]], 12)
+    evidence = ctx.value.to_dict()["evidence"]
+    assert len(evidence) == 1
+    orange = _count_palette_pixels(evidence[0]["path"], (243, 156, 18))
+    assert orange > 40, f"edge line not visible: only {orange} sampled orange pixels"
+
+
 def _face_tags(face) -> set:
     try:
         return set(scad.list_tags(shape=face))

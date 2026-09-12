@@ -1611,7 +1611,6 @@ def _ql_evidence(
 
     try:
         from .operators._diagnostics import (
-            _edge_marker_solid,
             _solid_copy,
             render_failure_evidence,
         )
@@ -1648,17 +1647,14 @@ def _ql_evidence(
                         _NEAR_MISS_TAG: "near miss",
                     }
                     shapes = [copy]
+        highlight_edges = []
         if not shapes:
-            # Non-face targets: tagged marker tubes along each matched entity.
-            for item in items[:4]:
-                marker = _edge_marker_solid(item.wrapped)
-                if marker is not None:
-                    shapes.append(marker)
-                    highlight_tags = ["diagnostic.failing_edge"]
-                    tag_labels = {"diagnostic.failing_edge": "matched"}
+            # Non-face targets: the matched entities themselves highlight as
+            # orange lines.
+            highlight_edges = [item.wrapped for item in items[:8]]
             if scope.__class__.__name__ == "Solid":
-                shapes.insert(0, scope)
-            if not shapes:
+                shapes = [scope]
+            if not shapes and not highlight_edges:
                 return []
 
         rendered = render_failure_evidence(
@@ -1668,11 +1664,12 @@ def _ql_evidence(
                 "orange = matched, purple = near miss; "
                 "see inventory for identities"
                 if target_kind == "face"
-                else "highlighted = matched entities; see inventory"
+                else "orange lines = matched entities; see inventory"
             ),
             dedup_key=dedup_key,
             highlight_tags=highlight_tags,
             tag_labels=tag_labels,
+            highlight_edges=highlight_edges,
         )
         return [rendered] if rendered is not None else []
     except Exception:

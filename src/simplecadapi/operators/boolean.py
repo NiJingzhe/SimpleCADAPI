@@ -58,6 +58,10 @@ def _wrap_boolean_failure(
                 tag_labels[tag] = f"operand {index + 1}"
             else:
                 render_shapes.append(shape)
+        # No leader-line callouts here: solid-tag anchors sit inside the
+        # solids and occlusion re-anchoring can land on the face nearest the
+        # OTHER operand, making the label appear to point at the wrong body.
+        # The legend colors + caption carry the mapping.
         rendered = render_failure_evidence(
             render_shapes,
             operation=operation,
@@ -65,6 +69,7 @@ def _wrap_boolean_failure(
             dedup_key=dedup_key,
             highlight_tags=highlight_tags,
             tag_labels=tag_labels,
+            callouts=False,
         )
         if rendered is not None:
             evidence = (rendered,)

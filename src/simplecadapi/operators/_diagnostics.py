@@ -34,11 +34,22 @@ _TRUTHY = {"1", "true", "yes", "on"}
 _MAX_PAIR_PROBES = 256
 
 # Evidence rendering runs on the failure path, so it stays bounded: one
-# downgraded single-view render per distinct failure signature, abandoned
-# after this many seconds (the render worker's own 180s x 6 retries must
-# never hold the error hostage).
+# downgraded render per distinct failure signature, abandoned after this
+# many seconds (the render worker's own 180s x 6 retries must never hold
+# the error hostage).
 _RENDER_BUDGET_SECONDS = 15.0
 _RENDER_DEDUP: set = set()
+
+# Four axonometric positions, one per viewing corner: a highlighted edge or
+# face hidden behind the model in one iso is visible from another. Ruled by
+# the user — NOT one iso plus three orthographic projections; agents need
+# depth cues to read 3D relationships in every panel.
+_DIAGNOSTIC_VIEWS = (
+    (30.0, 45.0, "iso FR"),
+    (30.0, 135.0, "iso BR"),
+    (30.0, 225.0, "iso BL"),
+    (30.0, 315.0, "iso FL"),
+)
 
 
 def diagnostics_enabled() -> bool:
@@ -70,6 +81,8 @@ def render_failure_evidence(
     dedup_key: Optional[tuple] = None,
     highlight_tags: Sequence[str] = (),
     tag_labels: Optional[Dict[str, str]] = None,
+    highlight_edges: Sequence[Any] = (),
+    callouts: bool = True,
 ) -> Optional[ErrorEvidence]:
     """Render one diagnostic image; never raises, returns None when skipped.
 
@@ -102,13 +115,15 @@ def render_failure_evidence(
                 render_screenshot_rpath(
                     shapes,
                     str(path),
-                    view=(25.0, 35.0),  # (elevation, azimuth); single view, not the 4-panel grid
-                    image_size=(1000, 700),
-                    supersample=1,
+                    views=_DIAGNOSTIC_VIEWS,
+                    supersample=1,  # highlight lines are fixed-width; SSAA is not worth the budget
+                    edge_width_scale=0.0035,  # heavier model ink so panels read at grid size
+                    highlight_edge_width=8.0,  # highlights outweigh the ink, always
                     highlight_tags=tuple(highlight_tags),
                     tag_labels=dict(tag_labels or {}),
-                    show_legend=bool(highlight_tags),
-                    show_callouts=bool(highlight_tags),
+                    highlight_edges=tuple(highlight_edges),
+                    show_legend=bool(highlight_tags or highlight_edges),
+                    show_callouts=bool(highlight_tags) and callouts,
                 )
                 result["path"] = str(path)
             except Exception:
@@ -178,6 +193,7 @@ class BlendDiagnosis:
     measurements: List[ErrorMeasurement] = field(default_factory=list)
     repair: List[str] = field(default_factory=list)
     evidence_shapes: List[Any] = field(default_factory=list)
+    evidence_edges: List[Any] = field(default_factory=list)
     evidence_caption: str = ""
 
 
@@ -263,54 +279,6 @@ def _face_extent_from_edge(face: Any, edge: Any) -> Optional[float]:
         return None
 
 
-# Tag used on diagnostic marker geometry; tags only ever land on the
-# diagnosis's own shapes or on wrapper copies, never on user objects.
-_FAILING_EDGE_TAG = "diagnostic.failing_edge"
-
-
-def _edge_marker_solid(edge: Any) -> Optional[Any]:
-    """Thick tagged tube along ``edge`` so the failing edge is unmistakable.
-
-    The tube is the diagnosis's own geometry (never a tag on user shapes) and
-    overshoots each end so it reads as a marker, not a feature. It carries
-    ``diagnostic.failing_edge`` so the render's highlight channel colors it,
-    adds it to the legend, and labels it with a callout.
-    """
-
-    try:
-        endpoints = _edge_endpoints(edge)
-        if endpoints is None:
-            return None
-        p1, p2 = endpoints
-        import math as _math
-
-        axis = (
-            p2[0] - p1[0],
-            p2[1] - p1[1],
-            p2[2] - p1[2],
-        )
-        length = _math.dist(p1, p2)
-        if length < 1e-9:
-            return None
-        from .geometry import make_cylinder_rsolid
-
-        start = (
-            p1[0] - 0.5 * axis[0] / length,
-            p1[1] - 0.5 * axis[1] / length,
-            p1[2] - 0.5 * axis[2] / length,
-        )
-        marker = make_cylinder_rsolid(
-            min(1.2, max(0.35, length * 0.06)),
-            length + 1.0,
-            bottom_face_center=start,
-            axis=axis,
-        )
-        marker._apply_tag(_FAILING_EDGE_TAG, propagate=False)
-        return marker
-    except Exception:
-        return None
-
-
 def _solid_copy(shape: Any) -> Optional[Any]:
     """Fresh SDK wrapper around the same topology, for tag-free highlighting.
 
@@ -365,7 +333,6 @@ def _classify_blend_room(
                 if endpoints is not None:
                     measurements.append(ErrorMeasurement("edge_start", endpoints[0], "mm"))
                     measurements.append(ErrorMeasurement("edge_end", endpoints[1], "mm"))
-                marker = _edge_marker_solid(edge.wrapped)
                 return (
                     BlendDiagnosis(
                         failure_kind="size_exceeds_face",
@@ -386,9 +353,10 @@ def _classify_blend_room(
                             ),
                             "Or select a different edge with more room on its adjacent faces.",
                         ],
-                        evidence_shapes=[solid] + ([marker] if marker is not None else []),
+                        evidence_shapes=[solid],
+            evidence_edges=[edge.wrapped],
                         evidence_caption=(
-                            "rod along the failing edge; see measurements for its endpoints "
+                            "orange line marks the failing edge; see measurements for its endpoints "
                             "and the available face room"
                         ),
                     )
@@ -518,7 +486,6 @@ def _classify_tangent_adjacency(
             if endpoints is not None:
                 measurements.append(ErrorMeasurement("edge_start", endpoints[0], "mm"))
                 measurements.append(ErrorMeasurement("edge_end", endpoints[1], "mm"))
-            marker = _edge_marker_solid(edge.wrapped)
             size_name, blend_name = _blend_size_label(operation_kind)
             return BlendDiagnosis(
                 failure_kind="tangent_adjacent_faces",
@@ -537,8 +504,9 @@ def _classify_tangent_adjacency(
                     "If a visual transition is required there, it already exists — "
                     "the faces are tangent by construction.",
                 ],
-                evidence_shapes=[solid] + ([marker] if marker is not None else []),
-                evidence_caption="rod along the tangent junction edge; see measurements",
+                evidence_shapes=[solid],
+            evidence_edges=[edge.wrapped],
+                evidence_caption="orange line marks the tangent junction edge; see measurements",
             )
     return None
 
@@ -565,7 +533,6 @@ def _classify_tiny_edges(
             return None
         size_name, blend_name = _blend_size_label(operation_kind)
         shortest_edge, shortest_length = min(tiny, key=lambda item: item[1])
-        marker = _edge_marker_solid(shortest_edge.wrapped)
         return BlendDiagnosis(
             failure_kind="sliver_edges_in_selection",
             what_happened=(
@@ -587,8 +554,9 @@ def _classify_tiny_edges(
                 f"Re-select with a QL predicate that excludes sub-micron edges before "
                 f"the {blend_name}.",
             ],
-            evidence_shapes=[solid] + ([marker] if marker is not None else []),
-            evidence_caption="rod along the shortest sliver edge; see measurements",
+            evidence_shapes=[solid],
+            evidence_edges=[shortest_edge.wrapped],
+            evidence_caption="orange line marks the shortest sliver edge; see measurements",
         )
     except Exception:
         return None
@@ -713,8 +681,7 @@ def _classify_partial_smooth_chain(
                     if endpoints is not None:
                         measurements.append(ErrorMeasurement("edge_start", endpoints[0], "mm"))
                         measurements.append(ErrorMeasurement("edge_end", endpoints[1], "mm"))
-                    marker = _edge_marker_solid(edge.wrapped)
-                    return BlendDiagnosis(
+                        return BlendDiagnosis(
                         failure_kind="partial_smooth_chain_on_periodic_face",
                         what_happened=(
                             "the selected edge is one segment of a smooth (tangent) "
@@ -733,8 +700,9 @@ def _classify_partial_smooth_chain(
                             "Enumerate with QL and extend the selection across the shared "
                             "vertices before retrying.",
                         ],
-                        evidence_shapes=[solid] + ([marker] if marker is not None else []),
-                        evidence_caption="rod along the partially selected chain segment",
+                        evidence_shapes=[solid],
+            evidence_edges=[edge.wrapped],
+                        evidence_caption="orange line marks the partially selected chain segment",
                     )
         return None
     except Exception:
@@ -788,11 +756,7 @@ def _classify_vertex_conflict(
             measurements: List[ErrorMeasurement] = [
                 ErrorMeasurement("edges_at_vertex", float(len(incident)), ""),
             ]
-            markers = [solid]
-            for edge in incident[:3]:
-                marker = _edge_marker_solid(edge.wrapped)
-                if marker is not None:
-                    markers.append(marker)
+            critical_edges = [edge.wrapped for edge in incident[:3]]
             return BlendDiagnosis(
                 failure_kind="vertex_blend_conflict",
                 what_happened=(
@@ -813,8 +777,9 @@ def _classify_vertex_conflict(
                     "Or drop the corner edge from this pass and blend it alone "
                     "afterwards.",
                 ],
-                evidence_shapes=markers,
-                evidence_caption="rods along the edges converging at the corner vertex",
+                evidence_shapes=[solid],
+                evidence_edges=critical_edges,
+                evidence_caption="orange lines mark the edges converging at the corner vertex",
             )
         return None
     except Exception:
@@ -839,7 +804,6 @@ def _tangency_critical_diagnosis(
     if endpoints is not None:
         measurements.append(ErrorMeasurement("edge_start", endpoints[0], "mm"))
         measurements.append(ErrorMeasurement("edge_end", endpoints[1], "mm"))
-    marker = _edge_marker_solid(edge.wrapped)
     return BlendDiagnosis(
         failure_kind="blends_tangency_critical",
         what_happened=(
@@ -861,8 +825,9 @@ def _tangency_critical_diagnosis(
             ),
             "Or blend the edges in two passes with different sizes.",
         ],
-        evidence_shapes=[solid] + ([marker] if marker is not None else []),
-        evidence_caption="rod along the critical edge; see measurements",
+        evidence_shapes=[solid],
+            evidence_edges=[edge.wrapped],
+        evidence_caption="orange line marks the critical edge; see measurements",
     )
 
 
