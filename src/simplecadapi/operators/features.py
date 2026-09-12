@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from ._diagnostics import (
     BlendDiagnosis,
+    BlendVolumeViolation,
+    assert_blend_volume_monotonic,
     diagnose_blend_failure,
     render_failure_evidence,
 )
@@ -52,6 +54,11 @@ def _wrap_blend_failure(
 ) -> NoReturn:
     """Wrap a fillet/chamfer failure with failure-time geometry diagnosis."""
 
+    # Mechanism-E headline: when the exit check caught impossible output,
+    # its measured volumes lead what_happened (the agent must distinguish
+    # "kernel refused" from "kernel silently lied"); probe explanations
+    # follow as the suspected root cause.
+    volume_headline = str(error) if isinstance(error, BlendVolumeViolation) else None
     diagnosis: Optional[BlendDiagnosis] = None
     if solid is not None and edges and size_value is not None:
         diagnosis = diagnose_blend_failure(
@@ -75,9 +82,18 @@ def _wrap_blend_failure(
         )
         if rendered is not None:
             evidence = (rendered,)
+    what_happened = (
+        (diagnosis.what_happened or default_what_happened) if diagnosis
+        else default_what_happened
+    )
+    if volume_headline:
+        what_happened = (
+            f"{volume_headline}; probes indicate: {what_happened}"
+            if diagnosis and diagnosis.what_happened else volume_headline
+        )
     _wrap_public_api_error(
         operation=operation,
-        what_happened=(diagnosis.what_happened or default_what_happened) if diagnosis else default_what_happened,
+        what_happened=what_happened,
         possible_causes=(
             diagnosis.possible_causes
             if diagnosis and diagnosis.possible_causes
@@ -495,6 +511,18 @@ def fillet_rsolid(
         tracked = tracked_fillet(solid, selected_edges, radius_value)
         result = cast(Solid, tracked.shape)
 
+        # Mechanism E: the kernel can hand back impossible geometry without
+        # raising (observed: all-edge r=6 on a 10-cube "succeeds" with a
+        # larger volume); catch it at the exit instead of returning it.
+        assert_blend_volume_monotonic(
+            solid,
+            result,
+            operation="fillet_rsolid",
+            operation_kind="fillet",
+            size_value=radius_value,
+            edges=selected_edges,
+        )
+
         result._metadata = solid._metadata.copy()
 
         selected_edge_refs = _serialize_shape_refs(selected_edges)
@@ -653,6 +681,20 @@ def chamfer_rsolid(
             edge_face_pairs=edge_face_pairs,
         )
         result = cast(Solid, tracked.shape)
+
+        # Mechanism E: same impossible-output guard as the fillet path (the
+        # effective size of an angled chamfer spans both legs).
+        assert_blend_volume_monotonic(
+            solid,
+            result,
+            operation="chamfer_rsolid",
+            operation_kind="chamfer",
+            size_value=(
+                max(distance_value, chamfer_distance2)
+                if chamfer_distance2 is not None else distance_value
+            ),
+            edges=selected_edges,
+        )
 
         result._metadata = solid._metadata.copy()
 

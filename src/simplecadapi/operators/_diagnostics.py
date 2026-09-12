@@ -459,6 +459,163 @@ def diagnose_blend_failure(
         return None
 
 
+class BlendVolumeViolation(ValueError):
+    """A blend op returned geometrically impossible output (mechanism E).
+
+    Carries the measured volumes in the message so the blend failure wrapper
+    can promote it to ``what_happened`` (mechanism-A style) instead of
+    demoting the facts into technical details.
+    """
+
+
+def _edge_is_concave_side_probe(
+    solid: Any, face_a: Any, face_b: Any, edge: Any
+) -> Optional[bool]:
+    """Edge convexity via side probes; ``None`` when undeterminable.
+
+    The outward-normal bisector probe (``_edge_is_concave``) is blind
+    between a 90° convex edge and its 270° concave supplement — the two
+    configurations share identical face normals.  This probe offsets the
+    edge midpoint along ``n_a - n_b`` (and ``n_b - n_a``): that direction
+    lies in the material half-space only for the concave configuration
+    (90° air wedge), and in air for the convex one (270° air wedge).
+
+    Needed by the mechanism-E volume check: filleting a *concave* edge
+    legitimately adds material (corner fill), so monotonicity only holds
+    for all-convex selections.
+    """
+
+    try:
+        from OCP.BRep import BRep_Tool
+        from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+        from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+        from OCP.BRepLProp import BRepLProp_SLProps
+        from OCP.ShapeAnalysis import ShapeAnalysis_Surface
+        from OCP.TopAbs import TopAbs_IN, TopAbs_REVERSED
+        from OCP.TopoDS import TopoDS
+        from OCP.gp import gp_Pnt
+
+        topo_edge = TopoDS.Edge_s(edge.wrapped if hasattr(edge, "wrapped") else edge)
+        curve = BRepAdaptor_Curve(topo_edge)
+        mid3d = curve.Value((curve.FirstParameter() + curve.LastParameter()) / 2.0)
+        normals = []
+        for shape in (face_a, face_b):
+            face = TopoDS.Face_s(shape.wrapped if hasattr(shape, "wrapped") else shape)
+            projector = ShapeAnalysis_Surface(BRep_Tool.Surface_s(face))
+            uv = projector.ValueOfUV(mid3d, 1e-6)
+            props = BRepLProp_SLProps(
+                BRepAdaptor_Surface(face), uv.X(), uv.Y(), 1, 1e-6
+            )
+            if not props.IsNormalDefined():
+                return None
+            normal = props.Normal()
+            components = [normal.X(), normal.Y(), normal.Z()]
+            if face.Orientation() == TopAbs_REVERSED:
+                components = [-c for c in components]
+            normals.append(components)
+        classifier = BRepClass3d_SolidClassifier(TopoDS.Solid_s(solid.wrapped))
+        step = 1e-3
+        for first, second in ((0, 1), (1, 0)):
+            delta = [
+                normals[first][axis] - normals[second][axis]
+                for axis in range(3)
+            ]
+            length = sum(c * c for c in delta) ** 0.5
+            if length < 1e-9:
+                # Tangent faces (equal normals): undeterminable here; the
+                # tangent-adjacency classifier handles that regime.
+                continue
+            probe = gp_Pnt(
+                mid3d.X() + step * delta[0] / length,
+                mid3d.Y() + step * delta[1] / length,
+                mid3d.Z() + step * delta[2] / length,
+            )
+            classifier.Perform(probe, 1e-7)
+            if classifier.State() == TopAbs_IN:
+                return True
+        return False
+    except Exception:
+        return None
+
+
+def _all_edges_convex(solid: Any, edges: Sequence[Any]) -> Optional[bool]:
+    """True when every edge reads convex; None when any edge is undeterminable.
+
+    Mechanism E's monotonic-volume guard may only fire when the selection is
+    provably all-convex: a single concave edge legitimizes a volume increase
+    (corner fill), and an undeterminable edge means the check cannot prove
+    impossibility — a garbage detector must not guess.
+    """
+
+    for edge in edges:
+        faces = edge.get_incident_faces()
+        if len(faces) < 2:
+            return None
+        concave = _edge_is_concave_side_probe(solid, faces[0], faces[1], edge)
+        if concave is not False:
+            return None
+    return True
+
+
+def assert_blend_volume_monotonic(
+    source: Any,
+    result: Any,
+    *,
+    operation: str,
+    operation_kind: str,
+    size_value: Optional[float],
+    edges: Sequence[Any],
+) -> None:
+    """Mechanism E exit check: an all-convex blend may only remove material.
+
+    Observed kernel behavior (and the reason this check exists): filleting
+    every edge of a 10 mm cube with r=6 *succeeds* and returns a solid whose
+    volume (1036.35) exceeds the input (1000) — geometrically impossible
+    output that the kernel hands back without a word.  Fillet and chamfer
+    outputs on convex edges are subsets of the input solid, so a volume
+    increase beyond measurement noise means the kernel silently produced
+    garbage; we name it instead of returning it.
+
+    The increase check only fires for provably all-convex selections:
+    blending a *concave* edge legitimately adds material (the corner fill —
+    e.g. a bolt's underhead fillet gains exactly the quarter-circle deficit
+    times its circumference), and undeterminable edges mean the check
+    cannot prove impossibility.  A non-positive result volume is garbage
+    regardless of convexity and always fires.
+
+    The check runs on the success path, so it must stay cheap: two GProp
+    volume evaluations plus one side-probe per selected edge.  Raised as a
+    ``BlendVolumeViolation`` so the caller's ``_wrap_blend_failure`` handler
+    promotes the measured facts and layers the standard blend diagnosis
+    (probes, evidence render) on top.
+    """
+
+    try:
+        # ``volume`` measures raw OCP shapes; SDK wrappers carry ``.wrapped``.
+        source_shape = getattr(source, "wrapped", source)
+        result_shape = getattr(result, "wrapped", result)
+        source_volume = float(volume(source_shape))
+        result_volume = float(volume(result_shape))
+    except Exception:
+        # Volume evaluation is best-effort: never block a legitimate result
+        # because a measurement could not be taken.
+        return
+    if result_volume <= 0.0:
+        raise BlendVolumeViolation(
+            f"{operation_kind} result volume is {result_volume:.6g}: the "
+            f"kernel returned an empty/degenerate solid "
+            f"(size={size_value!r}, selected_edges={len(edges)})"
+        )
+    tolerance = max(1e-9, abs(source_volume) * 1e-6)
+    if result_volume > source_volume + tolerance and _all_edges_convex(source, edges):
+        raise BlendVolumeViolation(
+            f"{operation_kind} result volume {result_volume:.6g} exceeds the "
+            f"input volume {source_volume:.6g}: the blend can only remove "
+            f"material, so the kernel silently returned degenerate geometry "
+            f"(size={size_value!r}, selected_edges={len(edges)})"
+        )
+
+
 def _classify_tangent_adjacency(
     *,
     solid: Any,

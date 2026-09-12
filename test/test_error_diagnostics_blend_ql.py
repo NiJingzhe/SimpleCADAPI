@@ -129,6 +129,45 @@ def test_fillet_bore_mouth_boundary_room():
     assert any("below 6 mm" in step for step in payload["repair"])
 
 
+def test_fillet_silent_garbage_output_caught_at_exit():
+    # Mechanism E: r=5 on all 12 edges of a 10-cube fails loudly, but r=6
+    # makes the kernel *succeed* and hand back a solid with volume 1036.35
+    # — more material than the 1000 it started with. Geometrically
+    # impossible; the exit check must name it instead of returning it.
+    box = _box()
+    edges = _box_edges(box)
+    with pytest.raises(scad.SimpleCADError) as ctx:
+        scad.fillet_rsolid(box, edges, 6)
+
+    payload = _payload(ctx.value)
+    # The volume violation leads what_happened so the agent can tell
+    # "kernel silently lied" apart from "kernel refused" (r=5 path).
+    assert "result volume 1036" in payload["what_happened"]
+    assert "exceeds the input volume 1000" in payload["what_happened"]
+    # Probe explanation follows as the suspected root cause.
+    assert "probes indicate" in payload["what_happened"]
+    assert "BlendVolumeViolation" in (payload["technical_details"] or "")
+
+
+def test_legit_fillet_passes_exit_check():
+    # No false positives: an ordinary fillet must pass the monotonic-volume
+    # guard untouched.
+    box = _box()
+    edges = _box_edges(box)
+    result = scad.fillet_rsolid(box, [edges[0]], 1)
+    assert len(result._iter_faces()) >= 6
+
+
+def test_concave_edge_fillet_may_add_material():
+    # Regression: a bolt's underhead fillet rounds a concave (270°) edge,
+    # and the corner fill legitimately ADDS material — observed as exactly
+    # the quarter-circle deficit times the circumference (+1.28 mm³ on the
+    # d=8 bolt). Mechanism E must skip the increase check for concave
+    # selections, not call the kernel a liar.
+    bolt = scad.std.fastener.make_bolt_rsolid(diameter=8.0, length=24.0)
+    assert isinstance(bolt, scad.Solid)
+
+
 def _split_band_solid() -> scad.Solid:
     cylinder = scad.make_cylinder_rsolid(10, 20)
     ring = scad.make_cylinder_rsolid(12, 6, bottom_face_center=(0, 0, 7))
