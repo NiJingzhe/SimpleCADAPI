@@ -70,7 +70,11 @@ def test_conflict_repair_names_the_conflicting_pair():
     assert "c_near" in text and "c_far" in text
     assert "distance(p1, p2 = 5)" in text
     assert "p1" in text and "p2" in text
-    assert any("删除或放宽 c_near" in line for line in ctx.value.guidance.repair)
+    assert any("Delete or relax c_near" in line for line in ctx.value.guidance.repair)
+    # SDK error-language contract: error text stays English.
+    import re
+
+    assert not re.search(r"[\u3400-\u9fff\uf900-\ufaff]", text)
 
 
 def test_solve_error_still_a_value_error_for_legacy_callers():

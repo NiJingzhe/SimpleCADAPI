@@ -121,16 +121,20 @@ def _raise_residual_failure(
     repair = []
     if worst is not None:
         repair.append(
-            f"残差最大的约束是 {worst.constraint_id}"
-            f"(\u0394t={worst.translation_error:.3g} mm, "
-            f"\u0394\u03b8={worst.angular_error_degrees:.3g} deg)："
-            "先核对该约束两端 connector 的局部坐标系定义（datum 与接口方向），"
-            "而不是移动组件位置"
+            f"The worst-residual constraint is {worst.constraint_id} "
+            f"(dt={worst.translation_error:.3g} mm, "
+            f"dtheta={worst.angular_error_degrees:.3g} deg): check the local "
+            "frame definitions (datum and interface orientation) of the "
+            "connectors on both ends of that constraint first — not the "
+            "component placements"
         )
     repair.extend((
-        "闭环约束各自满足但合并不满足 = 过约束：解开环路（删一条冗余约束），"
-        "或让嵌套子装配在内部解算、父级只消费其公共接口",
-        "重跑 inspect_assembly_constraints_rassembly(assembly) 查看全量残差后再改约束集",
+        "Closed-loop constraints that each fit but do not fit together are "
+        "overconstrained: break the loop (delete one redundant constraint), "
+        "or let a nested subassembly solve internally and have the parent "
+        "consume only its public interface",
+        "Rerun inspect_assembly_constraints_rassembly(assembly) to review "
+        "all residuals before touching the constraint set",
     ))
 
     failed_ids = ", ".join(
@@ -211,9 +215,11 @@ def _raise_structural_failure(
             "no feasible scalar inside its limits"
         )
         repair = [
-            "给该约束加/放宽 ScalarLimit（angle_limit / distance_limit），"
-            "或删掉环上一条约束解开环路",
-            "嵌套子装配先在内部解算闭环，父级消费其公共接口",
+            "Add or widen a ScalarLimit on that constraint "
+            "(angle_limit / distance_limit), or delete one constraint on the "
+            "loop to break it open",
+            "Let a nested subassembly solve the loop internally and have the "
+            "parent consume its public interface",
         ]
     elif constraint is not None and kind == "no_grounded_path":
         what = (
@@ -222,8 +228,9 @@ def _raise_structural_failure(
             "that are both unreachable from any grounded component"
         )
         repair = [
-            "用 ground_component_rassembly 给链路一端加 ground，"
-            "或补一条连接约束使该组件从 grounded 组件可达",
+            "Ground one end of the chain with ground_component_rassembly, or "
+            "add a connecting constraint so the component is reachable from "
+            "a grounded one",
         ]
     else:
         what = (
@@ -231,7 +238,8 @@ def _raise_structural_failure(
             "constraint graph: " + ", ".join(unsolved_ids or ())
         )
         repair = [
-            "为列出的 [unsolved] 组件补 ground 或连接约束，使其从 grounded 组件可达",
+            "Add a ground or a connecting constraint for the [unsolved] "
+            "components so they are reachable from a grounded one",
         ]
 
     raise_harness_error(

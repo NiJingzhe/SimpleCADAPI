@@ -8,12 +8,13 @@ replace the real error, so public entries swallow their own failures.
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 from OCP.gp import gp_Pnt
@@ -21,7 +22,12 @@ from OCP.TopAbs import TopAbs_SOLID
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS
 
-from ..errors import ErrorEvidence, ErrorMeasurement
+from ..errors import (
+    ErrorEvidence,
+    ErrorMeasurement,
+    InventoryEntry,
+    raise_harness_error,
+)
 from ..kernel.ocp_booleans import common_shapes
 from ..kernel.ocp_properties import volume
 
@@ -70,6 +76,419 @@ def diagnostics_dir() -> Path:
 
     policy = resolve_cache_policy(None, project_root=".")
     return policy.root.parent / "diagnostics"
+
+
+# Ink palette for the 2D wire-plan schematics — same visual language as the
+# sketch-diagnostics figures and the 3D evidence palette: orange marks the
+# implicated geometry, purple related, dark ink everything else.
+_PLAN_INK = "#3a3a3a"
+_PLAN_HIGHLIGHT = "#f39c12"
+_PLAN_NEAR = "#8066bf"
+
+
+def _sample_edge_polyline(edge: Any, samples: int = 16) -> List[Tuple[float, float, float]]:
+    """Polylines of an edge by uniform parameter sampling (3D points).
+
+    Sampling avoids OCC meshing entirely — the 3D VTK pipeline cannot render
+    bare wires ("no renderable triangles"), so wire evidence goes through a
+    planar 2D schematic instead.  Straight lines collapse to two points;
+    curves keep their shape.
+    """
+
+    try:
+        from OCP.BRepAdaptor import BRepAdaptor_Curve
+        from OCP.TopoDS import TopoDS
+
+        raw_edge = edge.wrapped if hasattr(edge, "wrapped") else edge
+        curve = BRepAdaptor_Curve(TopoDS.Edge_s(raw_edge))
+        first, last = curve.FirstParameter(), curve.LastParameter()
+        if curve.GetType() == 0:  # GeomAbs_Line: endpoints are exact
+            count = 2
+        else:
+            count = max(samples, 3)
+        return [
+            (lambda p: (float(p.X()), float(p.Y()), float(p.Z())))(
+                curve.Value(first + (last - first) * index / (count - 1))
+            )
+            for index in range(count)
+        ]
+    except Exception:
+        return []
+
+
+def render_wire_plan_evidence(
+    wire_groups: Sequence[Tuple[Any, str]],
+    *,
+    operation: str,
+    caption: str,
+    dedup_key: tuple,
+    point_marks: Sequence[Tuple[Tuple[float, float, float], str, str]] = (),
+    label_at: Sequence[Tuple[Tuple[float, float, float], str]] = (),
+) -> Optional[ErrorEvidence]:
+    """Render wires as a 2D plan schematic (best-fit-plane projection).
+
+    ``wire_groups`` pairs ``(wire, tone)`` with tone ``"ink"``/``"highlight"``/
+    ``"near"``; ``point_marks`` are 3D points to pin with ``(point, label,
+    tone)``; ``label_at`` places plain text labels.  All geometry is sampled
+    to polylines, projected onto the PCA plane of the whole figure, and
+    drawn with matplotlib — the same schematic style as the sketch-solve
+    evidence.  Non-planar inputs still render (as a projection) and the
+    caption says so when it matters.
+
+    Best-effort like every evidence channel: any failure returns None and
+    the structured error stays text-complete.
+    """
+
+    if not diagnostics_enabled():
+        return None
+    if dedup_key in _RENDER_DEDUP:
+        return None
+    _RENDER_DEDUP.add(dedup_key)
+
+    polylines: List[Tuple[List[Tuple[float, float, float]], str]] = []
+    all_points: List[Tuple[float, float, float]] = []
+    for entry, tone in wire_groups:
+        # Entries may be whole Wires or single Edges (highlight targets).
+        if hasattr(entry, "_iter_edges"):
+            try:
+                edges = list(entry._iter_edges())
+            except Exception:
+                continue
+        else:
+            edges = [entry]
+        for edge in edges:
+            points = _sample_edge_polyline(edge)
+            if len(points) >= 2:
+                polylines.append((points, tone))
+                all_points.extend(points)
+    for point, _label, _tone in point_marks:
+        all_points.append(point)
+    if len(all_points) < 2:
+        return None
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from matplotlib.lines import Line2D
+    except Exception:
+        return None
+
+    try:
+        matrix = np.array(all_points, dtype=float)
+        centered = matrix - matrix.mean(axis=0)
+        # PCA basis: first two principal directions span the best-fit plane.
+        _, _, right = np.linalg.svd(centered, full_matrices=False)
+        basis_u, basis_v = right[0], right[1]
+
+        def _to_plan(point) -> Tuple[float, float]:
+            return (float(np.dot(point, basis_u)), float(np.dot(point, basis_v)))
+
+        figure, axes = plt.subplots(figsize=(10.0, 7.0), dpi=100)
+        plan_points: List[Tuple[float, float]] = []
+        for points, tone in polylines:
+            plan = [_to_plan(point) for point in points]
+            plan_points.extend(plan)
+            color = {"ink": _PLAN_INK, "highlight": _PLAN_HIGHLIGHT, "near": _PLAN_NEAR}.get(tone, _PLAN_INK)
+            axes.plot(
+                [p[0] for p in plan], [p[1] for p in plan],
+                color=color,
+                linewidth=3.2 if tone == "highlight" else 1.6,
+                solid_capstyle="round",
+            )
+        for point, label, tone in point_marks:
+            plan = _to_plan(point)
+            plan_points.append(plan)
+            color = {"ink": _PLAN_INK, "highlight": _PLAN_HIGHLIGHT, "near": _PLAN_NEAR}.get(tone, _PLAN_INK)
+            axes.plot(*plan, marker="o", markersize=9, color=color)
+            axes.annotate(
+                label, plan, xytext=(8, 8), textcoords="offset points",
+                fontsize=10, fontweight="bold", color=color,
+                bbox={"boxstyle": "round,pad=0.2", "fc": "white",
+                      "ec": color, "alpha": 0.9},
+            )
+        for point, label in label_at:
+            plan = _to_plan(point)
+            plan_points.append(plan)
+            axes.annotate(label, plan, xytext=(6, -14), textcoords="offset points",
+                          fontsize=10, fontweight="bold", color="#555555")
+
+        if not plan_points:
+            plt.close(figure)
+            return None
+        xs = [p[0] for p in plan_points]
+        ys = [p[1] for p in plan_points]
+        pad_x = max((max(xs) - min(xs)) * 0.08, 0.5)
+        pad_y = max((max(ys) - min(ys)) * 0.08, 0.5)
+        axes.set_xlim(min(xs) - pad_x, max(xs) + pad_x)
+        axes.set_ylim(min(ys) - pad_y, max(ys) + pad_y)
+        axes.set_aspect("equal", adjustable="box")
+        axes.grid(True, color="#e6e6e6", linewidth=0.6)
+        axes.set_title(f"{operation} — wire plan (projected)", fontsize=13, fontweight="bold")
+        handles = [
+            Line2D([0], [0], color=_PLAN_HIGHLIGHT, linewidth=3.2,
+                   label="implicated geometry"),
+            Line2D([0], [0], color=_PLAN_NEAR, linewidth=2,
+                   label="related"),
+            Line2D([0], [0], color=_PLAN_INK, linewidth=1.6,
+                   label="context"),
+        ]
+        axes.legend(handles=handles, loc="upper right", fontsize=9)
+        import textwrap
+
+        wrapped = "\n".join(textwrap.wrap(caption, width=110) or [caption])
+        figure.text(0.5, 0.015, wrapped, ha="center", fontsize=9,
+                    color="#555555", va="top")
+
+        root = diagnostics_dir()
+        root.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        path = root / f"wire-{stamp}.png"
+        figure.savefig(path, bbox_inches="tight")
+    except Exception:
+        return None
+    finally:
+        plt.close(figure)
+
+    return ErrorEvidence(
+        kind="wire_plan_render",
+        path=str(path),
+        view="best-fit plane projection",
+        caption=caption,
+    )
+
+
+# --- Loft section compatibility diagnosis ----------------------------------
+
+
+@dataclass(frozen=True)
+class LoftSectionFacts:
+    """Sampled facts about one loft section (the compatibility probe input)."""
+
+    section_id: str
+    edge_count: int
+    closed: Optional[bool]
+    planar: Optional[bool]
+    centroid: Tuple[float, float, float]
+
+
+def _loft_section_facts(
+    sections: Sequence[Any],
+) -> Optional[List[LoftSectionFacts]]:
+    """Per-section edge counts, closure, planarity, and centroid.
+
+    Returns None when sampling fails outright (the caller degrades to the
+    generic wrap).  Vertex cap sections are summarized without geometry
+    probes; they cannot carry edge counts.
+    """
+
+    facts: List[LoftSectionFacts] = []
+    for index, section in enumerate(sections):
+        section_id = f"S{index + 1}"
+        if not hasattr(section, "_iter_edges"):
+            # Vertex caps are legal only at the ends (validated upstream).
+            try:
+                from ..kernel.ocp_topology import vertex_point
+
+                point = vertex_point(section.wrapped)
+                facts.append(LoftSectionFacts(
+                    section_id=section_id, edge_count=0, closed=None,
+                    planar=None,
+                    centroid=(float(point[0]), float(point[1]), float(point[2])),
+                ))
+                continue
+            except Exception:
+                return None
+        try:
+            edges = list(section._iter_edges())
+            points: List[Tuple[float, float, float]] = []
+            for edge in edges:
+                points.extend(_sample_edge_polyline(edge))
+            if not points:
+                return None
+            import numpy as np
+
+            matrix = np.array(points, dtype=float)
+            centroid = matrix.mean(axis=0)
+            centered = matrix - centroid
+            # Planarity via PCA: the third singular value is the out-of-plane
+            # spread; compare it relative to the in-plane extent.
+            singular = np.linalg.svd(centered, compute_uv=False)
+            planar = (
+                bool(singular[2] <= max(singular[0], 1e-12) * 1e-6)
+                if len(singular) == 3 else None
+            )
+            facts.append(LoftSectionFacts(
+                section_id=section_id,
+                edge_count=len(edges),
+                closed=bool(section.is_closed()),
+                planar=planar,
+                centroid=(float(centroid[0]), float(centroid[1]), float(centroid[2])),
+            ))
+        except Exception:
+            return None
+    return facts
+
+
+def raise_loft_failure_if_diagnosed(
+    sections: Sequence[Any],
+    operation: str,
+) -> None:
+    """Diagnose a kernel loft failure from section facts; raise when explained.
+
+    The kernel reports loft failures as a bare "build did not complete"
+    naming nothing.  This probe re-reads the sections the agent passed and
+    reports the computable compatibility verdicts: coincident consecutive
+    sections, edge-count mismatches, open section wires, and non-monotonic
+    station order.  Raises the structured error when any verdict lands;
+    returns silently when nothing diagnosable is found (the caller then
+    applies the generic wrap).
+    """
+
+    facts = _loft_section_facts(sections)
+    if facts is None or len(facts) < 2:
+        return
+
+    repair: List[str] = []
+    findings: List[str] = []
+    implicated: Set[str] = set()
+
+    # Coincident consecutive stations: the most common "did not complete"
+    # cause when sections were authored at the same height.
+    for (fact_a, fact_b) in zip(facts, facts[1:]):
+        distance = math.dist(fact_a.centroid, fact_b.centroid)
+        if distance <= 1e-9:
+            findings.append(
+                f"{fact_b.section_id} coincides with {fact_a.section_id} "
+                f"(centroid distance {distance:.3g} mm)"
+            )
+            implicated.update((fact_a.section_id, fact_b.section_id))
+            repair.append(
+                f"{fact_a.section_id} and {fact_b.section_id} sit at the same "
+                "location: a loft needs its sections distributed along the "
+                "generation direction — remove the duplicate section or fix "
+                "the station placements"
+            )
+
+    # Edge-count mismatch: correspondence-based skinning needs comparable
+    # station topology; wildly different counts are the classic rejection.
+    wire_facts = [fact for fact in facts if fact.edge_count > 0]
+    if wire_facts:
+        counts = {fact.edge_count for fact in wire_facts}
+        if len(counts) > 1:
+            described = ", ".join(
+                f"{fact.section_id}={fact.edge_count}" for fact in wire_facts
+            )
+            findings.append(f"edge counts differ across stations: {described}")
+            implicated.update(fact.section_id for fact in wire_facts)
+            repair.append(
+                "Make the edge count consistent across stations (split or "
+                "approximate curve stations when mixing with straight-line "
+                "stations), or split the loft at stations where the topology "
+                "undergoes birth/death/split/merge"
+            )
+
+    # Open section wires: a solid loft needs closed loops.
+    for fact in wire_facts:
+        if fact.closed is False:
+            findings.append(f"{fact.section_id} is not closed")
+            implicated.add(fact.section_id)
+            repair.append(
+                f"{fact.section_id} is an open wire: close that section "
+                "before lofting"
+            )
+
+    # Station ordering: project centroids onto the first→last axis; any
+    # backtrack means the section list is out of order.
+    first, last = facts[0].centroid, facts[-1].centroid
+    axis = [last[i] - first[i] for i in range(3)]
+    axis_norm = math.dist(first, last)
+    if axis_norm > 1e-9 and len(facts) > 2:
+        projections = [
+            sum(
+                (fact.centroid[i] - first[i]) * axis[i] for i in range(3)
+            ) / axis_norm
+            for fact in facts
+        ]
+        backtracks = [
+            facts[index].section_id
+            for index in range(1, len(projections))
+            if projections[index] < projections[index - 1] - 1e-9
+        ]
+        if backtracks:
+            findings.append(
+                "section centroids backtrack along the first-to-last axis "
+                "(likely out of order): " + ", ".join(backtracks)
+            )
+            implicated.update(backtracks)
+            repair.append(
+                f"{', '.join(backtracks)} step backwards along the generation "
+                "direction: reorder the section list"
+            )
+
+    if not findings:
+        return
+
+    inventory = []
+    for fact in facts:
+        if fact.edge_count == 0:
+            description = f"vertex cap, at {_vector_display(fact.centroid)}"
+        else:
+            description = (
+                f"{fact.edge_count} edges, "
+                f"{'closed' if fact.closed else 'OPEN'}, "
+                f"{'planar' if fact.planar else 'non-planar'}, "
+                f"centroid {_vector_display(fact.centroid)}"
+            )
+        inventory.append(InventoryEntry(
+            symbol=fact.section_id,
+            status="implicated" if fact.section_id in implicated else "ok",
+            description=description,
+        ))
+
+    evidence: List[ErrorEvidence] = []
+    rendered = render_wire_plan_evidence(
+        [
+            (section, "highlight" if fact.section_id in implicated else "ink")
+            for section, fact in zip(sections, facts)
+            if hasattr(section, "_iter_edges")
+        ],
+        operation=operation,
+        caption=(
+            "orange = sections implicated by the compatibility findings; "
+            "see the Inventory rows and repair lines in the error text "
+            "(figure text is ASCII by design: the render font has no CJK glyphs)"
+        ),
+        dedup_key=(operation, "loft_sections", tuple(sorted(implicated))),
+        label_at=[(fact.centroid, fact.section_id) for fact in facts],
+    )
+    if rendered is not None:
+        evidence.append(rendered)
+
+    raise_harness_error(
+        operation=operation,
+        what_happened=(
+            f"the {operation} kernel build did not complete; the section "
+            "compatibility check found: " + "; ".join(findings)
+        ),
+        possible_causes=[
+            "Two adjacent sections sit at the same location (no generation direction to skin across).",
+            "Edge counts differ too much across stations for the kernel to establish point correspondence.",
+            "A section is open, or the list order disagrees with the generation direction.",
+        ],
+        how_to_fix=[
+            "Check every station against its Inventory row (edges / closure / centroid).",
+        ],
+        evidence=evidence,
+        repair=repair,
+        inventory=tuple(inventory),
+        technical_details=(
+            "kernel reported: loft build did not complete; "
+            f"section count={len(facts)}"
+        ),
+    )
 
 
 def render_failure_evidence(
@@ -153,6 +572,213 @@ class ClosestApproach:
     point_b: Tuple[float, float, float]
 
 
+@dataclass(frozen=True)
+class WireGapDiagnosis:
+    """Measured facts about why a wire is not closed (profile-gap probe).
+
+    ``gap_distance``/``point_a``/``point_b`` describe the smallest dangling
+    end-to-end gap; ``gap_edge_a``/``gap_edge_b`` are the edges owning those
+    ends (evidence-render highlight targets).  ``chain_count`` > 1 means the
+    wire is not even connected — a different repair than a missing segment.
+    """
+
+    gap_distance: float
+    point_a: Tuple[float, float, float]
+    point_b: Tuple[float, float, float]
+    gap_edge_a: Any
+    gap_edge_b: Any
+    edge_count: int
+    chain_count: int
+    dangling_count: int
+
+
+def diagnose_open_wire(wire: Any) -> Optional[WireGapDiagnosis]:
+    """Locate and measure the gap of an open wire.
+
+    Chains edges by endpoint proximity (coordinate tolerance scaled to the
+    wire's extent), collects the dangling ends, and reports the closest
+    dangling pair as the gap to close.  Returns None when endpoint probing
+    fails for too many edges — the caller then degrades to an honest
+    closedness-only message.
+    """
+
+    try:
+        edges = list(wire._iter_edges())
+        if not edges:
+            return None
+        endpoints: List[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = []
+        for edge in edges:
+            ends = _edge_endpoints(edge)
+            if ends is None:
+                return None
+            endpoints.append(ends)
+
+        # Endpoint-matching tolerance: kernel precision scaled to the wire
+        # extent, with a floor so degenerate (single tiny edge) wires still
+        # chain.
+        coordinates = [
+            value
+            for ends in endpoints
+            for point in ends
+            for value in point
+        ]
+        scale = max(max(coordinates) - min(coordinates), 1e-9)
+        tolerance = max(scale * 1e-6, 1e-9)
+
+        def _close(point_a, point_b) -> bool:
+            return math.dist(point_a, point_b) <= tolerance
+
+        # Union-find over edges: two edges join when an endpoint pair of
+        # one matches an endpoint pair of the other.
+        parent = list(range(len(edges)))
+
+        def _find(index: int) -> int:
+            while parent[index] != index:
+                parent[index] = parent[parent[index]]
+                index = parent[index]
+            return index
+
+        matched = [[False, False] for _ in endpoints]
+        for index_a in range(len(edges)):
+            for end_a in (0, 1):
+                for index_b in range(index_a + 1, len(edges)):
+                    for end_b in (0, 1):
+                        if (
+                            not matched[index_a][end_a]
+                            and not matched[index_b][end_b]
+                            and _close(endpoints[index_a][end_a], endpoints[index_b][end_b])
+                        ):
+                            matched[index_a][end_a] = True
+                            matched[index_b][end_b] = True
+                            root_a, root_b = _find(index_a), _find(index_b)
+                            if root_a != root_b:
+                                parent[root_a] = root_b
+        chain_count = len({_find(index) for index in range(len(edges))})
+
+        dangling = [
+            (index, end, endpoints[index][end])
+            for index in range(len(edges))
+            for end in (0, 1)
+            if not matched[index][end]
+        ]
+        if not dangling:
+            # Every endpoint matched but the wire reports open: a
+            # vertex-ordering artifact; nothing measurable to report.
+            return None
+        if len(dangling) < 2:
+            return None
+        best = None
+        for position_a in range(len(dangling)):
+            for position_b in range(position_a + 1, len(dangling)):
+                index_a, end_a, point_a = dangling[position_a]
+                index_b, end_b, point_b = dangling[position_b]
+                distance = math.dist(point_a, point_b)
+                if best is None or distance < best[0]:
+                    best = (distance, index_a, index_b, point_a, point_b)
+        if best is None:
+            return None
+        # Same-edge pairs are legitimate: a lone segment's own two ends are
+        # the gap to close (a single open segment reports its full length).
+        distance, index_a, index_b, point_a, point_b = best
+        return WireGapDiagnosis(
+            gap_distance=distance,
+            point_a=point_a,
+            point_b=point_b,
+            gap_edge_a=edges[index_a],
+            gap_edge_b=edges[index_b],
+            edge_count=len(edges),
+            chain_count=chain_count,
+            dangling_count=len(dangling),
+        )
+    except Exception:
+        return None
+
+
+def raise_open_wire_failure(operation: str, wire: Any, *, purpose: str) -> None:
+    """Raise the structured 'wire must be closed' failure with measured gap facts.
+
+    ``purpose`` names what the closed wire was for ("extrude it into a solid"
+    / "create a face"), keeping the repair sentence anchored to the
+    caller's intent.  The gap probe is best-effort: without it the error
+    still states the violation, just without numbers.
+    """
+
+    diagnosis = diagnose_open_wire(wire)
+    measurements: List[ErrorMeasurement] = []
+    repair: List[str] = []
+    inventory: Tuple = ()
+    evidence: List[ErrorEvidence] = []
+    if diagnosis is not None:
+        measurements = [
+            ErrorMeasurement("gap", diagnosis.gap_distance, "mm"),
+            ErrorMeasurement("gap end P1", diagnosis.point_a, "mm"),
+            ErrorMeasurement("gap end P2", diagnosis.point_b, "mm"),
+            ErrorMeasurement("edge count", diagnosis.edge_count),
+        ]
+        p1 = _vector_display(diagnosis.point_a)
+        p2 = _vector_display(diagnosis.point_b)
+        repair.append(
+            f"the gap is {diagnosis.gap_distance:.4g} mm between {p1} and "
+            f"{p2}: add a segment (or arc) across the two ends to close the "
+            "profile, then retry"
+        )
+        if diagnosis.chain_count > 1:
+            measurements.append(ErrorMeasurement("chain count", diagnosis.chain_count))
+            repair.append(
+                f"the wire splits into {diagnosis.chain_count} disconnected "
+                "chains — check for missing connecting geometry first "
+                "instead of only patching the shortest gap"
+            )
+        if diagnosis.dangling_count > 2:
+            repair.append(
+                f"there are {diagnosis.dangling_count} dangling endpoints "
+                "(more than one opening): close each of them before you "
+                f"{purpose}"
+            )
+        rendered = render_wire_plan_evidence(
+            [(wire, "ink"), (diagnosis.gap_edge_a, "highlight"), (diagnosis.gap_edge_b, "highlight")],
+            operation=operation,
+            caption=(
+                f"orange edges mark the gap ends: {diagnosis.gap_distance:.4g} mm "
+                f"apart at {p1} <-> {p2}"
+            ),
+            dedup_key=(operation, "open_wire", round(diagnosis.gap_distance, 4)),
+            point_marks=(
+                (diagnosis.point_a, "P1", "highlight"),
+                (diagnosis.point_b, "P2", "highlight"),
+            ),
+        )
+        if rendered is not None:
+            evidence.append(rendered)
+    else:
+        repair.append(
+            "check that the wire's endpoints meet head-to-tail in order"
+        )
+
+    raise_harness_error(
+        operation=operation,
+        what_happened=(
+            f"the given wire is not closed, so it cannot be used to {purpose}"
+            + (
+                f"; measured gap {diagnosis.gap_distance:.4g} mm"
+                if diagnosis is not None else ""
+            )
+        ),
+        possible_causes=[
+            "The wire's endpoints do not meet head-to-tail, leaving a gap.",
+            "The wire consists of several disconnected pieces.",
+            "A sketch profile was promoted before it was closed.",
+        ],
+        how_to_fix=[
+            "Locate the gap ends from the P1/P2 coordinates in Measurements and bridge them.",
+        ],
+        measurements=measurements,
+        evidence=evidence,
+        repair=repair,
+        inventory=inventory,
+    )
+
+
 def closest_approach(shape_a: Any, shape_b: Any) -> Optional[ClosestApproach]:
     try:
         tool = BRepExtrema_DistShapeShape(shape_a, shape_b)
@@ -227,7 +853,9 @@ def _edge_endpoints(edge: Any) -> Optional[Tuple[Tuple[float, float, float], Tup
         from OCP.TopoDS import TopoDS
 
         points = []
-        explorer = TopExp_Explorer(edge, TopAbs_VERTEX)
+        # SDK wrappers are not TopoDS_Shape subclasses; unwrap for OCP tools.
+        raw_edge = edge.wrapped if hasattr(edge, "wrapped") else edge
+        explorer = TopExp_Explorer(raw_edge, TopAbs_VERTEX)
         while explorer.More() and len(points) < 2:
             # Explorer yields TopoDS_Shape; vertex_point needs the typed cast.
             points.append(vertex_point(TopoDS.Vertex_s(explorer.Current())))

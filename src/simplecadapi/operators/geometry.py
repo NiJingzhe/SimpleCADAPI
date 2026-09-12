@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ._diagnostics import raise_loft_failure_if_diagnosed, raise_open_wire_failure
 from ._support import *
 
 @dataclass(frozen=True)
@@ -836,6 +837,15 @@ def loft_rshell(
             has_end=end_is_wire,
         )
     except Exception as e:
+        # Same section-compatibility diagnosis as the solid loft; falls
+        # through to the generic wrap when no verdict lands.
+        if not isinstance(e, SimpleCADError):
+            try:
+                raise_loft_failure_if_diagnosed(sections, "loft_rshell")
+            except SimpleCADError:
+                raise
+            except Exception:
+                pass
         _wrap_public_api_error(
             operation="loft_rshell",
             what_happened="Failed to create the surface loft shell.",
@@ -1885,9 +1895,11 @@ def make_face_from_wire_rface(
         if not isinstance(wire, Wire):
             raise ValueError("输入必须是Wire类型")
 
-        # 检查Wire是否封闭
+        # 检查Wire是否封闭；缺口诊断（端点对+距离+证据图）随结构化错误给出
         if not wire.is_closed():
-            raise ValueError("Wire必须是封闭的才能创建面")
+            raise_open_wire_failure(
+                "make_face_from_wire_rface", wire, purpose="create a face"
+            )
 
         # The wire is already global geometry; only the requested local normal
         # is resolved through the active workplane chain.

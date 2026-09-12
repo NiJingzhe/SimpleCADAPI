@@ -7,6 +7,8 @@ from ._diagnostics import (
     BlendVolumeViolation,
     assert_blend_volume_monotonic,
     diagnose_blend_failure,
+    raise_loft_failure_if_diagnosed,
+    raise_open_wire_failure,
     render_failure_evidence,
 )
 from ._support import *
@@ -146,12 +148,13 @@ def extrude_rsolid(
         )
 
         if isinstance(profile, Wire):
-            # 如果是线，先转换为面
+            # 如果是线，先转换为面；缺口诊断（端点对+距离+证据图）随结构化错误给出
             if profile.is_closed():
                 face = Face(make_face_from_wire_ocp(profile.wrapped))
             else:
-                raise ValueError(
-                    "如果传入线框作为拉伸对象，那么线框必须是闭合的, 而你的线框没有闭合，请检查构成线框的点是否正确"
+                raise_open_wire_failure(
+                    "extrude_rsolid", profile,
+                    purpose="extrude it into a solid",
                 )
         elif isinstance(profile, Face):
             face = profile
@@ -1003,6 +1006,16 @@ def loft_rsolid(
             source_shapes=profiles,
         )
     except Exception as e:
+        # Section-compatibility diagnosis first (coincident stations, edge
+        # counts, closure, ordering); the kernel names nothing itself.  When
+        # no verdict lands, fall through to the generic wrap.
+        if not isinstance(e, SimpleCADError):
+            try:
+                raise_loft_failure_if_diagnosed(profiles, "loft_rsolid")
+            except SimpleCADError:
+                raise
+            except Exception:
+                pass
         _wrap_public_api_error(
             operation="loft_rsolid",
             what_happened="Failed to loft the input profiles into a solid.",

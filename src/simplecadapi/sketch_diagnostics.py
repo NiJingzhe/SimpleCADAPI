@@ -587,9 +587,14 @@ def raise_sketch_solve_failure(
             if _constraint_target_ids(related[related_id])
             & _constraint_target_ids(constraint)
         )
-        line = f"删除或放宽 {constraint_id}({_describe_constraint(constraint)})"
+        line = (
+            f"Delete or relax {constraint_id}({_describe_constraint(constraint)})"
+        )
         if partners:
-            line += f" —— 它与 {partners} 共同约束同一批实体，是直接冲突对"
+            line += (
+                f" — it constrains the same entities together with {partners}, "
+                "making them a direct conflict pair"
+            )
         repair.append(line)
     if failed:
         dimension_kinds = {
@@ -602,21 +607,27 @@ def raise_sketch_solve_failure(
         ]
         if dimension_side:
             repair.append(
-                f"冲突集中优先放宽尺寸类约束（{', '.join(dimension_side)}），"
-                "保留几何类（coincident/tangent/parallel/horizontal/vertical）——几何意图通常才是设计意图"
+                f"Prefer relaxing dimension-type constraints first ({', '.join(dimension_side)}) "
+                "and keep geometric ones (coincident/tangent/parallel/horizontal/vertical) "
+                "— the geometric intent is usually the design intent"
             )
         else:
             repair.append(
-                "冲突集全部是几何类约束：删除其中最弱的一条"
-                "（通常是后加的那条），或将其目标实体的固定约束先解除"
+                "The conflict set is entirely geometric: delete the weakest "
+                "one (usually the last added), or lift the fix constraint on "
+                "its target entities first"
             )
     else:
         repair.append(
-            "求解器未指认具体约束：将约束集二分（先禁用后半再前半）定位冲突对，"
-            "或重跑 inspect_sketch_rsketchresult(strict=False) 查看逐约束诊断"
+            "The solver did not name individual constraints: bisect the "
+            "constraint set (disable the second half first, then the first) "
+            "to locate the conflict pair, or rerun "
+            "inspect_sketch_rsketchresult(strict=False) for per-constraint "
+            "diagnostics"
         )
     repair.append(
-        "重跑 inspect_sketch_rsketchresult(sketch, strict=False) 获取逐约束诊断而不抛错"
+        "Rerun inspect_sketch_rsketchresult(sketch, strict=False) to get "
+        "per-constraint diagnostics without raising"
     )
 
     evidence: List[ErrorEvidence] = []
@@ -720,13 +731,18 @@ def raise_sketch_underconstrained(
             if len(unreferenced) > 12 else ""
         )
         repair.append(
-            f"这些实体未被任何约束引用，先固定或加尺寸：{shown}{more}"
-            f"（constrain_fix_rsketch / constrain_distance_rsketch 等）"
+            f"These entities are not referenced by any constraint — fix or "
+            f"dimension them first: {shown}{more} "
+            "(constrain_fix_rsketch / constrain_distance_rsketch and friends)"
         )
     repair.extend([
-        "DOF 记账参考：每个自由点 2 DOF，自由圆 3（圆心 2 + 半径 1），自由线 4",
-        "固定对称意图用几何约束（horizontal/vertical/parallel），只把最终尺寸留给尺寸约束",
-        "重跑 inspect_sketch_rsketchresult(sketch) 查看 DOF 是否归零后再要求全约束",
+        "DOF accounting reference: each free point is 2 DOF, a free circle "
+        "is 3 (center 2 + radius 1), a free line is 4",
+        "Express symmetry intent with geometric constraints "
+        "(horizontal/vertical/parallel) and leave only final dimensions to "
+        "dimension constraints",
+        "Rerun inspect_sketch_rsketchresult(sketch) and confirm the DOF "
+        "reaches 0 before requiring full constraint",
     ])
 
     evidence: List[ErrorEvidence] = []
