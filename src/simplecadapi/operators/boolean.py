@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ._diagnostics import (
+    _solid_copy,
     BooleanDiagnosis,
     diagnose_boolean_failure,
     render_failure_evidence,
@@ -42,11 +43,28 @@ def _wrap_boolean_failure(
                 diagnosis.failure_kind,
                 round(float(diagnosis.measurements[0].value), 1),
             )
+        # Color the two operands differently (tagged wrapper copies; the
+        # user's own objects are never tagged).
+        render_shapes: List[Any] = []
+        highlight_tags: List[str] = []
+        tag_labels: Dict[str, str] = {}
+        for index, shape in enumerate(diagnosis.evidence_shapes[:2]):
+            tag = f"diagnostic.operand_{index + 1}"
+            copy = _solid_copy(shape)
+            if copy is not None:
+                copy._apply_tag(tag, propagate=False)
+                render_shapes.append(copy)
+                highlight_tags.append(tag)
+                tag_labels[tag] = f"operand {index + 1}"
+            else:
+                render_shapes.append(shape)
         rendered = render_failure_evidence(
-            diagnosis.evidence_shapes,
+            render_shapes,
             operation=operation,
             caption=diagnosis.evidence_caption,
             dedup_key=dedup_key,
+            highlight_tags=highlight_tags,
+            tag_labels=tag_labels,
         )
         if rendered is not None:
             evidence = (rendered,)

@@ -174,7 +174,25 @@ def test_ql_zero_hit_lists_near_miss_inventory():
     assert any("align predicate values" in step for step in payload["repair"])
 
 
-def test_ql_evidence_render_writes_image(tmp_path, monkeypatch):
+def _count_palette_pixels(path: str, rgb: tuple, tolerance: int = 40) -> int:
+    """Sampled pixel count near a palette color — highlight visibility check."""
+
+    from PIL import Image
+
+    image = Image.open(path).convert("RGB")
+    width, height = image.size
+    return sum(
+        1
+        for x in range(0, width, 3)
+        for y in range(0, height, 3)
+        if all(
+            abs(channel - target) <= tolerance
+            for channel, target in zip(image.getpixel((x, y)), rgb)
+        )
+    )
+
+
+def test_ql_evidence_highlight_is_visible(tmp_path, monkeypatch):
     monkeypatch.delenv("SCA_NO_DIAGNOSTIC_RENDER", raising=False)
     monkeypatch.chdir(tmp_path)
     _RENDER_DEDUP.clear()
@@ -183,6 +201,31 @@ def test_ql_evidence_render_writes_image(tmp_path, monkeypatch):
         scad.ql.faces().where(scad.ql.surface_type("CYLINDER")).exactly(1).resolve(part)
     evidence = ctx.value.to_dict()["evidence"]
     assert len(evidence) == 1
-    assert Path(evidence[0]["path"]).exists()
-    assert Path(evidence[0]["path"]).stat().st_size > 10_000
+    rendered = Path(evidence[0]["path"])
+    assert rendered.exists()
+    assert rendered.stat().st_size > 10_000
     assert evidence[0]["path"] in str(ctx.value)
+    # The matched cylinder bands must be ORANGE in the image, not just
+    # present in the scene: palette first color #f39c12.
+    orange = _count_palette_pixels(str(rendered), (243, 156, 18))
+    assert orange > 400, f"highlight not visible: only {orange} sampled orange pixels"
+
+
+def _face_tags(face) -> set:
+    try:
+        return set(scad.list_tags(shape=face))
+    except Exception:
+        return set()
+
+
+def test_ql_highlight_does_not_pollute_user_shape(tmp_path, monkeypatch):
+    monkeypatch.delenv("SCA_NO_DIAGNOSTIC_RENDER", raising=False)
+    monkeypatch.chdir(tmp_path)
+    _RENDER_DEDUP.clear()
+    part = _split_band_solid()
+    tags_before = {tag for face in part._iter_faces() for tag in _face_tags(face)}
+    with pytest.raises(scad.SimpleCADError):
+        scad.ql.faces().where(scad.ql.surface_type("CYLINDER")).exactly(1).resolve(part)
+    tags_after = {tag for face in part._iter_faces() for tag in _face_tags(face)}
+    assert tags_before == tags_after
+    assert all("diagnostic" not in tag for tag in tags_after)

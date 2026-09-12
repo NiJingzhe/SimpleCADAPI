@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from ._diagnostics import BlendDiagnosis, diagnose_blend_failure, render_failure_evidence
+from ._diagnostics import (
+    _FAILING_EDGE_TAG,
+    BlendDiagnosis,
+    diagnose_blend_failure,
+    render_failure_evidence,
+)
 from ._support import *
 from .geometry import (
     _default_plane_x_direction,
@@ -62,11 +67,16 @@ def _wrap_blend_failure(
         dedup_key: Tuple = (operation, diagnosis.failure_kind)
         if size_value is not None:
             dedup_key = (operation, diagnosis.failure_kind, round(size_value, 1))
+        # evidence_shapes[1:] are tagged marker tubes; their highlight channel
+        # colors the failing edge, adds the legend and the callout.
+        marker_present = len(diagnosis.evidence_shapes) > 1
         rendered = render_failure_evidence(
             diagnosis.evidence_shapes,
             operation=operation,
             caption=diagnosis.evidence_caption,
             dedup_key=dedup_key,
+            highlight_tags=(_FAILING_EDGE_TAG,) if marker_present else (),
+            tag_labels={_FAILING_EDGE_TAG: "failing edge"},
         )
         if rendered is not None:
             evidence = (rendered,)

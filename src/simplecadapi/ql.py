@@ -1018,9 +1018,15 @@ class ShapeSelector:
                 "from the newest shape instead of reusing one resolved earlier."
             )
 
+        near_misses = [
+            item
+            for item in candidates
+            if _shape_identity(item) not in matched_ids
+        ][:3]
         evidence = _ql_evidence(
             scope, items, self.target_kind,
             dedup_key=("ql", self.target_kind, mode, expected, len(items)),
+            near_misses=near_misses,
         )
 
         what = (
@@ -1581,43 +1587,92 @@ def _face_logical_groups(faces: List[Any]) -> List[List[int]]:
     return [members for members in groups.values() if len(members) > 1]
 
 
+_MATCHED_TAG = "diagnostic.matched"
+_NEAR_MISS_TAG = "diagnostic.near_miss"
+
+
 def _ql_evidence(
-    scope: Any, items: List[Any], target_kind: str, *, dedup_key: tuple
+    scope: Any,
+    items: List[Any],
+    target_kind: str,
+    *,
+    dedup_key: tuple,
+    near_misses: Optional[List[Any]] = None,
 ) -> List[ErrorEvidence]:
-    """Render the scope with rods outlining the matched entities; best-effort."""
+    """Render the scope with the matched entities visibly highlighted.
+
+    Face selections render a wrapper copy of the scope whose matched faces
+    carry ``diagnostic.matched`` (orange) and up to three near-miss faces
+    carry ``diagnostic.near_miss`` (purple) — the designed highlight channel
+    with legend and callouts, so the agent can SEE what it selected. Wrapper
+    copies never pollute the user's original shape with tags. Other target
+    kinds fall back to tagged marker tubes along the matched entities.
+    """
 
     try:
-        from OCP.TopAbs import TopAbs_EDGE
-        from OCP.TopExp import TopExp_Explorer
+        from .operators._diagnostics import (
+            _edge_marker_solid,
+            _solid_copy,
+            render_failure_evidence,
+        )
 
-        from .operators._diagnostics import _edge_marker_solid, render_failure_evidence
+        highlight_tags: List[str] = []
+        tag_labels: Dict[str, str] = {}
+        shapes: List[Any] = []
 
-        markers = []
-        for item in items[:4]:
-            if target_kind == "face":
-                boundary = TopExp_Explorer(item.wrapped, TopAbs_EDGE)
-                count = 0
-                while boundary.More() and count < 6:
-                    marker = _edge_marker_solid(boundary.Current())
-                    if marker is not None:
-                        markers.append(marker)
-                    boundary.Next()
-                    count += 1
-            elif target_kind == "edge":
+        if target_kind == "face":
+            copy = _solid_copy(scope)
+            if copy is not None:
+                # Match by kernel topology identity (IsSame): Python-level
+                # shape ids differ across wrapper copies, TopoDS identity
+                # does not.
+                matched_wrapped = [item.wrapped for item in items]
+                near_wrapped = [item.wrapped for item in (near_misses or [])]
+                matched_any = False
+                near_miss_tagged = 0
+                for face in copy._iter_faces():
+                    if any(face.wrapped.IsSame(w) for w in matched_wrapped):
+                        face._apply_tag(_MATCHED_TAG, propagate=False)
+                        matched_any = True
+                    elif near_miss_tagged < 3 and any(
+                        face.wrapped.IsSame(w) for w in near_wrapped
+                    ):
+                        face._apply_tag(_NEAR_MISS_TAG, propagate=False)
+                        near_miss_tagged += 1
+                if matched_any:
+                    highlight_tags = [_MATCHED_TAG]
+                    if near_miss_tagged:
+                        highlight_tags.append(_NEAR_MISS_TAG)
+                    tag_labels = {
+                        _MATCHED_TAG: f"matched {target_kind}(s)",
+                        _NEAR_MISS_TAG: "near miss",
+                    }
+                    shapes = [copy]
+        if not shapes:
+            # Non-face targets: tagged marker tubes along each matched entity.
+            for item in items[:4]:
                 marker = _edge_marker_solid(item.wrapped)
                 if marker is not None:
-                    markers.append(marker)
-        shapes = [scope] if hasattr(scope, "wrapped") else []
-        shapes.extend(markers)
-        if not shapes:
-            return []
+                    shapes.append(marker)
+                    highlight_tags = ["diagnostic.failing_edge"]
+                    tag_labels = {"diagnostic.failing_edge": "matched"}
+            if scope.__class__.__name__ == "Solid":
+                shapes.insert(0, scope)
+            if not shapes:
+                return []
+
         rendered = render_failure_evidence(
             shapes,
             operation=f"ql_{target_kind}_resolve",
             caption=(
-                f"rods outline the matched {target_kind}(s); see inventory for identities"
+                "orange = matched, purple = near miss; "
+                "see inventory for identities"
+                if target_kind == "face"
+                else "highlighted = matched entities; see inventory"
             ),
             dedup_key=dedup_key,
+            highlight_tags=highlight_tags,
+            tag_labels=tag_labels,
         )
         return [rendered] if rendered is not None else []
     except Exception:

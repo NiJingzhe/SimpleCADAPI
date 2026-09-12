@@ -13,7 +13,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 from OCP.gp import gp_Pnt
@@ -68,12 +68,18 @@ def render_failure_evidence(
     view: str = "default",
     caption: str = "",
     dedup_key: Optional[tuple] = None,
+    highlight_tags: Sequence[str] = (),
+    tag_labels: Optional[Dict[str, str]] = None,
 ) -> Optional[ErrorEvidence]:
     """Render one diagnostic image; never raises, returns None when skipped.
 
     Skips when disabled, when this failure signature already rendered once in
     the process (agent retry loops must not re-pay the render), or when the
     render exceeds the budget — the error goes out immediately in all cases.
+
+    ``highlight_tags`` drives the designed color channel: tagged faces (or
+    whole tagged solids) get palette colors, a legend, and callout labels —
+    a highlight the agent can actually see, not just geometry in the scene.
     """
 
     if not diagnostics_enabled():
@@ -99,8 +105,10 @@ def render_failure_evidence(
                     view=(25.0, 35.0),  # (elevation, azimuth); single view, not the 4-panel grid
                     image_size=(1000, 700),
                     supersample=1,
-                    show_legend=False,
-                    show_callouts=False,
+                    highlight_tags=tuple(highlight_tags),
+                    tag_labels=dict(tag_labels or {}),
+                    show_legend=bool(highlight_tags),
+                    show_callouts=bool(highlight_tags),
                 )
                 result["path"] = str(path)
             except Exception:
@@ -194,15 +202,19 @@ def _edge_face_adjacency(solid: Any) -> dict:
 
 
 def _edge_endpoints(edge: Any) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]:
+    """Both endpoint coordinates of an edge; None for open/degenerate results."""
+
     try:
-        from ...kernel.ocp_topology import vertex_point
+        from ..kernel.ocp_topology import vertex_point
         from OCP.TopAbs import TopAbs_VERTEX
         from OCP.TopExp import TopExp_Explorer
+        from OCP.TopoDS import TopoDS
 
         points = []
         explorer = TopExp_Explorer(edge, TopAbs_VERTEX)
         while explorer.More() and len(points) < 2:
-            points.append(vertex_point(explorer.Current()))
+            # Explorer yields TopoDS_Shape; vertex_point needs the typed cast.
+            points.append(vertex_point(TopoDS.Vertex_s(explorer.Current())))
             explorer.Next()
         if len(points) != 2:
             return None
@@ -251,11 +263,18 @@ def _face_extent_from_edge(face: Any, edge: Any) -> Optional[float]:
         return None
 
 
+# Tag used on diagnostic marker geometry; tags only ever land on the
+# diagnosis's own shapes or on wrapper copies, never on user objects.
+_FAILING_EDGE_TAG = "diagnostic.failing_edge"
+
+
 def _edge_marker_solid(edge: Any) -> Optional[Any]:
-    """Thin tube along ``edge`` so the failing edge is visible in the evidence render.
+    """Thick tagged tube along ``edge`` so the failing edge is unmistakable.
 
     The tube is the diagnosis's own geometry (never a tag on user shapes) and
-    overshoots each end by 0.5 mm so it reads as a marker, not a feature.
+    overshoots each end so it reads as a marker, not a feature. It carries
+    ``diagnostic.failing_edge`` so the render's highlight channel colors it,
+    adds it to the legend, and labels it with a callout.
     """
 
     try:
@@ -280,12 +299,31 @@ def _edge_marker_solid(edge: Any) -> Optional[Any]:
             p1[1] - 0.5 * axis[1] / length,
             p1[2] - 0.5 * axis[2] / length,
         )
-        return make_cylinder_rsolid(
-            0.45,
+        marker = make_cylinder_rsolid(
+            min(1.2, max(0.35, length * 0.06)),
             length + 1.0,
             bottom_face_center=start,
             axis=axis,
         )
+        marker._apply_tag(_FAILING_EDGE_TAG, propagate=False)
+        return marker
+    except Exception:
+        return None
+
+
+def _solid_copy(shape: Any) -> Optional[Any]:
+    """Fresh SDK wrapper around the same topology, for tag-free highlighting.
+
+    Tags applied to the copy's faces never touch the user's original object
+    (verified: wrapper-local bindings, zero pollution of the source shape).
+    """
+
+    try:
+        from ..core import Solid
+
+        if shape.__class__.__name__ != "Solid":
+            return None
+        return Solid(shape.wrapped)
     except Exception:
         return None
 
