@@ -33,6 +33,7 @@ whole API index up front.
 | `assembly-and-product` | parts, placements, connectors, constraints, @part/@assemble, cache, `.scadpkg` |
 | `standard-parts` | stdlib gears, ring gears, racks, cycloidal discs, bearings |
 | `step-inspection` | STEP/BREP evidence, comparison, reconstruction evaluation |
+| `drawing-inspection` | vector-PDF coordinates and dimensions, model-section measurements, independent evidence validation |
 | `export-and-translation` | STEP/STL/OBJ/MJCF export, FreeCAD/Fusion/SolidWorks translation |
 | `addon-development` | third-party addon authoring and management: `sca` CLI, `sca-addon.toml` descriptor, runtime probes, addon SKILL.md requirements |
 
@@ -51,6 +52,7 @@ exporters) lives in `scadpkg-format.md`.
 | `single-part-modeling` | one physical part from brief to validated solid — sketch tier by default, std parts first |
 | `assembly-product-build` | multi-part product or mechanism with connectors/constraints and package capture; stdlib gears/bearings live here |
 | `step-reconstruction` | editable rebuild from a target STEP with tiered acceptance |
+| `drawing-reconstruction` | editable rebuild from vector-PDF dimensions with stage checks and independent drawing/model/output acceptance |
 | `export-and-translation` | downstream formats from a validated package |
 
 Each workflow states: goal/scope, task decomposition (required/optional

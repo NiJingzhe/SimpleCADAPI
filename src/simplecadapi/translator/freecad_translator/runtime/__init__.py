@@ -21,7 +21,8 @@ _FRAGMENT_NAMES = (
 @lru_cache(maxsize=1)
 def assemble_runtime_source() -> str:
     runtime_dir = Path(__file__).resolve().parent
-    return "".join(
+    shared = (runtime_dir.parent.parent / "geometry_signature.py").read_text(encoding="utf-8")
+    return shared + "\n" + "".join(
         (runtime_dir / name).read_text(encoding="utf-8") for name in _FRAGMENT_NAMES
     )
 

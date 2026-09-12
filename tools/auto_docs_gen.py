@@ -72,6 +72,14 @@ DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
     "exporter/mjcf.py",
     "inspect/brep/snapshots.py",
     "inspect/brep/topology_inspection.py",
+    "inspect/drawing/calibrate.py",
+    "inspect/drawing/geometry.py",
+    "inspect/drawing/evidence.py",
+    "inspect/drawing/preflight.py",
+    "inspect/drawing/render.py",
+    "inspect/drawing/section.py",
+    "inspect/drawing/summary.py",
+    "inspect/drawing/text.py",
 )
 
 DEFAULT_STDLIB_SOURCE_FILENAMES: tuple[str, ...] = (
@@ -131,6 +139,14 @@ EXPORTED_FUNCTION_MODULES = frozenset(
         "exporter/mjcf.py",
         "inspect/brep/snapshots.py",
         "inspect/brep/topology_inspection.py",
+        "inspect/drawing/calibrate.py",
+        "inspect/drawing/geometry.py",
+        "inspect/drawing/evidence.py",
+        "inspect/drawing/preflight.py",
+        "inspect/drawing/render.py",
+        "inspect/drawing/section.py",
+        "inspect/drawing/summary.py",
+        "inspect/drawing/text.py",
     }
 )
 
@@ -393,6 +409,21 @@ class APIDocumentGenerator:
                     "_rtuple",
                 )
             )
+        if module_name.startswith("inspect/drawing/"):
+            return name.endswith(
+                (
+                    "_rcalibration",
+                    "_rdimensions",
+                    "_rmeasurements",
+                    "_rpath",
+                    "_rrecord",
+                    "_rreport",
+                    "_rstrokes",
+                    "_rsummary",
+                    "_rwords",
+                    "_rverdict",
+                )
+            )
         if module_name == "inverse_engineer/brep/evaluation.py":
             return name in {
                 "classify_benchmark_result",
@@ -430,6 +461,15 @@ class APIDocumentGenerator:
                 "SliceComparison",
                 "SlicePanelResult",
                 "SliceSpec",
+            }
+        if module_name.startswith("inspect/drawing/"):
+            return name in {
+                "DrawingCalibration",
+                "DrawingMeasurements",
+                "DrawingSectionDimensions",
+                "DrawingStrokes",
+                "DrawingSummary",
+                "DrawingText",
             }
         if module_name == "inverse_engineer/brep/evaluation.py":
             return name in {"EvaluationConfig", "SectionEvaluationConfig"}
@@ -504,6 +544,13 @@ class APIDocumentGenerator:
             return (
                 "inspection namespace: `from simplecadapi.inspect import brep` "
                 f"then `brep.{name}(...)`; unavailable inside GraphSession"
+            )
+
+        if module_name.startswith("inspect/drawing/"):
+            return (
+                "drawing-inspection namespace: "
+                "`from simplecadapi.inspect import drawing` "
+                f"then `drawing.{name}(...)`; unavailable inside GraphSession"
             )
 
         if module_name.startswith("dxf_engine/"):
@@ -675,6 +722,7 @@ class APIDocumentGenerator:
             "Types and Errors": [],
             "Advanced Features": [],
             "STEP/BREP Inspection": [],
+            "Drawing Inspection": [],
             "Product Build and Cache": [],
             "Reconstruction Evaluation": [],
             "Engineering Drawings": [],
@@ -686,6 +734,9 @@ class APIDocumentGenerator:
 
             if api.source_file.startswith("inspect/brep/"):
                 categories["STEP/BREP Inspection"].append(api)
+                continue
+            if api.source_file.startswith("inspect/drawing/"):
+                categories["Drawing Inspection"].append(api)
                 continue
             if api.source_file.startswith(("build/", "cache/")):
                 categories["Product Build and Cache"].append(api)
@@ -755,6 +806,7 @@ class APIDocumentGenerator:
             "- Entries marked `top-level` are exported from `simplecadapi` and can be imported with `from simplecadapi import <name>`.",
             "- Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.",
             "- Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession`.",
+            "- Entries marked `drawing-inspection namespace` are available through `simplecadapi.inspect.drawing` and cannot run inside `GraphSession`.",
             "- Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.",
             "- Entries marked `reverse-engineering evaluator` are available through `simplecadapi.inverse_engineer.brep`; their acceptance inputs and reports belong to the trusted harness, not participant code.",
             "",
@@ -771,6 +823,8 @@ class APIDocumentGenerator:
                     surface_info = " `top-level`"
                 elif api.source_file.startswith("inspect/brep/"):
                     surface_info = " `inspection namespace`"
+                elif api.source_file.startswith("inspect/drawing/"):
+                    surface_info = " `drawing-inspection namespace`"
                 elif api.source_file.startswith("exporter/"):
                     surface_info = " `exporter namespace`"
                 elif api.source_file.startswith("translator/"):

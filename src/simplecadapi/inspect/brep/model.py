@@ -29,7 +29,7 @@ from OCP.TopAbs import (
     TopAbs_WIRE,
 )
 from OCP.TopExp import TopExp, TopExp_Explorer
-from OCP.TopTools import TopTools_IndexedMapOfShape
+from OCP.TopTools import TopTools_IndexedMapOfShape, TopTools_ListOfShape
 from OCP.TopoDS import (
     TopoDS,
     TopoDS_Edge,
@@ -996,11 +996,20 @@ def _describe_geometry(
 
 
 def _fuse_bodies(bodies: Sequence[TopoDS_Solid]) -> TopoDS_Shape:
+    """Union material without modifying the original bodies or their pcurves."""
     if not bodies:
         raise BRepEntityError("Model has no solid bodies")
     result: TopoDS_Shape = bodies[0]
     for body in bodies[1:]:
-        operation = BRepAlgoAPI_Fuse(result, body)
+        # The two-shape constructor builds immediately, before options can be
+        # set. Configure an empty operation before its first and only Build.
+        arguments, tools = TopTools_ListOfShape(), TopTools_ListOfShape()
+        arguments.Append(result)
+        tools.Append(body)
+        operation = BRepAlgoAPI_Fuse()
+        operation.SetArguments(arguments)
+        operation.SetTools(tools)
+        operation.SetNonDestructive(True)
         operation.Build()
         if not operation.IsDone():
             raise BRepEntityError(

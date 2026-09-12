@@ -459,7 +459,6 @@ def resolve_region(
 __all__ = [
     "ARTIFACT_NAMES",
     "MAX_ADJACENCY_IDS",
-    "MAX_ENTITIES_PER_ANNOTATION",
     "ReCase",
     "compose_submission",
     "entity_neighborhood",

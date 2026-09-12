@@ -120,16 +120,17 @@ CalculiX 静力 FEM（边界面按保真的 `interface.*` 标签选取，仿真�
 
 ---
 
-## 更新日志（2.1.2）
+## 更新日志（2.1.3b1）
 
-> **发布说明：** 用于生产前，请验证生成的定义、装配约束和制造几何。
+> **发布说明：** 预发布（beta）。用于生产前，请验证生成的定义、装配约束和制造几何。
 
-SimpleCADAPI 2.1.2 把 `@scad.part` 缓存锚定到 builder 脚本所在目录
-（独立脚本随处可运行，无需 `pyproject.toml`），翻译器产物全面 keyword
-参数化并显式声明缓存锚点。锚点语义、兼容性说明与 FTC 规范新增的
-`@scad.part` 一节见[完整中文更新说明](docs/updates/2.1.2.zh-CN.md)；
-2.1.0 的 agent-first 能力全貌见
-[docs/updates/2.1.0.zh-CN.md](docs/updates/2.1.0.zh-CN.md)。
+SimpleCADAPI 2.1.3b1 带来插件生态：`sca` 命令行安装第三方 skill+工具仓库
+（`sca addon init/add/update/remove/list`）、带平台与 `[compat] sca` 硬门的
+严格 `sca-addon.toml` 描述文件，以及面向消费者的 `.scadpkg` 格式规范——把
+文档交给 agent 即可写出正确的解析器/导出器。CLI 契约、两种合法集成模式与
+tag 通道见[完整中文更新说明](docs/updates/2.1.3b1.zh-CN.md)；2.1.2 的脚本
+锚定 part cache 见
+[docs/updates/2.1.2.zh-CN.md](docs/updates/2.1.2.zh-CN.md)。
 
 ---
 
@@ -146,7 +147,7 @@ SimpleCADAPI 2.1.2 把 `@scad.part` 缓存锚定到 builder 脚本所在目录
 
 SimpleCADAPI 是一个基于 OCP 的 Python CAD SDK，提供清晰的函数式建模操作和可重放的模型图。它在 OpenCascade 几何内核之上提供精简的公共 API，可用于创建实体、应用特征、添加语义标签、查询拓扑、导出制造文件，以及将记录的模型转换为 FreeCAD 工作流。
 
-当前版本：`simplecadapi==2.1.2`。
+当前版本：`simplecadapi==2.1.3b1`。
 
 ## 核心能力
 
@@ -366,6 +367,7 @@ uv run --extra fem python examples/ap242_gmsh_volume_mesh/study_mesh_convergence
 
 ## 文档
 
+- 2.1.3b1 更新说明：[`docs/updates/2.1.3b1.zh-CN.md`](docs/updates/2.1.3b1.zh-CN.md)
 - 2.1.2 更新说明：[`docs/updates/2.1.2.zh-CN.md`](docs/updates/2.1.2.zh-CN.md)
 - 2.1.1 更新说明：[`docs/updates/2.1.1.zh-CN.md`](docs/updates/2.1.1.zh-CN.md)
 - 2.1.0 更新说明：[`docs/updates/2.1.0.zh-CN.md`](docs/updates/2.1.0.zh-CN.md)

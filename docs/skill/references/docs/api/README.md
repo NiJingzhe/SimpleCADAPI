@@ -7,6 +7,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - Entries marked `top-level` are exported from `simplecadapi` and can be imported with `from simplecadapi import <name>`.
 - Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.
 - Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession`.
+- Entries marked `drawing-inspection namespace` are available through `simplecadapi.inspect.drawing` and cannot run inside `GraphSession`.
 - Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.
 - Entries marked `reverse-engineering evaluator` are available through `simplecadapi.inverse_engineer.brep`; their acceptance inputs and reports belong to the trusted harness, not participant code.
 
@@ -240,6 +241,29 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [select_region_entities_rdescriptor](select_region_entities_rdescriptor.md) *(from inspect/brep/queries.py)* `inspection namespace`
 - [track_section_contours_rdescriptor](track_section_contours_rdescriptor.md) *(from inspect/brep/section_tracking.py)* `inspection namespace`
 - [validate_step_roundtrip_rdescriptor](validate_step_roundtrip_rdescriptor.md) *(from inspect/brep/persistence.py)* `inspection namespace`
+
+## Drawing Inspection
+
+- [DrawingCalibration](DrawingCalibration.md) *(from inspect/drawing/calibrate.py)* `drawing-inspection namespace`
+- [DrawingMeasurements](DrawingMeasurements.md) *(from inspect/drawing/calibrate.py)* `drawing-inspection namespace`
+- [DrawingSectionDimensions](DrawingSectionDimensions.md) *(from inspect/drawing/section.py)* `drawing-inspection namespace`
+- [DrawingStrokes](DrawingStrokes.md) *(from inspect/drawing/geometry.py)* `drawing-inspection namespace`
+- [DrawingSummary](DrawingSummary.md) *(from inspect/drawing/summary.py)* `drawing-inspection namespace`
+- [DrawingText](DrawingText.md) *(from inspect/drawing/text.py)* `drawing-inspection namespace`
+- [assess_dimension_rverdict](assess_dimension_rverdict.md) *(from inspect/drawing/evidence.py)* `drawing-inspection namespace`
+- [build_section_annotation_rrecord](build_section_annotation_rrecord.md) *(from inspect/drawing/evidence.py)* `drawing-inspection namespace`
+- [calibrate_drawing_scale_rcalibration](calibrate_drawing_scale_rcalibration.md) *(from inspect/drawing/calibrate.py)* `drawing-inspection namespace`
+- [extract_drawing_primitives_rstrokes](extract_drawing_primitives_rstrokes.md) *(from inspect/drawing/geometry.py)* `drawing-inspection namespace`
+- [extract_drawing_text_rwords](extract_drawing_text_rwords.md) *(from inspect/drawing/text.py)* `drawing-inspection namespace`
+- [inspect_drawing_coordinates_rreport](inspect_drawing_coordinates_rreport.md) *(from inspect/drawing/preflight.py)* `drawing-inspection namespace`
+- [inspect_drawing_rsummary](inspect_drawing_rsummary.md) *(from inspect/drawing/summary.py)* `drawing-inspection namespace`
+- [measure_drawing_rmeasurements](measure_drawing_rmeasurements.md) *(from inspect/drawing/calibrate.py)* `drawing-inspection namespace`
+- [measure_model_section_rdimensions](measure_model_section_rdimensions.md) *(from inspect/drawing/section.py)* `drawing-inspection namespace`
+- [render_drawing_view_rpath](render_drawing_view_rpath.md) *(from inspect/drawing/render.py)* `drawing-inspection namespace`
+- [render_model_section_rpath](render_model_section_rpath.md) *(from inspect/drawing/section.py)* `drawing-inspection namespace`
+- [summarize_dimension_coverage_rreport](summarize_dimension_coverage_rreport.md) *(from inspect/drawing/evidence.py)* `drawing-inspection namespace`
+- [validate_section_annotations_rreport](validate_section_annotations_rreport.md) *(from inspect/drawing/evidence.py)* `drawing-inspection namespace`
+
 
 ## Product Build and Cache
 
