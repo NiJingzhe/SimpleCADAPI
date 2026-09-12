@@ -36,6 +36,223 @@ _PLACEMENT_TOLERANCE = 1e-7
 _ANGLE_TOLERANCE_DEGREES = 1e-6
 
 
+# --- Structured solve-failure channel -------------------------------------
+#
+# The solver's five strict-mode raise sites previously emitted one-line
+# ValueErrors that discarded the residual data already in hand.  These
+# helpers raise the same conditions as SimpleCADError (a ValueError
+# subclass, so legacy handlers keep working) carrying measurements,
+# inventory, and parameterized repair per the error-guidance contract.
+# ``raise_harness_error`` passes SimpleCADError through, so the public
+# ``solve_assembly_constraints_rassembly`` wrapper surfaces them unchanged.
+
+_INVENTORY_CAP = 16
+
+
+def _constraint_description(constraint: Constraint) -> str:
+    """One-line constraint summary shared by inventory rows and repair text."""
+
+    try:
+        return (
+            f"{constraint.constraint_kind} "
+            f"{constraint.connector_a.component_id}"
+            f"\u2194{constraint.connector_b.component_id}"
+        )
+    except Exception:
+        return str(constraint.constraint_kind)
+
+
+def _raise_residual_failure(
+    assembly: Assembly,
+    residuals: List[ConstraintResidual],
+    *,
+    stage: str,
+) -> None:
+    """Structured failure: constraint residual(s) exceed tolerance.
+
+    ``stage`` distinguishes mid-solve propagation ("forwarded") from the
+    final report pass ("final"), which the repair advice differs on.
+    """
+
+    from ..errors import ErrorMeasurement, InventoryEntry, raise_harness_error
+
+    failed = sorted(residuals, key=lambda r: not r.within_tolerance)
+    measurements = [
+        ErrorMeasurement("placement tolerance", _PLACEMENT_TOLERANCE, "mm"),
+        ErrorMeasurement("angular tolerance", _ANGLE_TOLERANCE_DEGREES, "deg"),
+    ]
+    for residual in failed:
+        if not residual.within_tolerance:
+            measurements.extend((
+                ErrorMeasurement(
+                    f"{residual.constraint_id} translation error",
+                    residual.translation_error, "mm"),
+                ErrorMeasurement(
+                    f"{residual.constraint_id} angular error",
+                    residual.angular_error_degrees, "deg"),
+            ))
+
+    inventory = []
+    exceeded = 0
+    for index, residual in enumerate(residuals):
+        if index >= _INVENTORY_CAP:
+            break
+        constraint = assembly.get_constraint(residual.constraint_id)
+        inventory.append(InventoryEntry(
+            symbol=residual.constraint_id,
+            status="ok" if residual.within_tolerance else "exceeded",
+            description=(
+                f"{_constraint_description(constraint)}: "
+                f"\u0394t={residual.translation_error:.3g} mm, "
+                f"\u0394\u03b8={residual.angular_error_degrees:.3g} deg"
+            ),
+        ))
+        if not residual.within_tolerance:
+            exceeded += 1
+
+    worst = max(
+        (r for r in residuals if not r.within_tolerance),
+        key=lambda r: max(
+            r.translation_error / max(_PLACEMENT_TOLERANCE, 1e-30),
+            r.angular_error_degrees / max(_ANGLE_TOLERANCE_DEGREES, 1e-30),
+        ),
+        default=None,
+    )
+    repair = []
+    if worst is not None:
+        repair.append(
+            f"残差最大的约束是 {worst.constraint_id}"
+            f"(\u0394t={worst.translation_error:.3g} mm, "
+            f"\u0394\u03b8={worst.angular_error_degrees:.3g} deg)："
+            "先核对该约束两端 connector 的局部坐标系定义（datum 与接口方向），"
+            "而不是移动组件位置"
+        )
+    repair.extend((
+        "闭环约束各自满足但合并不满足 = 过约束：解开环路（删一条冗余约束），"
+        "或让嵌套子装配在内部解算、父级只消费其公共接口",
+        "重跑 inspect_assembly_constraints_rassembly(assembly) 查看全量残差后再改约束集",
+    ))
+
+    failed_ids = ", ".join(
+        residual.constraint_id for residual in residuals if not residual.within_tolerance
+    )
+    raise_harness_error(
+        operation="solve_assembly_constraints",
+        what_happened=(
+            f"{len([r for r in residuals if not r.within_tolerance])} of "
+            f"{len(residuals)} constraint(s) exceed tolerance at the {stage} "
+            f"pass: {failed_ids}"
+        ),
+        possible_causes=[
+            "A connector's local frame (datum or axis orientation) does not match the intended mating geometry.",
+            "A closed kinematic loop is overconstrained: each constraint alone fits, the combination cannot.",
+            "A nested subassembly still owns internal degrees of freedom that the parent cannot close.",
+        ],
+        how_to_fix=[
+            "Fix the connector frame definitions named in the repair lines, not the placements.",
+            "For closed loops, remove one redundant constraint or solve the loop internally in a subassembly.",
+        ],
+        measurements=measurements,
+        repair=repair,
+        inventory=tuple(inventory),
+        technical_details=(
+            f"assembly_id={assembly.assembly_id}, "
+            f"grounded={list(assembly.grounded_component_ids)}"
+        ),
+    )
+
+
+def _raise_structural_failure(
+    assembly: Assembly,
+    kind: str,
+    constraint: Optional[Constraint] = None,
+    unsolved_ids: Optional[List[str]] = None,
+) -> None:
+    """Structured failure for graph-level solve blockages.
+
+    ``kind`` is one of ``"unresolvable_loop"``, ``"no_grounded_path"``, or
+    ``"unsolved_components"`` — connectivity failures where residual
+    numbers do not apply and the repair targets the constraint graph.
+    """
+
+    from ..errors import ErrorMeasurement, InventoryEntry, raise_harness_error
+
+    measurements = [
+        ErrorMeasurement("component count", len(assembly.components)),
+        ErrorMeasurement("constraint count", len(assembly.constraints)),
+        ErrorMeasurement("grounded components", len(assembly.grounded_component_ids)),
+    ]
+    inventory = []
+    for component in assembly.components[:_INVENTORY_CAP]:
+        if component.component_id in assembly.grounded_component_ids:
+            status = "grounded"
+        elif unsolved_ids and component.component_id in unsolved_ids:
+            status = "unsolved"
+        else:
+            status = "reachable"
+        constraint_refs = sum(
+            1
+            for existing in assembly.constraints
+            if component.component_id in (
+                existing.connector_a.component_id,
+                existing.connector_b.component_id,
+            )
+        )
+        inventory.append(InventoryEntry(
+            symbol=component.component_id,
+            status=status,
+            description=f"{constraint_refs} connecting constraint(s)",
+        ))
+
+    if constraint is not None and kind == "unresolvable_loop":
+        what = (
+            f"constraint '{constraint.constraint_id}' "
+            f"({_constraint_description(constraint)}) forms a closed loop with "
+            "no feasible scalar inside its limits"
+        )
+        repair = [
+            "给该约束加/放宽 ScalarLimit（angle_limit / distance_limit），"
+            "或删掉环上一条约束解开环路",
+            "嵌套子装配先在内部解算闭环，父级消费其公共接口",
+        ]
+    elif constraint is not None and kind == "no_grounded_path":
+        what = (
+            f"constraint '{constraint.constraint_id}' "
+            f"({_constraint_description(constraint)}) connects two components "
+            "that are both unreachable from any grounded component"
+        )
+        repair = [
+            "用 ground_component_rassembly 给链路一端加 ground，"
+            "或补一条连接约束使该组件从 grounded 组件可达",
+        ]
+    else:
+        what = (
+            "components unreachable from any grounded component through the "
+            "constraint graph: " + ", ".join(unsolved_ids or ())
+        )
+        repair = [
+            "为列出的 [unsolved] 组件补 ground 或连接约束，使其从 grounded 组件可达",
+        ]
+
+    raise_harness_error(
+        operation="solve_assembly_constraints",
+        what_happened=what,
+        possible_causes=[
+            "No grounding path reaches a constrained component.",
+            "The constraint graph splits into disconnected islands.",
+            "A closed loop cannot be satisfied within its scalar limits.",
+        ],
+        how_to_fix=repair[:1] + [
+            "Inspect the component inventory: [grounded]/[reachable]/[unsolved] "
+            "is the connectivity verdict.",
+        ],
+        measurements=measurements,
+        repair=repair,
+        inventory=tuple(inventory),
+        technical_details=f"assembly_id={assembly.assembly_id}, kind={kind}",
+    )
+
+
 def constraint_reports_match(
     actual: Mapping[str, Any],
     expected: Mapping[str, Any],
@@ -223,8 +440,8 @@ def solve_assembly_constraints(assembly: Assembly, strict: bool = True) -> Assem
                     if adjusted is not None:
                         assembly = adjusted
                     elif strict:
-                        raise ValueError(
-                            f"constraint '{constraint.constraint_id}' residual exceeds tolerance"
+                        _raise_residual_failure(
+                            assembly, [residual], stage="forwarded"
                         )
             else:
                 remaining.append(constraint)
@@ -236,8 +453,8 @@ def solve_assembly_constraints(assembly: Assembly, strict: bool = True) -> Assem
         bounds = _constraint_scalar_bounds(constraint)
         if bounds is None:
             if strict:
-                raise ValueError(
-                    f"constraint '{constraint.constraint_id}' forms an unresolvable loop"
+                _raise_structural_failure(
+                    assembly, "unresolvable_loop", constraint=constraint
                 )
             continue
         if a_id in solved and b_id in solved:
@@ -248,8 +465,8 @@ def solve_assembly_constraints(assembly: Assembly, strict: bool = True) -> Assem
             known_placement = solved[b_id]
         else:
             if strict:
-                raise ValueError(
-                    f"constraint '{constraint.constraint_id}' has no grounded path"
+                _raise_structural_failure(
+                    assembly, "no_grounded_path", constraint=constraint
                 )
             continue
 
@@ -281,8 +498,8 @@ def solve_assembly_constraints(assembly: Assembly, strict: bool = True) -> Assem
         if component.component_id not in solved
     )
     if strict and unsolved:
-        raise ValueError(
-            "unsolved components in constrained assembly: " + ", ".join(unsolved)
+        _raise_structural_failure(
+            assembly, "unsolved_components", unsolved_ids=list(unsolved)
         )
     result = assembly
     for component_id, placement in solved.items():
@@ -296,8 +513,8 @@ def solve_assembly_constraints(assembly: Assembly, strict: bool = True) -> Assem
             if not residual.within_tolerance
         ]
         if failed:
-            raise ValueError(
-                "constraint residual exceeds tolerance: " + ", ".join(failed)
+            _raise_residual_failure(
+                result, list(report.residuals), stage="final"
             )
     result._set_runtime("constraint_report", report.to_dict())
     result._set_runtime(

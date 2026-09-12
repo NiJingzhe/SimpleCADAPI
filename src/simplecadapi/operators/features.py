@@ -358,6 +358,16 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+class _RenderTagMismatch(ValueError):
+    """Zero-hit ``highlight_tags`` guard.
+
+    The message already carries the actionable payload (missing tags plus
+    the tags that ARE available on these shapes); the render error handler
+    promotes it to ``what_happened`` instead of demoting it into technical
+    details.
+    """
+
+
 def render_screenshot_rpath(
     shapes: Union[Solid, Sequence[Solid], Any],
     output_path: str,
@@ -436,10 +446,30 @@ def render_screenshot_rpath(
             )
         )
         if missing:
-            raise ValueError(
+            # Name what IS available: the typo guess ("was it boss_root or
+            # boss-root?") is answerable only from the shapes themselves.
+            available = sorted(
+                {
+                    tag
+                    for shape in solids
+                    if isinstance(shape, Solid)
+                    for tag in (
+                        *shape._list_tags(),
+                        *(face_tag for face in shape._iter_faces()
+                          for face_tag in face._list_tags()),
+                    )
+                }
+            )
+            shown = ", ".join(available[:24]) or "none"
+            more = (
+                f" (+{len(available) - 24} more)"
+                if len(available) > 24 else ""
+            )
+            raise _RenderTagMismatch(
                 "highlight_tags matched no geometry: "
                 + ", ".join(missing)
-                + " — check tag names and the build stage that produced them"
+                + f" — available tags on these shapes: {shown}{more}; "
+                "check tag names and the build stage that produced them"
             )
         return str(
             _render_sdk_screenshot_rpath(
@@ -467,7 +497,12 @@ def render_screenshot_rpath(
     except Exception as e:
         _wrap_public_api_error(
             operation="render_screenshot_rpath",
-            what_happened="Failed to render the screenshot.",
+            # Mechanism-A promotion: the zero-hit guard's payload (missing
+            # + available tags) is the headline fact, not a footnote.
+            what_happened=(
+                str(e) if isinstance(e, _RenderTagMismatch)
+                else "Failed to render the screenshot."
+            ),
             possible_causes=[
                 "The input does not contain any valid Solid objects.",
                 "The rendering view or zoom configuration is invalid.",
