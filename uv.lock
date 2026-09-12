@@ -2997,7 +2997,7 @@ wheels = [
 
 [[package]]
 name = "simplecadapi"
-version = "2.2.0"
+version = "2.1.3b3"
 source = { editable = "." }
 dependencies = [
     { name = "cadquery-ocp" },

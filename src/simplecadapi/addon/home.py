@@ -5,7 +5,7 @@ Resolution chain for both locations, most specific first:
 1. the ``--home`` / ``--skills-dir`` CLI flag;
 2. the ``SCA_ADDON_HOME`` / ``SCA_SKILLS_DIR`` environment variables
    (user-side overrides — the CLI never writes shell profiles);
-3. ``~/.sca/config.toml`` (written by ``sca addon init``; its presence
+3. ``~/.sca/config.toml`` (written by ``sca init``; its presence
    is the "initialized" marker);
 4. platform defaults: ``~/.sca/addons`` and ``~/.agents/skills``.
 
@@ -108,12 +108,12 @@ def resolve_paths(
 
 
 def require_initialized(resolved: ResolvedPaths) -> None:
-    """Fail with actionable guidance unless ``sca addon init`` has run."""
+    """Fail with actionable guidance unless ``sca init`` has run."""
     if not config_path().is_file() or not resolved.home.is_dir():
         raise AddonError(
             "addon home is not initialized "
             f"(home={resolved.home} via {resolved.home_source}; "
-            f"config={config_path()}); run `sca addon init` first"
+            f"config={config_path()}); run `sca init` first"
         )
 
 
@@ -155,7 +155,7 @@ def write_config(resolved: ResolvedPaths) -> Path:
         return json.dumps(str(value))
 
     text = (
-        "# Written by `sca addon init`. The environment variables\n"
+        "# Written by `sca init`. The environment variables\n"
         f"# {ENV_ADDON_HOME} and {ENV_SKILLS_DIR} override these values at any time.\n"
         f"addon_home = {_quote(resolved.home)}\n"
         f"skills_dir = {_quote(resolved.skills_dir)}\n"

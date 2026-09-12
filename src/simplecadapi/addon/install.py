@@ -49,7 +49,13 @@ from .registry import (
 from .versions import VersionRange, compare_versions
 
 _GITHUB_SPEC_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$")
-_LOCAL_IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".DS_Store")
+# Local checkouts carry authoring-machine state a published addon never
+# needs: virtualenvs (the addon provisions its own inside the addon home)
+# and tool caches. Everything else — vendor/ binaries included — ships.
+_LOCAL_IGNORE = shutil.ignore_patterns(
+    ".git", "__pycache__", ".DS_Store",
+    ".venv", "venv", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
+)
 _CHECK_TIMEOUT_SECONDS = 10.0
 
 

@@ -178,7 +178,7 @@ Consumer rules that hold regardless of path:
 ## Installing and managing addons
 
 ```bash
-sca addon init                     # once per machine: home + registry + config
+sca init                           # once per machine: home + registry + config
 sca addon add owner/repo           # install from GitHub (default branch)
 sca addon add owner/repo@v1.2.0    # pin a tag or commit for reproducibility
 sca addon add ./my-addon           # install a local checkout (test before publishing)

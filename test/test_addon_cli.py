@@ -79,7 +79,7 @@ def _make_addon_repo(
 
 
 def _init(tmp_path) -> dict:
-    report, code = run(["addon", "init"])
+    report, code = run(["init"])
     assert code == 0
     return report
 
@@ -94,7 +94,7 @@ def _registry(home: Path) -> dict:
 def test_commands_require_init_first():
     with pytest.raises(AddonError) as err:
         run(["addon", "list"])
-    assert "sca addon init" in str(err.value)
+    assert "sca init" in str(err.value)
 
 
 def test_init_creates_home_config_and_registry(tmp_path):
@@ -469,3 +469,18 @@ def test_skill_dir_name_avoids_double_prefix(tmp_path):
     report, code = run(["addon", "add", str(source)])
     assert code == 0
     assert report["skill_dir"].endswith("/sca-prefixed")
+
+
+def test_add_local_skips_virtualenvs_and_caches(tmp_path):
+    _init(tmp_path)
+    source = _make_addon_repo(tmp_path)
+    junk = source / ".venv" / "bin"
+    junk.mkdir(parents=True)
+    (junk / "python").write_text("stub", encoding="utf-8")
+    (source / ".pytest_cache").mkdir()
+    report, code = run(["addon", "add", str(source)])
+    assert code == 0
+    installed = Path(report["addon_dir"])
+    assert not (installed / ".venv").exists()
+    assert not (installed / ".pytest_cache").exists()
+    assert (installed / "sca-addon.toml").is_file()

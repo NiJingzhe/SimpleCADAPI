@@ -3,7 +3,7 @@
 Commands (human-readable output; machine-checkable reports come back
 from :func:`run` for tests and tooling):
 
-* ``sca addon init``            — create the addon home and write config
+* ``sca init``                  — create the addon home and write config
 * ``sca addon add <source>``    — install an addon (GitHub or local path)
 * ``sca addon update [name]``   — re-fetch one addon or all of them
 * ``sca addon remove <name>``   — delete exactly what was installed
@@ -43,13 +43,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     groups = parser.add_subparsers(dest="group", required=True)
 
-    addon = groups.add_parser("addon", help="manage SimpleCADAPI addons")
-    commands = addon.add_subparsers(dest="command", required=True)
-
-    init = commands.add_parser(
+    init = groups.add_parser(
         "init", help="create the addon home, registry, and config (idempotent)"
     )
     _add_location_flags(init)
+
+    addon = groups.add_parser("addon", help="manage SimpleCADAPI addons")
+    commands = addon.add_subparsers(dest="command", required=True)
 
     add = commands.add_parser(
         "add", help="install an addon from GitHub (owner/repo[@ref]) or a local path"
@@ -112,7 +112,7 @@ def _update_all(resolved: ResolvedPaths) -> dict[str, Any]:
 def run(argv: Sequence[str] | None = None) -> tuple[dict[str, Any], int]:
     args = _parser().parse_args(argv)
     resolved = resolve_paths(home=args.home, skills_dir=args.skills_dir)
-    if args.command == "init":
+    if args.group == "init":
         return init_home(resolved), 0
     if args.command == "add":
         source = parse_source(args.source)
