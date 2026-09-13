@@ -1,6 +1,6 @@
 [project]
 name = "simplecadapi"
-version = "2.1.3b1"
+version = "2.1.3b3"
 description = "A simplified OCP-native CAD modeling Python API"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -143,6 +143,4 @@ exclude = [
 testpaths = ["test", "tests"]
 
 [project.scripts]
-simplecad-cache = "simplecadapi.cache.cli:main"
-simplecad-export = "simplecadapi.exporter.cli:main"
-sca = "simplecadapi.addon.cli:main"
+sca = "simplecadapi.cli:main"

@@ -94,18 +94,18 @@ Environment overrides are `SIMPLECAD_CACHE_MODE`, `SIMPLECAD_CACHE_DIR`,
 
 ## Diagnostics and maintenance
 
-`simplecad-cache` prints one stable JSON object. `status`, `verify`, and the
+`sca cache` prints one stable JSON object. `status`, `verify`, and the
 default `prune` mode are read-only. Explicit mutation is required for repair,
 pruning, and clearing.
 
 ```bash
-simplecad-cache status
-simplecad-cache status --namespace part
-simplecad-cache verify
-simplecad-cache verify --repair
-simplecad-cache prune
-simplecad-cache prune --apply
-simplecad-cache clear --namespace part --yes
+sca cache status
+sca cache status --namespace part
+sca cache verify
+sca cache verify --repair
+sca cache prune
+sca cache prune --apply
+sca cache clear --namespace part --yes
 ```
 
 `verify` always checks record schema/path, object presence, byte length, and

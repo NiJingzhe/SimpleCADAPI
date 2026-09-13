@@ -58,7 +58,7 @@ def load_registry(home: Path) -> dict[str, Any]:
         raise AddonError(
             f"{path}: unrecognized registry schema_version "
             f"{data.get('schema_version')!r} (expected {REGISTRY_SCHEMA_VERSION!r}); "
-            "re-run `sca addon init` against a clean home or remove the file"
+            "re-run `sca init` against a clean home or remove the file"
         )
     addons = data.get("addons")
     if not isinstance(addons, dict):

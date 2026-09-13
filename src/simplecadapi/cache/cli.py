@@ -1,4 +1,7 @@
-"""Command-line diagnostics for the SimpleCAD content-addressed cache."""
+"""Command-line diagnostics for the SimpleCAD content-addressed cache.
+
+This module owns the ``sca cache`` group (see :mod:`simplecadapi.cli`).
+"""
 
 from __future__ import annotations
 
@@ -11,8 +14,11 @@ from .policy import CacheMode, CachePolicy, resolve_cache_policy
 from .store import ContentAddressedStore
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="simplecad-cache")
+def configure(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``cache`` group on a parent subparsers action."""
+    parser = subparsers.add_parser(
+        "cache", help="content-addressed cache diagnostics (status/verify/prune/clear)"
+    )
     parser.add_argument(
         "--project-root",
         type=Path,
@@ -20,22 +26,33 @@ def _parser() -> argparse.ArgumentParser:
         help="project root used to resolve pyproject.toml and relative cache paths",
     )
     parser.add_argument("--cache-dir", type=Path, help="override the resolved cache root")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    commands = parser.add_subparsers(dest="command", required=True)
 
-    status = subparsers.add_parser("status", help="report cache counts")
+    status = commands.add_parser("status", help="report cache counts")
     status.add_argument("--namespace")
 
-    verify = subparsers.add_parser("verify", help="verify records and objects")
+    verify = commands.add_parser("verify", help="verify records and objects")
     verify.add_argument("--namespace")
     verify.add_argument("--repair", action="store_true")
 
-    prune = subparsers.add_parser("prune", help="report or quarantine orphan objects")
+    prune = commands.add_parser("prune", help="report or quarantine orphan objects")
     prune.add_argument("--apply", action="store_true")
 
-    clear = subparsers.add_parser("clear", help="clear one namespace or the complete cache")
+    clear = commands.add_parser("clear", help="clear one namespace or the complete cache")
     clear.add_argument("--namespace")
     clear.add_argument("--yes", action="store_true", help="confirm destructive removal")
+
+    parser.set_defaults(handler=_execute, printer=_print_report)
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="sca", description=__doc__)
+    configure(parser.add_subparsers(dest="group", required=True))
     return parser
+
+
+def _print_report(report: dict[str, Any]) -> None:
+    print(json.dumps(report, sort_keys=True))
 
 
 def _policy(args: argparse.Namespace, *, writable: bool) -> CachePolicy:
@@ -48,8 +65,7 @@ def _policy(args: argparse.Namespace, *, writable: bool) -> CachePolicy:
     return resolve_cache_policy(explicit or None, project_root=args.project_root)
 
 
-def run(argv: Sequence[str] | None = None) -> tuple[dict[str, Any], int]:
-    args = _parser().parse_args(argv)
+def _execute(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     if args.command == "clear" and not args.yes:
         raise ValueError("clear requires --yes confirmation")
     writable = bool(
@@ -73,15 +89,6 @@ def run(argv: Sequence[str] | None = None) -> tuple[dict[str, Any], int]:
     raise AssertionError(f"unsupported command: {args.command}")
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    try:
-        report, exit_code = run(argv)
-    except (OSError, PermissionError, ValueError) as exc:
-        print(json.dumps({"error": type(exc).__name__, "message": str(exc)}, sort_keys=True))
-        return 2
-    print(json.dumps(report, sort_keys=True))
-    return exit_code
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+def run(argv: Sequence[str] | None = None) -> tuple[dict[str, Any], int]:
+    args = _parser().parse_args(argv)
+    return _execute(args)

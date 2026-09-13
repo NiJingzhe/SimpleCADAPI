@@ -12,7 +12,7 @@ def test_check_defaults_to_step_stl_and_obj(monkeypatch, tmp_path: Path):
     input_path = tmp_path / "bracket.scadpkg"
     monkeypatch.setattr(cli, "read_product_package", lambda value: _Package())
 
-    report, exit_code = cli.run([str(input_path), "--check", "--output-dir", str(tmp_path / "out")])
+    report, exit_code = cli.run(["export", str(input_path), "--check", "--output-dir", str(tmp_path / "out")])
 
     assert exit_code == 0
     assert report["check_only"] is True
@@ -26,7 +26,7 @@ def test_check_fcstd_reports_missing_freecad(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(cli, "read_product_package", lambda value: _Package())
     monkeypatch.setattr(cli, "discover_freecad_executable", lambda: None)
 
-    report, exit_code = cli.run([str(tmp_path / "part.scadpkg"), "--format", "fcstd", "--check"])
+    report, exit_code = cli.run(["export", str(tmp_path / "part.scadpkg"), "--format", "fcstd", "--check"])
 
     assert exit_code == 1
     assert report["formats"]["fcstd"]["ok"] is False
@@ -36,7 +36,7 @@ def test_check_fcstd_reports_missing_freecad(monkeypatch, tmp_path: Path):
 def test_check_mjcf_requires_assembly(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(cli, "read_product_package", lambda value: _Package())
 
-    report, exit_code = cli.run([str(tmp_path / "part.scadpkg"), "--format", "mjcf", "--check"])
+    report, exit_code = cli.run(["export", str(tmp_path / "part.scadpkg"), "--format", "mjcf", "--check"])
 
     assert exit_code == 1
     assert report["formats"]["mjcf"]["ok"] is False
@@ -44,7 +44,7 @@ def test_check_mjcf_requires_assembly(monkeypatch, tmp_path: Path):
 
 def test_check_rejects_unknown_package_extension(tmp_path: Path):
     try:
-        cli.run([str(tmp_path / "part.json"), "--check"])
+        cli.run(["export", str(tmp_path / "part.json"), "--check"])
     except ValueError as exc:
         assert ".scadpkg" in str(exc)
     else:
@@ -53,7 +53,7 @@ def test_check_rejects_unknown_package_extension(tmp_path: Path):
 
 def test_output_override_requires_selected_optional_format(tmp_path: Path):
     try:
-        cli.run([str(tmp_path / "part.scadpkg"), "--check", "--output", "fcstd=part.FCStd"])
+        cli.run(["export", str(tmp_path / "part.scadpkg"), "--check", "--output", "fcstd=part.FCStd"])
     except ValueError as exc:
         assert "--format" in str(exc)
     else:
