@@ -362,3 +362,47 @@ def test_run_check_cmd_pass_and_fail():
 
     missing = run_check_cmd("definitely-not-a-command-xyz-123")
     assert missing["passed"] is False
+
+
+# ---------------------------------------------------- command_prefix (v2 std)
+
+
+def test_command_prefix_defaults_to_empty(tmp_path):
+    descriptor = load_descriptor(_write_descriptor(tmp_path, DESCRIPTOR_NONE))
+    assert descriptor.command_prefix == ""
+
+
+def test_command_prefix_roundtrip_with_addon_dir_placeholder(tmp_path):
+    body = DESCRIPTOR_NONE.replace(
+        'kind = "none"',
+        'kind = "none"\ncommand_prefix = \'PATH="{addon_dir}/.venv/bin:$PATH\"\'',
+    )
+    descriptor = load_descriptor(_write_descriptor(tmp_path, body))
+    assert descriptor.command_prefix == 'PATH="{addon_dir}/.venv/bin:$PATH"'
+
+
+def test_command_prefix_rejects_non_string(tmp_path):
+    body = DESCRIPTOR_NONE.replace('kind = "none"', 'kind = "none"\ncommand_prefix = 7')
+    with pytest.raises(AddonError) as err:
+        load_descriptor(_write_descriptor(tmp_path, body))
+    assert "command_prefix" in str(err.value)
+
+
+def test_command_prefix_rejects_unknown_placeholder(tmp_path):
+    body = DESCRIPTOR_NONE.replace(
+        'kind = "none"',
+        'kind = "none"\ncommand_prefix = "PATH={venv_dir}/bin:$PATH"',
+    )
+    with pytest.raises(AddonError) as err:
+        load_descriptor(_write_descriptor(tmp_path, body))
+    assert "{venv_dir}" in str(err.value)
+    assert "{addon_dir}" in str(err.value)
+
+
+def test_effective_command_joins_prefix_and_substitutes_addon_dir():
+    from simplecadapi.addon.install import effective_command
+
+    prefix = 'PATH="{addon_dir}/.venv/bin:$PATH"'
+    effective = effective_command(prefix, Path("/addons/demo"), "python -V")
+    assert effective == 'PATH="/addons/demo/.venv/bin:$PATH" python -V'
+    assert effective_command("", Path("/addons/demo"), "python -V") == "python -V"

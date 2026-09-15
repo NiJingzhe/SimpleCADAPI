@@ -21,24 +21,24 @@ def test_status_verify_and_prune_report_stable_counts(tmp_path):
     orphan.parent.mkdir(parents=True, exist_ok=True)
     orphan.write_bytes(b"orphan")
 
-    status, exit_code = run(["--cache-dir", str(root), "status", "--namespace", "part"])
+    status, exit_code = run(["cache", "--cache-dir", str(root), "status", "--namespace", "part"])
     assert exit_code == 0
     assert status["records"] == 1
     assert status["objects"] == 2
     assert status["orphan_objects"] == 1
 
-    verified, exit_code = run(["--cache-dir", str(root), "verify"])
+    verified, exit_code = run(["cache", "--cache-dir", str(root), "verify"])
     assert exit_code == 1
     assert verified["records_checked"] == 2
     assert verified["invalid_records"] == 0
     assert verified["orphan_objects"] == 1
 
-    preview, exit_code = run(["--cache-dir", str(root), "prune"])
+    preview, exit_code = run(["cache", "--cache-dir", str(root), "prune"])
     assert exit_code == 0
     assert preview == {"orphan_objects": 1, "reclaimed_bytes": 6, "dry_run": True}
     assert orphan.exists()
 
-    applied, exit_code = run(["--cache-dir", str(root), "prune", "--apply"])
+    applied, exit_code = run(["cache", "--cache-dir", str(root), "prune", "--apply"])
     assert exit_code == 0
     assert applied["orphan_objects"] == 1
     assert applied["dry_run"] is False
@@ -51,17 +51,17 @@ def test_verify_detects_and_repairs_corrupt_object(tmp_path):
     record = store.put("part", sha256_bytes(b"part-key"), b"valid")
     store.object_path(record.object_hash).write_bytes(b"broken")
 
-    report, exit_code = run(["--cache-dir", str(root), "verify"])
+    report, exit_code = run(["cache", "--cache-dir", str(root), "verify"])
     assert exit_code == 1
     assert report["invalid_records"] == 1
     assert report["invalid_objects"] == 1
 
-    repaired, exit_code = run(["--cache-dir", str(root), "verify", "--repair"])
+    repaired, exit_code = run(["cache", "--cache-dir", str(root), "verify", "--repair"])
     assert exit_code == 1
     assert repaired["repaired"] is True
     assert store.stats().quarantined == 2
 
-    clean, exit_code = run(["--cache-dir", str(root), "verify"])
+    clean, exit_code = run(["cache", "--cache-dir", str(root), "verify"])
     assert exit_code == 0
     assert clean["ok"] is True
 
@@ -76,7 +76,7 @@ def test_verify_hashes_objects_when_runtime_read_verification_is_disabled(tmp_pa
     store.object_path(record.object_hash).write_bytes(b"xxxxx")
 
     assert store.get("part", key) is not None
-    report, exit_code = run(["--cache-dir", str(root), "verify"])
+    report, exit_code = run(["cache", "--cache-dir", str(root), "verify"])
     assert exit_code == 1
     assert report["invalid_objects"] == 1
 
@@ -84,13 +84,13 @@ def test_verify_hashes_objects_when_runtime_read_verification_is_disabled(tmp_pa
 def test_read_only_commands_and_unconfirmed_clear_do_not_create_cache(tmp_path):
     root = tmp_path / "absent-cache"
 
-    status, exit_code = run(["--cache-dir", str(root), "status"])
+    status, exit_code = run(["cache", "--cache-dir", str(root), "status"])
     assert exit_code == 0
     assert status["records"] == 0
     assert not root.exists()
 
     try:
-        run(["--cache-dir", str(root), "clear"])
+        run(["cache", "--cache-dir", str(root), "clear"])
     except ValueError as exc:
         assert "--yes" in str(exc)
     else:
@@ -108,14 +108,14 @@ def test_clear_requires_confirmation_and_preserves_shared_objects(tmp_path):
     store.put("assembly", assembly_key, payload)
 
     try:
-        run(["--cache-dir", str(root), "clear", "--namespace", "part"])
+        run(["cache", "--cache-dir", str(root), "clear", "--namespace", "part"])
     except ValueError as exc:
         assert "confirm" in str(exc)
     else:
         raise AssertionError("clear without --yes must fail")
 
     report, exit_code = run(
-        ["--cache-dir", str(root), "clear", "--namespace", "part", "--yes"]
+        ["cache", "--cache-dir", str(root), "clear", "--namespace", "part", "--yes"]
     )
     assert exit_code == 0
     assert report["cleared"] is True
