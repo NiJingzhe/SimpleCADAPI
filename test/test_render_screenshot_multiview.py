@@ -276,5 +276,26 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
             self.assertNotEqual(standard.read_bytes(), studio.read_bytes())
 
 
+class TestZeroHitHighlightGuard(unittest.TestCase):
+    def test_zero_hit_names_missing_and_available_tags(self):
+        # The guard must answer the typo question from the shapes
+        # themselves: the missing tags AND the tags that are actually
+        # available lead what_happened (mechanism-A promotion), so a
+        # text-only agent can repair without re-querying.
+        box = scad.make_box_rsolid(4.0, 3.0, 2.0)
+        box = scad.apply_tag(box, "role.body")
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(scad.SimpleCADError) as ctx:
+            scad.render_screenshot_rpath(
+                box,
+                str(Path(tmp) / "guard.png"),
+                highlight_tags=["role.bodyy", "total_fabrication"],
+            )
+        text = ctx.exception.guidance.what_happened
+        self.assertIn("role.bodyy", text)
+        self.assertIn("total_fabrication", text)
+        self.assertIn("role.body", text)  # the available set contains the typo's neighbor
+        self.assertIn("available tags", text)
+
+
 if __name__ == "__main__":
     unittest.main()

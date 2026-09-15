@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+from ._diagnostics import (
+    BlendDiagnosis,
+    BlendVolumeViolation,
+    assert_blend_volume_monotonic,
+    diagnose_blend_failure,
+    raise_loft_failure_if_diagnosed,
+    raise_open_wire_failure,
+    render_failure_evidence,
+)
 from ._support import *
 from .geometry import (
     _default_plane_x_direction,
@@ -11,6 +20,93 @@ from .geometry import (
 )
 
 from OCP.TopoDS import TopoDS_Shape
+
+def _blend_single_edge_ok(
+    solid: Solid,
+    edge: Edge,
+    size_value: float,
+    *,
+    operation_kind: str,
+    distance2: Optional[float] = None,
+) -> bool:
+    """Diagnostic rerun: does the blend succeed on this one edge alone?"""
+
+    try:
+        if operation_kind == "chamfer":
+            tracked = tracked_chamfer(solid, [edge], size_value, distance2=distance2)
+        else:
+            tracked = tracked_fillet(solid, [edge], size_value)
+        return tracked.shape is not None
+    except Exception:
+        return False
+
+
+def _wrap_blend_failure(
+    *,
+    operation: str,
+    operation_kind: str,
+    solid: Optional[Solid],
+    edges: List[Edge],
+    size_value: Optional[float],
+    error: BaseException,
+    retry_single: Optional[Any] = None,
+    default_what_happened: str,
+    default_possible_causes: Sequence[str],
+    default_how_to_fix: Sequence[str],
+) -> NoReturn:
+    """Wrap a fillet/chamfer failure with failure-time geometry diagnosis."""
+
+    # Mechanism-E headline: when the exit check caught impossible output,
+    # its measured volumes lead what_happened (the agent must distinguish
+    # "kernel refused" from "kernel silently lied"); probe explanations
+    # follow as the suspected root cause.
+    volume_headline = str(error) if isinstance(error, BlendVolumeViolation) else None
+    diagnosis: Optional[BlendDiagnosis] = None
+    if solid is not None and edges and size_value is not None:
+        diagnosis = diagnose_blend_failure(
+            solid,
+            edges,
+            size_value=size_value,
+            operation_kind=operation_kind,
+            retry_single=retry_single,
+        )
+    evidence: Tuple[ErrorEvidence, ...] = ()
+    if diagnosis is not None and diagnosis.evidence_shapes:
+        dedup_key: Tuple = (operation, diagnosis.failure_kind)
+        if size_value is not None:
+            dedup_key = (operation, diagnosis.failure_kind, round(size_value, 1))
+        rendered = render_failure_evidence(
+            diagnosis.evidence_shapes,
+            operation=operation,
+            caption=diagnosis.evidence_caption,
+            dedup_key=dedup_key,
+            highlight_edges=diagnosis.evidence_edges,
+        )
+        if rendered is not None:
+            evidence = (rendered,)
+    what_happened = (
+        (diagnosis.what_happened or default_what_happened) if diagnosis
+        else default_what_happened
+    )
+    if volume_headline:
+        what_happened = (
+            f"{volume_headline}; probes indicate: {what_happened}"
+            if diagnosis and diagnosis.what_happened else volume_headline
+        )
+    _wrap_public_api_error(
+        operation=operation,
+        what_happened=what_happened,
+        possible_causes=(
+            diagnosis.possible_causes
+            if diagnosis and diagnosis.possible_causes
+            else default_possible_causes
+        ),
+        how_to_fix=default_how_to_fix,
+        error=error,
+        measurements=diagnosis.measurements if diagnosis else (),
+        evidence=evidence,
+        repair=diagnosis.repair if diagnosis else (),
+    )
 
 def extrude_rsolid(
     profile: Union[Wire, Face],
@@ -52,12 +148,13 @@ def extrude_rsolid(
         )
 
         if isinstance(profile, Wire):
-            # 如果是线，先转换为面
+            # 如果是线，先转换为面；缺口诊断（端点对+距离+证据图）随结构化错误给出
             if profile.is_closed():
                 face = Face(make_face_from_wire_ocp(profile.wrapped))
             else:
-                raise ValueError(
-                    "如果传入线框作为拉伸对象，那么线框必须是闭合的, 而你的线框没有闭合，请检查构成线框的点是否正确"
+                raise_open_wire_failure(
+                    "extrude_rsolid", profile,
+                    purpose="extrude it into a solid",
                 )
         elif isinstance(profile, Face):
             face = profile
@@ -264,6 +361,16 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+class _RenderTagMismatch(ValueError):
+    """Zero-hit ``highlight_tags`` guard.
+
+    The message already carries the actionable payload (missing tags plus
+    the tags that ARE available on these shapes); the render error handler
+    promotes it to ``what_happened`` instead of demoting it into technical
+    details.
+    """
+
+
 def render_screenshot_rpath(
     shapes: Union[Solid, Sequence[Solid], Any],
     output_path: str,
@@ -282,6 +389,8 @@ def render_screenshot_rpath(
     edge_width_scale: Optional[float] = None,
     view_up: Optional[Sequence[float]] = None,
     supersample: int = 2,
+    highlight_edges: Optional[Sequence[Any]] = None,
+    highlight_edge_width: float = 4.5,
 ) -> str:
     """Render solids or raw TopoDS shapes through the one OCCT/VTK pipeline.
 
@@ -289,6 +398,10 @@ def render_screenshot_rpath(
     callout and legend support) or raw ``TopoDS_Shape`` entries from the
     STEP inspection family (same engine, same edge ink and supersampling,
     no tag features).
+
+    ``highlight_edges`` draws the given edges (SDK ``Edge`` objects or raw
+    ``TopoDS_Edge``) as crisp orange highlight lines exactly on the edge —
+    the failure-marking channel used by the blend diagnostics.
 
     There is exactly one output form: a multi-view grid of one to four
     panels, each carrying annotations. ``view="auto"`` (default) uses the
@@ -336,10 +449,30 @@ def render_screenshot_rpath(
             )
         )
         if missing:
-            raise ValueError(
+            # Name what IS available: the typo guess ("was it boss_root or
+            # boss-root?") is answerable only from the shapes themselves.
+            available = sorted(
+                {
+                    tag
+                    for shape in solids
+                    if isinstance(shape, Solid)
+                    for tag in (
+                        *shape._list_tags(),
+                        *(face_tag for face in shape._iter_faces()
+                          for face_tag in face._list_tags()),
+                    )
+                }
+            )
+            shown = ", ".join(available[:24]) or "none"
+            more = (
+                f" (+{len(available) - 24} more)"
+                if len(available) > 24 else ""
+            )
+            raise _RenderTagMismatch(
                 "highlight_tags matched no geometry: "
                 + ", ".join(missing)
-                + " — check tag names and the build stage that produced them"
+                + f" — available tags on these shapes: {shown}{more}; "
+                "check tag names and the build stage that produced them"
             )
         return str(
             _render_sdk_screenshot_rpath(
@@ -360,12 +493,19 @@ def render_screenshot_rpath(
                 edge_width_scale=edge_width_scale,
                 view_up=tuple(float(value) for value in view_up) if view_up is not None else None,
                 supersample=supersample,
+                highlight_edges=tuple(highlight_edges) if highlight_edges else (),
+                highlight_edge_width=highlight_edge_width,
             )
         )
     except Exception as e:
         _wrap_public_api_error(
             operation="render_screenshot_rpath",
-            what_happened="Failed to render the screenshot.",
+            # Mechanism-A promotion: the zero-hit guard's payload (missing
+            # + available tags) is the headline fact, not a footnote.
+            what_happened=(
+                str(e) if isinstance(e, _RenderTagMismatch)
+                else "Failed to render the screenshot."
+            ),
             possible_causes=[
                 "The input does not contain any valid Solid objects.",
                 "The rendering view or zoom configuration is invalid.",
@@ -388,6 +528,8 @@ def fillet_rsolid(
     generated_faces_tag: Optional[str] = None,
 ) -> Solid:
     """Apply fillets, with optional tagging of kernel-proven patch faces."""
+    selected_edges: List[Edge] = []
+    radius_value: Optional[float] = None
     try:
         assignments = _normalize_operation_role_tags(
             _OP_MAKE_FILLET_RSOLID,
@@ -406,6 +548,18 @@ def fillet_rsolid(
 
         tracked = tracked_fillet(solid, selected_edges, radius_value)
         result = cast(Solid, tracked.shape)
+
+        # Mechanism E: the kernel can hand back impossible geometry without
+        # raising (observed: all-edge r=6 on a 10-cube "succeeds" with a
+        # larger volume); catch it at the exit instead of returning it.
+        assert_blend_volume_monotonic(
+            solid,
+            result,
+            operation="fillet_rsolid",
+            operation_kind="fillet",
+            size_value=radius_value,
+            edges=selected_edges,
+        )
 
         result._metadata = solid._metadata.copy()
 
@@ -442,20 +596,31 @@ def fillet_rsolid(
             result_tag=normalized_result_tag,
         )
     except Exception as e:
-        _wrap_public_api_error(
+        _wrap_blend_failure(
             operation="fillet_rsolid",
-            what_happened="Failed to apply the fillet operation.",
-            possible_causes=[
+            operation_kind="fillet",
+            solid=solid,
+            edges=selected_edges,
+            size_value=radius_value,
+            error=e,
+            retry_single=(
+                lambda edge: _blend_single_edge_ok(
+                    solid, edge, radius_value, operation_kind="fillet"
+                )
+                if radius_value is not None
+                else None
+            ),
+            default_what_happened="Failed to apply the fillet operation.",
+            default_possible_causes=[
                 "The radius is not a positive finite scalar.",
                 "No valid edges were selected.",
                 "The selected edges are incompatible with the requested fillet radius.",
             ],
-            how_to_fix=[
+            default_how_to_fix=[
                 "Use a positive fillet radius.",
                 "Select at least one valid edge or use a selector that resolves to edges.",
                 "If the kernel rejects the fillet, try a smaller radius or a simpler edge set.",
             ],
-            error=e,
         )
 
 def _chamfer_reference_face_pairs(
@@ -511,6 +676,9 @@ def chamfer_rsolid(
     ``reference_direction`` picks, per edge, the adjacent face whose outward
     normal best matches it as the reference face.
     """
+    selected_edges: List[Edge] = []
+    distance_value: Optional[float] = None
+    chamfer_distance2: Optional[float] = None
     try:
         assignments = _normalize_operation_role_tags(
             _OP_MAKE_CHAMFER_RSOLID,
@@ -552,6 +720,20 @@ def chamfer_rsolid(
         )
         result = cast(Solid, tracked.shape)
 
+        # Mechanism E: same impossible-output guard as the fillet path (the
+        # effective size of an angled chamfer spans both legs).
+        assert_blend_volume_monotonic(
+            solid,
+            result,
+            operation="chamfer_rsolid",
+            operation_kind="chamfer",
+            size_value=(
+                max(distance_value, chamfer_distance2)
+                if chamfer_distance2 is not None else distance_value
+            ),
+            edges=selected_edges,
+        )
+
         result._metadata = solid._metadata.copy()
 
         selected_edge_refs = _serialize_shape_refs(selected_edges)
@@ -591,20 +773,40 @@ def chamfer_rsolid(
             result_tag=normalized_result_tag,
         )
     except Exception as e:
-        _wrap_public_api_error(
+        effective_size = (
+            max(distance_value, chamfer_distance2 or 0.0)
+            if distance_value is not None
+            else None
+        )
+        _wrap_blend_failure(
             operation="chamfer_rsolid",
-            what_happened="Failed to apply the chamfer operation.",
-            possible_causes=[
+            operation_kind="chamfer",
+            solid=solid,
+            edges=selected_edges,
+            size_value=effective_size,
+            error=e,
+            retry_single=(
+                lambda edge: _blend_single_edge_ok(
+                    solid,
+                    edge,
+                    distance_value,
+                    operation_kind="chamfer",
+                    distance2=chamfer_distance2,
+                )
+                if distance_value is not None
+                else None
+            ),
+            default_what_happened="Failed to apply the chamfer operation.",
+            default_possible_causes=[
                 "The distance is not a positive finite scalar.",
                 "No valid edges were selected.",
                 "The selected edges are incompatible with the requested chamfer size.",
             ],
-            how_to_fix=[
+            default_how_to_fix=[
                 "Use a positive chamfer distance.",
                 "Select at least one valid edge or use a selector that resolves to edges.",
                 "If the kernel rejects the chamfer, try a smaller distance or fewer edges.",
             ],
-            error=e,
         )
 
 def shell_rsolid(
@@ -804,6 +1006,16 @@ def loft_rsolid(
             source_shapes=profiles,
         )
     except Exception as e:
+        # Section-compatibility diagnosis first (coincident stations, edge
+        # counts, closure, ordering); the kernel names nothing itself.  When
+        # no verdict lands, fall through to the generic wrap.
+        if not isinstance(e, SimpleCADError):
+            try:
+                raise_loft_failure_if_diagnosed(profiles, "loft_rsolid")
+            except SimpleCADError:
+                raise
+            except Exception:
+                pass
         _wrap_public_api_error(
             operation="loft_rsolid",
             what_happened="Failed to loft the input profiles into a solid.",

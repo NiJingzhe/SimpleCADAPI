@@ -1,6 +1,9 @@
 """SolidWorks runtime fragment: the composed automation runtime."""
 
 
+# Self-contained fragment: runs inside SolidWorks' host Python where
+# simplecadapi is NOT importable; deliberately NOT unified with
+# errors.SimpleCADError. Runtime code catches this as RuntimeError.
 class SimpleCADUnsupportedOpError(RuntimeError):
     pass
 

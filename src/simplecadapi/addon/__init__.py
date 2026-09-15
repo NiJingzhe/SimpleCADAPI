@@ -20,8 +20,12 @@ thing the separation exists to prevent.
 
 from __future__ import annotations
 
+from ..errors import SimpleCADMessageError
+
 __all__ = ["AddonError"]
 
 
-class AddonError(Exception):
+class AddonError(SimpleCADMessageError):
     """Addon manager failure with a user-actionable, named-cause message."""
+
+    operation = "addon"

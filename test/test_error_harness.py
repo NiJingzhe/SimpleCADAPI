@@ -39,11 +39,13 @@ class TestErrorHarness(unittest.TestCase):
         message = str(ctx.exception)
         self.assertIn("Operation: extrude_rsolid", message)
         self.assertIn("Signature: extrude_rsolid(", message)
-        self.assertIn("A wire profile was provided but it is not closed.", message)
-        self.assertIn(
-            "If you extrude a wire, make sure the wire is closed or convert it to a face first.",
-            message,
-        )
+        # Structured diagnosis: the measured gap (a single open segment
+        # reports the full segment length as its own gap) supersedes the
+        # generic "make sure the wire is closed" advice.
+        guidance = ctx.exception.guidance
+        measurements = {m.name: m.value for m in guidance.measurements}
+        self.assertAlmostEqual(measurements["gap"], 1.0)
+        self.assertIn("not closed", guidance.what_happened)
         self.assertNotRegex(message, r"[\u3400-\u9fff\uf900-\ufaff]")
 
     def test_import_graph_json_reports_signature_and_help(self):

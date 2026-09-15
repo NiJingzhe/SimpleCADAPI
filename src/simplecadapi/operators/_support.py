@@ -31,7 +31,13 @@ import numpy as np
 
 from .._internal.vendor_warning_filters import suppress_vendor_deprecation_warnings
 
-from ..errors import SimpleCADError, raise_harness_error
+from ..errors import (
+    ErrorEvidence,
+    ErrorMeasurement,
+    InventoryEntry,
+    SimpleCADError,
+    raise_harness_error,
+)
 
 suppress_vendor_deprecation_warnings()
 
@@ -538,6 +544,10 @@ def _wrap_public_api_error(
     possible_causes: Sequence[str],
     how_to_fix: Sequence[str],
     error: BaseException,
+    measurements: Sequence[ErrorMeasurement] = (),
+    evidence: Sequence[ErrorEvidence] = (),
+    repair: Sequence[str] = (),
+    inventory: Sequence[InventoryEntry] = (),
 ) -> NoReturn:
     raise_harness_error(
         operation=operation,
@@ -545,6 +555,10 @@ def _wrap_public_api_error(
         possible_causes=possible_causes,
         how_to_fix=how_to_fix,
         error=error,
+        measurements=measurements,
+        evidence=evidence,
+        repair=repair,
+        inventory=inventory,
     )
 
 def _semantic_id_registry(kind: str) -> Set[str]:

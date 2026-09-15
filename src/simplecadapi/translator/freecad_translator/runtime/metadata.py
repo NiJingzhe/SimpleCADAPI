@@ -1,3 +1,6 @@
+# Self-contained fragment: runs inside FreeCAD's Python where simplecadapi is
+# NOT importable; deliberately NOT unified with errors.SimpleCADError. Runtime
+# code catches this as RuntimeError.
 class SimpleCADUnsupportedOpError(RuntimeError):
     pass
 

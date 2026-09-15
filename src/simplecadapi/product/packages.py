@@ -30,6 +30,7 @@ from ..artifacts.feature_graph import FEATURE_GRAPH_MEDIA_TYPE, load_feature_gra
 from ..artifacts.part_definition import PartDefinition
 from ..artifacts.part_io import encode_part_definition, load_part_definition
 from ..artifacts.validation import parse_artifact_json
+from ..errors import SimpleCADMessageError
 from .occurrence import (
     ProductOccurrenceGraph,
     compile_product_occurrence_graph,
@@ -52,8 +53,10 @@ _FEATURE_GRAPH_MANIFEST = "feature-graph.json"
 Definition = PartDefinition | AssemblyDefinition
 
 
-class ProductPackageError(ValueError):
+class ProductPackageError(SimpleCADMessageError):
     """Raised when a product package violates its closed artifact contract."""
+
+    operation = "product_package"
 
 
 @dataclass(frozen=True, slots=True)

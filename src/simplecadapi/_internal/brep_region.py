@@ -11,6 +11,7 @@ import stat
 import struct
 from typing import Any
 
+from ..errors import SimpleCADMessageError
 import OCP
 from OCP.TopAbs import TopAbs_SHELL, TopAbs_SOLID
 
@@ -41,8 +42,10 @@ _SHA256_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 _FACE_ID_PATTERN = re.compile(r"face:(0|[1-9][0-9]*)")
 
 
-class BRepRegionError(ValueError):
+class BRepRegionError(SimpleCADMessageError):
     """Raised when a .scadbrep container is invalid or unsupported."""
+
+    operation = "brep_region"
 
 
 def sha256_bytes(data: bytes) -> str:

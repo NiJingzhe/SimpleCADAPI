@@ -7,6 +7,8 @@ import re
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 import uuid
 
+from ..errors import SimpleCADMessageError
+
 
 TAG_BINDING_SCHEMA_VERSION = "1.0"
 
@@ -87,12 +89,16 @@ class TagLifecycle(str, Enum):
 VALID_TAG_SCOPES = frozenset(scope.value for scope in TagScope)
 
 
-class TagValidationError(ValueError):
+class TagValidationError(SimpleCADMessageError):
     """Raised when a tag binding or policy is malformed."""
 
+    operation = "tagging"
 
-class SemanticCapabilityError(ValueError):
+
+class SemanticCapabilityError(SimpleCADMessageError):
     """Raised when an object cannot evaluate a requested semantic scope."""
+
+    operation = "semantic_query"
 
 
 class UnsupportedQueryCapabilityError(SemanticCapabilityError):
