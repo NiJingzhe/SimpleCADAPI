@@ -36,7 +36,7 @@ from typing import Any, Mapping
 
 from . import AddonError
 from .descriptor import AddonDescriptor, load_descriptor
-from .home import ResolvedPaths, require_initialized
+from .home import ResolvedPaths, require_initialized, runtime_dir_for
 from .platforms import PLATFORMS, detect_platform
 from .registry import (
     drop_record,
@@ -59,14 +59,25 @@ _LOCAL_IGNORE = shutil.ignore_patterns(
 _CHECK_TIMEOUT_SECONDS = 10.0
 
 
-def effective_command(prefix: str, addon_dir: Path, cmd: str) -> str:
+def _substitute_placeholders(text: str, addon_dir: Path, runtime_dir: Path) -> str:
+    return (
+        text
+        .replace("{addon_dir}", str(addon_dir))
+        .replace("{runtime_dir}", str(runtime_dir))
+    )
+
+
+def effective_command(prefix: str, addon_dir: Path, runtime_dir: Path, cmd: str) -> str:
     """Join a descriptor command prefix with ``cmd`` into one shell line.
 
     The prefix is a shell prelude (env assignments, PATH edits, `cd`, …)
-    and may reference ``{addon_dir}``, which is substituted with the
-    installed addon directory. An empty prefix returns ``cmd`` unchanged.
+    and may reference two placeholders: ``{addon_dir}`` (the installed addon
+    payload, replaced wholesale on every update) and ``{runtime_dir}`` (the
+    addon's private runtime-state directory beside the addon home, created
+    at install and never touched by updates). An empty prefix returns
+    ``cmd`` unchanged.
     """
-    prelude = prefix.replace("{addon_dir}", str(addon_dir)).strip()
+    prelude = _substitute_placeholders(prefix, addon_dir, runtime_dir).strip()
     return f"{prelude} {cmd}" if prelude else cmd
 
 
@@ -355,6 +366,16 @@ def _resolve_check_cmd(descriptor: AddonDescriptor, host_platform: str) -> str |
     return descriptor.check_overrides.get(host_platform, descriptor.check_cmd)
 
 
+def _run_probe(effective: str, host_platform: str, cmd: str) -> dict[str, Any]:
+    """Run one runtime probe and stamp it with when/how it ran."""
+    check = run_check_cmd(effective)
+    check["platform"] = host_platform
+    check["cmd"] = cmd
+    check["effective_cmd"] = effective
+    check["checked_at"] = now_iso()
+    return check
+
+
 def _check_compat(descriptor: AddonDescriptor) -> None:
     installed = sca_version()
     parsed = VersionRange.parse(descriptor.sca_compat)
@@ -433,9 +454,19 @@ def _commit_install(
         shutil.rmtree(skill_target)
     shutil.copytree(skill_dir, skill_target)
     payload = _payload(staging)
+    # Legacy compatibility: addons authored before {runtime_dir} provisioned
+    # their venv INSIDE the payload and reference it as {addon_dir}/.venv.
+    # Keep that venv across the wholesale payload replacement so updating an
+    # unmigrated addon does not destroy its provisioned environment.
+    legacy_venv = None
+    if (addon_dir / ".venv").is_dir():
+        legacy_venv = staging.parent / ".legacy-venv"
+        shutil.move(str(addon_dir / ".venv"), str(legacy_venv))
     if addon_dir.exists():
         shutil.rmtree(addon_dir)
     payload.replace(addon_dir)
+    if legacy_venv is not None:
+        shutil.move(str(legacy_venv), str(addon_dir / ".venv"))
     shutil.rmtree(staging, ignore_errors=True)
 
 
@@ -460,6 +491,7 @@ def _build_record(
         "version": descriptor.version,
         "source": stored_source,
         "addon_relpath": descriptor.name,
+        "runtime_dir": str(runtime_dir_for(resolved, descriptor.name)),
         "skill_install": {
             "dir_name": skill_dir_name(descriptor.name),
             "skills_dir": str(resolved.skills_dir),
@@ -507,19 +539,21 @@ def install_addon(
             )
         addon_dir = resolved.home / descriptor.name
         resolved.skills_dir.mkdir(parents=True, exist_ok=True)
+        runtime_dir = runtime_dir_for(resolved, descriptor.name)
+        runtime_dir.mkdir(parents=True, exist_ok=True)
         _commit_install(staging, addon_dir, skill_dir, skill_target)
-        # Probe the FINAL installed layout: a command_prefix referencing
-        # {addon_dir} (a bundled venv, tool dirs) only resolves after the
-        # payload is in place. A failing probe stays a loud warning, never
-        # an install blocker — the runtime can be provisioned afterwards.
+        # Probe the FINAL installed layout: placeholders ({addon_dir},
+        # {runtime_dir}) only resolve after the payload is in place. A
+        # failing probe stays a loud warning, never an install blocker —
+        # the runtime can be provisioned afterwards (`sca addon check`
+        # re-probes once it is).
         check = None
         cmd = _resolve_check_cmd(descriptor, host_platform)
         if cmd is not None:
-            effective = effective_command(descriptor.command_prefix, addon_dir, cmd)
-            check = run_check_cmd(effective)
-            check["platform"] = host_platform
-            check["cmd"] = cmd
-            check["effective_cmd"] = effective
+            cmd = _substitute_placeholders(cmd, addon_dir, runtime_dir)
+            effective = effective_command(descriptor.command_prefix, addon_dir,
+                                          runtime_dir, cmd)
+            check = _run_probe(effective, host_platform, cmd)
     except AddonError:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -531,6 +565,7 @@ def install_addon(
         "version": descriptor.version,
         "source": _source_display(source),
         "addon_dir": str(addon_dir),
+        "runtime_dir": str(runtime_dir),
         "skill_dir": str(skill_target),
         "runtime_check": check,
     }
@@ -568,15 +603,16 @@ def update_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
         )
         addon_dir = resolved.home / name
         skill_target.parent.mkdir(parents=True, exist_ok=True)
+        runtime_dir = runtime_dir_for(resolved, name)
+        runtime_dir.mkdir(parents=True, exist_ok=True)
         _commit_install(staging, addon_dir, skill_dir, skill_target)
         check = None
         cmd = _resolve_check_cmd(descriptor, host_platform)
         if cmd is not None:
-            effective = effective_command(descriptor.command_prefix, addon_dir, cmd)
-            check = run_check_cmd(effective)
-            check["platform"] = host_platform
-            check["cmd"] = cmd
-            check["effective_cmd"] = effective
+            cmd = _substitute_placeholders(cmd, addon_dir, runtime_dir)
+            effective = effective_command(descriptor.command_prefix, addon_dir,
+                                          runtime_dir, cmd)
+            check = _run_probe(effective, host_platform, cmd)
     except AddonError:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -595,11 +631,71 @@ def update_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
         "previous_version": previous_version,
         "source": _source_display(source),
         "addon_dir": str(resolved.home / name),
+        "runtime_dir": str(runtime_dir),
         "skill_dir": str(skill_target),
         "runtime_check": check,
         "warnings": warnings,
     }
     return report
+
+
+def check_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
+    """`sca addon check NAME`: re-probe the installed runtime NOW.
+
+    The install/update probe records the state of the machine at that
+    moment — often before the runtime was provisioned. This verb re-runs
+    the descriptor's check_cmd against the installed layout, refreshes the
+    registry record, and returns the result, so "is the runtime usable
+    right now?" has an answer that is not a stale cache.
+    """
+    require_initialized(resolved)
+    registry = load_registry(resolved.home)
+    record = get_record(registry, name)
+    if record is None:
+        installed = sorted(registry.get("addons", {}))
+        listing = ", ".join(installed) if installed else "(none installed)"
+        raise AddonError(f"addon {name!r} is not installed; installed: {listing}")
+    addon_dir = resolved.home / str(record.get("addon_relpath", name))
+    if not addon_dir.is_dir():
+        raise AddonError(
+            f"addon directory {addon_dir} is missing from the addon home — "
+            f"reinstall with `sca addon update {name}` or `sca addon add`"
+        )
+    # The installed descriptor is the source of truth: it may have been
+    # re-provisioned or edited after install without re-adding.
+    descriptor = load_descriptor(addon_dir)
+    runtime_dir = Path(str(record.get("runtime_dir") or runtime_dir_for(resolved, name)))
+    host_platform = detect_platform()
+    cmd = _resolve_check_cmd(descriptor, host_platform)
+    if cmd is None:
+        return {
+            "action": "check",
+            "name": name,
+            "runtime_dir": str(runtime_dir),
+            "runtime_check": None,
+        }
+    cmd = _substitute_placeholders(cmd, addon_dir, runtime_dir)
+    effective = effective_command(descriptor.command_prefix, addon_dir, runtime_dir, cmd)
+    check = _run_probe(effective, host_platform, cmd)
+    record["runtime_check"] = check
+    put_record(registry, record)
+    save_registry(resolved.home, registry)
+    return {
+        "action": "check",
+        "name": name,
+        "runtime_dir": str(runtime_dir),
+        "runtime_check": check,
+    }
+
+
+def check_all_addons(resolved: ResolvedPaths) -> dict[str, Any]:
+    """`sca addon check` (no name): re-probe every installed addon."""
+    require_initialized(resolved)
+    registry = load_registry(resolved.home) if resolved.home.is_dir() else {"addons": {}}
+    names = sorted(registry.get("addons", {}))
+    if not names:
+        raise AddonError("no addons installed; nothing to check")
+    return {"action": "check-all", "checked": [check_addon(resolved, n) for n in names]}
 
 
 def remove_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
@@ -617,6 +713,19 @@ def remove_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
         shutil.rmtree(addon_dir)
     else:
         warnings.append(f"addon directory was already missing: {addon_dir}")
+    # Runtime state was provisioned by the user (often an expensive venv);
+    # removal deletes it with everything else the registry recorded, and
+    # says so, so nothing orphans silently. Records from before the
+    # runtime-dir layout carry no path at all — never fall back to "."
+    # (Path("") is the CWD, and rmtree-ing it is catastrophic).
+    raw_runtime_dir = str(record.get("runtime_dir") or "").strip()
+    runtime_dir = Path(raw_runtime_dir) if raw_runtime_dir else None
+    removed_runtime = False
+    if runtime_dir is not None and runtime_dir.is_dir():
+        shutil.rmtree(runtime_dir)
+        removed_runtime = True
+    elif runtime_dir is not None:
+        warnings.append(f"runtime directory was already missing: {runtime_dir}")
     skill_install = dict(record.get("skill_install") or {})
     skill_target = (
         Path(str(skill_install.get("skills_dir", "")))
@@ -634,7 +743,11 @@ def remove_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
     return {
         "action": "remove",
         "name": name,
-        "removed": [str(path) for path in (addon_dir, skill_target) if path is not None],
+        "removed": [
+            str(path)
+            for path in (addon_dir, runtime_dir if removed_runtime else None, skill_target)
+            if path is not None
+        ],
         "warnings": warnings,
     }
 
@@ -661,13 +774,23 @@ def list_addons(resolved: ResolvedPaths) -> dict[str, Any]:
         except AddonError as exc:
             source_display = "unavailable"
             drift.append(str(exc))
+        check = record.get("runtime_check")
+        if isinstance(check, dict) and check.get("checked_at"):
+            # surface the cache's age so nobody mistakes list output for a
+            # fresh probe — `sca addon check NAME` is the refresh verb
+            state = ("ok" if check.get("passed") else "FAILED") + \
+                f" (cached {check['checked_at']})"
+        else:
+            state = "-" if check is None else ("ok" if check.get("passed") else "FAILED")
         entries.append(
             {
                 "name": name,
                 "version": record.get("version"),
                 "source": source_display,
                 "skill_dir": str(skill_dir) if skill_install else None,
-                "runtime_check": record.get("runtime_check"),
+                "runtime_dir": record.get("runtime_dir"),
+                "runtime_state": state,
+                "runtime_check": check,
                 "drift": drift,
             }
         )

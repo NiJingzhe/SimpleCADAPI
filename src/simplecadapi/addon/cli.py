@@ -8,12 +8,17 @@ Groups (human-readable output; machine-checkable reports come back from
   wire the ``sca`` shim + PATH block so the command resolves in any new
   shell (``--no-shell`` skips the wiring)
 * ``sca addon add <source>``    — install an addon (GitHub or local path)
-* ``sca addon update [name]``   — re-fetch one addon or all of them
+* ``sca addon update [name]``   — re-fetch one addon or all of them (the
+  payload is replaced wholesale; per-addon runtime state under the
+  runtimes directory survives)
+* ``sca addon check [name]``    — re-probe the runtime NOW and refresh the
+  cached registry state (one addon or all)
 * ``sca addon remove <name>``   — delete exactly what was installed
 * ``sca addon list``            — registry contents with on-disk drift
 * ``sca addon use <name> <cmd>`` — run cmd inside the addon's declared
-  environment (its ``[runtime].command_prefix`` is prepended; without a
-  command, report the prefix and addon directory)
+  environment (its ``[runtime].command_prefix`` is prepended, with
+  ``{addon_dir}`` / ``{runtime_dir}`` resolved and ``SCA_ADDON_DIR`` /
+  ``SCA_RUNTIME_DIR`` exported; without a command, report the prefix)
 """
 
 from __future__ import annotations
@@ -25,7 +30,15 @@ from typing import Any, Mapping, Sequence
 
 from . import AddonError
 from .home import ResolvedPaths, init_home, resolve_paths
-from .install import install_addon, list_addons, parse_source, remove_addon, update_addon
+from .install import (
+    check_addon,
+    check_all_addons,
+    install_addon,
+    list_addons,
+    parse_source,
+    remove_addon,
+    update_addon,
+)
 from .shell import integrate_shell
 from .use import use_addon
 
@@ -53,6 +66,8 @@ def _run_addon(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         return install_addon(resolved, source, method=args.method), 0
     if args.command == "update":
         return (_update_all(resolved) if args.name is None else update_addon(resolved, args.name)), 0
+    if args.command == "check":
+        return (check_all_addons(resolved) if args.name is None else check_addon(resolved, args.name)), 0
     if args.command == "remove":
         return remove_addon(resolved, args.name), 0
     if args.command == "list":
@@ -109,6 +124,17 @@ def configure(subparsers: argparse._SubParsersAction) -> None:
     _add_location_flags(update)
     update.add_argument("name", nargs="?", help="addon name (default: all installed addons)")
 
+    check = commands.add_parser(
+        "check",
+        help="re-probe the runtime now and refresh the cached registry state",
+        description="Re-runs the descriptor's check_cmd against the installed "
+        "layout (install-time probe results are cached and often predate "
+        "runtime provisioning); updates the registry record. One addon or "
+        "all installed addons.",
+    )
+    _add_location_flags(check)
+    check.add_argument("name", nargs="?", help="addon name (default: all installed addons)")
+
     remove = commands.add_parser("remove", help="remove an installed addon and its skill")
     _add_location_flags(remove)
     remove.add_argument("name", help="addon name")
@@ -120,8 +146,9 @@ def configure(subparsers: argparse._SubParsersAction) -> None:
         "use",
         help="run a command inside an installed addon's declared environment",
         description="Prepends the addon's [runtime].command_prefix (with "
-        "{addon_dir} resolved) to the command and executes it via the shell; "
-        "SCA_ADDON_DIR is exported. Without a command, report the prefix.",
+        "{addon_dir} and {runtime_dir} resolved) to the command and executes "
+        "it via the shell; SCA_ADDON_DIR and SCA_RUNTIME_DIR are exported. "
+        "Without a command, report the prefix.",
     )
     _add_location_flags(use)
     use.add_argument("name", help="installed addon name")
@@ -192,12 +219,22 @@ def _print(report: Mapping[str, Any]) -> None:
         for item in report.get("updated", []):
             _print(item)
         return
+    if action == "check-all":
+        for item in report.get("checked", []):
+            _print(item)
+        return
+    if action == "check":
+        print(f"checked {report.get('name')}")
+        print(f"  runtime dir: {report.get('runtime_dir', '?')}")
+        _print_check(report.get("runtime_check"))
+        return
     if action in {"add", "update"}:
         verb = "installed" if action == "add" else "updated"
         previous = f" (was {report['previous_version']})" if report.get("previous_version") else ""
         print(f"{verb} {report.get('name')} {report.get('version')}{previous}")
         print(f"  source: {report.get('source', '?')}")
         print(f"  addon:  {report.get('addon_dir', '?')}")
+        print(f"  runtime: {report.get('runtime_dir', '?')}")
         print(f"  skill:  {report.get('skill_dir', '?')}")
         _print_check(report.get("runtime_check"))
         for warning in report.get("warnings", []):
@@ -215,14 +252,15 @@ def _print(report: Mapping[str, Any]) -> None:
             print("no addons installed")
             return
         for entry in addons:
-            check = entry.get("runtime_check")
-            state = "-" if check is None else ("ok" if check.get("passed") else "FAILED")
+            state = entry.get("runtime_state", "-")
             print(
                 f"{entry.get('name')}  {entry.get('version', '?')}  "
                 f"[{entry.get('source', '?')}]  runtime: {state}"
             )
             if entry.get("skill_dir"):
                 print(f"  skill: {entry['skill_dir']}")
+            if entry.get("runtime_dir"):
+                print(f"  runtime dir: {entry['runtime_dir']}")
             for drift in entry.get("drift", []):
                 print(f"  DRIFT: {drift}")
         return
@@ -230,6 +268,7 @@ def _print(report: Mapping[str, Any]) -> None:
         if "exit_code" in report:
             return  # the command's own output already went to the terminal
         print(f"{report['name']}  addon dir: {report['addon_dir']}")
+        print(f"  runtime dir: {report.get('runtime_dir', '?')}")
         print(f"  command prefix: {report['command_prefix'] or '(none)'}")
         print("  usage: sca addon use NAME COMMAND [ARGS...]")
         return

@@ -31,7 +31,7 @@ _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 #: Placeholders a [runtime].command_prefix may reference. ``{addon_dir}``
 #: resolves to the installed addon directory when the prefix is applied.
-_COMMAND_PREFIX_PLACEHOLDERS = frozenset({"addon_dir"})
+_COMMAND_PREFIX_PLACEHOLDERS = frozenset({"addon_dir", "runtime_dir"})
 _PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
 
 _ADDON_KEYS = frozenset({"name", "version", "license", "skill_path"})
@@ -245,7 +245,7 @@ def load_descriptor(root: Path) -> AddonDescriptor:
             raise AddonError(
                 f"{source}: [runtime].command_prefix references unknown "
                 f"placeholder(s) {', '.join('{' + item + '}' for item in unknown)}; "
-                "the only supported placeholder is {addon_dir}"
+                "the supported placeholders are {addon_dir} and {runtime_dir}"
             )
 
     return AddonDescriptor(

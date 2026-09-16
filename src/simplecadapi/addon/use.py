@@ -1,15 +1,17 @@
 """``sca addon use``: run a command inside an installed addon's environment.
 
 The addon's ``[runtime].command_prefix`` (a shell prelude, with
-``{addon_dir}`` resolving to the installed addon directory) is joined in
-front of the requested command and handed to the shell, so ``sca addon
-use conn-tools python train.py`` executes with exactly the environment
-the addon declares — its own venv, tool paths, or variables — without
-the caller having to provision anything. The installed addon directory
-is also exported as ``SCA_ADDON_DIR``.
+``{addon_dir}`` resolving to the installed addon payload and
+``{runtime_dir}`` to the addon's private runtime-state directory beside the
+addon home) is joined in front of the requested command and handed to the
+shell, so ``sca addon use conn-tools python train.py`` executes with
+exactly the environment the addon declares — its own venv, tool paths, or
+variables — without the caller having to provision anything. The installed
+addon directory is also exported as ``SCA_ADDON_DIR`` and its runtime
+directory as ``SCA_RUNTIME_DIR``, so provisioning scripts can self-locate.
 
-Calling without a command reports the effective prefix and addon
-directory instead of executing anything.
+Calling without a command reports the effective prefix and directories
+instead of executing anything.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from typing import Any, Sequence
 
 from . import AddonError
 from .descriptor import load_descriptor
-from .home import ResolvedPaths, require_initialized
+from .home import ResolvedPaths, require_initialized, runtime_dir_for
 from .install import effective_command
 from .registry import get_record, load_registry
 
@@ -54,6 +56,7 @@ def use_addon(
             f"addon directory {addon_dir} is missing from the addon home — "
             f"reinstall with `sca addon update {name}` or `sca addon add`"
         )
+    runtime_dir = Path(str(record.get("runtime_dir") or runtime_dir_for(resolved, name)))
     # The installed descriptor is the source of truth for the prefix: a
     # user may provision or edit it after install without re-adding.
     descriptor = load_descriptor(addon_dir)
@@ -64,16 +67,19 @@ def use_addon(
             "action": "use",
             "name": name,
             "addon_dir": str(addon_dir),
+            "runtime_dir": str(runtime_dir),
             "command_prefix": prefix,
         }
 
     # Shell-quote each argv element so the joined line re-parses to exactly
     # the requested argv, even for arguments with spaces or shell metachars.
     effective = effective_command(
-        prefix, addon_dir, " ".join(shlex.quote(part) for part in cmd)
+        prefix, addon_dir, runtime_dir,
+        " ".join(shlex.quote(part) for part in cmd),
     )
     env = dict(os.environ)
     env["SCA_ADDON_DIR"] = str(addon_dir)
+    env["SCA_RUNTIME_DIR"] = str(runtime_dir)
     argv = ["cmd", "/c", effective] if sys.platform == "win32" else ["sh", "-c", effective]
     try:
         completed = subprocess.run(
@@ -86,6 +92,7 @@ def use_addon(
         "action": "use",
         "name": name,
         "addon_dir": str(addon_dir),
+        "runtime_dir": str(runtime_dir),
         "command": effective,
         "exit_code": completed.returncode,
     }
