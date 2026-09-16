@@ -54,6 +54,25 @@ separation exists to prevent.
 One document per audience: the descriptor is read by the `sca` CLI, the
 SKILL.md is read by agents. Never duplicate prose into the descriptor.
 
+## Payload vs runtime state
+
+An installed addon lives in two places:
+
+- **Payload** — `<addon home>/<name>`: the repository contents, replaced
+  wholesale on every install/update. Treat it as a pure function of the
+  source; nothing provisioned by the user should live here.
+- **Runtime state** — `<addon home>/../runtimes/<name>` (`~/.sca/runtimes/<name>`
+  by default; a redirected `SCA_ADDON_HOME=/x/addons` keeps all state under
+  `/x/runtimes`): created at install, addressed as `{runtime_dir}` in the
+  descriptor, never touched by updates, removed with the addon.
+  Provision virtualenvs and caches here.
+
+The split is what makes `sca addon update` safe to run blindly: the
+payload is re-fetched and swapped while provisioned runtime state (a
+multi-hundred-MB venv, downloaded models) survives. As a legacy
+compatibility shim, an update also preserves a pre-`{runtime_dir}`
+`.venv` provisioned inside the payload itself.
+
 ## Descriptor reference (`sca-addon.toml`)
 
 Validation is strict: unknown tables and keys are rejected, every
@@ -69,7 +88,7 @@ failure names the field and file.
 | `[runtime] kind` | `binary` \| `python-env` \| `docker` \| `none` |
 | `[runtime] platforms` | non-empty list, required for `binary`/`python-env`, forbidden for `none`/`docker` |
 | `[runtime] check_cmd` | required for `binary`/`python-env`, optional for `docker`, forbidden for `none` |
-| `[runtime] command_prefix` | optional shell prelude joined in front of every command the addon runs (see below); `{addon_dir}` resolves to the installed addon directory; no other `{placeholder}` is allowed |
+| `[runtime] command_prefix` | optional shell prelude joined in front of every command the addon runs (see below); `{addon_dir}` resolves to the installed payload, `{runtime_dir}` to the addon's runtime-state directory; no other `{placeholder}` is allowed |
 | `[runtime.check_overrides]` | optional per-platform command overrides; keys must be declared platforms |
 
 Closed platform enum (additive across spec versions):
@@ -101,19 +120,20 @@ every command the addon runs:
 ```toml
 [runtime]
 kind = "python-env"
-command_prefix = "PATH=\"{addon_dir}/.venv/bin:$PATH\""
-check_cmd = "python -c 'import mytool'"
+command_prefix = "PATH=\"{runtime_dir}/.venv/bin:$PATH\""
+check_cmd = "{runtime_dir}/.venv/bin/python -c 'import mytool'"
 ```
 
-- `{addon_dir}` is the one supported placeholder; it resolves to the
-  installed addon directory, so a bundled or user-provisioned venv
-  inside the addon home is addressable.
+- Two placeholders resolve in the prefix and in `check_cmd`:
+  `{addon_dir}` (the installed payload) and `{runtime_dir}` (the addon's
+  runtime-state directory — provision venvs there, never inside the
+  payload; see "Payload vs runtime state").
 - `sca addon use <name> <cmd...>` resolves the installed addon by name,
   joins prefix + command, and executes it via the shell with
-  `SCA_ADDON_DIR` exported; the exit code propagates. `--capture`
-  returns output in the report instead of streaming it. Without a
-  command, `sca addon use <name>` reports the prefix and addon
-  directory.
+  `SCA_ADDON_DIR` and `SCA_RUNTIME_DIR` exported (provisioning scripts
+  can self-locate); the exit code propagates. `--capture` returns output
+  in the report instead of streaming it. Without a command, `sca addon
+  use <name>` reports the prefix and both directories.
 - `check_cmd` runs through the same prefix, so a probe like
   `python -c 'import mytool'` automatically tests the addon's own
   interpreter. The probe executes after the payload is committed, in
@@ -133,6 +153,14 @@ A runtime probe must be fast but meaningful:
 4. A failing probe warns loudly at install time but never blocks the
    install — the runtime can be installed afterwards. Re-run it before
    first use.
+
+The install/update-time probe is a **cache, not truth**: it records the
+state of the machine at that moment, which is usually *before* the
+runtime was provisioned. `sca addon list` shows the cached state with
+its timestamp (`ok (cached ...)`); `sca addon check <name>` (or
+`sca addon check` for every installed addon) re-probes the installed
+layout NOW, refreshes the registry record, and is the answer to "is the
+runtime usable right now?".
 
 ## Addon SKILL.md requirements
 
@@ -182,9 +210,10 @@ sca init                           # once per machine: home + registry + config
 sca addon add owner/repo           # install from GitHub (default branch)
 sca addon add owner/repo@v1.2.0    # pin a tag or commit for reproducibility
 sca addon add ./my-addon           # install a local checkout (test before publishing)
-sca addon update [name]            # re-fetch one addon or all
+sca addon update [name]            # re-fetch one addon or all (payload swapped; runtime state survives)
+sca addon check [name]             # re-probe the runtime NOW and refresh the cached state
 sca addon remove name
-sca addon list                     # registry contents + on-disk drift
+sca addon list                     # registry contents + on-disk drift + cached runtime state
 ```
 
 - Locations resolve as flag > environment variable (`SCA_ADDON_HOME`,

@@ -33,8 +33,29 @@ def default_home() -> Path:
     return Path.home() / ".sca" / "addons"
 
 
+def default_runtimes_dir() -> Path:
+    return Path.home() / ".sca" / "runtimes"
+
+
 def default_skills_dir() -> Path:
     return Path.home() / ".agents" / "skills"
+
+
+def runtimes_home(resolved: ResolvedPaths) -> Path:
+    """Directory holding per-addon runtime state.
+
+    Sits beside the addon home (``~/.sca/runtimes`` by default, so a
+    redirected ``SCA_ADDON_HOME=/x/addons`` keeps all state under ``/x``).
+    Runtime state — provisioned virtualenvs, caches — never lives inside an
+    installed addon payload, which lets updates replace the payload
+    wholesale without destroying provisioned environments.
+    """
+    return resolved.home.parent / "runtimes"
+
+
+def runtime_dir_for(resolved: ResolvedPaths, name: str) -> Path:
+    """Per-addon runtime directory (created by ``sca addon add``)."""
+    return runtimes_home(resolved) / name
 
 
 def config_path() -> Path:
