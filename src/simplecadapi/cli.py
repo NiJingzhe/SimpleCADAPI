@@ -5,6 +5,7 @@ Groups, each owned by its module and registered here at parser level so
 
     sca init                      # machine setup: addon home + shell wiring
     sca addon add|update|remove|list|use
+    sca skill targets|install
     sca cache status|verify|prune|clear
     sca export <package.scadpkg> [--format ...]
 
@@ -23,12 +24,14 @@ from typing import Any, Sequence
 
 from .addon import AddonError
 from .addon.install import sca_version
+from .skill.compiler import SkillBuildError
 
 
 def build_parser() -> argparse.ArgumentParser:
     from .addon import cli as addon_cli
     from .cache import cli as cache_cli
     from .exporter import cli as exporter_cli
+    from .skill import cli as skill_cli
 
     parser = argparse.ArgumentParser(
         prog="sca",
@@ -42,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     addon_cli.configure(subparsers)
     cache_cli.configure(subparsers)
     exporter_cli.configure(subparsers)
+    skill_cli.configure(subparsers)
     return parser
 
 
@@ -55,7 +59,7 @@ def run(argv: Sequence[str] | None = None) -> tuple[dict[str, Any], int, Any]:
 def main(argv: Sequence[str] | None = None) -> int:
     try:
         report, exit_code, printer = run(argv)
-    except (AddonError, OSError, ValueError) as exc:
+    except (AddonError, SkillBuildError, OSError, ValueError) as exc:
         print(f"sca: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
     printer(report)

@@ -184,6 +184,25 @@ uv add simplecadapi
 uv sync --group dev
 ```
 
+### Agent Skill
+
+pip 安装完成后，为你的 agent harness 安装内置 skill：
+
+```bash
+sca skill targets
+# 默认位置（~/.agents/skills），或显式指定 ZCode 的 skills 目录：
+sca skill install --target zcode --skills-dir ~/.zcode/skills
+```
+
+`targets` 列出可用的 harness 目标。`install` 编译内置源码并写入
+`<skills-dir>/simplecadapi`；不传 `--skills-dir` 时，沿用既有 addon 配置/
+环境解析，默认回退到 `~/.agents/skills`，不要求先执行 `sca init`。wheel
+内置的是未编译的 `docs/skill/` 源树和 `skillproj.toml` 资源，编译发生在
+安装时机；无需 checkout 本仓库。使用 `uv` 时，上述命令前缀 `uv run`。
+
+`install` 在目标位置已存在时报错。加 `--force` 允许替换，但仅限
+`SKILL.md` 声明了同名 skill（`simplecadapi`）的目录；无关目录不会被覆盖。
+
 ## 快速开始
 
 ```python
@@ -386,24 +405,33 @@ uv run --extra fem python examples/ap242_gmsh_volume_mesh/study_mesh_convergence
 
 ## 发布 Agent Skill
 
-仓库中的 `skills/simplecadapi/` 是精简版 Agent Skill。它包含生成的 API 和建模参考文档，但不包含 SDK 源代码。
+skill 源树位于 `docs/skill/`，保持 harness 中立。`tools/skillbuild.py` 是
+`sca skill` CLI 所用同一编译器的封装，供本仓库维护者构建：按 harness 目标
+编译（目标与默认输出目录配置在 `skillproj.toml`；`skills/simplecadapi-*/`
+下的输出是可再生的构建产物，不提交入库）。如需 harness 特定文本，用
+`<!-- skill:if ... -->` 条件块标记，按目标编译。wheel 本身不包含任何预编译
+目标——终端用户用 `sca skill install` 从内置源码自行安装。
 
 在干净的工作区中更新项目版本和文档，然后生成并验证发布产物：
 
 ```bash
 uv sync --group dev
-uv run skill-pack --refresh-docs --archive
-uv run python -m pytest test/test_skill_pack.py
+uv run python tools/auto_docs_gen.py --quiet
+uv run python tools/skillbuild.py --target omp
+uv run pytest test/test_skill_build.py
+tar -C skills -czf skills/simplecadapi.tar.gz simplecadapi-omp
 ```
 
-该命令会刷新生成文档、重建 `skills/simplecadapi/`，并生成 `skills/simplecadapi.tar.gz`。发布前检查 Skill 内容和归档文件：
+这组命令会重新生成 skill 源树内的 API 参考、重新编译 omp 目标，并生成
+`skills/simplecadapi.tar.gz`。发布前检查源树和编译产物：
 
 ```bash
-git diff -- skills/simplecadapi docs
-tar -tzf skills/simplecadapi.tar.gz
+git diff -- docs/skill
+tar -tzf skills/simplecadapi.tar.gz | head
 ```
 
-发布时提交生成的 `skills/simplecadapi/` 目录和更新后的 `docs/`。归档文件已被 Git 忽略；请将 `skills/simplecadapi.tar.gz` 附加到对应的 GitHub Release，或上传到目标 Agent Skills 注册中心。
+发布时只提交 `docs/skill/` 源树；harness 编译产物由发布工作流生成，归档
+文件上传到 GitHub Release。通过 pip 安装后，优先使用 `sca skill` 构建和安装。
 
 ## 开发
 
