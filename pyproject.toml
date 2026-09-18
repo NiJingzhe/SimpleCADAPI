@@ -73,11 +73,13 @@ build-backend = "hatchling.build"
 # Metadata-Version 2.5 is newer than what twine 6.x validates; keep the
 # published metadata at 2.4 until the toolchain accepts 2.5.
 core-metadata-version = "2.4"
-# The Python package ships code only. Generated skill docs live in docs/skill
-# (built by tools/auto_docs_gen.py + tools/skillbuild.py) and are distributed
-# as the Agent Skill archive, not inside the wheel.
+# Ship harness-neutral source; sca skill compiles it on the user's machine.
 packages = ["src/simplecadapi"]
 include = ["src/**/*"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"docs/skill" = "simplecadapi/skill/resources/docs/skill"
+"skillproj.toml" = "simplecadapi/skill/resources/skillproj.toml"
 
 [tool.hatch.build.targets.sdist]
 core-metadata-version = "2.4"
@@ -86,6 +88,7 @@ include = [
   "/LICENSE",
   "/pyproject.toml",
   "/MANIFEST.in",
+  "/skillproj.toml",
   "/src",
   "/docs",
 ]
