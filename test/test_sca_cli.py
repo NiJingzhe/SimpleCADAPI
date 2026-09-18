@@ -16,7 +16,10 @@ def fake_user_home(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_init_group_runs_with_shell_integration(tmp_path):
+def test_init_group_runs_with_shell_integration(tmp_path, monkeypatch):
+    # Pin the shell: the integration targets zsh only when SHELL says so
+    # (or ~/.zshenv already exists); CI runners run bash.
+    monkeypatch.setenv("SHELL", "/bin/zsh")
     report, code, printer = run(["init"])
     assert code == 0
     assert Path(report["home"]) == tmp_path / ".sca" / "addons"
