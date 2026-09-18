@@ -8,6 +8,7 @@ inventory with logical-surface grouping.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -141,8 +142,13 @@ def test_fillet_silent_garbage_output_caught_at_exit():
 
     payload = _payload(ctx.value)
     # The volume violation leads what_happened so the agent can tell
-    # "kernel silently lied" apart from "kernel refused" (r=5 path).
-    assert "result volume 1036" in payload["what_happened"]
+    # "kernel silently lied" apart from "kernel refused" (r=5 path). The
+    # garbage volume itself is platform-dependent OCC behavior (macOS
+    # reports ~1036, Linux ~1039) — the contract is only that the kernel
+    # handed back MORE material than the 1000 it was given.
+    garbage = re.search(r"result volume ([0-9.]+)", payload["what_happened"])
+    assert garbage, payload["what_happened"]
+    assert float(garbage.group(1)) > 1000
     assert "exceeds the input volume 1000" in payload["what_happened"]
     # Probe explanation follows as the suspected root cause.
     assert "probes indicate" in payload["what_happened"]
