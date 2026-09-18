@@ -36,6 +36,46 @@ def _technical_details_from_error(error: BaseException) -> str:
 
 
 @dataclass(frozen=True)
+class ErrorMeasurement:
+    """One failure-time geometric fact: a named scalar or vector with unit.
+
+    Text axiom: every measurement renders into the error text itself, so
+    text-only agents and tests never depend on the rendered evidence image.
+    """
+
+    name: str
+    value: Any
+    unit: str = ""
+
+    def display(self) -> str:
+        if isinstance(self.value, (tuple, list)):
+            rendered = "(" + ", ".join(f"{float(v):.4g}" for v in self.value) + ")"
+        else:
+            rendered = f"{float(self.value):.4g}"
+        return f"{self.name}: {rendered}" + (f" {self.unit}" if self.unit else "")
+
+
+@dataclass(frozen=True)
+class ErrorEvidence:
+    """Rendered visual evidence; labels in the image share the symbol table."""
+
+    kind: str  # "render" today
+    path: str
+    view: str = ""
+    caption: str = ""
+    symbols: Tuple[Tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class InventoryEntry:
+    """One candidate entity in a selection diagnosis (hit / near_miss / unmatched)."""
+
+    symbol: str
+    status: str
+    description: str
+
+
+@dataclass(frozen=True)
 class ErrorGuidance:
     what_happened: str
     possible_causes: Tuple[str, ...]
@@ -43,6 +83,10 @@ class ErrorGuidance:
     technical_details: Optional[str] = None
     signature: Optional[str] = None
     documentation_hint: Optional[str] = None
+    measurements: Tuple[ErrorMeasurement, ...] = ()
+    evidence: Tuple[ErrorEvidence, ...] = ()
+    repair: Tuple[str, ...] = ()
+    inventory: Tuple[InventoryEntry, ...] = ()
 
 
 def _resolve_operation_callable(operation: str) -> Any:
@@ -109,10 +153,30 @@ def format_llm_error(operation: str, guidance: ErrorGuidance) -> str:
     if guidance.documentation_hint:
         lines.append(f"Documentation: {guidance.documentation_hint}")
     lines.append(f"What happened: {guidance.what_happened}")
+    if guidance.measurements:
+        lines.append("Measurements:")
+        lines.extend(f"- {item.display()}" for item in guidance.measurements)
+    if guidance.evidence:
+        lines.append("Evidence:")
+        for item in guidance.evidence:
+            rendered = f"- {item.kind} view '{item.view or 'default'}': {item.path}"
+            if item.caption:
+                rendered += f" ({item.caption})"
+            lines.append(rendered)
+            if item.symbols:
+                table = ", ".join(f"{sym}={desc}" for sym, desc in item.symbols)
+                lines.append(f"  symbols: {table}")
     lines.append("Possible causes:")
     lines.extend(f"- {item}" for item in guidance.possible_causes)
+    fix_items = tuple(guidance.repair) + tuple(guidance.how_to_fix)
     lines.append("How to fix:")
-    lines.extend(f"- {item}" for item in guidance.how_to_fix)
+    lines.extend(f"- {item}" for item in fix_items)
+    if guidance.inventory:
+        lines.append("Inventory:")
+        lines.extend(
+            f"- {entry.symbol} [{entry.status}] {entry.description}"
+            for entry in guidance.inventory
+        )
     if guidance.technical_details:
         lines.append(f"Technical details: {guidance.technical_details}")
     return "\n".join(lines)
@@ -135,7 +199,62 @@ class SimpleCADError(ValueError):
             "technical_details": self.guidance.technical_details,
             "signature": self.guidance.signature,
             "documentation_hint": self.guidance.documentation_hint,
+            "measurements": [
+                {
+                    "name": m.name,
+                    "value": list(m.value) if isinstance(m.value, (tuple, list)) else m.value,
+                    "unit": m.unit,
+                }
+                for m in self.guidance.measurements
+            ],
+            "evidence": [
+                {
+                    "kind": e.kind,
+                    "path": e.path,
+                    "view": e.view,
+                    "caption": e.caption,
+                    "symbols": dict(e.symbols),
+                }
+                for e in self.guidance.evidence
+            ],
+            "repair": list(self.guidance.repair),
+            "inventory": [
+                {"symbol": i.symbol, "status": i.status, "description": i.description}
+                for i in self.guidance.inventory
+            ],
         }
+
+
+class SimpleCADMessageError(SimpleCADError):
+    """Message-first SDK error that still carries the structured payload.
+
+    Sole sanctioned base for message-style error families: raise sites keep
+    their legacy ``Error("message")`` call shape and plain ``str()`` display
+    while the structured channel (guidance, ``to_dict``) becomes available
+    family-wide. Guidance fields beyond ``what_happened`` stay empty until
+    each family's designed guidance lands.
+    """
+
+    operation = "simplecadapi"
+
+    def __init__(self, message: str) -> None:
+        self.message = str(message)
+        self._display = self.message
+        super().__init__(
+            type(self).operation,
+            ErrorGuidance(
+                what_happened=self._display,
+                possible_causes=(),
+                how_to_fix=(),
+            ),
+        )
+        self.args = (self._display,)
+
+    def __str__(self) -> str:
+        return self._display
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self._display!r})"
 
 
 def raise_harness_error(
@@ -146,6 +265,10 @@ def raise_harness_error(
     how_to_fix: Sequence[str],
     technical_details: Optional[str] = None,
     error: Optional[BaseException] = None,
+    measurements: Sequence[ErrorMeasurement] = (),
+    evidence: Sequence[ErrorEvidence] = (),
+    repair: Sequence[str] = (),
+    inventory: Sequence[InventoryEntry] = (),
 ) -> NoReturn:
     if isinstance(error, SimpleCADError):
         raise error
@@ -165,5 +288,9 @@ def raise_harness_error(
         ),
         signature=_operation_signature(str(operation)),
         documentation_hint=_documentation_hint(str(operation)),
+        measurements=tuple(measurements),
+        evidence=tuple(evidence),
+        repair=_normalize_lines(repair),
+        inventory=tuple(inventory),
     )
     raise SimpleCADError(str(operation), guidance) from error

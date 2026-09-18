@@ -1,0 +1,25 @@
+# Byte-exact by default: no end-of-line conversion for any file unless it
+# opts in below. Builder-source digests (part cache keys) hash working-tree
+# bytes, so a core.autocrlf=true checkout must not differ from an LF one.
+* -text
+
+# Text formats pin LF so every platform checks out identical bytes.
+*.py         text eol=lf
+*.md         text eol=lf
+*.rst        text eol=lf
+*.txt        text eol=lf
+*.toml       text eol=lf
+*.json       text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+*.cfg        text eol=lf
+*.ini        text eol=lf
+*.sh         text eol=lf
+*.ts         text eol=lf
+*.js         text eol=lf
+*.mjs        text eol=lf
+*.css        text eol=lf
+*.html       text eol=lf
+*.svg        text eol=lf
+.gitignore     text eol=lf
+.gitattributes text eol=lf

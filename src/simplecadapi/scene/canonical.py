@@ -9,12 +9,16 @@ from typing import Any, Mapping
 
 import rfc8785
 
+from ..errors import SimpleCADMessageError
+
 
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 
 
-class DuplicateKeyError(ValueError):
+class DuplicateKeyError(SimpleCADMessageError):
     """Raised before object construction when JSON contains a duplicate key."""
+
+    operation = "scene_canonical_json"
 
 
 def _reject_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

@@ -681,11 +681,17 @@ class Sketch(TaggedMixin, TopoMixein):
         )
         self._last_solve_result = result
         if strict and result.status in {"conflicting", "failed"}:
-            raise ValueError(
-                f"Sketch solve failed with status={result.status}, backend={result.backend}"
-            )
+            # The backend already pinpointed the failing constraints; the
+            # structured diagnosis (measurements/inventory/repair/2D evidence
+            # render) replaces the legacy one-line ValueError.  SimpleCADError
+            # subclasses ValueError, so legacy except clauses keep working.
+            from .sketch_diagnostics import raise_sketch_solve_failure
+
+            raise_sketch_solve_failure(self, result)
         if require_fully_constrained and result.dof > 0:
-            raise ValueError(f"Sketch is underconstrained with {result.dof} remaining DOF")
+            from .sketch_diagnostics import raise_sketch_underconstrained
+
+            raise_sketch_underconstrained(self, result)
         return result
 
     def solved_result(self) -> SketchSolveResult:

@@ -671,6 +671,8 @@ def _render_sdk_screenshot_rpath(
     edge_width_scale: float | None = None,
     view_up: Sequence[float] | None = None,
     supersample: int = 2,
+    highlight_edges: Sequence[Any] = (),
+    highlight_edge_width: float = 4.5,
 ) -> Path:
     """Render SDK solids in an isolated VTK worker on macOS.
 
@@ -836,6 +838,22 @@ def _render_sdk_screenshot_rpath(
     group_polydata = [
         (datasets[name], color, 1.0) for name, color in surface_group_refs
     ]
+    # Highlighted edges draw as crisp colored line actors (4.5 px) exactly on
+    # the edge — no marker geometry, nothing covering the model.
+    edge_groups = []
+    if highlight_edges:
+        edge_shapes = [
+            entry.wrapped if hasattr(entry, "wrapped") else entry
+            for entry in highlight_edges
+        ]
+        edge_polydata = _edge_polydata(
+            edge_shapes, deflection=min(linear_deflection, _EDGE_DEFLECTION_CAP)
+        )
+        if edge_polydata is not None:
+            highlight_color = (0.953, 0.612, 0.071)  # palette #f39c12
+            edge_groups = [(edge_polydata, highlight_color)]
+            if show_legend:
+                legend_pairs = legend_pairs + [("highlighted edges", highlight_color)]
     return _render_polydata_views(
         datasets["base"],
         output_path,
@@ -845,6 +863,8 @@ def _render_sdk_screenshot_rpath(
         dpi=100,
         brep_edge_polydata=datasets["edges"],
         highlighted_groups=group_polydata,
+        highlighted_edge_groups=edge_groups,
+        highlight_edge_width=highlight_edge_width,
         legend=legend_pairs or None,
         legend_panel=len(legend_pairs) > 8,
         show_axes=show_axes,

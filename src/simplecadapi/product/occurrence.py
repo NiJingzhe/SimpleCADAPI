@@ -7,6 +7,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from ..artifacts.assembly_definition import AssemblyDefinition
+from ..errors import SimpleCADMessageError
 from ..artifacts.canonical import canonical_bytes, content_hash, parse_canonical_json
 from ..artifacts.part_definition import PartDefinition
 from .placement import identity_placement, placement_ticks
@@ -14,8 +15,10 @@ from .placement import identity_placement, placement_ticks
 Definition = PartDefinition | AssemblyDefinition
 
 
-class ProductOccurrenceError(ValueError):
+class ProductOccurrenceError(SimpleCADMessageError):
     """Raised when an occurrence graph is malformed or inconsistent."""
+
+    operation = "product_occurrence"
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,4 +1,7 @@
-"""Command-line export of validated ``.scadpkg`` product packages."""
+"""Command-line export of validated ``.scadpkg`` product packages.
+
+This module owns the ``sca export`` group (see :mod:`simplecadapi.cli`).
+"""
 
 from __future__ import annotations
 
@@ -36,9 +39,11 @@ _SUFFIXES = {
 }
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="simplecad-export",
+def configure(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``export`` group on a parent subparsers action."""
+    parser = subparsers.add_parser(
+        "export",
+        help="export a validated .scadpkg product package (step/stl/obj by default)",
         description="Export a validated .scadpkg product package.",
     )
     parser.add_argument("input", type=Path, help="input .scadpkg package")
@@ -64,7 +69,17 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--relative", action="store_true", help="use relative mesh deflection")
     parser.add_argument("--freecad-cmd", help="path to FreeCADCmd/FreeCAD for FCStd output")
     parser.add_argument("--document-name", default="SimpleCADProduct")
+    parser.set_defaults(handler=_execute, printer=_print_report)
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="sca")
+    configure(parser.add_subparsers(dest="group", required=True))
     return parser
+
+
+def _print_report(report: dict[str, Any]) -> None:
+    print(json.dumps(report, default=str, sort_keys=True))
 
 
 def _parse_outputs(items: Sequence[str]) -> dict[str, Path]:
@@ -110,8 +125,7 @@ def _report_value(value: Any) -> Any:
     return value
 
 
-def run(argv: Sequence[str] | None = None) -> tuple[dict[str, Any], int]:
-    args = _parser().parse_args(argv)
+def _execute(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     input_path = args.input.expanduser().resolve()
     if input_path.suffix.lower() != ".scadpkg":
         raise ValueError("input must end in .scadpkg")
@@ -182,15 +196,6 @@ def run(argv: Sequence[str] | None = None) -> tuple[dict[str, Any], int]:
     return report, 0 if not failures else 1
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    try:
-        report, exit_code = run(argv)
-    except (OSError, PermissionError, ValueError) as exc:
-        print(json.dumps({"error": type(exc).__name__, "message": str(exc)}, sort_keys=True))
-        return 2
-    print(json.dumps(report, default=str, sort_keys=True))
-    return exit_code
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+def run(argv: Sequence[str] | None = None) -> tuple[dict[str, Any], int]:
+    args = _parser().parse_args(argv)
+    return _execute(args)

@@ -9,6 +9,7 @@ import math
 from typing import Any, Dict, List, Literal, Mapping, Tuple
 import uuid
 
+from ..errors import SimpleCADMessageError
 from .expr import (
     Const,
     DimensionTolerance,
@@ -40,12 +41,16 @@ _SUPPORTED_METHODS = {"worst_case", "rss"}
 _AffineForm = Tuple[Fraction, Dict[str, Fraction]]
 
 
-class ToleranceAnalysisError(ValueError):
+class ToleranceAnalysisError(SimpleCADMessageError):
     """Raised when a tolerance chain cannot be propagated safely."""
 
+    operation = "tolerance_analysis"
 
-class ToleranceValidationError(ValueError):
+
+class ToleranceValidationError(SimpleCADMessageError):
     """Raised when one or more declared tolerance requirements fail."""
+
+    operation = "tolerance_validation"
 
     def __init__(self, report: "ToleranceReport") -> None:
         self.report = report

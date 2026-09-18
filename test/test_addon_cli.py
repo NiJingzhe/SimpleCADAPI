@@ -47,7 +47,7 @@ def _make_addon_repo(
     skill_dir.mkdir(parents=True, exist_ok=True)
     effective_name = skill_name or name
     (skill_dir / "SKILL.md").write_text(
-        f"---\nname: sca-{effective_name}\ndescription: demo {version}\n---\n# demo\n",
+        f"---\nname: {effective_name}\ndescription: demo {version}\n---\n# demo\n",
         encoding="utf-8",
     )
     lines = [
@@ -79,7 +79,7 @@ def _make_addon_repo(
 
 
 def _init(tmp_path) -> dict:
-    report, code = run(["addon", "init"])
+    report, code = run(["init"])
     assert code == 0
     return report
 
@@ -94,7 +94,7 @@ def _registry(home: Path) -> dict:
 def test_commands_require_init_first():
     with pytest.raises(AddonError) as err:
         run(["addon", "list"])
-    assert "sca addon init" in str(err.value)
+    assert "sca init" in str(err.value)
 
 
 def test_init_creates_home_config_and_registry(tmp_path):
@@ -357,3 +357,130 @@ def test_corrupt_registry_is_a_named_failure(tmp_path):
     with pytest.raises(AddonError) as err:
         run(["addon", "list"])
     assert "schema_version" in str(err.value)
+
+
+# --------------------------------------------------- v2 std: names + use
+
+
+def test_add_rejects_skill_name_mismatch(tmp_path):
+    _init(tmp_path)
+    source = _make_addon_repo(tmp_path, skill_name="something-else")
+    with pytest.raises(AddonError) as err:
+        run(["addon", "add", str(source)])
+    message = str(err.value)
+    assert "something-else" in message and "demo-addon" in message
+
+
+def test_add_rejects_local_repo_name_mismatch(tmp_path):
+    git = __import__("shutil").which("git")
+    if git is None:
+        pytest.skip("git not available")
+    _init(tmp_path)
+    source = _make_addon_repo(tmp_path)
+    __import__("subprocess").run(
+        [git, "init", "-q", str(source)], check=True, capture_output=True)
+    __import__("subprocess").run(
+        [git, "-C", str(source), "remote", "add", "origin",
+         "git@github.com:someone/different-repo.git"],
+        check=True, capture_output=True)
+    with pytest.raises(AddonError) as err:
+        run(["addon", "add", str(source)])
+    assert "different-repo" in str(err.value)
+
+
+def test_use_runs_prefixed_command_with_addon_dir_env(tmp_path):
+    _init(tmp_path)
+    source = _make_addon_repo(tmp_path)
+    # add the prefix to the installed descriptor by rewriting the source first
+    body = (source / "sca-addon.toml").read_text()
+    body = body.replace('kind = "none"', 'kind = "none"\ncommand_prefix = "DEMO_VAR=42"')
+    (source / "sca-addon.toml").write_text(body)
+    run(["addon", "add", str(source)])
+    report, code = run([
+        "addon", "use", "--capture", "demo-addon",
+        sys.executable, "-c",
+        "import os; print(os.environ['DEMO_VAR'], os.environ['SCA_ADDON_DIR'])",
+    ])
+    assert code == 0
+    addon_dir = report["addon_dir"]
+    assert f"42 {addon_dir}" in report["output"]
+
+
+def test_use_propagates_exit_code(tmp_path):
+    _init(tmp_path)
+    source = _make_addon_repo(tmp_path)
+    run(["addon", "add", str(source)])
+    report, code = run(["addon", "use", "demo-addon", "false"])
+    assert code == 1
+    assert report["exit_code"] == 1
+
+
+def test_use_without_command_reports_prefix(tmp_path):
+    _init(tmp_path)
+    source = _make_addon_repo(tmp_path)
+    run(["addon", "add", str(source)])
+    report, code = run(["addon", "use", "demo-addon"])
+    assert code == 0
+    assert report["command_prefix"] == ""
+    assert report["addon_dir"].endswith("demo-addon")
+
+
+def test_use_unknown_name_lists_installed(tmp_path):
+    _init(tmp_path)
+    source = _make_addon_repo(tmp_path)
+    run(["addon", "add", str(source)])
+    with pytest.raises(AddonError) as err:
+        run(["addon", "use", "nope", "true"])
+    assert "demo-addon" in str(err.value)
+
+
+def test_check_cmd_receives_command_prefix_and_placeholder(tmp_path):
+    _init(tmp_path)
+    source = _make_addon_repo(
+        tmp_path,
+        name="probed",
+        kind="binary",
+        platforms=[detect_platform()],
+        check_cmd="probe.sh",
+    )
+    tools = source / "tools"
+    tools.mkdir()
+    probe = tools / "probe.sh"
+    probe.write_text("#!/bin/sh\nexit 0\n")
+    probe.chmod(0o755)
+    body = (source / "sca-addon.toml").read_text()
+    body = body.replace(
+        'check_cmd = "probe.sh"',
+        "check_cmd = \"probe.sh\"\n"
+        "command_prefix = 'PATH=\"{addon_dir}/tools:$PATH\"'",
+    )
+    (source / "sca-addon.toml").write_text(body)
+    report, code = run(["addon", "add", str(source)])
+    assert code == 0, report
+    assert report["runtime_check"]["passed"] is True
+    record = _registry(tmp_path / ".sca" / "addons")["addons"]["probed"]
+    assert record["runtime"]["command_prefix"] == 'PATH="{addon_dir}/tools:$PATH"'
+    assert '{addon_dir}' not in record["runtime_check"]["effective_cmd"]
+
+
+def test_skill_dir_name_avoids_double_prefix(tmp_path):
+    _init(tmp_path)
+    source = _make_addon_repo(tmp_path, name="sca-prefixed")
+    report, code = run(["addon", "add", str(source)])
+    assert code == 0
+    assert report["skill_dir"].endswith("/sca-prefixed")
+
+
+def test_add_local_skips_virtualenvs_and_caches(tmp_path):
+    _init(tmp_path)
+    source = _make_addon_repo(tmp_path)
+    junk = source / ".venv" / "bin"
+    junk.mkdir(parents=True)
+    (junk / "python").write_text("stub", encoding="utf-8")
+    (source / ".pytest_cache").mkdir()
+    report, code = run(["addon", "add", str(source)])
+    assert code == 0
+    installed = Path(report["addon_dir"])
+    assert not (installed / ".venv").exists()
+    assert not (installed / ".pytest_cache").exists()
+    assert (installed / "sca-addon.toml").is_file()

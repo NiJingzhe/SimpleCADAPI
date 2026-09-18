@@ -22,6 +22,7 @@ from .resources import (
     preflight_input_archive_size,
     preflight_member_compression_ratio,
 )
+from .._internal.os_compat import with_binary_flag
 
 
 _MEMBER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,1023}$")
@@ -428,7 +429,7 @@ def preflight_unpacked_scene(
     members: dict[str, bytes] = {}
     nofollow = getattr(os, "O_NOFOLLOW", 0)
     for name, (file_path, expected) in records.items():
-        descriptor = os.open(file_path, os.O_RDONLY | nofollow)
+        descriptor = os.open(file_path, with_binary_flag(os.O_RDONLY | nofollow))
         try:
             actual = os.fstat(descriptor)
             if (

@@ -2,9 +2,15 @@
 
 Contract highlights (see ``docs/skill/references/domains/addon-development.md``):
 
-* hard failures (descriptor invalid, ``[compat] sca`` mismatch, platform
-  unsupported, name collision, foreign skill directory) abort with a
-  named cause;
+* the naming standard is enforced at install: repository name ==
+  ``[addon].name`` == SKILL.md frontmatter name;
+* ``[runtime].command_prefix`` (optional) is a shell prelude joined in
+  front of ``check_cmd`` and every ``sca addon use`` dispatch;
+  ``{addon_dir}`` resolves to the installed addon directory, and the
+  runtime probe runs against the final installed layout;
+* hard failures (descriptor invalid, name mismatch, ``[compat] sca``
+  mismatch, platform unsupported, name collision, foreign skill directory)
+  abort with a named cause;
 * a failing ``check_cmd`` is a loud warning, never an install blocker —
   the runtime can be installed afterwards;
 * GitHub addons install from the codeload tarball by default (no git
@@ -30,7 +36,7 @@ from typing import Any, Mapping
 
 from . import AddonError
 from .descriptor import AddonDescriptor, load_descriptor
-from .home import ResolvedPaths, require_initialized
+from .home import ResolvedPaths, require_initialized, runtime_dir_for
 from .platforms import PLATFORMS, detect_platform
 from .registry import (
     drop_record,
@@ -43,8 +49,93 @@ from .registry import (
 from .versions import VersionRange, compare_versions
 
 _GITHUB_SPEC_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$")
-_LOCAL_IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".DS_Store")
+# Local checkouts carry authoring-machine state a published addon never
+# needs: virtualenvs (the addon provisions its own inside the addon home)
+# and tool caches. Everything else — vendor/ binaries included — ships.
+_LOCAL_IGNORE = shutil.ignore_patterns(
+    ".git", "__pycache__", ".DS_Store",
+    ".venv", "venv", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
+)
 _CHECK_TIMEOUT_SECONDS = 10.0
+
+
+def _substitute_placeholders(text: str, addon_dir: Path, runtime_dir: Path) -> str:
+    return (
+        text
+        .replace("{addon_dir}", str(addon_dir))
+        .replace("{runtime_dir}", str(runtime_dir))
+    )
+
+
+def effective_command(prefix: str, addon_dir: Path, runtime_dir: Path, cmd: str) -> str:
+    """Join a descriptor command prefix with ``cmd`` into one shell line.
+
+    The prefix is a shell prelude (env assignments, PATH edits, `cd`, …)
+    and may reference two placeholders: ``{addon_dir}`` (the installed addon
+    payload, replaced wholesale on every update) and ``{runtime_dir}`` (the
+    addon's private runtime-state directory beside the addon home, created
+    at install and never touched by updates). An empty prefix returns
+    ``cmd`` unchanged.
+    """
+    prelude = _substitute_placeholders(prefix, addon_dir, runtime_dir).strip()
+    return f"{prelude} {cmd}" if prelude else cmd
+
+
+def skill_dir_name(addon_name: str) -> str:
+    """Install-directory name for an addon skill (``sca-`` marked, no doubling)."""
+    return addon_name if addon_name.startswith("sca-") else f"sca-{addon_name}"
+
+
+def _skill_frontmatter_name(skill_dir: Path) -> str:
+    """Read the ``name:`` field from a SKILL.md frontmatter block."""
+    text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    if not text.startswith("---"):
+        raise AddonError(
+            f"{skill_dir / 'SKILL.md'} has no frontmatter block; a skill must "
+            "start with '---' delimited YAML carrying at least name and description"
+        )
+    for line in text.split("\n")[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith("name:"):
+            return line.split(":", 1)[1].strip()
+    raise AddonError(
+        f"{skill_dir / 'SKILL.md'} frontmatter has no 'name:' field — the "
+        "skill name must match [addon].name in sca-addon.toml"
+    )
+
+
+def _local_repo_identity(path: Path) -> str:
+    """Best-available repository identity for a local checkout.
+
+    The basename of the git ``origin`` URL wins (a checkout dir may be
+    named anything); without git or a remote, fall back to the directory
+    name.
+    """
+    git = shutil.which("git")
+    if git is not None and (path / ".git").exists():
+        completed = subprocess.run(
+            [git, "-C", str(path), "remote", "get-url", "origin"],
+            capture_output=True, text=True,
+        )
+        if completed.returncode == 0:
+            url = completed.stdout.strip().rstrip("/")
+            return re.sub(r"\.git$", "", url.rsplit("/", 1)[-1])
+    return path.name
+
+
+def _check_name_consistency(descriptor: AddonDescriptor, source: Source) -> None:
+    """Enforce the naming standard: addon name == skill name == repo name."""
+    if isinstance(source, GitHubSource):
+        repo_identity = source.repo
+    else:
+        repo_identity = _local_repo_identity(source.path)
+    if repo_identity != descriptor.name:
+        raise AddonError(
+            f"repository name {repo_identity!r} does not match [addon].name "
+            f"{descriptor.name!r} — the naming standard requires the repository, "
+            "the descriptor, and the skill frontmatter to share one name"
+        )
 
 
 def sca_version() -> str:
@@ -275,6 +366,16 @@ def _resolve_check_cmd(descriptor: AddonDescriptor, host_platform: str) -> str |
     return descriptor.check_overrides.get(host_platform, descriptor.check_cmd)
 
 
+def _run_probe(effective: str, host_platform: str, cmd: str) -> dict[str, Any]:
+    """Run one runtime probe and stamp it with when/how it ran."""
+    check = run_check_cmd(effective)
+    check["platform"] = host_platform
+    check["cmd"] = cmd
+    check["effective_cmd"] = effective
+    check["checked_at"] = now_iso()
+    return check
+
+
 def _check_compat(descriptor: AddonDescriptor) -> None:
     installed = sca_version()
     parsed = VersionRange.parse(descriptor.sca_compat)
@@ -308,6 +409,14 @@ def _validate_skill_dir(repo_root: Path, descriptor: AddonDescriptor) -> Path:
         raise AddonError(
             f"skill directory {skill_dir} has no SKILL.md — an addon skill must "
             "be a directory containing SKILL.md"
+        )
+    skill_name = _skill_frontmatter_name(skill_dir)
+    if skill_name != descriptor.name:
+        raise AddonError(
+            f"{skill_dir / 'SKILL.md'} frontmatter name {skill_name!r} does not "
+            f"match [addon].name {descriptor.name!r} — the naming standard "
+            "requires the repository, the descriptor, and the skill frontmatter "
+            "to share one name"
         )
     return skill_dir
 
@@ -345,9 +454,19 @@ def _commit_install(
         shutil.rmtree(skill_target)
     shutil.copytree(skill_dir, skill_target)
     payload = _payload(staging)
+    # Legacy compatibility: addons authored before {runtime_dir} provisioned
+    # their venv INSIDE the payload and reference it as {addon_dir}/.venv.
+    # Keep that venv across the wholesale payload replacement so updating an
+    # unmigrated addon does not destroy its provisioned environment.
+    legacy_venv = None
+    if (addon_dir / ".venv").is_dir():
+        legacy_venv = staging.parent / ".legacy-venv"
+        shutil.move(str(addon_dir / ".venv"), str(legacy_venv))
     if addon_dir.exists():
         shutil.rmtree(addon_dir)
     payload.replace(addon_dir)
+    if legacy_venv is not None:
+        shutil.move(str(legacy_venv), str(addon_dir / ".venv"))
     shutil.rmtree(staging, ignore_errors=True)
 
 
@@ -372,14 +491,16 @@ def _build_record(
         "version": descriptor.version,
         "source": stored_source,
         "addon_relpath": descriptor.name,
+        "runtime_dir": str(runtime_dir_for(resolved, descriptor.name)),
         "skill_install": {
-            "dir_name": f"sca-{descriptor.name}",
+            "dir_name": skill_dir_name(descriptor.name),
             "skills_dir": str(resolved.skills_dir),
         },
         "platforms": list(descriptor.platforms),
         "runtime": {
             "kind": descriptor.runtime_kind,
             "check_cmd": descriptor.check_cmd,
+            "command_prefix": descriptor.command_prefix,
         },
         "runtime_check": dict(check) if check is not None else None,
         "sca_version_at_install": sca_version(),
@@ -400,6 +521,7 @@ def install_addon(
     staging = _stage_fetch(source, resolved.home, method=method)
     try:
         descriptor = load_descriptor(_payload(staging))
+        _check_name_consistency(descriptor, source)
         _check_compat(descriptor)
         host_platform = _check_platform(descriptor)
         skill_dir = _validate_skill_dir(_payload(staging), descriptor)
@@ -408,22 +530,30 @@ def install_addon(
                 f"addon {descriptor.name!r} is already installed; use "
                 f"`sca addon update {descriptor.name}` to move to a new release"
             )
-        skill_target = resolved.skills_dir / f"sca-{descriptor.name}"
+        skill_target = resolved.skills_dir / skill_dir_name(descriptor.name)
         if skill_target.exists():
             raise AddonError(
                 f"skill directory {skill_target} already exists but is not "
                 "recorded as an installed addon; refusing to overwrite it — "
                 "move it away or rename the addon"
             )
+        addon_dir = resolved.home / descriptor.name
+        resolved.skills_dir.mkdir(parents=True, exist_ok=True)
+        runtime_dir = runtime_dir_for(resolved, descriptor.name)
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        _commit_install(staging, addon_dir, skill_dir, skill_target)
+        # Probe the FINAL installed layout: placeholders ({addon_dir},
+        # {runtime_dir}) only resolve after the payload is in place. A
+        # failing probe stays a loud warning, never an install blocker —
+        # the runtime can be provisioned afterwards (`sca addon check`
+        # re-probes once it is).
         check = None
         cmd = _resolve_check_cmd(descriptor, host_platform)
         if cmd is not None:
-            check = run_check_cmd(cmd)
-            check["platform"] = host_platform
-            check["cmd"] = cmd
-        resolved.skills_dir.mkdir(parents=True, exist_ok=True)
-        addon_dir = resolved.home / descriptor.name
-        _commit_install(staging, addon_dir, skill_dir, skill_target)
+            cmd = _substitute_placeholders(cmd, addon_dir, runtime_dir)
+            effective = effective_command(descriptor.command_prefix, addon_dir,
+                                          runtime_dir, cmd)
+            check = _run_probe(effective, host_platform, cmd)
     except AddonError:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -435,6 +565,7 @@ def install_addon(
         "version": descriptor.version,
         "source": _source_display(source),
         "addon_dir": str(addon_dir),
+        "runtime_dir": str(runtime_dir),
         "skill_dir": str(skill_target),
         "runtime_check": check,
     }
@@ -461,23 +592,27 @@ def update_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
                 f"{descriptor.name!r}; the addon was renamed upstream — remove "
                 f"it and add {descriptor.name!r} explicitly"
             )
+        _check_name_consistency(descriptor, source)
         _check_compat(descriptor)
         host_platform = _check_platform(descriptor)
         skill_dir = _validate_skill_dir(_payload(staging), descriptor)
         skill_install = dict(record.get("skill_install") or {})
         skill_target = (
             Path(str(skill_install.get("skills_dir", resolved.skills_dir)))
-            / str(skill_install.get("dir_name", f"sca-{name}"))
+            / str(skill_install.get("dir_name", skill_dir_name(name)))
         )
+        addon_dir = resolved.home / name
+        skill_target.parent.mkdir(parents=True, exist_ok=True)
+        runtime_dir = runtime_dir_for(resolved, name)
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        _commit_install(staging, addon_dir, skill_dir, skill_target)
         check = None
         cmd = _resolve_check_cmd(descriptor, host_platform)
         if cmd is not None:
-            check = run_check_cmd(cmd)
-            check["platform"] = host_platform
-            check["cmd"] = cmd
-        skill_target.parent.mkdir(parents=True, exist_ok=True)
-        addon_dir = resolved.home / name
-        _commit_install(staging, addon_dir, skill_dir, skill_target)
+            cmd = _substitute_placeholders(cmd, addon_dir, runtime_dir)
+            effective = effective_command(descriptor.command_prefix, addon_dir,
+                                          runtime_dir, cmd)
+            check = _run_probe(effective, host_platform, cmd)
     except AddonError:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -496,11 +631,71 @@ def update_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
         "previous_version": previous_version,
         "source": _source_display(source),
         "addon_dir": str(resolved.home / name),
+        "runtime_dir": str(runtime_dir),
         "skill_dir": str(skill_target),
         "runtime_check": check,
         "warnings": warnings,
     }
     return report
+
+
+def check_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
+    """`sca addon check NAME`: re-probe the installed runtime NOW.
+
+    The install/update probe records the state of the machine at that
+    moment — often before the runtime was provisioned. This verb re-runs
+    the descriptor's check_cmd against the installed layout, refreshes the
+    registry record, and returns the result, so "is the runtime usable
+    right now?" has an answer that is not a stale cache.
+    """
+    require_initialized(resolved)
+    registry = load_registry(resolved.home)
+    record = get_record(registry, name)
+    if record is None:
+        installed = sorted(registry.get("addons", {}))
+        listing = ", ".join(installed) if installed else "(none installed)"
+        raise AddonError(f"addon {name!r} is not installed; installed: {listing}")
+    addon_dir = resolved.home / str(record.get("addon_relpath", name))
+    if not addon_dir.is_dir():
+        raise AddonError(
+            f"addon directory {addon_dir} is missing from the addon home — "
+            f"reinstall with `sca addon update {name}` or `sca addon add`"
+        )
+    # The installed descriptor is the source of truth: it may have been
+    # re-provisioned or edited after install without re-adding.
+    descriptor = load_descriptor(addon_dir)
+    runtime_dir = Path(str(record.get("runtime_dir") or runtime_dir_for(resolved, name)))
+    host_platform = detect_platform()
+    cmd = _resolve_check_cmd(descriptor, host_platform)
+    if cmd is None:
+        return {
+            "action": "check",
+            "name": name,
+            "runtime_dir": str(runtime_dir),
+            "runtime_check": None,
+        }
+    cmd = _substitute_placeholders(cmd, addon_dir, runtime_dir)
+    effective = effective_command(descriptor.command_prefix, addon_dir, runtime_dir, cmd)
+    check = _run_probe(effective, host_platform, cmd)
+    record["runtime_check"] = check
+    put_record(registry, record)
+    save_registry(resolved.home, registry)
+    return {
+        "action": "check",
+        "name": name,
+        "runtime_dir": str(runtime_dir),
+        "runtime_check": check,
+    }
+
+
+def check_all_addons(resolved: ResolvedPaths) -> dict[str, Any]:
+    """`sca addon check` (no name): re-probe every installed addon."""
+    require_initialized(resolved)
+    registry = load_registry(resolved.home) if resolved.home.is_dir() else {"addons": {}}
+    names = sorted(registry.get("addons", {}))
+    if not names:
+        raise AddonError("no addons installed; nothing to check")
+    return {"action": "check-all", "checked": [check_addon(resolved, n) for n in names]}
 
 
 def remove_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
@@ -518,10 +713,23 @@ def remove_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
         shutil.rmtree(addon_dir)
     else:
         warnings.append(f"addon directory was already missing: {addon_dir}")
+    # Runtime state was provisioned by the user (often an expensive venv);
+    # removal deletes it with everything else the registry recorded, and
+    # says so, so nothing orphans silently. Records from before the
+    # runtime-dir layout carry no path at all — never fall back to "."
+    # (Path("") is the CWD, and rmtree-ing it is catastrophic).
+    raw_runtime_dir = str(record.get("runtime_dir") or "").strip()
+    runtime_dir = Path(raw_runtime_dir) if raw_runtime_dir else None
+    removed_runtime = False
+    if runtime_dir is not None and runtime_dir.is_dir():
+        shutil.rmtree(runtime_dir)
+        removed_runtime = True
+    elif runtime_dir is not None:
+        warnings.append(f"runtime directory was already missing: {runtime_dir}")
     skill_install = dict(record.get("skill_install") or {})
     skill_target = (
         Path(str(skill_install.get("skills_dir", "")))
-        / str(skill_install.get("dir_name", f"sca-{name}"))
+        / str(skill_install.get("dir_name", skill_dir_name(name)))
         if skill_install.get("skills_dir")
         else None
     )
@@ -535,7 +743,11 @@ def remove_addon(resolved: ResolvedPaths, name: str) -> dict[str, Any]:
     return {
         "action": "remove",
         "name": name,
-        "removed": [str(path) for path in (addon_dir, skill_target) if path is not None],
+        "removed": [
+            str(path)
+            for path in (addon_dir, runtime_dir if removed_runtime else None, skill_target)
+            if path is not None
+        ],
         "warnings": warnings,
     }
 
@@ -562,13 +774,23 @@ def list_addons(resolved: ResolvedPaths) -> dict[str, Any]:
         except AddonError as exc:
             source_display = "unavailable"
             drift.append(str(exc))
+        check = record.get("runtime_check")
+        if isinstance(check, dict) and check.get("checked_at"):
+            # surface the cache's age so nobody mistakes list output for a
+            # fresh probe — `sca addon check NAME` is the refresh verb
+            state = ("ok" if check.get("passed") else "FAILED") + \
+                f" (cached {check['checked_at']})"
+        else:
+            state = "-" if check is None else ("ok" if check.get("passed") else "FAILED")
         entries.append(
             {
                 "name": name,
                 "version": record.get("version"),
                 "source": source_display,
                 "skill_dir": str(skill_dir) if skill_install else None,
-                "runtime_check": record.get("runtime_check"),
+                "runtime_dir": record.get("runtime_dir"),
+                "runtime_state": state,
+                "runtime_check": check,
                 "drift": drift,
             }
         )

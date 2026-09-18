@@ -1,8 +1,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    NoReturn,
+    Optional,
+    Sequence,
+    Tuple,
+    cast,
+)
 
+from .errors import (
+    ErrorEvidence,
+    ErrorMeasurement,
+    InventoryEntry,
+    SimpleCADError,
+    raise_harness_error,
+)
 from .topology.tagging import (
     SemanticCapabilityError,
     TagScope,
@@ -889,20 +907,154 @@ class ShapeSelector:
 
         exact = self.cardinality.get("exactly")
         if exact is not None and len(items) != exact:
-            raise ValueError(
-                f"QL selector expected exactly {exact} {self.target_kind}(s), got {len(items)}"
-            )
+            self._raise_cardinality_failure(items, expected=exact, mode="exactly", scope=scope)
         at_least = self.cardinality.get("at_least")
         if at_least is not None and len(items) < at_least:
-            raise ValueError(
-                f"QL selector expected at least {at_least} {self.target_kind}(s), got {len(items)}"
-            )
+            self._raise_cardinality_failure(items, expected=at_least, mode="at_least", scope=scope)
         at_most = self.cardinality.get("at_most")
         if at_most is not None and len(items) > at_most:
-            raise ValueError(
-                f"QL selector expected at most {at_most} {self.target_kind}(s), got {len(items)}"
-            )
+            self._raise_cardinality_failure(items, expected=at_most, mode="at_most", scope=scope)
         return list(items)
+
+    def _raise_cardinality_failure(
+        self, items: List[Any], *, expected: int, mode: str, scope: Any
+    ) -> NoReturn:
+        """Cardinality violation with inventory, logical-surface grouping, evidence.
+
+        The agent-facing contract: name what matched (hit), what actually
+        exists (near_miss), whether matched faces are one logical surface
+        split by a seam, and one rendered evidence view of the scope. The
+        diagnosis itself must never mask the failure — on any internal error
+        the plain cardinality ValueError is raised instead.
+        """
+
+        try:
+            self._cardinality_failure(items, expected=expected, mode=mode, scope=scope)
+        except SimpleCADError:
+            raise
+        except Exception as fallback:
+            raise ValueError(
+                f"QL selector expected {mode} {expected} {self.target_kind}(s), "
+                f"got {len(items)}"
+            ) from fallback
+
+    def _cardinality_failure(
+        self, items: List[Any], *, expected: int, mode: str, scope: Any
+    ) -> NoReturn:
+        candidates = _resolve_scope_items(scope, self.target_kind)
+        prefix = _QL_SYMBOL_PREFIX.get(self.target_kind, self.target_kind[0].upper())
+        matched_ids = {_shape_identity(item) for item in items}
+
+        # Symbol numbering follows the candidate enumeration, so hits and
+        # near-misses share one stable naming for this scope.
+        inventory: List[InventoryEntry] = []
+        hit_positions: Dict[int, Any] = {}
+        near_miss_count = 0
+        for index, item in enumerate(candidates):
+            is_hit = _shape_identity(item) in matched_ids
+            if is_hit:
+                hit_positions[index] = item
+            else:
+                if near_miss_count >= 8:
+                    continue
+                near_miss_count += 1
+            inventory.append(
+                InventoryEntry(
+                    symbol=f"{prefix}{index + 1}",
+                    status="hit" if is_hit else "near_miss",
+                    description=_entity_geometry_summary(item),
+                )
+            )
+
+        groups = (
+            _face_logical_groups(items)
+            if self.target_kind == "face" and len(items) > 1
+            else []
+        )
+
+        measurements = [
+            ErrorMeasurement("matched_count", float(len(items)), ""),
+            ErrorMeasurement("candidate_count", float(len(candidates)), ""),
+            ErrorMeasurement("expected_count", float(expected), ""),
+        ]
+
+        # Logical groups index into `items`; symbols come from the candidate
+        # enumeration, so map each grouped item to its candidate index first.
+        candidate_index_of_item = {
+            _shape_identity(item): index for index, item in enumerate(candidates)
+        }
+
+        repair: List[str] = []
+        if len(items) > expected and groups:
+            group_symbols = []
+            for group in groups:
+                candidate_indices = [
+                    candidate_index_of_item[_shape_identity(items[position])]
+                    for position in group
+                ]
+                if all(index in hit_positions for index in candidate_indices):
+                    group_symbols.append(
+                        "+".join(f"{prefix}{index + 1}" for index in candidate_indices)
+                    )
+            if group_symbols:
+                repair.append(
+                    f"{', '.join(group_symbols)} lie on one logical surface split by "
+                    "a seam — select the whole group (drop the exactly(1) assertion) "
+                    "or target it via a role tag."
+                )
+        if len(items) > expected:
+            repair.append(
+                "Tighten the predicate (position/axis/tag constraints) or take an "
+                "explicit member with .first()/.take(n) instead of exactly()."
+            )
+        if len(items) < expected:
+            repair.append(
+                "No entity satisfies the full predicate; the near-miss inventory "
+                "above lists what actually exists — align predicate values with "
+                "those measured geometries."
+            )
+            repair.append(
+                "Booleans and fillets re-split topology; re-derive the selector "
+                "from the newest shape instead of reusing one resolved earlier."
+            )
+
+        near_misses = [
+            item
+            for item in candidates
+            if _shape_identity(item) not in matched_ids
+        ][:3]
+        evidence = _ql_evidence(
+            scope, items, self.target_kind,
+            dedup_key=("ql", self.target_kind, mode, expected, len(items)),
+            near_misses=near_misses,
+        )
+
+        what = (
+            f"QL selector expected {mode.replace('_', ' ')} {expected} "
+            f"{self.target_kind}(s), got {len(items)}"
+        )
+        if groups:
+            what += (
+                f"; the matched faces include {len(groups)} logical surface group(s) "
+                "split by seams"
+            )
+        raise_harness_error(
+            operation=f"ql.{self.target_kind}.resolve",
+            what_happened=what,
+            possible_causes=[
+                "The predicate does not match the actual geometry values.",
+                "OCCT split one logical face into several at a seam after a boolean.",
+                "The selector was resolved against an older shape state.",
+            ],
+            how_to_fix=[
+                "Read the inventory: hit = matched, near_miss = what exists instead.",
+                "Re-derive selectors from the newest shape after topology-changing ops.",
+            ],
+            measurements=measurements,
+            evidence=evidence,
+            repair=repair,
+            inventory=inventory,
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
@@ -1191,6 +1343,337 @@ def _traverse_items(
     for item in items:
         traversed.extend(_boundary_items(item, target_kind))
     return _dedupe_items(traversed)
+
+
+# Inventory symbol prefixes — one letter per target kind, so error text and
+# rendered evidence can reference the same entity ("F3", "E7") unambiguously.
+_QL_SYMBOL_PREFIX = {
+    "face": "F",
+    "edge": "E",
+    "vertex": "V",
+    "shell": "S",
+    "wire": "W",
+    "body": "B",
+}
+
+
+def _entity_geometry_summary(item: Any) -> str:
+    """Short geometry description for inventory entries; never raises.
+
+    Faces carry surface parameters plus the bounding-box span along the
+    dominant axis, so two pieces of one split surface (identical parameters)
+    remain distinguishable in text alone.
+    """
+
+    try:
+        from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+        from OCP.GeomAbs import (
+            GeomAbs_Circle,
+            GeomAbs_Cone,
+            GeomAbs_Cylinder,
+            GeomAbs_Line,
+            GeomAbs_Plane,
+            GeomAbs_Sphere,
+            GeomAbs_Torus,
+        )
+        from OCP.TopoDS import TopoDS
+
+        kind = item.__class__.__name__.lower()
+        if kind == "face":
+            adaptor = BRepAdaptor_Surface(TopoDS.Face_s(item.wrapped))
+            surface_type = adaptor.GetType()
+            summary: str
+            if surface_type == GeomAbs_Plane:
+                direction = adaptor.Plane().Axis().Direction()
+                summary = (
+                    "plane, normal "
+                    f"({direction.X():.3g}, {direction.Y():.3g}, {direction.Z():.3g})"
+                )
+            elif surface_type == GeomAbs_Cylinder:
+                cylinder = adaptor.Cylinder()
+                axis = cylinder.Axis().Direction()
+                location = cylinder.Location()
+                summary = (
+                    f"cylinder r={cylinder.Radius():.4g}, axis "
+                    f"({axis.X():.2g},{axis.Y():.2g},{axis.Z():.2g}) @ "
+                    f"({location.X():.3g},{location.Y():.3g},{location.Z():.3g})"
+                )
+            elif surface_type == GeomAbs_Cone:
+                cone = adaptor.Cone()
+                summary = (
+                    f"cone half-angle {_deg(cone.SemiAngle()):.3g} deg, "
+                    f"r_ref={cone.RefRadius():.4g}"
+                )
+            elif surface_type == GeomAbs_Sphere:
+                summary = f"sphere r={adaptor.Sphere().Radius():.4g}"
+            elif surface_type == GeomAbs_Torus:
+                torus = adaptor.Torus()
+                summary = (
+                    f"torus R={torus.MajorRadius():.4g}, "
+                    f"r={torus.MinorRadius():.4g}"
+                )
+            else:
+                summary = "freeform surface"
+                return f"{summary}, spans {_face_span(item)}"
+            # Rotational surfaces: report the span along the surface axis —
+            # the coordinate that distinguishes split pieces of one surface.
+            axis = None
+            if surface_type == GeomAbs_Cylinder:
+                axis = adaptor.Cylinder().Axis().Direction()
+            elif surface_type == GeomAbs_Cone:
+                axis = adaptor.Cone().Axis().Direction()
+            return f"{summary}, spans {_face_span(item, axis)}"
+        if kind == "edge":
+            adaptor = BRepAdaptor_Curve(TopoDS.Edge_s(item.wrapped))
+            curve_type = adaptor.GetType()
+            length = float(item.get_length())
+            if curve_type == GeomAbs_Line:
+                return f"line, length {length:.4g} mm"
+            if curve_type == GeomAbs_Circle:
+                return f"circular arc r={adaptor.Circle().Radius():.4g}, length {length:.4g} mm"
+            return f"curve, length {length:.4g} mm"
+        if kind == "vertex":
+            x, y, z = item.get_coordinates()
+            return f"({x:.4g}, {y:.4g}, {z:.4g})"
+        return kind
+    except Exception:
+        return item.__class__.__name__
+
+
+def _face_span(face: Any, axis: Any = None) -> str:
+    """Bounding-box extent as a short text range, preferring the surface axis.
+
+    ``spans z=[0, 7]`` distinguishes two pieces of one split surface that
+    otherwise share identical surface parameters; for rotational surfaces the
+    axis direction is the discriminating coordinate, for other faces the
+    longest bounding-box axis is used.
+    """
+
+    try:
+        from .kernel.ocp_properties import bounding_box
+
+        box = bounding_box(face.wrapped)
+        ranges = {
+            "x": (box.xmin, box.xmax),
+            "y": (box.ymin, box.ymax),
+            "z": (box.zmin, box.zmax),
+        }
+        if axis is not None:
+            components = (axis.X(), axis.Y(), axis.Z())
+            index = max(range(3), key=lambda i: abs(components[i]))
+            name = ("x", "y", "z")[index]
+        else:
+            name, _range = max(
+                ranges.items(), key=lambda item: item[1][1] - item[1][0]
+            )
+        low, high = ranges[name]
+        return f"{name}=[{low:.4g}, {high:.4g}]"
+    except Exception:
+        return "n/a"
+
+
+def _deg(radians: float) -> float:
+    """Radians to degrees (kept local so callers stay import-light)."""
+
+    import math as _math
+
+    return _math.degrees(radians)
+
+
+def _faces_same_surface(face_a: Any, face_b: Any) -> bool:
+    """True when two faces lie on the same underlying quadric surface."""
+
+    try:
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.GeomAbs import (
+            GeomAbs_Cone,
+            GeomAbs_Cylinder,
+            GeomAbs_Plane,
+            GeomAbs_Sphere,
+            GeomAbs_Torus,
+        )
+        from OCP.TopoDS import TopoDS
+
+        adaptor_a = BRepAdaptor_Surface(TopoDS.Face_s(face_a.wrapped))
+        adaptor_b = BRepAdaptor_Surface(TopoDS.Face_s(face_b.wrapped))
+        type_a, type_b = adaptor_a.GetType(), adaptor_b.GetType()
+        if type_a != type_b:
+            return False
+        if type_a == GeomAbs_Plane:
+            plane_a, plane_b = adaptor_a.Plane(), adaptor_b.Plane()
+            normal_a = plane_a.Axis().Direction()
+            normal_b = plane_b.Axis().Direction()
+            parallel = abs(normal_a.Dot(normal_b))
+            if parallel < 0.999:
+                return False
+            origin_b = plane_b.Location()
+            return abs(plane_a.Distance(origin_b)) < 1e-6
+        if type_a == GeomAbs_Cylinder:
+            cyl_a, cyl_b = adaptor_a.Cylinder(), adaptor_b.Cylinder()
+            if abs(cyl_a.Radius() - cyl_b.Radius()) > 1e-7:
+                return False
+            axis_a, axis_b = cyl_a.Axis(), cyl_b.Axis()
+            if abs(axis_a.Direction().Dot(axis_b.Direction())) < 0.999:
+                return False
+            # Distance from axis_b's location to axis_a's line: the offset of
+            # (location - origin) perpendicular to the shared direction.
+            import math as _math
+
+            origin_a = axis_a.Location()
+            point_b = axis_b.Location()
+            delta = (
+                point_b.X() - origin_a.X(),
+                point_b.Y() - origin_a.Y(),
+                point_b.Z() - origin_a.Z(),
+            )
+            direction = axis_a.Direction()
+            along = (
+                delta[0] * direction.X()
+                + delta[1] * direction.Y()
+                + delta[2] * direction.Z()
+            )
+            offset_squared = (
+                (delta[0] - along * direction.X()) ** 2
+                + (delta[1] - along * direction.Y()) ** 2
+                + (delta[2] - along * direction.Z()) ** 2
+            )
+            return _math.sqrt(offset_squared) < 1e-6
+        if type_a == GeomAbs_Sphere:
+            center_a = adaptor_a.Sphere().Location()
+            center_b = adaptor_b.Sphere().Location()
+            radius_a = adaptor_a.Sphere().Radius()
+            return (
+                center_a.Distance(center_b) < 1e-6
+                and abs(radius_a - adaptor_b.Sphere().Radius()) < 1e-7
+            )
+        if type_a in (GeomAbs_Cone, GeomAbs_Torus):
+            # Same handle identity is the reliable check; parameter comparison
+            # for cones/tori is not needed for the seam-split cases.
+            from OCP.BRep import BRep_Tool
+
+            return BRep_Tool.Surface_s(face_a.wrapped) is BRep_Tool.Surface_s(face_b.wrapped)
+        return False
+    except Exception:
+        return False
+
+
+def _face_logical_groups(faces: List[Any]) -> List[List[int]]:
+    """Group face indices that lie on one underlying surface.
+
+    These are logical faces OCCT split at seams, splitter edges, or removed
+    regions — the classic "the cylinder side is two faces today, one
+    tomorrow" trap. Pieces need not be adjacent to belong to one logical
+    surface.
+    """
+
+    parent = list(range(len(faces)))
+
+    def find(node: int) -> int:
+        while parent[node] != node:
+            parent[node] = parent[parent[node]]
+            node = parent[node]
+        return node
+
+    for i in range(len(faces)):
+        for j in range(i + 1, len(faces)):
+            if _faces_same_surface(faces[i], faces[j]):
+                root_i, root_j = find(i), find(j)
+                if root_i != root_j:
+                    parent[root_i] = root_j
+
+    groups: Dict[int, List[int]] = {}
+    for index in range(len(faces)):
+        groups.setdefault(find(index), []).append(index)
+    return [members for members in groups.values() if len(members) > 1]
+
+
+_MATCHED_TAG = "diagnostic.matched"
+_NEAR_MISS_TAG = "diagnostic.near_miss"
+
+
+def _ql_evidence(
+    scope: Any,
+    items: List[Any],
+    target_kind: str,
+    *,
+    dedup_key: tuple,
+    near_misses: Optional[List[Any]] = None,
+) -> List[ErrorEvidence]:
+    """Render the scope with the matched entities visibly highlighted.
+
+    Face selections render a wrapper copy of the scope whose matched faces
+    carry ``diagnostic.matched`` (orange) and up to three near-miss faces
+    carry ``diagnostic.near_miss`` (purple) — the designed highlight channel
+    with legend and callouts, so the agent can SEE what it selected. Wrapper
+    copies never pollute the user's original shape with tags. Other target
+    kinds fall back to tagged marker tubes along the matched entities.
+    """
+
+    try:
+        from .operators._diagnostics import (
+            _solid_copy,
+            render_failure_evidence,
+        )
+
+        highlight_tags: List[str] = []
+        tag_labels: Dict[str, str] = {}
+        shapes: List[Any] = []
+
+        if target_kind == "face":
+            copy = _solid_copy(scope)
+            if copy is not None:
+                # Match by kernel topology identity (IsSame): Python-level
+                # shape ids differ across wrapper copies, TopoDS identity
+                # does not.
+                matched_wrapped = [item.wrapped for item in items]
+                near_wrapped = [item.wrapped for item in (near_misses or [])]
+                matched_any = False
+                near_miss_tagged = 0
+                for face in copy._iter_faces():
+                    if any(face.wrapped.IsSame(w) for w in matched_wrapped):
+                        face._apply_tag(_MATCHED_TAG, propagate=False)
+                        matched_any = True
+                    elif near_miss_tagged < 3 and any(
+                        face.wrapped.IsSame(w) for w in near_wrapped
+                    ):
+                        face._apply_tag(_NEAR_MISS_TAG, propagate=False)
+                        near_miss_tagged += 1
+                if matched_any:
+                    highlight_tags = [_MATCHED_TAG]
+                    if near_miss_tagged:
+                        highlight_tags.append(_NEAR_MISS_TAG)
+                    tag_labels = {
+                        _MATCHED_TAG: f"matched {target_kind}(s)",
+                        _NEAR_MISS_TAG: "near miss",
+                    }
+                    shapes = [copy]
+        highlight_edges = []
+        if not shapes:
+            # Non-face targets: the matched entities themselves highlight as
+            # orange lines.
+            highlight_edges = [item.wrapped for item in items[:8]]
+            if scope.__class__.__name__ == "Solid":
+                shapes = [scope]
+            if not shapes and not highlight_edges:
+                return []
+
+        rendered = render_failure_evidence(
+            shapes,
+            operation=f"ql_{target_kind}_resolve",
+            caption=(
+                "orange = matched, purple = near miss; "
+                "see inventory for identities"
+                if target_kind == "face"
+                else "orange lines = matched entities; see inventory"
+            ),
+            dedup_key=dedup_key,
+            highlight_tags=highlight_tags,
+            tag_labels=tag_labels,
+            highlight_edges=highlight_edges,
+        )
+        return [rendered] if rendered is not None else []
+    except Exception:
+        return []
 
 
 def _resolve_scope_items(scope: Any, target_kind: str) -> List[Any]:

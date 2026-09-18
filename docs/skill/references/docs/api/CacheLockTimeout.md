@@ -15,3 +15,5 @@ class CacheLockTimeout
 ## Description
 
 Raised when a cache key remains locked past policy timeout.
+
+Stays catchable as TimeoutError for lock-handling callers.

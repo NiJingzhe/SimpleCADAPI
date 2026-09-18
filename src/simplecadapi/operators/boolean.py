@@ -2,7 +2,89 @@
 
 from __future__ import annotations
 
+from ._diagnostics import (
+    _solid_copy,
+    BooleanDiagnosis,
+    diagnose_boolean_failure,
+    render_failure_evidence,
+)
 from ._support import *
+
+
+def _wrap_boolean_failure(
+    *,
+    operation: str,
+    default_what_happened: str,
+    default_possible_causes: Sequence[str],
+    default_how_to_fix: Sequence[str],
+    error: BaseException,
+    operands: Optional[List[Solid]],
+    effective_tol: Optional[float] = None,
+    diagnosis_hint: bool = True,
+) -> NoReturn:
+    """Wrap a boolean failure with failure-time geometry diagnosis when available."""
+
+    diagnosis: Optional[BooleanDiagnosis] = None
+    if diagnosis_hint:
+        operation_kind = operation.removeprefix("make_2d_").removesuffix("_rsolid").removesuffix("_rface")
+        diagnosis = diagnose_boolean_failure(
+            operands,
+            effective_tol=effective_tol,
+            operation_kind=operation_kind,
+        )
+    evidence: Tuple[ErrorEvidence, ...] = ()
+    if diagnosis is not None and diagnosis.evidence_shapes:
+        dedup_key: Optional[Tuple] = (operation, diagnosis.failure_kind)
+        if diagnosis.failure_kind == "disjoint" and diagnosis.measurements:
+            # Re-render when the geometry actually moved (new gap), skip when
+            # the agent retries the same unmoved failure.
+            dedup_key = (
+                operation,
+                diagnosis.failure_kind,
+                round(float(diagnosis.measurements[0].value), 1),
+            )
+        # Color the two operands differently (tagged wrapper copies; the
+        # user's own objects are never tagged).
+        render_shapes: List[Any] = []
+        highlight_tags: List[str] = []
+        tag_labels: Dict[str, str] = {}
+        for index, shape in enumerate(diagnosis.evidence_shapes[:2]):
+            tag = f"diagnostic.operand_{index + 1}"
+            copy = _solid_copy(shape)
+            if copy is not None:
+                copy._apply_tag(tag, propagate=False)
+                render_shapes.append(copy)
+                highlight_tags.append(tag)
+                tag_labels[tag] = f"operand {index + 1}"
+            else:
+                render_shapes.append(shape)
+        # No leader-line callouts here: solid-tag anchors sit inside the
+        # solids and occlusion re-anchoring can land on the face nearest the
+        # OTHER operand, making the label appear to point at the wrong body.
+        # The legend colors + caption carry the mapping.
+        rendered = render_failure_evidence(
+            render_shapes,
+            operation=operation,
+            caption=diagnosis.evidence_caption,
+            dedup_key=dedup_key,
+            highlight_tags=highlight_tags,
+            tag_labels=tag_labels,
+            callouts=False,
+        )
+        if rendered is not None:
+            evidence = (rendered,)
+    _wrap_public_api_error(
+        operation=operation,
+        what_happened=(diagnosis.what_happened or default_what_happened) if diagnosis else default_what_happened,
+        possible_causes=(
+            diagnosis.possible_causes if diagnosis and diagnosis.possible_causes else default_possible_causes
+        ),
+        how_to_fix=default_how_to_fix,
+        error=error,
+        measurements=diagnosis.measurements if diagnosis else (),
+        evidence=evidence,
+        repair=diagnosis.repair if diagnosis else (),
+    )
 
 def union_rsolid(
     *solids: Union[Solid, Sequence[Solid]],
@@ -49,6 +131,8 @@ def union_rsolid(
         print(merged.get_volume())
     """
 
+    remaining: List[Solid] = []
+    effective_tol: Optional[float] = None
     try:
         policy = (
             TrackingPolicy.GRAPH
@@ -138,26 +222,28 @@ def union_rsolid(
 
         return fused_solid
     except Exception as e:
-        _wrap_public_api_error(
+        _wrap_boolean_failure(
             operation="union_rsolid",
-            what_happened=(
+            default_what_happened=(
                 str(e)
                 if isinstance(e, ValueError) and str(e).startswith("union produced ")
                 else "Failed to compute the boolean union."
             ),
-            possible_causes=[
+            default_possible_causes=[
                 "One or more inputs are not Solid objects.",
                 "At least one input solid is null or invalid.",
                 "The inputs are separated beyond tol, so the kernel cannot produce exactly one solid.",
                 "The inputs meet only along an edge, vertex, tangent point, or tangent curve, so their union is not one manifold solid.",
             ],
-            how_to_fix=[
+            default_how_to_fix=[
                 "Pass only valid Solid objects or sequences of Solid objects.",
                 "For intended face contact, make the solids share a finite-area face and retry; no artificial overlap is required.",
                 "For a real small gap, pass an explicit tol only when approximating that gap is acceptable.",
                 "Do not expect glue or tol to turn point-, edge-, or tangent-only contact into a valid single solid.",
             ],
             error=e,
+            operands=remaining,
+            effective_tol=effective_tol,
         )
 
 def cut_rsolid(
@@ -184,6 +270,7 @@ def cut_rsolid(
         Accepts a base solid followed by one or more tool solids, including nested
         sequences, and returns a single `Solid`.
     """
+    remaining: List[Solid] = []
     try:
         policy = (
             TrackingPolicy.GRAPH
@@ -297,20 +384,25 @@ def cut_rsolid(
 
         return result_solid
     except Exception as e:
-        _wrap_public_api_error(
+        no_intersection_failure = (
+            isinstance(e, ValueError) and "没有交集" in str(e)
+        ) or (isinstance(e, ValueError) and "交集体积过小" in str(e))
+        _wrap_boolean_failure(
             operation="cut_rsolid",
-            what_happened="Failed to compute the boolean cut.",
-            possible_causes=[
+            default_what_happened="Failed to compute the boolean cut.",
+            default_possible_causes=[
                 "One or more inputs are not Solid objects.",
                 "The base solid or tool solids are invalid.",
                 "The kernel could not compute a valid cut result for the current geometry.",
             ],
-            how_to_fix=[
+            default_how_to_fix=[
                 "Pass a valid base solid followed by valid tool solids.",
                 "Check whether the tool geometry actually intersects the base solid.",
                 "If the cut depends on earlier union results, verify those results first.",
             ],
             error=e,
+            operands=remaining,
+            diagnosis_hint=no_intersection_failure,
         )
 
 def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
@@ -328,6 +420,7 @@ def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
         `Solid`. If the inputs do not overlap meaningfully, the API raises a clear
         error instead of returning an empty list.
     """
+    remaining: List[Solid] = []
     try:
         remaining = _flatten_boolean_solids(solids, "intersect_rsolid")
 
@@ -401,21 +494,24 @@ def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
 
         return result_solid
     except Exception as e:
-        _wrap_public_api_error(
+        empty_result_failure = isinstance(e, ValueError) and "交集结果" in str(e)
+        _wrap_boolean_failure(
             operation="intersect_rsolid",
-            what_happened="Failed to compute the boolean intersection.",
-            possible_causes=[
+            default_what_happened="Failed to compute the boolean intersection.",
+            default_possible_causes=[
                 "One or more inputs are not Solid objects.",
                 "At least one input solid is invalid.",
                 "The solids do not overlap enough to produce a non-empty single solid.",
                 "The kernel could not compute a stable overlap region.",
             ],
-            how_to_fix=[
+            default_how_to_fix=[
                 "Pass only valid Solid objects.",
                 "Verify that the solids truly overlap in space.",
                 "Move the solids so they share a meaningful overlap volume before intersecting.",
             ],
             error=e,
+            operands=remaining,
+            diagnosis_hint=empty_result_failure,
         )
 
 def _extract_single_face(shape_ocp, operation: str) -> Face:

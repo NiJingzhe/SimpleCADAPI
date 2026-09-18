@@ -3,7 +3,7 @@
 ## API Definition
 
 ```python
-def translate_product_package_to_solidworks_script(data: ProductPackageInput, document_name: str = 'SimpleCADProduct', *, output_path: str | None = None, visible: bool = False, source_kernel_fallback: bool = False) -> str
+def translate_product_package_to_solidworks_script(data, document_name: str = 'SimpleCADProduct', *, output_path: Optional[str] = None, visible: bool = False, solidworks_version: str = '2025') -> str
 ```
 
 *Source: translator/solidworks_translator/api.py*

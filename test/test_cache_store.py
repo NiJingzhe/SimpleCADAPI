@@ -101,6 +101,27 @@ def test_stale_lock_is_recovered(tmp_path):
     assert not lock.exists()
 
 
+def test_dead_owner_lock_is_recovered_without_waiting(tmp_path):
+    # A crashed holder leaves a lock whose owner pid is provably dead. Peers
+    # recover from that positive evidence at once; only unreadable owners
+    # wait out the age threshold, and live owners are never broken.
+    from simplecadapi.artifacts.canonical import canonical_bytes
+
+    store = _store(tmp_path, lock_timeout_seconds=5.0, stale_lock_seconds=3600.0)
+    key = sha256_bytes(b"dead-owner")
+    lock = store.lock_path("part", key)
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_bytes(
+        canonical_bytes({"pid": 999_999_999, "token": "gone", "created_ns": "0"})
+    )
+    # Fresh mtime: the age gate alone would not open within the timeout.
+
+    with store.key_lock("part", key):
+        pass
+
+    assert not lock.exists()
+
+
 def test_live_lock_times_out_without_overwriting_owner(tmp_path):
     store = _store(tmp_path, lock_timeout_seconds=0.05, stale_lock_seconds=30.0)
     key = sha256_bytes(b"live")

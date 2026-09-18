@@ -171,7 +171,7 @@ in a compact public API for creating solids, applying features, tagging semantic
 intent, querying topology, exporting manufacturing files, and translating recorded
 models into FreeCAD workflows.
 
-Current release: `simplecadapi==2.1.3b1`.
+Current release: `simplecadapi==2.1.3`.
 
 ## What It Provides
 
@@ -213,6 +213,29 @@ For local development from this repository:
 ```bash
 uv sync --group dev
 ```
+
+### Agent Skill
+
+After installing with pip above, install the bundled skill for your agent
+harness:
+
+```bash
+sca skill targets
+# Default location (~/.agents/skills), or select ZCode's explicitly:
+sca skill install --target zcode --skills-dir ~/.zcode/skills
+```
+
+`targets` lists the available harness targets. `install` compiles the bundled
+source and writes it to `<skills-dir>/simplecadapi`; without `--skills-dir`,
+it uses the existing addon configuration/environment resolution, falling back
+to `~/.agents/skills`; `sca init` is not required. The wheel includes the
+uncompiled `docs/skill/` source tree and `skillproj.toml` as package
+resources — compilation happens on install, no repository checkout needed.
+With `uv`, prefix these commands with `uv run`.
+
+`install` fails if the destination already exists. Add `--force` to replace it
+only if it is a directory whose `SKILL.md` declares the matching skill name
+(`simplecadapi`); unrelated directories cannot be overwritten.
 
 ## Quick Start
 
@@ -323,9 +346,9 @@ print(cold.cache_report.hit, warm.cache_report.hit)
 Inspect or maintain the cache with stable JSON output:
 
 ```bash
-simplecad-cache status
-simplecad-cache verify
-simplecad-cache prune
+sca cache status
+sca cache verify
+sca cache prune
 ```
 
 See the [persistent cache and product build workflow](docs/skill/references/docs/guides/cache-build-workflow.md)
@@ -354,7 +377,7 @@ Export the standard delivery set (AP242 STEP, binary STL, and OBJ) from a
 validated product package with no wrapper script:
 
 ```bash
-uv run simplecad-export out/mounting_plate.scadpkg --output-dir out/exports
+uv run sca export out/mounting_plate.scadpkg --output-dir out/exports
 ```
 
 Request additional targets explicitly.  FCStd requires `FreeCADCmd` (or an
@@ -362,9 +385,9 @@ explicit `--freecad-cmd` path); `--check` validates the package, output paths,
 and selected target prerequisites without writing files.
 
 ```bash
-uv run simplecad-export out/mounting_plate.scadpkg \
+uv run sca export out/mounting_plate.scadpkg \
   --format fcstd --format mjcf --output-dir out/exports --check
-uv run simplecad-export out/mounting_plate.scadpkg \
+uv run sca export out/mounting_plate.scadpkg \
   --format fcstd --freecad-cmd /path/to/FreeCADCmd --output-dir out/exports
 ```
 STL and OBJ share one direct OpenCASCADE tessellation of the evaluated BREP.
@@ -557,11 +580,14 @@ against a target STEP (see `examples/bowl_connector/`).
 ## Releasing the Agent Skill
 
 The skill source tree lives under `docs/skill/` and stays harness-neutral.
-`tools/skillbuild.py` compiles it per harness target (targets and output
-directories are configured in `skillproj.toml`; the outputs under
-`skills/simplecadapi-*/` are regenerable build artifacts and are not
+`tools/skillbuild.py` wraps the same compiler the `sca skill` CLI uses, for
+maintainer builds in this repository: it compiles per harness target (targets
+and default output directories are configured in `skillproj.toml`; the outputs
+under `skills/simplecadapi-*/` are regenerable build artifacts and are not
 committed). Harness-specific text, when it is ever needed, is marked with
-`<!-- skill:if ... -->` conditional blocks that compile per target.
+`<!-- skill:if ... -->` conditional blocks that compile per target. The wheel
+itself never contains precompiled targets — end users install from the
+bundled source with `sca skill install`.
 
 From a clean checkout, update the project version and documentation, then
 build and validate the release artifacts:
@@ -584,7 +610,8 @@ tar -tzf skills/simplecadapi.tar.gz | head
 ```
 
 Commit only the `docs/skill/` source tree; the release workflow builds the
-harness outputs and uploads the archive to the GitHub release.
+harness outputs and uploads the archive to the GitHub release. Prefer
+`sca skill` for installation from a pip-installed package.
 
 ## Development
 
@@ -605,3 +632,13 @@ The group chat currently has too many members for direct QR-code joining. Scan t
 <p align="center">
   <img src="img/dp个人账号.png.jpg" alt="Teacher Du Peng's personal WeChat QR code" width="420">
 </p>
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=nijingzhe%2Fsimplecadapi&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=nijingzhe/simplecadapi&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=nijingzhe/simplecadapi&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=nijingzhe/simplecadapi&type=date&legend=top-left" />
+ </picture>
+</a>

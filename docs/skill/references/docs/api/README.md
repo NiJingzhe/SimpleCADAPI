@@ -7,6 +7,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - Entries marked `top-level` are exported from `simplecadapi` and can be imported with `from simplecadapi import <name>`.
 - Entries marked `submodule` are public through the listed submodule, such as `simplecadapi.ql`.
 - Entries marked `inspection namespace` are available through `simplecadapi.inspect.brep` and cannot run inside `GraphSession`.
+- Entries marked `drawing-inspection namespace` are available through `simplecadapi.inspect.drawing` and cannot run inside `GraphSession`.
 - Entries marked `translator backend` are public only through `simplecadapi.translator.<backend>`.
 - Entries marked `reverse-engineering evaluator` are available through `simplecadapi.inverse_engineer.brep`; their acceptance inputs and reports belong to the trusted harness, not participant code.
 
@@ -111,6 +112,10 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [FreeCADTranslator](FreeCADTranslator.md) *(from translator/freecad_translator/translator.py)* `translator backend`
 - [Fusion360Translator](Fusion360Translator.md) *(from translator/fusion360_translator/translator.py)* `translator backend`
 - [SolidWorksTranslator](SolidWorksTranslator.md) *(from translator/solidworks_translator/translator.py)* `translator backend`
+- [export_model_json_to_solidworks_step](export_model_json_to_solidworks_step.md) *(from translator/solidworks_translator/api.py)* `translator backend`
+- [translate_model_json_to_fcstd](translate_model_json_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
+- [translate_model_json_to_freecad_script](translate_model_json_to_freecad_script.md) *(from translator/freecad_translator/api.py)* `translator backend`
+- [translate_model_json_to_solidworks_script](translate_model_json_to_solidworks_script.md) *(from translator/solidworks_translator/api.py)* `translator backend`
 - [translate_product_package_to_fcstd](translate_product_package_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
 - [translate_product_package_to_freecad_script](translate_product_package_to_freecad_script.md) *(from translator/freecad_translator/api.py)* `translator backend`
 - [translate_product_package_to_fusion360_script](translate_product_package_to_fusion360_script.md) *(from translator/fusion360_translator/api.py)* `translator backend`
@@ -241,6 +246,28 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [track_section_contours_rdescriptor](track_section_contours_rdescriptor.md) *(from inspect/brep/section_tracking.py)* `inspection namespace`
 - [validate_step_roundtrip_rdescriptor](validate_step_roundtrip_rdescriptor.md) *(from inspect/brep/persistence.py)* `inspection namespace`
 
+## Drawing Inspection
+
+- [DrawingCalibration](DrawingCalibration.md) *(from inspect/drawing/calibrate.py)* `drawing-inspection namespace`
+- [DrawingMeasurements](DrawingMeasurements.md) *(from inspect/drawing/calibrate.py)* `drawing-inspection namespace`
+- [DrawingSectionDimensions](DrawingSectionDimensions.md) *(from inspect/drawing/section.py)* `drawing-inspection namespace`
+- [DrawingStrokes](DrawingStrokes.md) *(from inspect/drawing/geometry.py)* `drawing-inspection namespace`
+- [DrawingSummary](DrawingSummary.md) *(from inspect/drawing/summary.py)* `drawing-inspection namespace`
+- [DrawingText](DrawingText.md) *(from inspect/drawing/text.py)* `drawing-inspection namespace`
+- [assess_dimension_rverdict](assess_dimension_rverdict.md) *(from inspect/drawing/evidence.py)* `drawing-inspection namespace`
+- [build_section_annotation_rrecord](build_section_annotation_rrecord.md) *(from inspect/drawing/evidence.py)* `drawing-inspection namespace`
+- [calibrate_drawing_scale_rcalibration](calibrate_drawing_scale_rcalibration.md) *(from inspect/drawing/calibrate.py)* `drawing-inspection namespace`
+- [extract_drawing_primitives_rstrokes](extract_drawing_primitives_rstrokes.md) *(from inspect/drawing/geometry.py)* `drawing-inspection namespace`
+- [extract_drawing_text_rwords](extract_drawing_text_rwords.md) *(from inspect/drawing/text.py)* `drawing-inspection namespace`
+- [inspect_drawing_coordinates_rreport](inspect_drawing_coordinates_rreport.md) *(from inspect/drawing/preflight.py)* `drawing-inspection namespace`
+- [inspect_drawing_rsummary](inspect_drawing_rsummary.md) *(from inspect/drawing/summary.py)* `drawing-inspection namespace`
+- [measure_drawing_rmeasurements](measure_drawing_rmeasurements.md) *(from inspect/drawing/calibrate.py)* `drawing-inspection namespace`
+- [measure_model_section_rdimensions](measure_model_section_rdimensions.md) *(from inspect/drawing/section.py)* `drawing-inspection namespace`
+- [render_drawing_view_rpath](render_drawing_view_rpath.md) *(from inspect/drawing/render.py)* `drawing-inspection namespace`
+- [render_model_section_rpath](render_model_section_rpath.md) *(from inspect/drawing/section.py)* `drawing-inspection namespace`
+- [summarize_dimension_coverage_rreport](summarize_dimension_coverage_rreport.md) *(from inspect/drawing/evidence.py)* `drawing-inspection namespace`
+- [validate_section_annotations_rreport](validate_section_annotations_rreport.md) *(from inspect/drawing/evidence.py)* `drawing-inspection namespace`
+
 ## Product Build and Cache
 
 - [AssemblyBuildResult](AssemblyBuildResult.md) *(from build/results.py)* `top-level`
@@ -320,6 +347,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [add_revolute_constraint_rassembly](add_revolute_constraint_rassembly.md) *(from operators/product.py)* `top-level`
 - [and_](and_.md) *(from ql.py)* `submodule:ql`
 - [assign_material_rpart](assign_material_rpart.md) *(from operators/product.py)* `top-level`
+- [canonical_frame](canonical_frame.md) *(from product/placement.py)* `submodule:product/placement`
 - [capture](capture.md) *(from product/capture.py)* `top-level`
 - [constrain_angle_rsketch](constrain_angle_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_coincident_rsketch](constrain_coincident_rsketch.md) *(from operators/sketch.py)* `top-level`
@@ -373,6 +401,9 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [origin_role](origin_role.md) *(from ql.py)* `submodule:ql`
 - [output_role](output_role.md) *(from ql.py)* `submodule:ql`
 - [place_component_rassembly](place_component_rassembly.md) *(from operators/product.py)* `top-level`
+- [placement_frame_mm](placement_frame_mm.md) *(from product/placement.py)* `submodule:product/placement`
+- [placement_from_canonical](placement_from_canonical.md) *(from product/placement.py)* `submodule:product/placement`
+- [placement_ticks](placement_ticks.md) *(from product/placement.py)* `submodule:product/placement`
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operators/transform.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operators/features.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`
@@ -386,4 +417,5 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [trim_surface_rface](trim_surface_rface.md) *(from operators/geometry.py)* `top-level`
 - [twisted_sweep_rsolid](twisted_sweep_rsolid.md) *(from operators/features.py)* `top-level`
 - [unground_component_rassembly](unground_component_rassembly.md) *(from operators/product.py)* `top-level`
+- [validate_placement_ticks](validate_placement_ticks.md) *(from product/placement.py)* `submodule:product/placement`
 - [value](value.md) *(from ql.py)* `submodule:ql`

@@ -29,9 +29,16 @@ CHECK_REQUIRED_KINDS = frozenset({"binary", "python-env"})
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
+#: Placeholders a [runtime].command_prefix may reference. ``{addon_dir}``
+#: resolves to the installed addon directory when the prefix is applied.
+_COMMAND_PREFIX_PLACEHOLDERS = frozenset({"addon_dir", "runtime_dir"})
+_PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
+
 _ADDON_KEYS = frozenset({"name", "version", "license", "skill_path"})
 _COMPAT_KEYS = frozenset({"sca"})
-_RUNTIME_KEYS = frozenset({"kind", "platforms", "check_cmd", "check_overrides"})
+_RUNTIME_KEYS = frozenset(
+    {"kind", "platforms", "check_cmd", "check_overrides", "command_prefix"}
+)
 
 
 @dataclass(frozen=True)
@@ -47,6 +54,7 @@ class AddonDescriptor:
     platforms: tuple[str, ...]
     check_cmd: str | None
     check_overrides: Mapping[str, str]
+    command_prefix: str = ""
 
 
 def descriptor_path(root: Path) -> Path:
@@ -222,6 +230,24 @@ def load_descriptor(root: Path) -> AddonDescriptor:
                 )
             overrides[key] = value.strip()
 
+    command_prefix = runtime.get("command_prefix")
+    if command_prefix is None:
+        command_prefix = ""
+    else:
+        if not isinstance(command_prefix, str):
+            raise AddonError(
+                f"{source}: [runtime].command_prefix must be a string shell "
+                "prelude (omit it when the addon needs no environment setup)"
+            )
+        command_prefix = command_prefix.strip()
+        unknown = sorted(set(_PLACEHOLDER_RE.findall(command_prefix)) - _COMMAND_PREFIX_PLACEHOLDERS)
+        if unknown:
+            raise AddonError(
+                f"{source}: [runtime].command_prefix references unknown "
+                f"placeholder(s) {', '.join('{' + item + '}' for item in unknown)}; "
+                "the supported placeholders are {addon_dir} and {runtime_dir}"
+            )
+
     return AddonDescriptor(
         name=name,
         version=version,
@@ -232,4 +258,5 @@ def load_descriptor(root: Path) -> AddonDescriptor:
         platforms=platforms,
         check_cmd=check_cmd,
         check_overrides=overrides,
+        command_prefix=command_prefix,
     )

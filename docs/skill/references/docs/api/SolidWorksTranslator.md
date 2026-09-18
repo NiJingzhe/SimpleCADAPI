@@ -3,7 +3,7 @@
 ## Class Definition
 
 ```python
-class SolidWorksTranslator(document_name: str = 'SimpleCADProduct', *, output_path: str | None = None, visible: bool = False, source_kernel_fallback: bool = False)
+class SolidWorksTranslator(document_name: str = 'SimpleCADModel', *, output_path: Optional[str] = None, visible: bool = False, solidworks_version: str = '2025')
 ```
 
 *Source: translator/solidworks_translator/translator.py*
@@ -14,4 +14,4 @@ class SolidWorksTranslator(document_name: str = 'SimpleCADProduct', *, output_pa
 
 ## Description
 
-Translate one validated `.scadpkg` closure into SolidWorks automation.
+Public, stateless facade for SolidWorks script translation.

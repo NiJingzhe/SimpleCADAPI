@@ -712,6 +712,18 @@ def inspect_section_rdescriptor(
     face_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Intersect a model or selected faces with a plane and assemble contours."""
+    result, _ = _inspect_section_geometry(
+        model_or_path, origin, normal, tolerance, samples_per_edge,
+        connection_tolerance, compact, face_ids,
+    )
+    return result
+
+
+def _inspect_section_geometry(
+    model_or_path, origin, normal, tolerance=1.0e-7, samples_per_edge=16,
+    connection_tolerance=None, compact=False, face_ids=None,
+):
+    """Internal descriptor plus the exact edges used by its contour IDs."""
     _require_positive(tolerance, "tolerance")
     connection_tolerance_value = (
         tolerance if connection_tolerance is None else float(connection_tolerance)
@@ -726,6 +738,7 @@ def inspect_section_rdescriptor(
     plane = gp_Pln(gp_Pnt(*basis_origin), gp_Dir(*plane_normal))
     source, scope_face_ids = _section_source(model, face_ids)
     section = BRepAlgoAPI_Section(source, plane, False)
+    section.SetNonDestructive(True)
     section.SetFuzzyValue(tolerance)
     section.Build()
     if not section.IsDone():
@@ -733,6 +746,7 @@ def inspect_section_rdescriptor(
     edge_map = TopTools_IndexedMapOfShape()
     TopExp.MapShapes_s(section.Shape(), TopAbs_EDGE, edge_map)
     edges = []
+    edge_shapes = {}
     for index in range(1, edge_map.Extent() + 1):
         edge = TopoDS.Edge_s(edge_map.FindKey(index))
         if BRep_Tool.Degenerated_s(edge):
@@ -740,6 +754,7 @@ def inspect_section_rdescriptor(
         samples = _sample_edge(edge, samples_per_edge)
         if len(samples) < 2:
             continue
+        edge_shapes[index - 1] = edge
         edges.append(
             {
                 "index": index - 1,
@@ -805,7 +820,7 @@ def inspect_section_rdescriptor(
             }
             for contour in contours
         ]
-    return result
+    return result, edge_shapes
 
 
 def _wire_edges(wire: TopoDS_Wire, face: TopoDS_Face) -> Iterable[TopoDS_Edge]:
