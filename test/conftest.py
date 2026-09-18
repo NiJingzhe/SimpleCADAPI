@@ -6,5 +6,8 @@ import os
 
 # Failure-path evidence rendering stays off for the suite at large: it is
 # slow (VTK worker per render) and exercises nothing those tests assert.
-# Dedicated evidence tests opt back in via monkeypatch.delenv.
+# Dedicated evidence tests opt back in via monkeypatch.delenv. Their
+# per-render budget scales with the slowest runner (cold CI workers), not
+# with the agent-facing default.
 os.environ.setdefault("SCA_NO_DIAGNOSTIC_RENDER", "1")
+os.environ.setdefault("SCA_DIAGNOSTIC_RENDER_BUDGET", "60")
