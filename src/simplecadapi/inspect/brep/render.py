@@ -652,7 +652,7 @@ def _write_window_supersampled(window, output: Path, factor: int) -> None:
                 downsampled.save(output)
 
 
-def _render_sdk_screenshot_rpath(
+def _prepare_sdk_screenshot(
     solids: Sequence[Any],  # SDK Solid or raw TopoDS_Shape
     output_path: str | Path,
     *,
@@ -673,8 +673,17 @@ def _render_sdk_screenshot_rpath(
     supersample: int = 2,
     highlight_edges: Sequence[Any] = (),
     highlight_edge_width: float = 4.5,
-) -> Path:
-    """Render SDK solids in an isolated VTK worker on macOS.
+    worker_isolated: bool = False,
+) -> tuple[str, Any]:
+    """Validate inputs and build the render datasets (no GL work).
+
+    This is the half of the SDK screenshot pipeline that imports VTK/OCP
+    and tessellates — it must run on the calling (main) thread. The
+    returned plan is executed by :func:`_execute_polydata_render`, which
+    is safe to run from a worker thread because it only orchestrates GL
+    work (in-process on non-macOS, or the crash-isolated subprocess when
+    ``worker_isolated`` is set — the diagnostic evidence channel always
+    sets it).
 
     ``views`` switches to the multi-view grid engine: every invocation then
     renders one tiled image with a panel per ``(elevation, azimuth, label)``
@@ -854,7 +863,7 @@ def _render_sdk_screenshot_rpath(
             edge_groups = [(edge_polydata, highlight_color)]
             if show_legend:
                 legend_pairs = legend_pairs + [("highlighted edges", highlight_color)]
-    return _render_polydata_views(
+    return _prepare_polydata_render(
         datasets["base"],
         output_path,
         title="SDK screenshot",
@@ -874,6 +883,7 @@ def _render_sdk_screenshot_rpath(
         style=style,
         zoom=zoom if len(normalized_views) == 1 else None,
         view_up=view_up,
+        worker_isolated=worker_isolated,
     )
 def _add_corner_axes(window, source_renderer, rect, *, corner="bottom-left") -> None:
     """Overlay a small orientation triad in a corner of one panel's viewport.
@@ -1558,7 +1568,7 @@ def _render_polydata_views_in_process(
     return output
 
 
-def _render_polydata_views(
+def _prepare_polydata_render(
     base_polydata,
     output_path: str | Path,
     *,
@@ -1590,7 +1600,15 @@ def _render_polydata_views(
     zoom: float | None = None,
     view_up: Sequence[float] | None = None,
     datasets: Mapping[str, Any] | None = None,
-) -> Path:
+    worker_isolated: bool = False,
+) -> tuple[str, Any]:
+    """Validate inputs and build a render plan (no GL work on this thread).
+
+    Returns ``(kind, payload)`` for :func:`_execute_polydata_render`:
+    ``("in-process", ...)`` on non-macOS synchronous callers, or
+    ``("worker", ...)`` on macOS (native crash isolation) and whenever
+    ``worker_isolated`` is requested (callers rendering from a thread).
+    """
     if not views:
         raise ValueError("at least one render view is required")
     if dpi < 1 or image_size[0] <= 0.0 or image_size[1] <= 0.0:
@@ -1628,12 +1646,10 @@ def _render_polydata_views(
         "view_up": None if view_up is None else [float(value) for value in view_up],
         "datasets": datasets,
     }
-    if sys.platform != "darwin":
-        return _render_in_process(
-            _render_polydata_views_in_process,
-            base_polydata,
-            output_path,
-            **kwargs,
+    if not worker_isolated and sys.platform != "darwin":
+        return (
+            "in-process",
+            (_render_polydata_views_in_process, base_polydata, output_path, kwargs),
         )
     datasets: dict[str, Any] = {
         "base": base_polydata,
@@ -1676,8 +1692,89 @@ def _render_polydata_views(
             if option_name == "surface_groups":
                 item["opacity"] = group[2]
             options[option_name].append(item)
-    return _run_render_worker(
-        mode="views", output_path=output_path, datasets=datasets, options=options
+    return ("worker", {"mode": "views", "output_path": output_path, "datasets": datasets, "options": options})
+
+
+def _execute_polydata_render(plan: tuple[str, Any]) -> Path:
+    """Execute a prepared render plan; thread-safe (no native imports).
+
+    ``plan`` is what :func:`_prepare_polydata_render` returned: either an
+    in-process render (non-macOS synchronous callers) or a crash-isolated
+    worker subprocess invocation (macOS, and any caller that must keep GL
+    work out of its own process — the diagnostic evidence channel, which
+    renders from a daemon thread).
+    """
+    kind, payload = plan
+    if kind == "worker":
+        return _run_render_worker(**payload)
+    function, base_polydata, output_path, render_kwargs = payload
+    return _render_in_process(function, base_polydata, output_path, **render_kwargs)
+
+
+def _render_polydata_views(
+    base_polydata,
+    output_path: str | Path,
+    *,
+    title: str,
+    views: Sequence[tuple[float, float, str]],
+    image_size: tuple[float, float],
+    dpi: int,
+    context_opacity: float = 1.0,
+    highlight_edge_width: float = 4.5,
+    highlight_point_size: float = 15.0,
+    brep_edge_polydata=None,
+    highlighted_polydata=None,
+    highlighted_edge_polydata=None,
+    highlighted_point_polydata=None,
+    highlighted_groups=None,
+    highlighted_edge_groups=None,
+    highlighted_point_groups=None,
+    legend: Sequence[tuple[str, tuple[float, float, float]]] | None = None,
+    legend_columns: int = 1,
+    legend_panel: bool = False,
+    show_axes: bool = False,
+    callouts: Sequence[
+        tuple[str, tuple[float, float, float], tuple[float, float, float]]
+        | tuple[str, tuple[float, float, float], tuple[float, float, float], str | None]
+    ] | None = None,
+    edge_width_scale: float = 0.0019,
+    supersample: int = 1,
+    style: str = "standard",
+    zoom: float | None = None,
+    view_up: Sequence[float] | None = None,
+    datasets: Mapping[str, Any] | None = None,
+) -> Path:
+    """Prepare and execute one multi-view render synchronously."""
+    return _execute_polydata_render(
+        _prepare_polydata_render(
+            base_polydata,
+            output_path,
+            title=title,
+            views=views,
+            image_size=image_size,
+            dpi=dpi,
+            context_opacity=context_opacity,
+            highlight_edge_width=highlight_edge_width,
+            highlight_point_size=highlight_point_size,
+            brep_edge_polydata=brep_edge_polydata,
+            highlighted_polydata=highlighted_polydata,
+            highlighted_edge_polydata=highlighted_edge_polydata,
+            highlighted_point_polydata=highlighted_point_polydata,
+            highlighted_groups=highlighted_groups,
+            highlighted_edge_groups=highlighted_edge_groups,
+            highlighted_point_groups=highlighted_point_groups,
+            legend=legend,
+            legend_columns=legend_columns,
+            legend_panel=legend_panel,
+            show_axes=show_axes,
+            callouts=callouts,
+            edge_width_scale=edge_width_scale,
+            supersample=supersample,
+            style=style,
+            zoom=zoom,
+            view_up=view_up,
+            datasets=datasets,
+        )
     )
 def render_shape_views_rpath(
     shape: TopoDS_Shape,

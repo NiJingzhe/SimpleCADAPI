@@ -503,15 +503,15 @@ def render_failure_evidence(
     highlight_edges: Sequence[Any] = (),
     callouts: bool = True,
 ) -> Optional[ErrorEvidence]:
-    """Render one diagnostic image; never raises, returns None when skipped.
+    """Render one diagnostic image; never raises.
 
-    Skips when disabled, when this failure signature already rendered once in
-    the process (agent retry loops must not re-pay the render), or when the
-    render exceeds the budget — the error goes out immediately in all cases.
-
-    ``highlight_tags`` drives the designed color channel: tagged faces (or
-    whole tagged solids) get palette colors, a legend, and callout labels —
-    a highlight the agent can actually see, not just geometry in the scene.
+    Skips (returns None) when disabled or when this failure signature
+    already rendered once in the process — agent retry loops must not
+    re-pay the render. When a render is attempted but produces no image
+    (worker failure, or it exceeds the ``SCA_DIAGNOSTIC_RENDER_BUDGET``
+    budget, 15 seconds by default), the evidence channel carries a
+    ``render-unavailable`` entry naming the reason: the error goes out
+    immediately either way, and a vanished render is never silent.
     """
 
     if not diagnostics_enabled():
@@ -525,42 +525,65 @@ def render_failure_evidence(
         root.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         path = root / f"{operation}-{stamp}.png"
-        from .features import render_screenshot_rpath
+        from .features import _execute_screenshot_render, _prepare_screenshot_render
 
+        # Prepare (validate + tessellate) on the calling thread: this is
+        # where the heavy native imports happen, and a native crash must
+        # never originate inside a daemon thread where it takes the whole
+        # process down. The thread below only orchestrates the
+        # crash-isolated worker subprocess.
+        prepared = _prepare_screenshot_render(
+            shapes,
+            str(path),
+            views=_DIAGNOSTIC_VIEWS,
+            supersample=1,  # highlight lines are fixed-width; SSAA is not worth the budget
+            edge_width_scale=0.0035,  # heavier model ink so panels read at grid size
+            highlight_edge_width=8.0,  # highlights outweigh the ink, always
+            highlight_tags=tuple(highlight_tags),
+            tag_labels=dict(tag_labels or {}),
+            highlight_edges=tuple(highlight_edges),
+            show_legend=bool(highlight_tags or highlight_edges),
+            show_callouts=bool(highlight_tags) and callouts,
+            worker_isolated=True,  # a daemon thread must never run in-process GL
+        )
+        budget = float(os.environ.get("SCA_DIAGNOSTIC_RENDER_BUDGET", _RENDER_BUDGET_SECONDS))
         result: dict = {}
 
         def _render() -> None:
             try:
-                render_screenshot_rpath(
-                    shapes,
-                    str(path),
-                    views=_DIAGNOSTIC_VIEWS,
-                    supersample=1,  # highlight lines are fixed-width; SSAA is not worth the budget
-                    edge_width_scale=0.0035,  # heavier model ink so panels read at grid size
-                    highlight_edge_width=8.0,  # highlights outweigh the ink, always
-                    highlight_tags=tuple(highlight_tags),
-                    tag_labels=dict(tag_labels or {}),
-                    highlight_edges=tuple(highlight_edges),
-                    show_legend=bool(highlight_tags or highlight_edges),
-                    show_callouts=bool(highlight_tags) and callouts,
-                )
-                result["path"] = str(path)
-            except Exception:
-                pass
+                result["path"] = _execute_screenshot_render(prepared)
+            except Exception as exc:
+                result["error"] = f"{type(exc).__name__}: {exc}"
 
         worker = threading.Thread(target=_render, daemon=True)
         worker.start()
-        worker.join(_RENDER_BUDGET_SECONDS)
-        if "path" not in result:
-            return None
+        worker.join(budget)
+        if "path" in result:
+            return ErrorEvidence(
+                kind="render",
+                path=result["path"],
+                view=view,
+                caption=caption,
+            )
+        if "error" in result:
+            reason = result["error"]
+        elif worker.is_alive():
+            reason = f"exceeded the {budget:g}s diagnostic render budget"
+        else:
+            reason = "the render worker produced no image"
         return ErrorEvidence(
-            kind="render",
-            path=result["path"],
+            kind="render-unavailable",
+            path="",
             view=view,
-            caption=caption,
+            caption=f"diagnostic render unavailable: {reason}",
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        return ErrorEvidence(
+            kind="render-unavailable",
+            path="",
+            view=view,
+            caption=f"diagnostic render unavailable: {type(exc).__name__}: {exc}",
+        )
 
 
 @dataclass(frozen=True)
