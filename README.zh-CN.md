@@ -147,7 +147,7 @@ tag 通道见[完整中文更新说明](docs/updates/2.1.3b1.zh-CN.md)；2.1.2 �
 
 SimpleCADAPI 是一个基于 OCP 的 Python CAD SDK，提供清晰的函数式建模操作和可重放的模型图。它在 OpenCascade 几何内核之上提供精简的公共 API，可用于创建实体、应用特征、添加语义标签、查询拓扑、导出制造文件，以及将记录的模型转换为 FreeCAD 工作流。
 
-当前版本：`simplecadapi==2.1.3b1`。
+当前版本：`simplecadapi==2.1.3`。
 
 ## 核心能力
 

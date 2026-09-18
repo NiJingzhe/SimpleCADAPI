@@ -112,6 +112,10 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [FreeCADTranslator](FreeCADTranslator.md) *(from translator/freecad_translator/translator.py)* `translator backend`
 - [Fusion360Translator](Fusion360Translator.md) *(from translator/fusion360_translator/translator.py)* `translator backend`
 - [SolidWorksTranslator](SolidWorksTranslator.md) *(from translator/solidworks_translator/translator.py)* `translator backend`
+- [export_model_json_to_solidworks_step](export_model_json_to_solidworks_step.md) *(from translator/solidworks_translator/api.py)* `translator backend`
+- [translate_model_json_to_fcstd](translate_model_json_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
+- [translate_model_json_to_freecad_script](translate_model_json_to_freecad_script.md) *(from translator/freecad_translator/api.py)* `translator backend`
+- [translate_model_json_to_solidworks_script](translate_model_json_to_solidworks_script.md) *(from translator/solidworks_translator/api.py)* `translator backend`
 - [translate_product_package_to_fcstd](translate_product_package_to_fcstd.md) *(from translator/freecad_translator/api.py)* `translator backend`
 - [translate_product_package_to_freecad_script](translate_product_package_to_freecad_script.md) *(from translator/freecad_translator/api.py)* `translator backend`
 - [translate_product_package_to_fusion360_script](translate_product_package_to_fusion360_script.md) *(from translator/fusion360_translator/api.py)* `translator backend`
@@ -264,7 +268,6 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [summarize_dimension_coverage_rreport](summarize_dimension_coverage_rreport.md) *(from inspect/drawing/evidence.py)* `drawing-inspection namespace`
 - [validate_section_annotations_rreport](validate_section_annotations_rreport.md) *(from inspect/drawing/evidence.py)* `drawing-inspection namespace`
 
-
 ## Product Build and Cache
 
 - [AssemblyBuildResult](AssemblyBuildResult.md) *(from build/results.py)* `top-level`
@@ -344,6 +347,7 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [add_revolute_constraint_rassembly](add_revolute_constraint_rassembly.md) *(from operators/product.py)* `top-level`
 - [and_](and_.md) *(from ql.py)* `submodule:ql`
 - [assign_material_rpart](assign_material_rpart.md) *(from operators/product.py)* `top-level`
+- [canonical_frame](canonical_frame.md) *(from product/placement.py)* `submodule:product/placement`
 - [capture](capture.md) *(from product/capture.py)* `top-level`
 - [constrain_angle_rsketch](constrain_angle_rsketch.md) *(from operators/sketch.py)* `top-level`
 - [constrain_coincident_rsketch](constrain_coincident_rsketch.md) *(from operators/sketch.py)* `top-level`
@@ -397,6 +401,9 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [origin_role](origin_role.md) *(from ql.py)* `submodule:ql`
 - [output_role](output_role.md) *(from ql.py)* `submodule:ql`
 - [place_component_rassembly](place_component_rassembly.md) *(from operators/product.py)* `top-level`
+- [placement_frame_mm](placement_frame_mm.md) *(from product/placement.py)* `submodule:product/placement`
+- [placement_from_canonical](placement_from_canonical.md) *(from product/placement.py)* `submodule:product/placement`
+- [placement_ticks](placement_ticks.md) *(from product/placement.py)* `submodule:product/placement`
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operators/transform.py)* `top-level`
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operators/features.py)* `top-level`
 - [select](select.md) *(from ql.py)* `submodule:ql`
@@ -410,4 +417,5 @@ This index includes generated docs for the public SimpleCAD API surface, includi
 - [trim_surface_rface](trim_surface_rface.md) *(from operators/geometry.py)* `top-level`
 - [twisted_sweep_rsolid](twisted_sweep_rsolid.md) *(from operators/features.py)* `top-level`
 - [unground_component_rassembly](unground_component_rassembly.md) *(from operators/product.py)* `top-level`
+- [validate_placement_ticks](validate_placement_ticks.md) *(from product/placement.py)* `submodule:product/placement`
 - [value](value.md) *(from ql.py)* `submodule:ql`
