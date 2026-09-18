@@ -32,7 +32,7 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
     def test_default_routes_to_multiview_engine_with_annotations(self):
         solid = self._tagged_solid()
         with mock.patch.object(
-            brep_render, "_render_polydata_views", wraps=brep_render._render_polydata_views
+            brep_render, "_prepare_polydata_render", wraps=brep_render._prepare_polydata_render
         ) as grid:
             with tempfile.TemporaryDirectory() as tmp:
                 scad.render_screenshot_rpath(
@@ -56,7 +56,7 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
         solid = self._tagged_solid()
         custom = [(30.0, -60.0, "custom-iso"), (0.0, -90.0, "front")]
         with mock.patch.object(
-            brep_render, "_render_polydata_views", wraps=brep_render._render_polydata_views
+            brep_render, "_prepare_polydata_render", wraps=brep_render._prepare_polydata_render
         ) as grid:
             with tempfile.TemporaryDirectory() as tmp:
                 scad.render_screenshot_rpath(
@@ -72,7 +72,7 @@ class TestRenderScreenshotMultiView(unittest.TestCase):
     def test_explicit_view_routes_through_the_grid_engine(self):
         solid = self._tagged_solid()
         with mock.patch.object(
-            brep_render, "_render_polydata_views", wraps=brep_render._render_polydata_views
+            brep_render, "_prepare_polydata_render", wraps=brep_render._prepare_polydata_render
         ) as grid:
             with tempfile.TemporaryDirectory() as tmp:
                 output = Path(tmp) / "single.png"
