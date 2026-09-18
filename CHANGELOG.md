@@ -49,6 +49,13 @@ wheel that ships the Agent Skill source for installation on any machine.
 
 ### Fixed
 
+- Diagnostic evidence rendering no longer crashes the process or vanishes
+  silently: GL work is kept out of the failure path's render thread (the
+  crash-isolated worker subprocess is used on every platform there), a
+  render that cannot finish within its budget is reported as a named
+  `render-unavailable` evidence entry instead of silently missing, and the
+  budget is tunable via `SCA_DIAGNOSTIC_RENDER_BUDGET` (tests use 60 s; the
+  agent-facing default stays 15 s).
 - Windows build blockers: binary file opens, guarded directory fsync,
   and evidence-based stale-lock handling.
 - Translator: unified geometry signatures and SolidWorks 2023 support.

@@ -159,7 +159,9 @@ def format_llm_error(operation: str, guidance: ErrorGuidance) -> str:
     if guidance.evidence:
         lines.append("Evidence:")
         for item in guidance.evidence:
-            rendered = f"- {item.kind} view '{item.view or 'default'}': {item.path}"
+            rendered = f"- {item.kind} view '{item.view or 'default'}'"
+            if item.path:
+                rendered += f": {item.path}"
             if item.caption:
                 rendered += f" ({item.caption})"
             lines.append(rendered)

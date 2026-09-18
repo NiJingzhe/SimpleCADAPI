@@ -295,7 +295,7 @@ def test_update_unknown_name_lists_installed(tmp_path):
 # ------------------------------------------------------------------ remove
 
 
-def test_remove_deletes_both_locations(tmp_path):
+def test_remove_deletes_all_recorded_locations(tmp_path):
     _init(tmp_path)
     source = _make_addon_repo(tmp_path)
     run(["addon", "add", str(source)])
@@ -304,8 +304,11 @@ def test_remove_deletes_both_locations(tmp_path):
     home = tmp_path / ".sca" / "addons"
     assert not (home / "demo-addon").exists()
     assert not (tmp_path / ".agents" / "skills" / "sca-demo-addon").exists()
+    # Runtime state (the provisioned venv) is removed with the addon,
+    # never left orphaned.
+    assert not (tmp_path / ".sca" / "runtimes" / "demo-addon").exists()
     assert _registry(home)["addons"] == {}
-    assert len(report["removed"]) == 2
+    assert len(report["removed"]) == 3
 
     with pytest.raises(AddonError) as err:
         run(["addon", "remove", "demo-addon"])

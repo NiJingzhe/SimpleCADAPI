@@ -371,7 +371,7 @@ class _RenderTagMismatch(ValueError):
     """
 
 
-def render_screenshot_rpath(
+def _prepare_screenshot_render(
     shapes: Union[Solid, Sequence[Solid], Any],
     output_path: str,
     highlight_tags: Optional[Sequence[str]] = None,
@@ -391,36 +391,15 @@ def render_screenshot_rpath(
     supersample: int = 2,
     highlight_edges: Optional[Sequence[Any]] = None,
     highlight_edge_width: float = 4.5,
-) -> str:
-    """Render solids or raw TopoDS shapes through the one OCCT/VTK pipeline.
+    worker_isolated: bool = False,
+) -> Any:
+    """Normalize inputs and build render datasets for one screenshot.
 
-    ``shapes`` accepts SDK ``Solid`` objects (with full tag highlight,
-    callout and legend support) or raw ``TopoDS_Shape`` entries from the
-    STEP inspection family (same engine, same edge ink and supersampling,
-    no tag features).
-
-    ``highlight_edges`` draws the given edges (SDK ``Edge`` objects or raw
-    ``TopoDS_Edge``) as crisp orange highlight lines exactly on the edge —
-    the failure-marking channel used by the blend diagnostics.
-
-    There is exactly one output form: a multi-view grid of one to four
-    panels, each carrying annotations. ``view="auto"`` (default) uses the
-    standard four-view set; an explicit preset name or ``(elevation,
-    azimuth)`` pair renders a single full-frame panel; ``views`` accepts
-    up to four explicit ``(elevation, azimuth, label)`` triples.
-    ``zoom`` applies to single-panel renders only.
-
-    ``supersample (default 2) renders at an integer multiple and
-    downsamples with LANCZOS for deterministic crisp edges; 1 renders 1:1.
-    ``style="studio"`` turns the single-view path into a product shot
-    (gradient backdrop, three-point lighting, bold tubed BRep edges);
-    ``linear_deflection``/``angular_deflection`` tighten the tessellation
-    for high-resolution exports. ``edge_width_scale`` tunes the studio edge
-    tube radius as a fraction of model span (default 0.0026; use ~0.001 for
-    exploded stacks so the ink does not swamp small parts).
+    Imports VTK/OCP and tessellates — main thread only. Pair with
+    :func:`_execute_screenshot_render`, which is thread-safe.
     """
     try:
-        from ..inspect.brep.render import _render_sdk_screenshot_rpath
+        from ..inspect.brep.render import _execute_polydata_render, _prepare_sdk_screenshot
 
         shape_list = _normalize_shape_input(shapes)
         solids = [
@@ -474,28 +453,27 @@ def render_screenshot_rpath(
                 + f" — available tags on these shapes: {shown}{more}; "
                 "check tag names and the build stage that produced them"
             )
-        return str(
-            _render_sdk_screenshot_rpath(
-                solids,
-                output_path,
-                highlight_tags=tuple(highlight_tags or ()),
-                tag_labels=tag_labels,
-                image_size=image_size,
-                view=view,
-                show_axes=show_axes,
-                show_legend=show_legend,
-                zoom=zoom,
-                show_callouts=show_callouts,
-                linear_deflection=linear_deflection,
-                angular_deflection=angular_deflection,
-                views=resolved_views,
-                style=style,
-                edge_width_scale=edge_width_scale,
-                view_up=tuple(float(value) for value in view_up) if view_up is not None else None,
-                supersample=supersample,
-                highlight_edges=tuple(highlight_edges) if highlight_edges else (),
-                highlight_edge_width=highlight_edge_width,
-            )
+        return _prepare_sdk_screenshot(
+            solids,
+            output_path,
+            highlight_tags=tuple(highlight_tags or ()),
+            tag_labels=tag_labels,
+            image_size=image_size,
+            view=view,
+            show_axes=show_axes,
+            show_legend=show_legend,
+            zoom=zoom,
+            show_callouts=show_callouts,
+            linear_deflection=linear_deflection,
+            angular_deflection=angular_deflection,
+            views=resolved_views,
+            style=style,
+            edge_width_scale=edge_width_scale,
+            view_up=tuple(float(value) for value in view_up) if view_up is not None else None,
+            supersample=supersample,
+            highlight_edges=tuple(highlight_edges) if highlight_edges else (),
+            highlight_edge_width=highlight_edge_width,
+            worker_isolated=worker_isolated,
         )
     except Exception as e:
         _wrap_public_api_error(
@@ -518,6 +496,112 @@ def render_screenshot_rpath(
             ],
             error=e,
         )
+
+
+def _execute_screenshot_render(prepared: Any) -> str:
+    """Run the prepared render (GL work); thread-safe via the render plan.
+
+    On macOS the GL work runs in the crash-isolated worker subprocess;
+    elsewhere it runs in-process and therefore belongs on the main
+    thread — the diagnostic evidence channel always requests
+    ``worker_isolated`` so its daemon thread only ever touches a
+    subprocess.
+    """
+    from ..inspect.brep.render import _execute_polydata_render
+
+    return str(_execute_polydata_render(prepared))
+
+
+def render_screenshot_rpath(
+    shapes: Union[Solid, Sequence[Solid], Any],
+    output_path: str,
+    highlight_tags: Optional[Sequence[str]] = None,
+    tag_labels: Optional[Dict[str, str]] = None,
+    image_size: Tuple[int, int] = (1400, 900),
+    view: Union[Tuple[float, float], str] = "auto",
+    views: Optional[Sequence[Tuple[float, float, str]]] = None,
+    show_axes: bool = True,
+    show_legend: bool = True,
+    zoom: float = 4.0,
+    show_callouts: bool = True,
+    linear_deflection: Optional[float] = None,
+    angular_deflection: Optional[float] = None,
+    style: str = "studio",
+    edge_width_scale: Optional[float] = None,
+    view_up: Optional[Sequence[float]] = None,
+    supersample: int = 2,
+    highlight_edges: Optional[Sequence[Any]] = None,
+    highlight_edge_width: float = 4.5,
+) -> str:
+    """Render solids or raw TopoDS shapes through the one OCCT/VTK pipeline.
+
+    ``shapes`` accepts SDK ``Solid`` objects (with full tag highlight,
+    callout and legend support) or raw ``TopoDS_Shape`` entries from the
+    STEP inspection family (same engine, same edge ink and supersampling,
+    no tag features).
+
+    ``highlight_edges`` draws the given edges (SDK ``Edge`` objects or raw
+    ``TopoDS_Edge``) as crisp orange highlight lines exactly on the edge —
+    the failure-marking channel used by the blend diagnostics.
+
+    There is exactly one output form: a multi-view grid of one to four
+    panels, each carrying annotations. ``view="auto"`` (default) uses the
+    standard four-view set; an explicit preset name or ``(elevation,
+    azimuth)`` pair renders a single full-frame panel; ``views`` accepts
+    up to four explicit ``(elevation, azimuth, label)`` triples.
+    ``zoom`` applies to single-panel renders only.
+
+    ``supersample (default 2) renders at an integer multiple and
+    downsamples with LANCZOS for deterministic crisp edges; 1 renders 1:1.
+    ``style="studio"`` turns the single-view path into a product shot
+    (gradient backdrop, three-point lighting, bold tubed BRep edges);
+    ``linear_deflection``/``angular_deflection`` tighten the tessellation
+    for high-resolution exports. ``edge_width_scale`` tunes the studio edge
+    tube radius as a fraction of model span (default 0.0026; use ~0.001 for
+    exploded stacks so the ink does not swamp small parts).
+
+    The prepare half (validation + tessellation) runs on the calling
+    thread; the GL work runs in a crash-isolated worker subprocess, so a
+    native VTK crash can never take the caller down.
+    """
+    prepared = _prepare_screenshot_render(
+        shapes,
+        output_path,
+        highlight_tags=highlight_tags,
+        tag_labels=tag_labels,
+        image_size=image_size,
+        view=view,
+        views=views,
+        show_axes=show_axes,
+        show_legend=show_legend,
+        zoom=zoom,
+        show_callouts=show_callouts,
+        linear_deflection=linear_deflection,
+        angular_deflection=angular_deflection,
+        style=style,
+        edge_width_scale=edge_width_scale,
+        view_up=view_up,
+        supersample=supersample,
+        highlight_edges=highlight_edges,
+        highlight_edge_width=highlight_edge_width,
+    )
+    try:
+        return _execute_screenshot_render(prepared)
+    except Exception as e:
+        _wrap_public_api_error(
+            operation="render_screenshot_rpath",
+            what_happened="Failed to render the screenshot.",
+            possible_causes=[
+                "The rendering view or zoom configuration is invalid.",
+                "The output path is invalid or not writable.",
+            ],
+            how_to_fix=[
+                "Use a supported view preset or a valid (elev, azim) tuple.",
+                "Check that the output path is writable.",
+            ],
+            error=e,
+        )
+
 
 def fillet_rsolid(
     solid: Solid,
